@@ -26,6 +26,7 @@ import fs from 'node:fs';
 import type http from 'node:http';
 import net from 'node:net';
 import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 import vm from 'node:vm';
 import { DeleteTableCommand, DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import { canonicalJson, Keys, ScheduleNames, WebKeys, type LambdaFunctionName } from '@atl/shared';
@@ -36,6 +37,7 @@ import { devToken } from './adapters/auth.js';
 import { loadDevConfig, REPO_ROOT } from './config.js';
 import { assertLocalEndpoint, createTables } from './create-tables.js';
 import { createDevRuntime, type DevRuntime } from './runtime.js';
+import { createDevExtensions, type DevExtensions } from './adapters/workspace.js';
 
 // ---------------------------------------------------------------------------------------------------------------
 // options and reporting
@@ -279,6 +281,7 @@ interface Ctx {
   tables: { main: string; locks: string };
   server: http.Server;
   builds: Builds;
+  dev: DevExtensions;
 }
 
 const clockOf = (rt: DevRuntime) => rt.clock as ScaledClock;
@@ -321,17 +324,20 @@ async function main(): Promise<number> {
     });
     const lifecycleIam = () => rt.lifecycleDev?.lifecycle ?? null;
     const cr = await installDevCustomResources(rt, { db: rt.deps.db, objects: rt.objects, signer: rt.signer, orchestrator: rt.orchestrator, clock: rt.clock, iam: lifecycleIam, tableName: rt.env.tableName });
-    const app = createDevApp(rt);
+    // 03 workspace in dev mode: the @atl/ssm-client mock (own instance, free port) and the federation stub
+    const dev = await createDevExtensions({ port, dataDir: cfg.dataDir, nowMs: () => rt.clock.nowMs(), envs: rt.envs, ssmMockUrl: 'http://127.0.0.1:0', quiet: true });
+    const app = createDevApp(rt, { ext: dev.ext, federation: dev.federation });
     const server = await new Promise<http.Server>((resolve) => {
       const s = app.listen(port, '127.0.0.1', () => resolve(s));
     });
     BASE = `http://127.0.0.1:${port}`;
-    ctx = { rt, cr, ddb, tables, server, builds };
+    ctx = { rt, cr, ddb, tables, server, builds, dev };
     await rt.scheduler.setSweeperEnabled(true);
 
     await phaseInit(ctx);
     const sid = await phaseStart(ctx);
     results.sessionId = sid;
+    await phaseWorkspace(ctx, sid);
     await phaseChecks(ctx, sid);
     await phaseManual(ctx, sid);
     await phaseExperiment(ctx, sid);
@@ -352,6 +358,7 @@ async function main(): Promise<number> {
       const l0Roots = ctx.rt.envs.list().map((e) => e.root).filter((r): r is string => !!r);
       ctx.server.closeAllConnections();
       await new Promise((r) => ctx!.server.close(r));
+      await ctx.dev.close();
       await ctx.rt.close();
       if (!KEEP) {
         for (const t of [ctx.tables.main, ctx.tables.locks]) {
@@ -487,12 +494,13 @@ async function phaseStart(c: Ctx): Promise<string> {
   const { rt } = c;
   const q = await call('POST', `/api/v1/labs/${LAB}/quotes`, { token: LEARNER, body: { purpose: 'START' } });
   must('quote START', q.status === 201 && typeof q.body.quoteId === 'string', q.body);
-  const lines2 = (q.body.lines as { unknown?: boolean; amount?: unknown; min?: unknown }[] | undefined) ?? [];
-  check('quote: lines from cost.basis; no price is invented without atl-pricing (unknown, amounts null)', lines2.length > 0 && lines2.every((l) => l.unknown === true), {
-    lines: lines2.length,
-    incomplete: (q.body.incomplete as unknown[] | undefined)?.length ?? null,
-    hourly: q.body.hourly ?? null,
-  });
+  const lines2 = (q.body.lines as { unknown?: boolean; perHourLow?: number; group?: string }[] | undefined) ?? [];
+  const hourly2 = q.body.hourly as { start?: { low?: number }; completed?: { typical?: number } } | null;
+  check(
+    'quote: atl-pricing expands cost.basis and prices it from the dev Price List fixture (pricing=fixture, labelled “not an AWS price”)',
+    q.body.pricing === 'fixture' && lines2.some((l) => typeof l.perHourLow === 'number') && typeof hourly2?.start?.low === 'number' && ((q.body.notes as string[] | undefined) ?? []).some((n) => n.includes('不是 AWS 价格')),
+    { pricing: q.body.pricing, lines: lines2.length, hourly: q.body.hourly ?? null, incomplete: q.body.incomplete ?? null, platformOverhead: q.body.platformOverhead ?? null },
+  );
   const s = await call('POST', '/api/v1/sessions', { token: LEARNER, body: { labId: LAB, quoteId: q.body.quoteId, costAcknowledged: true } });
   must('POST /sessions → 202', s.status === 202 && typeof s.body.sessionId === 'string', s.body);
   const sid = String(s.body.sessionId);
@@ -531,6 +539,85 @@ async function phaseStart(c: Ctx): Promise<string> {
   const ws = await call('GET', `/api/v1/sessions/${sid}/workspace`, { token: LEARNER });
   check('GET /workspace', ws.status === 200, { tabs: ws.body.tabs ?? null, targets: (ws.body.targets as unknown[] | undefined)?.length ?? null });
   return sid;
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// phase 2w: the workspace channels in dev mode (03 §3, §5, §6; platform-backend-gaps)
+
+interface SsmClientModule {
+  SsmTerminalConnection: new (o: Record<string, unknown>) => {
+    readonly state: string;
+    start(): Promise<void>;
+    sendInput(data: string): boolean;
+    close(): void;
+  };
+}
+
+async function phaseWorkspace(c: Ctx, sid: string): Promise<void> {
+  phase = '2w';
+  const ws = await call('GET', `/api/v1/sessions/${sid}/workspace`, { token: LEARNER });
+  const targets = (ws.body.targets as { tab?: string; ssmPing?: string; cached?: boolean }[] | undefined) ?? [];
+  check('workspace targets discovered live (lab + workstation, Online)', targets.length === 2 && targets.every((t) => t.ssmPing === 'Online' && t.cached === false), targets);
+  // terminal: POST …/terminals → the @atl/ssm-client mock → the real protocol client types into the fake shell
+  const ssm = (await import(pathToFileURL(path.join(REPO_ROOT, 'platform', 'ssm-client', 'src', 'index.ts')).href)) as SsmClientModule;
+  let terminalId = '';
+  const out: string[] = [];
+  const conn = new ssm.SsmTerminalConnection({
+    clientId: 'smoke-tab',
+    streamUrlPolicy: { allowLoopback: true },
+    open: async () => {
+      const r = await call('POST', `/api/v1/sessions/${sid}/terminals`, { token: LEARNER, body: { target: 'lab', cols: 100, rows: 30, clientId: 'smoke-tab' } });
+      check('POST /terminals → 201 (StreamUrl of the mock, clientVersion)', r.status === 201 && String(r.body.streamUrl).startsWith('ws://127.0.0.1:') && r.body.clientVersion === '1.2.896.0', { status: r.status, code: r.body.code, document: r.body.document });
+      terminalId = String(r.body.terminalId);
+      return { streamUrl: String(r.body.streamUrl), tokenValue: String(r.body.tokenValue), connectBy: String(r.body.connectBy) };
+    },
+    resume: async () => {
+      const r = await call('POST', `/api/v1/sessions/${sid}/terminals/${terminalId}/resume`, { token: LEARNER, body: { clientId: 'smoke-tab' } });
+      return { streamUrl: String(r.body.streamUrl), tokenValue: String(r.body.tokenValue), connectBy: String(r.body.connectBy) };
+    },
+    onOutput: (data: Uint8Array, done: () => void) => {
+      out.push(Buffer.from(data).toString('utf8'));
+      done();
+    },
+  });
+  const until = async (pred: () => boolean, ms = 10_000) => {
+    const t0 = Date.now();
+    while (!pred() && Date.now() - t0 < ms) await new Promise((r) => setTimeout(r, 25));
+    return pred();
+  };
+  await conn.start().catch(() => undefined);
+  check('terminal: handshake → ready (ATL-SessionShell over the mock data channel)', await until(() => conn.state === 'ready'), conn.state);
+  conn.sendInput('echo atl-smoke-terminal\n');
+  check('terminal: input and output (fake shell echo)', await until(() => out.join('').split('atl-smoke-terminal').length > 2), out.join('').slice(-200));
+  const res = await call('POST', `/api/v1/sessions/${sid}/terminals/${terminalId}/resume`, { token: LEARNER, body: { clientId: 'smoke-tab' } });
+  check('POST /terminals/{id}/resume → 200 (ResumeSession)', res.status === 200 && typeof res.body.tokenValue === 'string', { status: res.status, code: res.body.code });
+  const del = await call('DELETE', `/api/v1/sessions/${sid}/terminals/${terminalId}`, { token: LEARNER });
+  check('DELETE /terminals/{id} → 204, the client receives channel_closed', del.status === 204 && (await until(() => conn.state === 'closed')), { status: del.status, state: conn.state });
+  conn.close();
+  // console: AssumeRole (dev) → federation stub → POST login form
+  const link = await call('POST', `/api/v1/sessions/${sid}/console-link`, { token: LEARNER, body: { linkId: 'ec2.instance' } });
+  const form = link.body.form as { action?: string; fields?: Record<string, string> } | undefined;
+  const login = form?.action ? await fetch(form.action, { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams(form.fields ?? {}).toString() }) : null;
+  check(
+    'console-link → federation stub login (atl-<sid>-console, deep link of the registry)',
+    link.status === 200 && login?.status === 200 && link.body.roleSessionName === `atl-${sid}-console` && String(form?.fields?.Destination).includes('/ec2/home'),
+    { status: link.status, code: link.body.code, login: login?.status, destination: form?.fields?.Destination },
+  );
+  // app credentials: the local L0's administrator (06 PM-36)
+  const cred = await call('GET', `/api/v1/sessions/${sid}/app-credentials`, { token: LEARNER });
+  const envRec = c.rt.envs.list().find((e) => !!e.root && !!e.baseUrl);
+  const pwFile = envRec?.root ? path.join(envRec.root, 'etc', 'atl', 'app-admin-password') : null;
+  const expected = pwFile && fs.existsSync(pwFile) ? fs.readFileSync(pwFile, 'utf8').trim() : null;
+  check('app-credentials → the local L0 administrator password', cred.status === 200 && !!expected && cred.body.password === expected, { status: cred.status, username: cred.body.username });
+  if (expected && typeof cred.body.username === 'string' && envRec?.baseUrl) {
+    const lr = await fetch(`${envRec.baseUrl}/api/auth/login`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email: cred.body.username, password: expected }) })
+      .then((r) => r.status)
+      .catch(() => 0);
+    check('the administrator signs in to the local CloudAlbum with these credentials', lr === 200, lr);
+  }
+  const pv = await call('GET', `/api/v1/sessions/${sid}/preview`, { token: LEARNER });
+  const direct = ((pv.body.targets as { id: string; reason?: string }[] | undefined) ?? []).find((t) => t.id === 'direct');
+  check('preview: the local L0 entry is http → MIXED_CONTENT (new tab only)', pv.status === 200 && direct?.reason === 'MIXED_CONTENT', pv.body.targets);
 }
 
 // ---------------------------------------------------------------------------------------------------------------

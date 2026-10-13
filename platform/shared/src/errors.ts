@@ -41,6 +41,8 @@ export const API_ERROR_CODES = {
   UPSTREAM_THROTTLED: { http: 503, meaning: 'AWS API 被限流（已退避重试）' },
   UPSTREAM_UNAVAILABLE: { http: 503, meaning: '依赖的 AWS 服务暂时不可用' },
   INTERNAL: { http: 500, meaning: '—' },
+  /** 08 §9.2 #22 (待 01 §8.6 登记): `?after=` is not a cursor of this session's event stream. */
+  CURSOR_EXPIRED: { http: 410, meaning: '事件游标无效或已过期，请丢弃游标从头读取' },
 } as const satisfies Record<string, ErrorCodeDef>;
 
 /** 01 §8.6 agent-route codes (semantics 04 §7.2, §7.5). */
@@ -84,7 +86,7 @@ export const PREVIEW_REASON_CODES = ['MIXED_CONTENT', 'UNTRUSTED_CERT', 'FRAME_A
  * Codes the UI (08 §9.2 #1) asks 01 to register; not part of ERROR_CODES yet.
  * `TARGET_ALREADY_SATISFIED` is already used by 02 §13.1 in `POST /sessions`.
  */
-export const UI_REQUESTED_ERROR_CODES = ['TARGET_ALREADY_SATISFIED', 'HARD_PREREQ_UNMET', 'LAB_DEPRECATED', 'CURSOR_EXPIRED'] as const;
+export const UI_REQUESTED_ERROR_CODES = ['TARGET_ALREADY_SATISFIED', 'HARD_PREREQ_UNMET', 'LAB_DEPRECATED'] as const;
 
 /** `LabSession.failure.code` (02 §13.2). */
 export const FAILURE_CODES = [

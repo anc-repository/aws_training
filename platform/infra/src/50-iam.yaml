@@ -398,9 +398,10 @@ Resources:
                 Effect: Allow
                 Action: ['sts:AssumeRole', 'sts:SetSourceIdentity']
                 Resource: !Sub 'arn:${AWS::Partition}:iam::${AWS::AccountId}:role/ATLLearnerRole'
+              # MemberDirectory (01 §5.4): Admin* for invite / group / delete; ListUsers to find a user by sub
               - Sid: Members
                 Effect: Allow
-                Action: 'cognito-idp:Admin*'
+                Action: ['cognito-idp:Admin*', 'cognito-idp:ListUsers']
                 Resource: !GetAtt UserPool.Arn
               - Sid: AppAdminPassword
                 Effect: Allow
@@ -414,6 +415,8 @@ Resources:
                   - !Sub '${DataBucket.Arn}/exports/*'
                   - !Sub '${DataBucket.Arn}/evidence/*'
                   - !Sub '${DataBucket.Arn}/experiments/*'
+                  # GET /sessions/{sid}/runner-runs/{runId}/log (08 §9.2 #11)
+                  - !Sub '${DataBucket.Arn}/runs/*'
                   - !Sub '${ArtifactsBucket.Arn}/releases/*/private/quiz/*'
               - Sid: Exports
                 Effect: Allow
@@ -928,11 +931,17 @@ Resources:
                 Effect: Allow
                 Action: 'pricing:GetProducts'
                 Resource: '*'
+              # PriceCache (PRICE#), quotes (USER#), and PLATFORM / CONFIG for the workstation instance type
               - Sid: PriceAndQuoteItems
                 Effect: Allow
                 Action: ['dynamodb:GetItem', 'dynamodb:Query', 'dynamodb:PutItem', 'dynamodb:UpdateItem', 'dynamodb:BatchWriteItem']
                 Resource: !GetAtt AtlMainTable.Arn
-                Condition: { 'ForAllValues:StringLike': { 'dynamodb:LeadingKeys': ['PRICE#*', 'USER#*'] } }
+                Condition: { 'ForAllValues:StringLike': { 'dynamodb:LeadingKeys': ['PRICE#*', 'USER#*', 'PLATFORM'] } }
+              # the expanded card (start profile, target modules, extra stacks) of the content release (04 §3.4 ref expansion)
+              - Sid: ContentRead
+                Effect: Allow
+                Action: 's3:GetObject'
+                Resource: !Sub '${WebBucket.Arn}/content/*'
       Tags: *platformTags
 
   TaggerFunctionRole:

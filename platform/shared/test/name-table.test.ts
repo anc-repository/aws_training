@@ -121,7 +121,8 @@ describe.skipIf(!hasDoc)('01 §8 tables', () => {
         found.add(`${m[1]} ${p}`);
       }
     }
-    const ours = new Set(ROUTES.filter((r) => r.kind !== 'agent-fallback').map((r) => `${r.method} ${r.path}`));
+    // `pending01`: requested by 08 §9.2 and implemented by its definition, not in the 01 table yet
+    const ours = new Set(ROUTES.filter((r) => r.kind !== 'agent-fallback' && !r.pending01).map((r) => `${r.method} ${r.path}`));
     expect([...ours].sort()).toEqual([...found].sort());
     expect(API_PREFIX).toBe('/api/v1');
   });

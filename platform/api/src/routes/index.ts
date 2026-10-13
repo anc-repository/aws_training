@@ -16,6 +16,7 @@ import { audit, userAgentHash } from '../services/events/index.js';
 import { ROUTE_HANDLERS as PUBLIC_ROUTE_HANDLERS } from '../functions/public/handler.js';
 import { agentRoutes } from './agent.js';
 import { catalogRoutes } from './catalog.js';
+import { gapRoutes } from './gaps.js';
 import type { ApiExtensions } from './extensions.js';
 import { platformRoutes } from './platform.js';
 import { progressRoutes } from './progress.js';
@@ -24,7 +25,7 @@ import { sessionRoutes } from './sessions.js';
 import { workspaceRoutes } from './workspace.js';
 
 export function apiRouteHandlers(ext: ApiExtensions = {}): RouteHandlers {
-  return {
+  const base: RouteHandlers = {
     ...platformRoutes(ext),
     ...catalogRoutes(ext),
     ...sessionRoutes(ext),
@@ -32,6 +33,8 @@ export function apiRouteHandlers(ext: ApiExtensions = {}): RouteHandlers {
     ...progressRoutes(ext),
     ...reportRoutes(ext),
   };
+  // 08 §9.2: routes pending 01 registration and refinements of registered ones (routes/gaps.ts)
+  return { ...base, ...gapRoutes(ext, base) };
 }
 
 export function agentRouteHandlers(ext: ApiExtensions = {}): RouteHandlers {

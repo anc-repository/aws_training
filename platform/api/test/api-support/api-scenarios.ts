@@ -49,7 +49,9 @@ export function defineApiScenarios(label: string, make: Make): void {
       expect(body(patched).displayName).toBe('张三');
       expect((await rt.api(ev('PATCH', '/api/v1/me', { token: LEARNER, body: { currentTrackId: 'nope-track' } }))).statusCode).toBe(400);
       const platform = body(await rt.api(ev('GET', '/api/v1/platform', { token: ASSISTANT })));
-      expect(platform).toMatchObject({ catalogVersion: '2026.10.0', mode: 'NORMAL', maintenance: false, accountId: '111122223333' });
+      // 08 §9.2 #3: the complete account ID only for the learner; assistants and observers get ••••<last 4>
+      expect(platform).toMatchObject({ catalogVersion: '2026.10.0', mode: 'NORMAL', maintenance: false, accountId: '••••3333', accountIdMasked: true });
+      expect(body(await rt.api(ev('GET', '/api/v1/platform', { token: LEARNER })))).toMatchObject({ accountId: '111122223333', accountIdMasked: false });
       expect(body(await rt.api(ev('GET', '/api/v1/platform/guardrails', { token: OBSERVER })))).toMatchObject({ uninstalling: false, budget: { state: 'OK' } });
       const settings = body(await rt.api(ev('GET', '/api/v1/settings', { token: LEARNER })));
       expect(settings.limits).toMatchObject({ maxKeepHours: 24 });

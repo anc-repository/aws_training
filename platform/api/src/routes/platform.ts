@@ -74,10 +74,12 @@ const settingsSchema = z
     preview: z.object({ directHttps: z.enum(['letsencrypt-ip', 'off']).optional() }).strict().optional(),
     agent: z.object({ lateUploadFallback: z.enum(['on', 'off']).optional() }).strict().optional(),
     rateLimits: z.record(z.string(), z.number().int().min(0).max(1000)).optional(),
+    // 02 §8.1 / 08 §9.2 #7: KEEP quotes above this hourly estimate (USD) require typing the card id (待 01 登记)
+    cost: z.object({ highHourlyThreshold: z.number().positive().max(1000).nullable().optional() }).strict().optional(),
   })
   .strict();
 
-const SETTINGS_KEYS = ['limits', 'reclaim', 'ownership', 'terminal', 'console', 'preview', 'agent', 'rateLimits', 'workstation', 'accessAnalyzer'] as const;
+const SETTINGS_KEYS = ['limits', 'reclaim', 'ownership', 'terminal', 'console', 'preview', 'agent', 'rateLimits', 'workstation', 'accessAnalyzer', 'cost'] as const;
 
 function settingsView(cfg: Item | null): Record<string, unknown> {
   const out: Record<string, unknown> = { ver: cfg?.ver ?? null };

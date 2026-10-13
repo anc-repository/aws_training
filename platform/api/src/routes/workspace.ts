@@ -14,6 +14,7 @@ import { emitSessionEvents, sanitizeWorkspaceEvents } from '../services/events/i
 import { auditOk, canIssueAccess, loadSession, platformConfig, principalOf, rateLimit, type ApiContext } from './context.js';
 import type { ApiExtensions, ProviderResult, WorkspaceCallContext, WorkspaceProvider } from './extensions.js';
 import { notProvided, wrap } from './platform.js';
+import { CONSOLE_LINKS } from '../services/workspace/console-links.js';
 
 async function callContext(ctx: ApiContext, s: SessionItem): Promise<WorkspaceCallContext> {
   const [env, config] = await Promise.all([typeof s.envId === 'string' ? ctx.repos.environments.get(s.envId) : Promise.resolve(null), platformConfig(ctx)]);
@@ -49,7 +50,15 @@ export function workspaceRoutes(ext: ApiExtensions): RouteHandlers {
         ctx.repos.sessions.children(s.sid, SkPrefix.credentialChannel('console'), { all: true }),
         typeof s.catalogVersion === 'string' ? ctx.catalog.lab(s.labId, s.catalogVersion).catch(() => null) : Promise.resolve(null),
       ]);
-      const live = ext.workspace?.describeTargets && canIssueAccess(s, ctx.nowMs) ? await ext.workspace.describeTargets(wctx) : null;
+      // live discovery (03 §2.7) runs as the learner (it assumes atl-<sid>-term with the caller as SourceIdentity), so
+      // assistants and observers (01 §5.2: never AWS credentials) see the cached Environment.instances; any failure too
+      const live =
+        ext.workspace?.describeTargets && canIssueAccess(s, ctx.nowMs) && principalOf(ctx).groups.includes('learner')
+          ? await ext.workspace.describeTargets(wctx).catch((e: unknown) => {
+              console.warn(JSON.stringify({ level: 'warn', msg: 'workspace target discovery failed', sid: s.sid, error: e instanceof Error ? e.name : String(e) }));
+              return null;
+            })
+          : null;
       const cached = Array.isArray(env?.instances) ? (env!.instances as Record<string, unknown>[]) : [];
       const targets = live ?? cached.map((i) => ({ tab: i.role === 'workstation' ? 'terminal-workstation' : 'terminal-lab', ...i, cached: true }));
       const lastConsole = consoleGrants.items.sort((a, b) => String(b.issuedAt).localeCompare(String(a.issuedAt)))[0];
@@ -70,7 +79,7 @@ export function workspaceRoutes(ext: ApiExtensions): RouteHandlers {
           available: canIssueAccess(s, ctx.nowMs),
           lastIssuedAt: lastConsole?.issuedAt ?? null,
           credentialsExpireAt: lastConsole?.expiresAt ?? null,
-          links: (lab?.platform?.consoleLinks ?? []).map((linkId) => ({ linkId })),
+          links: (lab?.platform?.consoleLinks ?? []).map((linkId) => ({ linkId, label: CONSOLE_LINKS[linkId]?.label ?? null, registered: !!CONSOLE_LINKS[linkId] })),
         },
         features: {
           workstation: (s.workstation as { mode?: string } | undefined)?.mode ?? 'ec2',
@@ -152,7 +161,17 @@ export function workspaceRoutes(ext: ApiExtensions): RouteHandlers {
 
     createConsoleLink: wrap(ext, async (ctx) => {
       const s = await loadSession(ctx, ctx.req.params.sid);
-      const body = parseBody(z.object({ destination: z.string().max(512).optional(), linkId: z.string().max(64).optional() }).strict(), ctx.req.body);
+      const body = parseBody(
+        z
+          .object({
+            destination: z.string().max(2048).optional(),
+            linkId: z.string().max(64).optional(),
+            // deep-link parameters of the registry entry (validated against its regexes, 03 §5.4)
+            params: z.record(z.string().regex(/^[A-Za-z][A-Za-z0-9]{0,31}$/), z.string().max(1024)).optional(),
+          })
+          .strict(),
+        ctx.req.body ?? {},
+      );
       requireAccess(ctx, s, 'CONSOLE_SESSION_STATE');
       const p = provider(ctx);
       rateLimit(ctx, 'consoleLink', principalOf(ctx).sub, await platformConfig(ctx));

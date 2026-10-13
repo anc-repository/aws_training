@@ -194,7 +194,7 @@ describe('01 §3 inventory ⊆ template', () => {
 
 /** 01 §6.9: the operations each function role may hold (patterns; `svc:*` = any operation of the service on the listed data). */
 const ROLE_ALLOW_LIST: Record<string, RegExp[]> = {
-  ATLApiFunctionRole: [/^logs:(CreateLogStream|PutLogEvents)$/, /^dynamodb:/, /^lambda:InvokeFunction$/, /^states:(StartExecution|StopExecution)$/, /^sts:(AssumeRole|SetSourceIdentity)$/, /^cognito-idp:Admin\*$/, /^ssm:GetParameter$/, /^s3:(GetObject|PutObject|ListBucket)$/, /^ce:GetCostAndUsage$/, /^events:PutEvents$/, /^cloudformation:UpdateTerminationProtection$/],
+  ATLApiFunctionRole: [/^logs:(CreateLogStream|PutLogEvents)$/, /^dynamodb:/, /^lambda:InvokeFunction$/, /^states:(StartExecution|StopExecution)$/, /^sts:(AssumeRole|SetSourceIdentity)$/, /^cognito-idp:(Admin\*|ListUsers)$/, /^ssm:GetParameter$/, /^s3:(GetObject|PutObject|ListBucket)$/, /^ce:GetCostAndUsage$/, /^events:PutEvents$/, /^cloudformation:UpdateTerminationProtection$/],
   ATLPublicFunctionRole: [/^logs:(CreateLogStream|PutLogEvents)$/, /^dynamodb:(GetItem|Query)$/],
   ATLAgentFunctionRole: [/^logs:(CreateLogStream|PutLogEvents)$/, /^dynamodb:/, /^s3:(PutObject|GetObject)$/, /^lambda:InvokeFunction$/, /^events:PutEvents$/],
   ATLChecksFunctionRole: [/^logs:(CreateLogStream|PutLogEvents)$/, /^dynamodb:/, /^sts:(AssumeRole|TagSession)$/, /^lambda:InvokeFunction$/, /^s3:(PutObject|GetObject|ListBucket)$/, /^events:PutEvents$/],
@@ -218,7 +218,7 @@ const ROLE_ALLOW_LIST: Record<string, RegExp[]> = {
   ],
   // + the share-link expiry schedule (04 §9.5; platform-review-fixes in docs/implementation-notes.md)
   ATLCertsFunctionRole: [/^logs:(CreateLogStream|PutLogEvents)$/, /^dynamodb:/, /^kms:(Sign|GetPublicKey)$/, /^s3:(GetObject|PutObject|DeleteObject)$/, /^cloudfront:CreateInvalidation$/, /^scheduler:(CreateSchedule|DeleteSchedule)$/, /^iam:PassRole$/],
-  ATLPricingFunctionRole: [/^logs:(CreateLogStream|PutLogEvents)$/, /^pricing:GetProducts$/, /^dynamodb:/],
+  ATLPricingFunctionRole: [/^logs:(CreateLogStream|PutLogEvents)$/, /^pricing:GetProducts$/, /^dynamodb:/, /^s3:GetObject$/],
   ATLTaggerFunctionRole: [/^logs:(CreateLogStream|PutLogEvents)$/, /^dynamodb:/, /^tag:TagResources$/, /^[a-z0-9-]+:(CreateTags|AddTags|AddTagsToResource|TagResource|TagQueue|PutBucketTagging)$/],
   ATLCustomResourceRole: [
     /^logs:(CreateLogStream|PutLogEvents)$/, /^dynamodb:/, /^s3:(GetObject|PutObject|DeleteObject|ListBucket|ListBucketVersions|DeleteObjectVersion|ListAllMyBuckets)$/,
@@ -288,6 +288,17 @@ const ROUTE_NEEDS: { role: string; action: string; resource: string; why: string
   { role: 'ATLCertsFunctionRole', action: 'scheduler:DeleteSchedule', resource: 'schedule/atl-system/atl-share-*', why: 'RevokeShare' },
   { role: 'ATLCertsFunctionRole', action: 'iam:PassRole', resource: 'role/ATLSchedulerRole', why: 'the share schedule targets atl-timer through ATLSchedulerRole', condition: 'scheduler.amazonaws.com' },
   { role: 'ATLTimerFunctionRole', action: 'lambda:InvokeFunction', resource: 'function:atl-certs', why: 'SHARE_EXPIRE → atl-certs ExpireShare' },
+  // platform-backend-gaps: workspace provider, member directory, atl-pricing, 08 §9.2 routes
+  { role: 'ATLApiFunctionRole', action: 'sts:AssumeRole', resource: 'role/ATLLearnerRole', why: 'terminals (atl-<sid>-term) and console links (atl-<sid>-console)' },
+  { role: 'ATLApiFunctionRole', action: 'sts:SetSourceIdentity', resource: 'role/ATLLearnerRole', why: 'SourceIdentity = Cognito user name (03 §3.2, §5.2)' },
+  { role: 'ATLApiFunctionRole', action: 'ssm:GetParameter', resource: 'parameter/cloudalbum/*/atl/app-admin-password', why: 'GET /sessions/{sid}/app-credentials' },
+  { role: 'ATLApiFunctionRole', action: 'cognito-idp:ListUsers', resource: 'UserPool', why: 'DELETE /members/{sub} (find the user by sub)' },
+  { role: 'ATLApiFunctionRole', action: 's3:GetObject', resource: '/runs/*', why: 'GET /sessions/{sid}/runner-runs/{runId}/log' },
+  { role: 'ATLApiFunctionRole', action: 's3:GetObject', resource: '/evidence/*', why: 'GET /sessions/{sid}/check-runs/{runId}/evidence/{checkKey}' },
+  { role: 'ATLPricingFunctionRole', action: 'pricing:GetProducts', resource: '*', why: 'PriceQuote (Price List Query API)' },
+  { role: 'ATLPricingFunctionRole', action: 's3:GetObject', resource: '/content/*', why: 'PriceQuote reads the expanded card' },
+  { role: 'ATLPricingFunctionRole', action: 'dynamodb:GetItem', resource: 'AtlMainTable', why: 'PriceQuote reads PLATFORM / CONFIG (workstation instance type)', condition: 'PLATFORM' },
+  { role: 'ATLPricingFunctionRole', action: 'dynamodb:PutItem', resource: 'AtlMainTable', why: 'PriceCache writes', condition: 'PRICE#' },
 ];
 
 describe('route → AWS calls: the function roles hold what the routes and actions need', () => {

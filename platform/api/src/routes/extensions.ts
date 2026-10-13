@@ -8,8 +8,10 @@
  * | `workspace`       | 03 (terminal/console) | `POST/DELETE …/terminals`, `…/resume`, `…/console-link`, `…/app-credentials` |
  * | `memberDirectory` | 01 §5.4 (Cognito)     | `POST /members`, `DELETE /members/{sub}`                                     |
  *
- * Without a provider these routes answer `501 NOT_IMPLEMENTED`. Everything else is served by the API itself or by
- * asynchronous invocations of the owning function (`DOWNSTREAM_ACTIONS`).
+ * Without a provider these routes answer `501 NOT_IMPLEMENTED`. Production wires `services/workspace` (AWS) and
+ * `services/members` (Cognito) in `functions/api/index.ts`; the dev server wires the dev variants (SSM mock, federation
+ * stub). Everything else is served by the API itself or by asynchronous invocations of the owning function
+ * (`DOWNSTREAM_ACTIONS`).
  */
 import type { JwtPrincipal } from '@atl/shared';
 import type { FunctionDeps } from '../runtime/deps.js';
@@ -37,8 +39,8 @@ export interface WorkspaceProvider {
   openTerminal(ctx: WorkspaceCallContext, body: { target: 'lab' | 'workstation'; instanceId?: string; cols?: number; rows?: number; clientId?: string }): Promise<ProviderResult>;
   resumeTerminal(ctx: WorkspaceCallContext, terminalId: string, body: { clientId?: string }): Promise<ProviderResult>;
   closeTerminal(ctx: WorkspaceCallContext, terminalId: string): Promise<ProviderResult>;
-  /** 03 §5.2. */
-  consoleLink(ctx: WorkspaceCallContext, body: { destination?: string; linkId?: string }): Promise<ProviderResult>;
+  /** 03 §5.2 (`params`: deep-link parameters of the registry entry `linkId`). */
+  consoleLink(ctx: WorkspaceCallContext, body: { destination?: string; linkId?: string; params?: Record<string, string> }): Promise<ProviderResult>;
   /** 01 §8.2 `GET …/app-credentials` (reads `/cloudalbum/<envName>/atl/app-admin-password`). */
   appCredentials(ctx: WorkspaceCallContext): Promise<ProviderResult>;
   /** 03 §6.1 live probe; without it `GET …/preview` answers from `LabSession.app` / `Environment.endpoints`. */

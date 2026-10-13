@@ -95,6 +95,37 @@ export interface SessionEventRecord<T = Record<string, unknown>> {
 /** `phase` values of `session.phase_changed` are not registered in 01 yet (08 §9.2 #8); status values proposed there: */
 export const PHASE_STATUSES = ['QUEUED', 'RUNNING', 'RETRYING', 'DONE', 'FAILED', 'SKIPPED'] as const;
 
+/**
+ * `session.phase_changed.data.phase` / `LabSession.phases[].name` — the table proposed by 08 §9.2 #8 (待 01 §8.4 登记),
+ * the names atl-lifecycle writes (tested against its sources).
+ */
+export const SESSION_PHASE_NAMES = [
+  'start.validate',
+  'start.lock',
+  'start.preflight',
+  'provision.base',
+  'provision.resume',
+  'provision.workstation',
+  'provision.profile',
+  'provision.extra-stack',
+  'provision.ssm',
+  'provision.wire',
+  'provision.health',
+  'provision.ready',
+  'end.stop-start',
+  'end.disarm',
+  'end.revoke',
+  'end.finalize',
+  'end.seal',
+  'end.workstation-down',
+  'end.suspend',
+  'clean.destroy',
+  'clean.reclaim',
+  'clean.verify',
+  'clean.conclude',
+] as const;
+export type SessionPhaseName = (typeof SESSION_PHASE_NAMES)[number];
+
 // ---------------------------------------------------------------------------------------------------------------
 // Audit (01 §8.5). Every 403 is also audited with result=denied.
 

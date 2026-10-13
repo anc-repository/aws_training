@@ -32,6 +32,12 @@ export interface QuoteLine {
   perHourLow?: number;
   perHourHigh?: number;
   unknown?: boolean;
+  /** L0 base items of `ref: start-profile` (not counted in the catalog cost tier, 04 §3.4). */
+  base?: boolean;
+  /** Unit price the line was computed from (atl-pricing). */
+  unitPrice?: { low: number; high: number; unit: string; currency: string } | null;
+  /** Why an `unknown` line has no price (atl-pricing). */
+  reason?: string;
 }
 
 export interface Range {
@@ -46,12 +52,27 @@ export interface PricedQuote {
   lines: QuoteLine[];
   hourly: { start: Range | null; completed: Range | null } | null;
   retainHourly: number | null;
-  platformOverhead: { low: number | null; high: number | null; notes: string[] };
+  /**
+   * 08 §9.2 #6: `perHour` (workstation EC2, public IPv4, EBS), `perSession` (CodeBuild; `null` until priced),
+   * `qualitative[]`; `low` / `high` repeat `perHour` for older readers.
+   */
+  platformOverhead: {
+    low: number | null;
+    high: number | null;
+    notes: string[];
+    perHour?: { low: number; high: number } | null;
+    perSession?: { low: number; high: number; basis: 'history' | 'class' } | null;
+    qualitative?: string[];
+  };
   maxSession: Range | null;
   incomplete: string[];
   freeTierNote: boolean;
   notes: string[];
-  pricing: 'price-list' | 'unavailable';
+  /** `fixture` = dev-mode prices that are not AWS prices (atl-pricing in ATL_DEV_MODE). */
+  pricing: 'price-list' | 'fixture' | 'unavailable';
+  retainHourlyRange?: { low: number; high: number } | null;
+  pricePublication?: string | null;
+  oneTime?: QuoteLine[];
 }
 
 const PLATFORM_OVERHEAD_LINE: QuoteLine = {
@@ -144,7 +165,10 @@ export async function priceQuote(deps: FunctionDeps, req: PriceRequest): Promise
         incomplete: r.incomplete ?? [],
         freeTierNote: !!r.freeTierNote,
         notes: r.notes ?? [],
-        pricing: 'price-list',
+        pricing: r.pricing === 'fixture' ? 'fixture' : 'price-list',
+        ...(r.retainHourlyRange !== undefined ? { retainHourlyRange: r.retainHourlyRange } : {}),
+        ...(r.pricePublication !== undefined ? { pricePublication: r.pricePublication } : {}),
+        ...(r.oneTime?.length ? { oneTime: r.oneTime } : {}),
       };
     }
   } catch (e) {
@@ -169,7 +193,7 @@ export function unpricedQuote(lines: QuoteLine[]): PricedQuote {
     lines: lines.map((l) => ({ ...l, unknown: true })),
     hourly: null,
     retainHourly: null,
-    platformOverhead: { low: null, high: null, notes: ['通常很小，不估金额'] },
+    platformOverhead: { low: null, high: null, perHour: null, perSession: null, qualitative: ['Step Functions、Lambda 与日志摄入通常很小，不估金额'], notes: ['通常很小，不估金额'] },
     maxSession: null,
     incomplete,
     freeTierNote: false,

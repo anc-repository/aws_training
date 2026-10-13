@@ -34,7 +34,8 @@ import { createChecksHandler } from '../functions/checks/handler.js';
 import { createCopyArtifactsHandler } from '../functions/copy-artifacts/handler.js';
 import { createCustomResourcesHandler } from '../functions/custom-resources/handler.js';
 import { createLifecycleHandler } from '../functions/lifecycle/handler.js';
-import { createPricingHandler } from '../functions/pricing/handler.js';
+import { createPricingActions, createPricingHandler } from '../functions/pricing/handler.js';
+import { fixturePriceListSource } from '../services/pricing/fixture.js';
 import { createPublicHandler } from '../functions/public/handler.js';
 import { createReaperHandler } from '../functions/reaper/handler.js';
 import { createTaggerHandler } from '../functions/tagger/handler.js';
@@ -134,7 +135,8 @@ export function createFunctionTable(getDeps: DepsProvider, opts: FunctionTableOp
     'atl-timer': createTimerHandler(getDeps),
     'atl-reaper': createReaperHandler(getDeps),
     'atl-certs': createCertsHandler(getDeps),
-    'atl-pricing': createPricingHandler(getDeps),
+    // dev Price List fixture: placeholder unit prices, quotes say pricing=fixture (never presented as AWS prices)
+    'atl-pricing': createPricingHandler(getDeps, createPricingActions({ source: () => fixturePriceListSource() })),
     'atl-custom-resources': createCustomResourcesHandler(getDeps),
     'atl-copy-artifacts': createCopyArtifactsHandler(getDeps),
     'atl-tagger': createTaggerHandler(getDeps),

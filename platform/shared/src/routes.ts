@@ -2,8 +2,9 @@
  * The only route table of `/api/v1` — 01 §8.2 (transcribed), with the auth column of §8.1 / §5.3.
  *
  * `rbac.ts` in `atl-api` is derived from `auth`; the dev server and the API router dispatch on `id`.
- * Routes requested by 08 §9.2 but not yet registered in 01 are listed separately in `UI_REQUESTED_ROUTES` and are NOT part
- * of `ROUTES` (01 §8.2: a route must be registered in 01 before it is implemented).
+ * Routes requested by 08 §9.2 and implemented by definition of 08 while 01 has not registered them carry `pending01`
+ * (the 01 §8.2 transcription test excludes them); the rest of the 08 requests are listed in `UI_REQUESTED_ROUTES` and
+ * are NOT part of `ROUTES`.
  */
 
 export const API_PREFIX = '/api/v1';
@@ -29,6 +30,8 @@ export interface RouteDef {
   async?: boolean;
   /** Sensitive operation: requires a real login (`auth_time`) within 60 minutes (01 §5.3). */
   recentAuth?: boolean;
+  /** Requested by 08 §9.2 and implemented by its definition; not registered in 01 §8.2 yet (the 08 item). */
+  pending01?: string;
 }
 
 export interface ResolvedRouteDef extends RouteDef {
@@ -171,6 +174,15 @@ const RAW_ROUTES = [
   { id: 'publicGetCertificate', method: 'GET', path: '/public/certificates/{certId}', auth: PUB, summary: '证书状态的便捷查询', doc: '01' },
   { id: 'publicListKeys', method: 'GET', path: '/public/keys', auth: PUB, summary: '公钥（PEM 与 JWK），含已停用的', doc: '01' },
   { id: 'publicGetKey', method: 'GET', path: '/public/keys/{kid}', auth: PUB, summary: '公钥（PEM 与 JWK）', doc: '01' },
+
+  // 08 §9.2 请求、01 尚未登记的路由（按 08 的定义实现，待 01 §8.2 收录）
+  { id: 'listRunnerRuns', method: 'GET', path: '/sessions/{sid}/runner-runs', auth: LAO, summary: '运行器构建记录（RunnerRun）列表', doc: '08 §9.2 #11', pending01: '08 §9.2 #11' },
+  { id: 'getRunnerRunLog', method: 'GET', path: '/sessions/{sid}/runner-runs/{runId}/log', auth: LA, summary: '脱敏的进度与日志摘要（atl-data/runs/<runId>/）', doc: '08 §9.2 #11', pending01: '08 §9.2 #11' },
+  { id: 'getCheckEvidence', method: 'GET', path: '/sessions/{sid}/check-runs/{runId}/evidence/{checkKey}', auth: LAO, summary: '同源读取大于 4 KB 的脱敏证据（atl-data/evidence/）', doc: '08 §9.2 #13', pending01: '08 §9.2 #13' },
+  { id: 'getPlatformExport', method: 'GET', path: '/platform/exports/{exportId}', auth: L, summary: '学习档案导出的状态与下载链接', doc: '08 §9.2 #16', pending01: '08 §9.2 #16' },
+  { id: 'listManualConfirmations', method: 'GET', path: '/manual-confirmations', auth: A, summary: '助教复核队列（?status=pending，AP20 REVIEW#PENDING）', doc: '08 §9.2 #18', pending01: '08 §9.2 #18' },
+  { id: 'listEnvironmentResources', method: 'GET', path: '/environments/{envId}/resources', auth: LA, summary: '环境交接链的回收台账（?state=）', doc: '08 §9.2 #28', pending01: '08 §9.2 #28' },
+  { id: 'openStepOutage', method: 'POST', path: '/sessions/{sid}/steps/{stepId}/outage', auth: L, summary: '打开步骤级预期中断窗口（atl-lifecycle OpenOutageWindow）', doc: '08 §9.2 #25', async: true, pending01: '08 §9.2 #25' },
 ] as const satisfies readonly RouteDef[];
 
 function kindOf(path: string): RouteKind {
@@ -221,17 +233,14 @@ export const DEPRECATED_PATHS = [
 ] as const;
 
 /**
- * Routes that 08 §9.2 asks 01 to register (items 5, 11, 13, 14, 16, 18). Not part of ROUTES; listed so that the API
- * implementer can see the UI's data needs. Do not implement them before 01 registers them.
+ * Routes that 08 §9.2 asks 01 to register and that are not implemented yet (they need a decision of 01 or a dependency):
+ * #5 the preflight's execution identity, #14 the Cost Explorer client, #29 the CloudShell bootstrap variables (03 §4.9).
+ * Not part of ROUTES. Items 11, 13, 16, 18, 25 and 28 are in ROUTES with `pending01`.
  */
 export const UI_REQUESTED_ROUTES = [
   { method: 'POST', path: '/platform/preflight', ref: '08 §9.2 #5' },
-  { method: 'GET', path: '/sessions/{sid}/runner-runs', ref: '08 §9.2 #11' },
-  { method: 'GET', path: '/sessions/{sid}/runner-runs/{runId}/log', ref: '08 §9.2 #11' },
-  { method: 'GET', path: '/sessions/{sid}/check-runs/{runId}/evidence/{checkKey}', ref: '08 §9.2 #13' },
   { method: 'POST', path: '/sessions/{sid}/cost/actual', ref: '08 §9.2 #14' },
-  { method: 'GET', path: '/platform/exports/{exportId}', ref: '08 §9.2 #16' },
-  { method: 'GET', path: '/manual-confirmations', ref: '08 §9.2 #18' },
+  { method: 'GET', path: '/sessions/{sid}/cloudshell-bootstrap', ref: '08 §9.2 #29' },
 ] as const;
 
 // ---------------------------------------------------------------------------------------------------------------

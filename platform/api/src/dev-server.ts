@@ -54,6 +54,7 @@ const loadDevRuntime = () => import('./dev/runtime.js');
 const loadDevServer = () => import('./dev/server.js');
 const loadDevTables = () => import('./dev/create-tables.js');
 const loadDevConfigModule = () => import('./dev/config.js');
+const loadDevWorkspace = () => import('./dev/adapters/workspace.js');
 
 type InProcessFn = (payload: unknown) => Promise<unknown>;
 
@@ -115,6 +116,8 @@ export interface DevAppOptions {
   ext?: ApiExtensions;
   /** Serve `/__dev/*` (default true). */
   controlEndpoints?: boolean;
+  /** Local stand-in for the AWS federation endpoint (03 §5.1), served at `/__dev/federation`. */
+  federation?: { handle(method: string, params: URLSearchParams): { status: number; headers: Record<string, string>; body: string } };
 }
 
 /** Register the API's HTTP functions in the runtime (replacing the scaffold stubs) and the lifecycle fallback. */
@@ -134,6 +137,17 @@ export function createDevApp(rt: DevRuntime, opts: DevAppOptions = {}): express.
   const app = express();
   app.disable('x-powered-by');
   app.set('trust proxy', false);
+  const federation = opts.federation;
+  if (federation) {
+    app.all('/__dev/federation', express.urlencoded({ extended: false, limit: '64kb' }), (req, res) => {
+      const params = new URLSearchParams(new URL(req.originalUrl, 'http://x').search);
+      if (req.body && typeof req.body === 'object') for (const [k, v] of Object.entries(req.body as Record<string, unknown>)) if (typeof v === 'string') params.set(k, v);
+      const r = federation.handle(req.method, params);
+      res.status(r.status);
+      for (const [k, v] of Object.entries(r.headers)) res.setHeader(k, v);
+      res.end(r.body);
+    });
+  }
   if (opts.controlEndpoints !== false) {
     app.post('/__dev/sessions/:sid/advance', express.json(), (req, res) => {
       const body = (req.body ?? {}) as { to?: string; minutes?: number };
@@ -499,12 +513,15 @@ async function main(): Promise<void> {
       console.log(`seeded content release ${r.catalogVersion}: ${r.cards.length} cards, ${r.tracks.length} tracks from ${dir} (no labs:build output: checks are not expanded)`);
     }
   }
-  const app = createDevApp(rt);
+  // 03 workspace (SSM mock of @atl/ssm-client, federation stub) and the dev member directory
+  const dev = await (await loadDevWorkspace()).createDevExtensions({ port: cfg.port, dataDir: cfg.dataDir, nowMs: () => rt.clock.nowMs(), envs: rt.envs });
+  const app = createDevApp(rt, { ext: dev.ext, federation: dev.federation });
   const server = app.listen(cfg.port, '127.0.0.1', () => {
-    console.log(`ATL API dev server on http://127.0.0.1:${cfg.port}  (DynamoDB ${cfg.ddbEndpoint}, time x${cfg.timeScale}, runner ${cfg.runnerMode})`);
+    console.log(`ATL API dev server on http://127.0.0.1:${cfg.port}  (DynamoDB ${cfg.ddbEndpoint}, time x${cfg.timeScale}, runner ${cfg.runnerMode}, SSM mock ${dev.ssmMockUrl ?? 'unavailable'})`);
   });
   const stop = async () => {
     server.close();
+    await dev.close();
     await rt.close();
     process.exit(0);
   };

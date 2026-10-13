@@ -2189,3 +2189,77 @@ node platform/web/public-pages/build.mjs --share <report.json> --out <dir> [--pu
 ### 6. 依赖
 
 没有新增依赖。
+
+## platform-backend-gaps
+
+补齐生产中返回 501 或缺失的后端功能：atl-pricing（Price List 报价）、03 的 `WorkspaceProvider`（终端、控制台联合登录、预览、管理员密码）、
+Cognito `MemberDirectory`，以及 08 §9.2 中能实现的路由与字段。全程没有调用真实的 AWS API，没有部署任何东西：AWS 调用只在 aws-sdk-client-mock
+或注入的假 SDK / fetch 下测试；dev 模式接 `@atl/ssm-client` 的本地模拟服务器和本地联合登录桩，只监听 127.0.0.1。
+
+### 1. 实现范围
+
+| 部分 | 位置 | 内容 |
+|---|---|---|
+| atl-pricing | `functions/pricing/handler.ts`、`services/pricing/*` | 动作 `PriceQuote`。`dimensions.ts` 是 `labs/_pricing/dimensions.yaml` 的转录（不含价格；测试逐项比对 YAML，防漂移）。`price-list.ts`：`PriceListSource`（生产为 `pricing:GetProducts`，TERM_MATCH 过滤 + `regionCode`，按 NextToken 翻页，端点区域按平台区域取 us-east-1 / eu-central-1 / ap-south-1，可用 `ATL_PRICING_ENDPOINT_REGION` 覆盖）、Price List JSON 解析（OnDemand、首档价，多产品或多档给区间，免费首档后取最低付费档）。`price-book.ts`：`PriceCache`（`PRICE#<region>` / `<serviceCode>#<pricingKey>@<占位值>`，24 小时；无匹配的维度缓存 1 小时；`expiresAt` 判定新鲜度；项带来源，夹具价不会被生产读到）。`estimate.ts`：`ref` 展开（`start-profile` → L0 基础项 + START/REUSE 时起始档位模块；`workstation`；`target-modules`；EXTEND/KEEP 的 `ref: module`；`extra-stacks` 每个栈一行“未知”），占位符（`{instanceType}` 等取模块参数或模板默认值，`{regionPrefix}`、`{edgeLocationGroup}` 由区域推出，取不到 → 未知），04 §3.4 算法（hourly、monthly ÷ 730、usage 典型值与 3 倍上界、retainHourly），`maxSession`（完成后 × 总时长 + 起始状态 × 部署与回收预算 + 工作台 × 全程；KEEP 为保留每小时 × 小时）。预检型变体逐个估算，取较高者并注明（`pricedVariant`）。`fixture.ts`：dev 与测试用的 Price List 夹具（占位单价，报价 `pricing: 'fixture'` 并注明“开发夹具，不是 AWS 价格”） |
+| 报价结构（08 §9.2 #6） | `services/catalog/quotes.ts` | `PricedQuote` 增加 `platformOverhead{perHour, perSession, qualitative[]}`（`low`/`high` 保留为 `perHour` 的旧写法）、`retainHourlyRange`、`pricePublication`、`oneTime`；行增加 `base`、`unitPrice`、`reason`；`pricing` 透传 `fixture`。atl-pricing 不可用时仍是原来的“全部未知、金额 null” |
+| WorkspaceProvider | `services/workspace/provider.ts`、`access.ts` | 终端（03 §3.2）：`AssumeRole ATLLearnerRole`（`atl-<sid>-term`、`SourceIdentity` = Cognito 用户名（不合 STS 字符集时用 sub）、§3.2 会话策略、`DurationSeconds = clamp(deadline − now + 60 s, 900, 3600)`），凭证在容器内复用到剩 5 分钟，每次签发写 `CredentialGrant(term)`；按 `atl:env-id` + `atl:role` + `running` 反查，再核对 `aws:cloudformation:stack-name` / `aws:autoscaling:groupName`（`cloudalbum-<envName>-*` 或 `atl-ws-<sid>`）；对账（`DescribeSessions` Active + Owner 为本会话名，超过空闲 + 5 分钟且 SSM 已无的条目标 CLOSED）后计数（每实例 3、每会话 6 → 429 `TERMINAL_LIMIT`）；`DescribeInstanceInformation` 非 Online → 409 `TERMINAL_TARGET_NOT_CONNECTED`；`TerminalRecording=cloudwatch` 时用 `ATL-SessionShell-Logged`；`StartSession` 后校验 StreamUrl（`wss://ssmmessages.<region>.amazonaws.com[.cn]` 或 `.api.aws`，无 userinfo；不合格则立即 Terminate 并 503）；写 `TerminalSession`（只存 ID，不存令牌）；响应含 `connectBy`（+30 s）与 `clientVersion`（= `@atl/ssm-client` 的 `PROTOCOL_COMPAT_VERSION` 1.2.896.0，有测试核对）。续连 `ResumeSession`（`DoesNotExistException` → 409 `TERMINAL_GONE` 并标 CLOSED），结束 `TerminateSession`（会话已收回访问时只标记）。控制台（03 §5）：`atl-<sid>-console`，不传 `DurationSeconds` 与会话策略，`CredentialGrant(console)`；先区域联合端点、失败再全局端点，`getSigninToken` 用 POST 且不传 `SessionDuration`；返回 `form{action, method, fields{Action, Issuer, Destination, SigninToken}}`、`url`、`expiresAt`（15 分钟）、`consoleSessionExpiresAt`、`deepLink`；令牌与凭证不落库、不进日志。`app-credentials`：函数角色 `GetParameter WithDecryption` 读 `/cloudalbum/<envName>/atl/app-admin-password`，用户名 `atl-admin@example.com`（06 PM-46），未写入 → 404。`describeTargets`（`GET /workspace` 的 `targets`）：同一组学员凭证，给出 tab、primary、runAs、awsIdentity、ssmPing、prepared、placement |
+| 深链接注册表 | `services/workspace/console-links.ts` | 03 §5.4 的 19 个 `linkId`（模板、参数正则、服务首页、标签）；参数不合法 → 退回服务首页（`fallback: true`）；自由 `destination` 只接受注册表用到的控制台主机、https、无端口与 userinfo（422 `CONSOLE_DESTINATION_NOT_ALLOWED`）；与 `scripts/labs/src/console-links.ts` 的 id 集合一致（测试） |
+| 预览探测 | `services/workspace/preview.ts` | 入口来自 `Environment.endpoints`（`baseUrl`/`direct`、`cdn`、`alb`/`loadBalancer`、`customDomain`）与 `LabSession.app.entryUrl`，按 URL 去重；http → `MIXED_CONTENT`；https：先解析，任一地址为回环 / 私有 / 链路本地 / CGNAT / 保留 → `UNREACHABLE`，只连 443，用解析得到的地址连接（自定义 `lookup`，防 DNS 重绑定），Node 默认信任库，3 秒，不跟随重定向，只读响应头；TLS 错误 → `UNTRUSTED_CERT`；`X-Frame-Options` DENY/SAMEORIGIN → `X_FRAME_OPTIONS`；`frame-ancestors` 不含平台来源 → `FRAME_ANCESTORS_MISSING`；每容器缓存 60 秒；`default` 取第一个可嵌入的入口 |
+| MemberDirectory | `services/members/index.ts` | `AdminCreateUser`（邮箱为用户名，`DesiredDeliveryMediums: EMAIL`，Cognito 寄临时密码）+ `AdminAddUserToGroup`（用返回的 Username，即 sub）；加组失败时删掉刚建的用户；`UsernameExistsException` → 400 `USER_EXISTS`；删除先查组（`learner` → 403），用户名即 sub，找不到时 `ListUsers` 按 sub 查，已不存在视为成功。dev 版本只返回 `dev-<uuid>` |
+| 生产接线 | `functions/api/index.ts` | atl-api 入口创建 `WorkspaceProvider`（AWS）与 Cognito `MemberDirectory`；不再返回 501 |
+| 08 §9.2 路由 | `routes/gaps.ts`、`@atl/shared` 路由表 | 新路由（路由表中带 `pending01`）：#11 `GET …/runner-runs`（L A O）与 `…/runner-runs/{runId}/log`（L A，读 `atl-data/runs/<runId>/result.json`、`progress.jsonl`，按键名去掉机密、按模式打码账号 ID 与公网 IP，最多 200 行）；#13 `GET …/check-runs/{runId}/evidence/{checkKey}`（L A O，内联证据或 `atl-data/evidence/<sid>/<runId>/<checkKey>.json`，键必须正好是这个位置）；#16 `GET /platform/exports/{exportId}`（L，`pending` / `ready` + 15 分钟下载链接）；#18 `GET /manual-confirmations?status=pending`（A，AP20 `REVIEW#PENDING`，附卡片 id 与会话状态）；#25 `POST …/steps/{stepId}/outage`（L，202，只接受声明了 `expectedOutage` 的步骤，同步调用 atl-lifecycle `OpenOutageWindow`）；#28 `GET /environments/{envId}/resources?state=`（L A，整条交接链的台账，学员只能看自己会话链上的环境）。已登记路由的细化：#3 `GET /platform` 只对 L 返回完整 `accountId`，A / O 为 `••••后 4 位`（`accountIdMasked`）；#7 `PATCH /settings` 的 `cost.highHourlyThreshold`，KEEP 报价返回 `highHourlyThreshold`、`requiresTypedConfirm`、`typedConfirmValue`；#12 `GET …/report?version=<n>&view=full`（同源返回该版本存储的权威 JSON 原文，头 `x-atl-report-version`、`x-atl-report-digest`）与 `versions[]`；#22 `after=` 游标的时间晚于现在 10 分钟以上或早于会话创建 1 天以上 → 410 `CURSOR_EXPIRED`；`GET /resources/manual` 的条目加 `labId`、`sessionCreatedAt`、`sessionEndedAt`、`sessionState`（web 脚手架的请求）。#8 阶段名表 `SESSION_PHASE_NAMES` 登记到 `@atl/shared`（atl-lifecycle 已在使用，测试核对源码中的阶段名都在表内） |
+| infra | `platform/infra/src/50-iam.yaml` | `ATLApiFunctionRole`：成员管理加 `cognito-idp:ListUsers`；`DataDownloads` 加 `atl-data/runs/*`。`ATLPricingFunctionRole`：`LeadingKeys` 加 `PLATFORM`（读工作台实例类型），新增 `s3:GetObject` 于 `atl-web/content/*`（读展开后的卡片）。函数环境变量沿用模板已给每个函数设置的 `ATL_*`，没有新增；`inventory.test.ts` 的白名单与“路由 → 调用 → 权限”表补了 10 行 |
+| dev 接线 | `dev/adapters/workspace.ts`、`services/workspace/dev-access.ts`、`dev-federation.ts`、`dev-server.ts`、`dev/runtime.ts` | `npm run platform:dev` / `platform:dev:api`：`ATL_DEV_SSM_MOCK_URL`（默认 `http://127.0.0.1:8790`）上已有模拟服务器就复用，否则在进程内按源码路径加载 `platform/ssm-client/src/mock/server.ts` 启动；dev `WorkspaceAccess`：假的学员凭证、dev 实例 ID（带真实反查要核对的标签）、Online、`StartSession`/`ResumeSession`/`TerminateSession`/`GET /sessions` 走模拟服务器的 HTTP 控制接口（StreamUrl 为 `ws://127.0.0.1:<port>/…`，dev 才接受回环）；联合登录桩挂在 dev-server 的 `/__dev/federation`（`getSigninToken` 发一次性令牌、拒绝 `SessionDuration`；`login` 渲染“将以 ATLLearnerRole 打开 <Destination>”，不跳转 AWS）；管理员密码取本地 L0 的 `etc/atl/app-admin-password`，noop 模式下在 `.atl-dev/workspace/` 生成一个；dev 预览不离开本机（http → MIXED_CONTENT，https → 不探测）。dev 运行时的 atl-pricing 用夹具 |
+
+### 2. 如何运行
+
+```bash
+npx vitest run --project atl-api test/pricing.test.ts test/workspace-provider.test.ts test/members.test.ts test/dev-workspace.test.ts test/ui-gaps.test.ts
+npm run smoke:platform        # 新增 [2w] 阶段：终端（真实协议客户端经模拟服务器回显、续连、结束）、控制台联合登录桩、管理员密码登录本地 L0、预览
+npm run platform:dev:api      # dev-server 启动时打印 “SSM mock http://127.0.0.1:8790” 或复用已有的模拟服务器
+```
+
+### 3. 自测结果（2026-10-14，Windows 11 / Node 22.14.0 / Docker 28）
+
+| 自测 | 命令 | 结果 |
+|---|---|---|
+| 构建 | `npm run build`（含 web 的两份 tsc） | 通过 |
+| 检查 | `npm run lint` | 0 个问题 |
+| 单元测试 | `npm test` | 174 个文件：2076 通过、19 跳过、1 失败。失败项是 `platform/infra/test/package.test.ts` 的“工作台模板与 user-data.sh 一致”，原因是另一个并行任务尚未提交的 `platform/workstation/bootstrap/user-data.sh` 改动，与本任务无关（本任务开始时该项通过，本任务不涉及这两个文件） |
+| 新增测试 | `pricing.test.ts`、`workspace-provider.test.ts`、`members.test.ts`、`dev-workspace.test.ts`、`ui-gaps.test.ts` | 64 个：63 通过；1 个 aws-sdk-client-mock 用例等 `@aws-sdk/client-pricing` 安装后运行。STS / EC2 / SSM / Cognito 用 aws-sdk-client-mock，Price List 用结构相同的假 SDK，联合端点用注入的 fetch；dev 端到端用真实的 `SsmTerminalConnection` 经模拟服务器回显、断线后经 `resume` 路由续连、`DELETE` 后收到 channel_closed |
+| 平台端到端 | `npm run smoke:platform` | 120 / 120，190 秒。新增 `[2w]` 10 项（实时目标、终端打开 / 回显 / 续连 / 结束、控制台登录桩、管理员密码并用它登录本地 L0、预览 MIXED_CONTENT）；第 2 阶段的报价检查改为“按 dev 夹具定价并注明不是 AWS 价格” |
+| 生产包 | `bundleFunction('atl-api' / 'atl-pricing')` | 不含 `src/dev/**`、dev 访问层与价格夹具 |
+
+### 4. 设计有歧义时的取舍
+
+1. **新路由登记在 `@atl/shared` 路由表**：路由器与 SPA 客户端都只认这张表，08 §9.2 的路由只能放进去。条目带 `pending01: '08 §9.2 #n'`，`name-table.test.ts` 的 01 §8.2 转录比对排除它们；未实现的 #5（预检的执行身份需 01 决定）、#14（缺 Cost Explorer 客户端）、#29 ③（03 §4.9 的引导变量未定义）留在 `UI_REQUESTED_ROUTES`。错误码 `CURSOR_EXPIRED`（410）从 `UI_REQUESTED_ERROR_CODES` 移入 `ERROR_CODES`。这是本任务对 `platform/shared` 的全部改动（`routes.ts`、`errors.ts`、`events.ts` 与 `name-table.test.ts` 一行过滤）。
+2. **对已登记路由的细化放在 `routes/gaps.ts`**，按相同的路由 id 包装原处理器（解析其 JSON 后补字段），不改 `reports.ts`、`sessions.ts`、`services/sessions/*`；只有 `routes/platform.ts`（设置项 `cost`）、`routes/workspace.ts`（`params`、链接标签、实时发现的失败回退与只对学员发现）直接改。
+3. **维度映射编译进函数**：内容发布包没有 `dimensions.yaml`，Lambda 包也读不到仓库，只能转录；测试保证与 YAML 一致。等 registry 提供 `billing.pricingKeys`（06 PM-34）或内容包带上该文件后可改为读取。
+4. **atl-pricing 自己读卡片**：`ref` 展开需要起始档位、目标模块与卡片自带栈，按 quotes.ts 的约定由 atl-pricing 展开，所以函数需要读 `atl-web/content/*`（新增权限）。START 报价时还不知道学员选不选省钱模式，平台开销按工作台 EC2 计并注明。
+5. **不估的部分**：卡片自带栈（不从模板推导，单列“未知”）；CodeBuild 构建（没有历史数据与维度，`perSession: null` + 定性说明）；按量计费项用卡片假设的用量折算（典型值），上界 3 倍；免费额度不计。区域到用量类型前缀、CloudFront 价格地区的映射表只覆盖常见区域，未覆盖的区域对应维度为“未知”，不猜产品。
+6. **Price List 全部失败才算不可用**：每次报价若所有维度都调用失败（SDK 缺失、无权限、限流）就抛 `Atl.PricingUnavailable`，API 退回原来的全部未知报价；部分失败只把那几行标为未知。错误细节只写日志，不进报价。
+7. **终端状态**：`StartSession` 成功后直接写 `OPEN`（浏览器没有“已连上”的回报），续连时写 `lastResumedAt` 与 `resumeCount`；03 的 `OPENING` 只作为对账时的兼容状态。`prepared` 只在 `Environment.instances[].prepared === false` 时拦截（目前没有写入方，见第 6 节），未知不拦。
+8. **凭证复用**：`GET /workspace` 每 60 秒刷新一次，如果每次都 AssumeRole 会产生大量 CloudTrail 记录与 `CredentialGrant`。终端凭证在函数容器内复用到剩 5 分钟，每次真正签发才写一条 grant；控制台每次都重新签发（会话时长 = 凭证剩余时间，03 §5.3）。助教、观察者调用 `GET /workspace` 时不做实时发现（否则会以他们的身份扮演学员角色，违背 01 §5.2），看到的是缓存的实例。
+9. **`SourceIdentity`**：用访问令牌的 `username`；不符合 STS 的 `[\w+=,.@-]{2,64}` 时用 sub（01 需保证所选用户标识符合，03 §3.2）。
+10. **预览不回写 `LabSession.app`**：03 §6.1 要求把判定写回 `LabSession.app`，但 `LabSession` 只由 atl-lifecycle 写（01）；改为每容器缓存 60 秒。
+11. **控制台深链接参数**：`console-link` 请求体增加 `params`（按注册表正则校验）；只给 `linkId` 时自动代入环境的实验机 ID，其余参数缺失则退回服务首页。注册表放在 `services/workspace/console-links.ts`，03 §5.4 指定的 `platform/api/contracts/console-links.ts`（`@atl/contracts`）尚不存在。
+12. **管理员用户名**：生产固定为 06 的 `atl-admin@example.com`；dev 的本地 L0 用 `atl-admin@<envName>.example.test`。
+13. **`cost.highHourlyThreshold`**：02 §8.1 写“安装时设置”，模板没有该参数；先作为平台设置（`PATCH /settings` 的 `cost.highHourlyThreshold`，美元/小时，默认不设）。估算未知或不完整时，只要设置了阈值就要求输入卡片 id（无法证明低于阈值）。服务端不校验输入的卡片 id（02 只要求界面确认）。
+14. **游标失效**：`SessionEvent` 没有 TTL，不会因保留期被清理；“无效”按时间判断（晚于现在 10 分钟以上或早于会话创建 1 天以上）。格式错误仍是 400。
+15. **dev 模拟服务器的加载方式**：`@atl/ssm-client` 还不是 lockfile 中的 workspace，`@atl/api` 不能依赖它；dev 与测试按源码路径动态加载（tsx / vitest 转译）。
+
+### 5. 必须到真实 AWS 上验证（07）
+
+`pricing:GetProducts` 的过滤属性名与取值（`dimensions.yaml` 中每个维度至少命中一条，04 §3.4 要求的集成测试）、`regionCode` 属性在各服务中的可用性；`AssumeRole` + 会话策略 + `SourceIdentity` 对 `ssm:StartSession` / `ResumeSession` / `TerminateSession` 的实际放行（03 §10 ⑪：会话 ID 是否以会话名开头）；`DescribeSessions` 按 Owner 过滤所需的 ARN 形式；角色链凭证在区域联合端点的 `getSigninToken`（D8）；预览探测在 Lambda 中对 Let's Encrypt IP 证书、CloudFront 默认域名的结果。
+
+### 6. 需要其他部分配合
+
+- **01**：登记 `pending01` 的 7 条路由、错误码 `CURSOR_EXPIRED`（410）与 `RATE_LIMITED` 外的 `TERMINAL_*`/`CONSOLE_*`（03 §9.1 已列）、`SESSION_PHASE_NAMES`、设置项 `cost.highHourlyThreshold`（或安装参数）、`GET /platform` 的 `accountIdMasked`、`console-link` 请求体的 `params`、`TerminalSession` 的 `resumeCount`/`lastResumedAt`/`target`；IAM：`ATLApiFunctionRole` 的 `cognito-idp:ListUsers` 与 `atl-data/runs/*`，`ATLPricingFunctionRole` 的 `atl-web/content/*` 与 `PLATFORM` 读取。
+- **02 / lifecycle**：`Environment.instances[].prepared`（`ATL-PrepareInstance` 的结果）目前无人写入，终端的 `TERMINAL_TARGET_NOT_PREPARED` 因而只在写入 `false` 时生效。
+- **web**：终端请求体与响应按 03 §3.2 已对齐（`clientVersion`、`connectBy`）；控制台响应 `form.method = 'POST'`；`GET /workspace` 的 `console.links[]` 带 `label`；新路由可经 `routeById` 调用；KEEP 报价的 `requiresTypedConfirm`；`platform:dev` 启动 SSM 模拟服务器时用 8790 端口（dev-server 会复用）。
+- **contracts**：`@atl/contracts` 建立后把深链接注册表移到 `platform/api/contracts/console-links.ts`，并与 `scripts/labs/src/console-links.ts` 合并。
+- **集成**：安装 `@aws-sdk/client-pricing`（3.1142.0，与其他客户端同版本）后，`pricing.test.ts` 中的 aws-sdk-client-mock 用例会自动运行；Lambda 运行时自带该包，生产不受影响。
+
+### 7. 依赖
+
+没有运行 npm install。缺少 `@aws-sdk/client-pricing`：生产经 `import()` 加载 Lambda 运行时自带的包，单元测试用结构相同的假 SDK；`aws-sdk-client-mock` 用例在包安装后才运行（目前跳过 1 个）。缺少 `@aws-sdk/client-cost-explorer`（08 §9.2 #14 未实现）。
