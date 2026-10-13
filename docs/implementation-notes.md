@@ -631,3 +631,111 @@ pip install cfn-lint && cfn-lint infra/modules/*.yaml   # 0 个错误 / 警告�
 - `experiments/ec2/smoke.ts`：`base deploy` / `profile apply l0-ec2` 结束时打印 `npm run exp -- ec2 --scenario smoke --label l0`，未自动执行。
 - 平台模式文件 `infra/host/install-atl-bundle.sh` 不在本轮：`l0-bootstrap.sh` 只在它存在时调用。`scripts/deploy`（发布新版本）不在本轮。
 - `rules.ts`：DEP-014、MUTEX-004 的部署范围检查已由 `scripts/module` 实现，`deployCheck()` 可继续保持桩或改为文档引用。
+
+---
+
+## integration
+
+集成与本地自测：把六个实现者的提交接到一起，补齐没有人认领的桩，固化三套端到端自测脚本（`npm run smoke:l0 / smoke:selfhost / smoke:localstack`）。
+全程没有调用真实 AWS API、没有部署任何东西；只用单元测试、aws-sdk-client-mock、cfn-lint 与本机 Docker。
+
+### 1. 补齐与修复（按文件）
+
+- **依赖**：各摘要都写“无缺少的依赖”；按 aws-adapters 的建议在 `lambdas/image-thumbnail/package.json` 声明 `@aws-sdk/client-secrets-manager ^3.900.0`
+  （`npm install --before=2026-09-29`，lockfile 只多一行，版本与 backend 已装的 3.1142.0 相同）。
+- **没有人认领的桩驱动**（scaffold 第 3 节分给“L0 本地实现者 / 模块实现者”，但各自的提交里都没有）：
+  - `adapters/iam/none.ts`（provider() = null，探针 ok）、`role.ts`（`fromInstanceMetadata` + memoize，过期前 5 分钟刷新、`forceRefresh()`）、
+    `keys.ts`（secrets.env 的 `IAM_KEYS_*` 静态 provider），探针复用 `modules/detectors/iam.ts`（新增 `adapters/iam/shared.ts`）；
+  - `adapters/cdn/direct.ts`、`cloudfront.ts`（mediaUrl 按可见性 / 媒体源站改写、DEP-028 时不改写、CreateInvalidation、经 CDN 的 `/api/health/live` 边缘探针
+    + 合并 cdn 感知器的被动统计与 GetDistribution）；
+  - `adapters/identity-pool/none.ts`（F14 前缀令牌：HMAC 签名、前缀 / 照片归属 / UPLOADING 校验、local 合并 `.incoming/<photoId>/`、s3 代建分片上传并逐片预签名）；
+  - `adapters/waf/nginx.ts`（denylist.conf 读写，格式与 `infra/host/denylist-apply.sh` 的逐行校验一致）、`autoscaling/single.ts`（EC2 上 IMDSv2，开发机主机名 + `az=local`）、
+    `workflow/inline.ts`（`start()` = `runInlinePipeline`，`describe()` 读 job_runs）、`lock/pg.ts`（会话级 advisory lock）、`lock/redis.ts`（SET NX PX + 带令牌释放）。
+- **路由**：`me.ts`（`GET /api/me` + `registerSelfOutbox`）、`jwks.ts`；新增 `lab-modules.ts`（experiments 约定的侧路端点：`/api/public/now`、`/api/lab/now`、
+  `/api/lab/iam/whoami|refresh`、`/api/lab/aws-ping`、`/api/lab/db/read-after-write`、`/api/lab/storage/upload-target`）；`app.ts` 的旁路审计改为 `auditBypass(c)`。
+- **进程与容器**：`server.ts` 的 `startApiLoops`（bind + 登记定时任务 + memory 消费者）；`cli.ts` 实现 `job run <name>` 与 `lab:compact`；
+  `repositories/lab.ts` 新增 `compactRollups()`；`container.ts`：`AWS_ENDPOINT_URL`、database 深度探针传 `aws`、ec2 感知器的密钥指纹检查项、
+  `workflow.attachPipeline()`（inline 编排拿到完整的 PipelineDeps，含 X-Compare-Bypass: image 的 inline 处理器）、`cdn.attachDetector()`、cdn 的 `public.baseUrl`、
+  关闭时释放 images / iam 的客户端。
+- **其他实现者登记的配合项**：`instrument.ts` 不把 4xx / permanent / 对象不存在计入被动健康信号，`consumeResults`、`redisClient` 等不计时；`config/net.ts` 把
+  `::ffff:127.0.0.1` 视为回环；cognito 的 `publicConfig()` 增加 `loginMode`（sdk → `amplify`，managed → `managed`）与 `publicClientId`（前端据此动态 import aws-amplify）。
+- **缺陷修复**：
+  - `config/validate.ts`：只有 CFG-001（未实现的驱动）时规则引擎也照常运行，`DEPLOY_MODE=asg` + SQLite 会同时报 CFG-001 与 ASG-002（以前只报前者）；
+  - `logging/file.ts`：同一行 JSON 中 `role` / `pid` 出现两次；
+  - `scripts/module-cli/src/template.ts`：`staticOutputValue()` 能求值“条件只依赖参数”的 `!If`——以前 `--dry-run enable auth` / `enable cache` 的计划校验把
+    `EnvCognitoTriggers`、`EnvRedisClientMode` 写成占位符，zod 枚举校验失败、以退出码 2 中止；
+  - 测试：`app.test.ts`（photos 已实现 → 401；database 断言跟随本机磁盘水位）、`jobs.test.ts`（lab.compact 不再跳过）、cognito publicConfig；
+    根 `vitest.config.ts` 在 `CLOUDALBUM_IT=1` 时按文件串行（多个 `*.int.test.ts` 共用一个 PostgreSQL 库并各自 `drop schema public`，并行时互相删表；
+    `fileParallelism` 只在根配置生效）。
+- **新增测试**：`test/adapters/integration-drivers.test.ts`（上面的驱动，AWS 调用全部 mock）、`locks.int.test.ts`（PostgreSQL 16 / Valkey 8）、
+  `test/http/lab-modules.test.ts`、`test/repositories/lab-compact.test.ts`、module-cli 的 `staticOutputValue` 用例。
+- **根 package.json**：`smoke:l0`、`smoke:selfhost`、`smoke:localstack`，以及 experiments 小节建议的 `exp` / `exp:report` 转发。
+
+### 2. 如何在本机运行
+
+```bash
+npm install && npm run build                      # 自测脚本使用构建产物（backend/dist）
+npm run lint && npm test                          # 单元测试
+docker compose -f docker-compose.test.yml up -d --pull never postgres valkey   # 只用本机已有镜像（test:services:up 会尝试拉 localstack）
+CLOUDALBUM_IT=1 npm test                          # 集成测试（PostgreSQL 16、Valkey 8；按文件串行）
+
+npm run smoke:l0          # L0 默认 + worker/memory + cache=memory 三档全流程，外加规则引擎 7 个不合法组合（退出码 78）
+npm run smoke:selfhost    # Docker 起 postgres:16 + valkey:8（--pull never），DB_DRIVER=postgres + CACHE_DRIVER=redis 再跑一遍
+npm run smoke:localstack  # storage=s3 + queue=sqs + iam=keys + worker：有 localstack 镜像就用 LocalStack，否则 MinIO + minicloud
+#   通用参数：--keep 保留 .cloudalbum/smoke/<档位>-<时间>/（配置、数据、api.log / worker.log）；l0.mjs 另有 --only l0,worker-memory,cache-memory,rules
+#   结果 JSON：.cloudalbum/smoke/last-{l0,selfhost,localstack}.json
+
+cfn-lint infra/modules/*.yaml                     # pip install cfn-lint（本轮用 1.57.2）
+AWS_EC2_METADATA_DISABLED=true scripts/module --dry-run -y bootstrap
+AWS_EC2_METADATA_DISABLED=true scripts/module --dry-run -y enable <id> --with-deps [--no-migrate]
+```
+
+自测脚本（`scripts/smoke/`）：`lib.mjs`（配置目录与 EC2 同构：cloudalbum.env + modules.d/*.env + secrets.env + ES256 密钥 + runtime.json；子进程去掉全部 `AWS_*`）、
+`flow.mjs`（全流程）、`f14.mjs`、`rules.mjs`、`run.mjs`（起 api + worker → 跑流程 → 扫 error 级日志 → 停）、`minicloud.mjs`、三个入口。流程中的“真实 JPEG”由 sharp
+生成（1600×1200，渐变 + 噪点 + EXIF）。开发机直连 Node、没有 Nginx：路径头 `entry=direct`，媒体由 Node 流式返回。
+
+### 3. 自测结果（2026-10-13，Windows 11 / Node 22.14.0 / Docker 28.3.2）
+
+| 自测 | 命令 | 结果 |
+|---|---|---|
+| 构建 / 检查 / 单元测试 | `npm run build`、`npm run lint`、`npm test` | 通过；0 个 lint 问题；68 个文件 860 个测试全部通过 |
+| 集成测试 | `CLOUDALBUM_IT=1 npm test` | 73 个文件 889 个测试全部通过 |
+| 前端 / Lambda 构建 | `npm run build -w @cloudalbum/frontend`、`npm run build:lambdas` | 通过 |
+| L0 + 两个本地档 + 规则 | `npm run smoke:l0` | 85 / 85 通过。每档：注册 → outbox 验证 → 登录 → 相册 → F6 直传真实 JPEG → 缩略图（200 宽 WebP）→ 时间线 → 用户 B 点赞评论 → A 收到通知 → 分享链接（含 410）→ 日报（立即生成 + 定时任务手动触发）→ capabilities 驱动 / 状态 → 路径头与 Server-Timing → 旁路只对管理员生效 → audit_log + 哈希链 → self-check 不加载 AWS SDK；L0 另跑 F14 分片续传；规则 13 步 |
+| 自建档 | `npm run smoke:selfhost` | 31 / 31 通过（PostgreSQL 16.14 + Valkey 8.1.4；路径头 `database=postgres@local`、`cache=redis@local:hit/bypass`；LockPort = pg，scope=cluster） |
+| S3 直传 + SQS 消费 | `npm run smoke:localstack` | 30 / 30 通过（MinIO + minicloud：预签名 PUT 直传、image.process 经 SQS 由 worker 进程消费、DeleteMessageBatch、主队列 / DLQ 清空、F14 经 parts:sign 直传 S3） |
+| 规则引擎 | 包含在 `smoke:l0`（`--only rules`） | lambda + local 存储 → DEP-003；asg + SQLite → ASG-002（+ CFG-001）；queue=sqs / storage=s3 而 IAM_CREDENTIALS=none → CRED-001；未实现驱动 → CFG-001；modules.d 混入别的模块的键 → CFG-002；半启用 → CFG-004。check-config 与 api / worker 进程都以 78 退出，报告带规则 ID 与修复提示 |
+| cfn-lint | `cfn-lint infra/modules/*.yaml`（1.57.2） | 10 个模板 0 个发现 |
+| scripts/module | `--dry-run bootstrap`、`--dry-run enable <8 个模块> --with-deps` | 全部退出 0；计划校验均 OK（cdn / auth / cache / database 各 1 个警告）；没有写 `.cloudalbum/state.json` |
+| 前端 × 真实后端 | Vite dev（`?mock=off`）→ L0 后端，浏览器窗格 | 注册 → /me/outbox 预览 → 验证链接 → 时间线 / 照片详情（徽章、标签、EXIF）→ 点赞、评论、生成分享链接 → /lab 卡片，均正常 |
+
+### 4. 设计有歧义时的取舍
+
+1. **`AWS_ENDPOINT_URL`（新增核心键，可选 URL）**：只用于开发机上的 LocalStack / MinIO 自测，覆盖全部 SDK 客户端端点并让 S3 用路径风格；EC2 上留空，
+   `NODE_ENV=production` 下设置时容器告警。没有拆成按服务的端点键（与 LocalStack 的单端点一致）。
+2. **LocalStack 不可用时的替身**：本机没有 `localstack/localstack` 镜像，下载镜像需要人工同意，所以没有拉取；`smoke:localstack` 自动改用本机已有的 MinIO（S3 兼容）+
+   `scripts/smoke/minicloud.mjs`（同一端点上实现 SQS JSON 协议的收发 / 删除 / 可见性 / redrive、STS GetCallerIdentity、IAM GetUser，其余请求原样转发给 MinIO）。
+   有 LocalStack 镜像时脚本走 docker-compose 的 localstack 服务（`--emulator localstack`；这条路径本轮没有实际运行过）。
+3. **iam=none 的 provider()** 返回 null（总纲 4.2），不按 02#iam 第 1 节抛出 `AwsCredentialsUnavailable`；拒绝创建客户端的断言在 `adapters/aws/clients.ts`。
+4. **Cognito 登录方式的对齐**：后端 `flows = null`（aws-adapters 取舍 1），而前端 `sdk` 模式走 BFF 表单。integration 把 cognito 的 `publicConfig().loginMode` 设为
+   `amplify`（`COGNITO_LOGIN_MODE=sdk`）或 `managed`，并下发 `publicClientId`（SPA 客户端无密钥），前端据此动态 import aws-amplify。
+5. **F14 + storage=s3**：约定 uploadId = photoId，S3 的 UploadId 记在 api 进程内存中（单实例；多实例时 F14 应由 identity-pool=cognito 承担）；`jti` 黑名单未实现（令牌 15 分钟过期）。
+6. **PgLock** 用会话级 `pg_try_advisory_lock`，持有期间占用连接池的一条连接；`ttlSec` 到期自动释放（保险），进程崩溃时会话结束即释放。
+7. **`/api/lab/storage/upload-target`** 只为当前驱动签发（另一驱动返回 409）：local 与 s3 并排对比需要两套部署。`DELETE /api/lab/runs/:id/photos` 没有实现
+   （照片不记录 runId），experiments 会退回逐个删除。
+8. **WorkflowPort(inline)** 经 `attachPipeline()` 拿到完整依赖；`photo-pipeline.ts` 中“workflow 仍是桩时直接编排”的兜底保留（现在不会触发）。
+
+### 5. 仍然存在的问题
+
+- **数据迁移**：`cli.js migrate-module` 与 `scripts/migrate/**` 仍未实现。真实 `enable storage|database|auth` 需要 `--no-migrate`，此时已有照片 / 数据留在本地
+  （启用 s3 后旧照片的原图与衍生图读不到）；disable 同理。
+- **LocalStack** 没有实测（见取舍 2）；minicloud 只覆盖适配器用到的 SQS 子集，不能代替 SQS 的全部语义（FIFO、消息属性 MD5 等）。
+- **Cognito managed 子模式**：前端跳 `GET /api/auth/login`（BFF 授权码 + PKCE），后端没有这个端点（cognito 档 flows = null）。amplify 子模式没有对真实 User Pool 验证过。
+- **管理后台**：`POST /api/admin/jobs/failed/:id/replay` 仍是 501（本地死信重放）。
+- **registry**：identity-pool、social-store 等非 MVP 模块没有 `lab.badges`，前端显示通用文案。
+- **开发机磁盘**：C: 盘剩余约 6%，凡是把 SQLite / 上传目录放在 `os.tmpdir()` 的测试都会遇到 degraded（< 15%）或 507（< 10%）；相关测试已按水位断言或降低阈值。
+  自测脚本的运行目录在仓库内 `.cloudalbum/smoke/`（D: 盘）。
+- **能力明细的计数**（例如 email “0 封”）只在 30 秒一轮的探针后更新，不是实时值。
+- **AWS 档的 SDK 加载清单**里会出现 `@aws-sdk/credential-provider-node`（客户端包静态 import 默认凭证链模块；实际使用的是 iam 驱动显式传入的 provider）。
+- **git**：提交 `ca540ee` 的提交信息被并发的 aws-adapters 覆盖（正确信息在 `git notes show ca540ee`），本轮没有改写历史；工作区里 `docs/` 下其他文件与 `docs/platform/`
+  的改动不是本轮的，没有提交。docker-compose 的 postgres 与 valkey 容器保持运行（`npm run test:services:down` 可停止）。

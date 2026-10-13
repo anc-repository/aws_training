@@ -112,7 +112,7 @@ describe('定时任务 handler', () => {
     expect(r).toMatchObject({ emails: 1, files: 1, processedJobs: 1 });
     expect(existsSync(oldDir)).toBe(false);
 
-    expect(await labCompact(c)).toEqual({ skipped: true });
+    expect(await labCompact(c)).toEqual({ skipped: false });   // repositories/lab.ts 已提供 compactRollups（integration）
   });
 });
 

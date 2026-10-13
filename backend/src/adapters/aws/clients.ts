@@ -33,6 +33,8 @@ export interface AwsClientFactoryOptions {
   credentials: (() => Promise<AwsCredentials>) | null;
   /** 测试 / LocalStack：覆盖端点（例如 http://localhost:4566） */
   endpoint?: string;
+  /** S3 路径风格寻址（LocalStack / MinIO 需要；只作用于 s3()） */
+  forcePathStyle?: boolean;
   maxAttempts?: number;
 }
 
@@ -195,7 +197,8 @@ export function lazyAwsClients(opts: AwsClientFactoryOptions): AwsClients {
     if (!opts.credentials) return Promise.reject(new AwsCredentialsUnavailableError(service));
     const region = o?.region ?? opts.region;
     const endpoint = o?.endpoint ?? opts.endpoint;
-    const key = `${service}|${region}|${endpoint ?? ''}|${o?.forcePathStyle ? 'path' : ''}`;
+    const pathStyle = o?.forcePathStyle ?? (service === 'S3' && opts.forcePathStyle === true);
+    const key = `${service}|${region}|${endpoint ?? ''}|${pathStyle ? 'path' : ''}`;
     let p = cache.get(key) as Promise<T> | undefined;
     if (!p) {
       const config: Record<string, unknown> = {
@@ -203,7 +206,7 @@ export function lazyAwsClients(opts: AwsClientFactoryOptions): AwsClients {
         credentials: opts.credentials,
         maxAttempts: opts.maxAttempts ?? 3,
         ...(endpoint ? { endpoint } : {}),
-        ...(o?.forcePathStyle ? { forcePathStyle: true } : {}),
+        ...(pathStyle ? { forcePathStyle: true } : {}),
       };
       p = build(config).then((client) => {
         created.push(client);

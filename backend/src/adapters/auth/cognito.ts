@@ -135,6 +135,9 @@ export class CognitoAuth implements AuthPort {
       ...(this.ac.COGNITO_DOMAIN ? { hostedUiDomain: this.ac.COGNITO_DOMAIN } : {}),
       passwordPolicy: { ...this.passwordPolicy },
       mfa: this.poolMfa ?? (this.ac.AUTH_MFA === 'off' ? 'off' : 'optional'),
+      // flows = null（总纲 4.2）：sdk 子模式由浏览器动态 import aws-amplify 直连 User Pool；SPA 客户端是公有客户端（无密钥）
+      loginMode: this.ac.COGNITO_LOGIN_MODE === 'managed' ? 'managed' : 'amplify',
+      publicClientId: this.clientId,
     };
   }
 

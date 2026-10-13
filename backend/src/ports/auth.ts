@@ -19,6 +19,10 @@ export interface AuthPublicConfig {                 // 经 /api/capabilities 下
   userPoolId?: string; userPoolClientId?: string; region?: string; hostedUiDomain?: string;
   passwordPolicy: { minLength: number; requireUpper: boolean; requireDigit: boolean; requireSymbol: boolean };
   mfa: 'off' | 'optional' | 'required';
+  /** integration 细化（可选）：前端登录方式。local = 本站表单（BFF）；cognito：sdk 子模式 = 浏览器经 Amplify 直连 User Pool（'amplify'），
+   *  managed = 托管登录页。publicClientId = 不带密钥的 SPA App Client（infra 的 auth.yaml 只创建这种客户端） */
+  loginMode?: 'embedded' | 'amplify' | 'managed';
+  publicClientId?: string;
 }
 
 /** 只有本地驱动提供：注册、登录、找回密码等流程由 EC2 处理 */

@@ -1,14 +1,31 @@
-// backend/src/http/routes/me.ts —— GET /api/me（当前用户）、/api/me/outbox（只显示收件人是本人的 outbox 邮件，email=outbox）
-// 脚手架桩：下列路径一律返回 501。由「L0 本地实现者」实现（保持 register(app, c) 的签名；具体路由按需细化）。
+// backend/src/http/routes/me.ts —— GET /api/me（当前用户）、/api/me/outbox*（本人邮件预览，email=outbox；处理器在 routes/auth.ts）
+//
+// - GET /api/me：Principal → users 行（local 按主键；cognito 按 sub JIT 建档，services/user-directory.ts）→ toMe()。
+//   未验证邮箱的受限会话也能读（restricted=true），前端据此提示去 /me/outbox 点验证链接。
+// - /api/me/outbox、/api/me/outbox/:id：routes/auth.ts 的 registerSelfOutbox()（总纲 §11 把 /me/outbox 放在 me.ts）。
 import type { Express } from 'express';
 import type { Container } from '../../container.js';
-import { notImplementedRoute } from './_stub.js';
+import { currentContext } from '../../observability/request-context.js';
+import { toMe, UserDirectory } from '../../services/user-directory.js';
+import { requireAuth } from '../middleware/auth.js';
+import { registerSelfOutbox } from './auth.js';
 
 export const PATHS = [
   '/api/me',
   '/api/me/*rest',
 ] as const;
 
-export function register(app: Express, _c: Container): void {
-  app.all([...PATHS], notImplementedRoute('me'));
+export function register(app: Express, c: Container): void {
+  registerSelfOutbox(app, c);
+  const directory = new UserDirectory(c.db);
+
+  app.get('/api/me', requireAuth, async (_req, res) => {
+    const principal = currentContext()!.principal!;
+    const user = await directory.ensureUser(principal);
+    res.set('Cache-Control', 'private, no-store').json(toMe(user, principal));
+  });
+
+  app.all('/api/me/*rest', (req, res) => {
+    res.status(404).json({ error: 'NOT_FOUND', path: req.path });
+  });
 }

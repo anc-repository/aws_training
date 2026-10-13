@@ -10,7 +10,9 @@
 //   keys:fingerprint        打印 LOCAL_MASTER_KEY 的指纹（scripts/module 在替换实例前后比对）
 //   keys:check-fingerprint  与数据库 system_meta 中的记录比对，不一致退出 78（CFG-007）
 //   dev:init                在开发机上生成本地运行目录（.cloudalbum/dev：env、机密、ES256 密钥、数据目录）
-//   migrate-module | job run | lab:*   已登记，由后续实现者填充
+//   job run <name>          手动执行一次定时任务（trigger=manual；与 worker 同一份注册表与锁）
+//   lab:compact             把 2 天前的 lab_metric_rollups 压缩为小时级
+//   migrate-module          已登记，由后续实现者填充（scripts/migrate）
 import { generateKeyPairSync, randomBytes } from 'node:crypto';
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
@@ -22,6 +24,9 @@ import { DEFAULT_ENV_DIR, validateConfig } from './config/validate.js';
 import { createKnex, migrateLatest } from './db/knex.js';
 import { ConfigValidationError, EX_CONFIG } from './errors.js';
 import { DEFAULT_RUNTIME_CONFIG } from './ports/config.js';
+import { registerScheduledJobs, bindJobs } from './jobs/index.js';
+import type { ScheduledJobName } from './ports/scheduler.js';
+import { compactRollups } from './repositories/lab.js';
 import { countAdmins, findUserByEmail, insertUser } from './repositories/users.js';
 import { printConfigReport } from './rules/engine.js';
 
@@ -265,8 +270,26 @@ function buildProgram(): Command {
     .description('定时任务')
     .command('run <name>')
     .description('手动执行一次定时任务（trigger=manual）')
-    .action(todo('job run'));
-  program.command('lab:compact').description('把 2 天前的 lab_metric_rollups 压缩为小时级').action(todo('lab:compact'));
+    .addOption(envDirOption())
+    .action(async (name: string, opts: { envDir?: string }) => {
+      await withContainer(opts, async (c) => {
+        bindJobs(c);
+        registerScheduledJobs(c);
+        const run = await c.scheduler.triggerNow(name as ScheduledJobName);
+        out(JSON.stringify(run));
+        if (run.status === 'failed') process.exitCode = 1;
+      });
+    });
+  program.command('lab:compact')
+    .description('把 2 天前的 lab_metric_rollups 压缩为小时级')
+    .addOption(envDirOption())
+    .option('--days <n>', '压缩多少天以前的分钟级汇总', '2')
+    .action(async (opts: { envDir?: string; days: string }) => {
+      await withContainer(opts, async (c) => {
+        const r = await compactRollups(c.db, new Date(Date.now() - Number(opts.days) * 86_400_000));
+        out(`lab:compact：${r.minuteRows} 行分钟级 → ${r.hourRows} 行小时级`);
+      });
+    });
 
   return program;
 }

@@ -29,6 +29,11 @@ export function isLoopback(value: string | undefined | null): boolean {
   if (!host) return false;
   if (LOOPBACK_NAMES.has(host)) return true;
   if (isIP(host) === 4) return host.startsWith('127.');
-  if (isIP(host) === 6) return host === '::1' || host === '0:0:0:0:0:0:0:1';
+  if (isIP(host) === 6) {
+    if (host === '::1' || host === '0:0:0:0:0:0:0:1') return true;
+    // IPv4 映射地址（监听 :: 时 Nginx 经 127.0.0.1 连进来，Node 看到 ::ffff:127.0.0.1）
+    const mapped = /^(?:::|0:0:0:0:0:)ffff:(\d+\.\d+\.\d+\.\d+)$/.exec(host);
+    return Boolean(mapped && mapped[1]!.startsWith('127.'));
+  }
   return false;
 }

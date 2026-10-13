@@ -14,6 +14,7 @@ import { HttpError, isNotImplemented, NotImplementedError } from '../errors.js';
 import { bypassGuard } from '../observability/bypass.js';
 import { FaultInjectedError } from '../observability/faults.js';
 import { currentContext } from '../observability/request-context.js';
+import { auditBypass } from './middleware/audit.js';
 import { authenticate } from './middleware/auth.js';
 import { observability } from './middleware/observability.js';
 import { readOnlyGuard } from './middleware/readonly.js';
@@ -25,6 +26,7 @@ import * as capabilityRoutes from './routes/capabilities.js';
 import * as healthRoutes from './routes/health.js';
 import * as internalHookRoutes from './routes/internal-hooks.js';
 import * as jwksRoutes from './routes/jwks.js';
+import * as labModuleRoutes from './routes/lab-modules.js';
 import * as labRoutes from './routes/lab.js';
 import * as meRoutes from './routes/me.js';
 import * as mediaRoutes from './routes/media.js';
@@ -43,7 +45,7 @@ declare module 'express-serve-static-core' {
 /** 路由注册顺序：具体路径在前；internal-hooks 最后（它兜住其余 /internal/*）。 */
 export const ROUTE_MODULES = [
   healthRoutes, capabilityRoutes, jwksRoutes, authRoutes, meRoutes, albumRoutes, photoRoutes, uploadRoutes,
-  mediaRoutes, socialRoutes, notificationRoutes, adminRoutes, labRoutes, internalHookRoutes,
+  mediaRoutes, socialRoutes, notificationRoutes, adminRoutes, labModuleRoutes, labRoutes, internalHookRoutes,
 ] as const;
 
 export function createApp(c: Container): Express {
@@ -63,7 +65,7 @@ export function createApp(c: Container): Express {
   app.use(bypassGuard({
     runtime: () => c.runtimeConfig(),
     cache: () => c.cache,
-    audit: (entry) => c.logger.info('lab.bypass', { ...entry }),   // TODO(L0)：写 audit_log（repositories/audit.ts）
+    audit: auditBypass(c),                                          // 旁路请求写 audit_log（总纲 8.3 第 6 条）
   }));
   app.use(readOnlyGuard(c));
   app.use((_req, _res, next) => {

@@ -10,7 +10,7 @@ import type { Knex } from 'knex';
 import { lazyAwsClients, type AwsClients } from './adapters/aws/clients.js';
 import { pickLock } from './adapters/lock/index.js';
 import type { AdapterDeps } from './adapters/types.js';
-import { checkKeyFingerprint } from './config/key-fingerprint.js';
+import { checkKeyFingerprint, keyFingerprint } from './config/key-fingerprint.js';
 import type { EnvLayers } from './config/load-env.js';
 import { storageLocalRoot, type AppConfig } from './config/schema.js';
 import { validateConfig } from './config/validate.js';
@@ -18,6 +18,7 @@ import { createKnex, databasePathValue, instrumentKnex, migrateLatest } from './
 import { ConfigValidationError, isNotImplemented } from './errors.js';
 import { CapabilityRegistry } from './modules/capabilities.js';
 import { databaseProbe } from './modules/database-probe.js';
+import { Ec2Detector } from './modules/detectors/ec2.js';
 import { DETECTORS } from './modules/detectors/index.js';
 import type { Detector } from './modules/detectors/types.js';
 import { startLoop, type LoopHandle } from './modules/probe-loop.js';
@@ -31,6 +32,8 @@ import type * as P from './ports/index.js';
 import type { ModuleId } from './ports/common.js';
 import { DEFAULT_RUNTIME_CONFIG } from './ports/config.js';
 import { insertCapabilityEvent, labMetricsDbSink } from './repositories/lab.js';
+import { getMeta, META_KEYS } from './repositories/system-meta.js';
+import type { PipelineDeps } from './services/photo-pipeline.js';
 import { printConfigReport, runRules, type Verdict, type RuntimeObservations } from './rules/engine.js';
 import { RULES } from './rules/rules.js';
 
@@ -195,7 +198,11 @@ export async function buildContainer(role: ProcessRole, opts: BuildContainerOpti
   }
 
   // 4) 凭证先行：iam 的驱动决定 SDK 客户端用哪种凭证；none 时 lazyAwsClients 拒绝创建任何客户端
-  const base: AdapterDeps = { cfg, env: layers.merged, aws: lazyAwsClients({ region: cfg.core.AWS_REGION, credentials: null }), role, labMetrics };
+  //    AWS_ENDPOINT_URL（只用于开发机上的 LocalStack / MinIO 自测）覆盖全部客户端的端点，S3 改用路径风格
+  const endpoint = cfg.core.AWS_ENDPOINT_URL || undefined;
+  if (endpoint && cfg.core.NODE_ENV === 'production') bootLog.warn('AWS_ENDPOINT_URL 已设置：全部 AWS SDK 客户端发往该端点（只应在开发机自测时使用）', { endpoint });
+  const clientOpts = { region: cfg.core.AWS_REGION, ...(endpoint ? { endpoint, forcePathStyle: true } : {}) };
+  const base: AdapterDeps = { cfg, env: layers.merged, aws: lazyAwsClients({ ...clientOpts, credentials: null }), role, labMetrics };
   const awsCreds = await make<P.AwsCredentialsPort>('iam', cfg.core.IAM_CREDENTIALS, base, { instrument: false });
   let provider: ReturnType<P.AwsCredentialsPort['provider']> = null;
   try {
@@ -204,7 +211,7 @@ export async function buildContainer(role: ProcessRole, opts: BuildContainerOpti
     if (!isNotImplemented(e)) throw e;
     bootLog.warn('AwsCredentialsPort.provider() 尚未实现，AWS 客户端不可用', { driver: cfg.core.IAM_CREDENTIALS });
   }
-  const aws = lazyAwsClients({ region: cfg.core.AWS_REGION, credentials: provider });   // 第一次用到某个客户端时才 import SDK 包
+  const aws = lazyAwsClients({ ...clientOpts, credentials: provider });   // 第一次用到某个客户端时才 import SDK 包
   const d: AdapterDeps = { ...base, aws };
 
   // 5) 有先后依赖的部分：密钥 → 日志 → 数据库（含 dbRead、密钥指纹）→ 缓存 → 锁
@@ -227,7 +234,7 @@ export async function buildContainer(role: ProcessRole, opts: BuildContainerOpti
     throw new Error('数据库尚未迁移：先执行 node dist/cli.js db:migrate');
   }
   await checkKeyFingerprint(db, d.secrets, logger);                   // CFG-007：不一致 → ConfigValidationError（退出 78）
-  caps.registerProbe('database', (o) => databaseProbe(db, cfg, { ...(o.deep ? { deep: true } : {}), dbRead }));
+  caps.registerProbe('database', (o) => databaseProbe(db, cfg, { ...(o.deep ? { deep: true } : {}), dbRead, ...(aws.enabled ? { aws } : {}) }));
 
   const cache = await make<P.CachePort>('cache', driverOf(env, 'cache'), d);
   d.cache = cache;
@@ -277,9 +284,31 @@ export async function buildContainer(role: ProcessRole, opts: BuildContainerOpti
   };
   caps.setRuntimeConfigProvider(runtimeConfig);
 
+  // WorkflowPort(inline) 的进程内编排需要完整的 PipelineDeps（含 inline 旁路处理器与社交端口）：容器装配完后注入
+  const pipeline: PipelineDeps = {
+    cfg, db, storage, images, inlineImages, queue, tagger, notifier, cache, social, crypto, logger, metrics, workflow, runtimeConfig,
+  };
+  (workflow as Partial<{ attachPipeline(pd: PipelineDeps): void }>).attachPipeline?.(pipeline);
+
   // 7) 感知器（参数型模块的端口已在上面创建）
   const detectors = DETECTORS.map((f) => f.create({ cfg, env, aws }));
   for (const det of detectors) caps.registerDetector(det);
+  // cdn=cloudfront 的探针合并感知器的被动统计、DEP-028 与 GetDistribution
+  const cdnDet = detectors.find((x) => x.module === 'cdn');
+  if (cdnDet) (cdn as Partial<{ attachDetector(det: Detector): void }>).attachDetector?.(cdnDet);
+  // ec2 感知器的密钥指纹检查项（self-check 与冒烟测试展示；不一致时启动已被 CFG-007 拦截）
+  const ec2 = detectors.find((x): x is Ec2Detector => x instanceof Ec2Detector);
+  ec2?.attach({
+    keyFingerprint: async () => {
+      const key = await d.secrets!.get('local-master-key').catch(() => '');
+      if (!key) return { ok: true, detail: 'LOCAL_MASTER_KEY 未配置（跳过）' };
+      const fp = keyFingerprint(key);
+      const recorded = await getMeta(db, META_KEYS.localMasterKeyFingerprint).catch(() => undefined);
+      return recorded && recorded !== fp
+        ? { ok: false, detail: `指纹 ${fp} 与 system_meta 记录 ${recorded} 不一致`, fingerprint: fp }
+        : { ok: true, detail: `指纹 ${fp}${recorded ? ' 与 system_meta 一致' : '（尚未记录）'}`, fingerprint: fp };
+    },
+  });
 
   // 实例身份：X-CloudAlbum-Path 的 inst / az（autoscaling 的 single 驱动从 IMDS 读出；未实现或不在 EC2 上时用主机名）
   try {
@@ -295,6 +324,9 @@ export async function buildContainer(role: ProcessRole, opts: BuildContainerOpti
   } catch {
     caps.setPublic('auth', { driver: driverOf(env, 'auth') });
   }
+
+  // cdn 的公开配置：前端 /lab 与 experiments 的 cdn 场景用 baseUrl（直连地址只在管理员视图的 data 中）
+  if (cdn.baseUrl) caps.setPublic('cdn', { baseUrl: cdn.baseUrl });
 
   labMetrics.setSink(labMetricsDbSink(db));
   caps.onTransition((e) => {
@@ -332,7 +364,7 @@ export async function buildContainer(role: ProcessRole, opts: BuildContainerOpti
       caps.stopProbeLoop();
       for (const l of loops) l.stop();
       await labMetrics.stop().catch(() => undefined);
-      await Promise.allSettled([queue.close?.(), cache.close?.(), analytics.close?.(), metrics.flush(), loggerPort.flush()]);
+      await Promise.allSettled([queue.close?.(), cache.close?.(), analytics.close?.(), images.close?.(), awsCreds.close?.(), metrics.flush(), loggerPort.flush()]);
       if (dbRead !== db) await dbRead.destroy().catch(() => undefined);
       await db.destroy().catch(() => undefined);
       aws.destroy();

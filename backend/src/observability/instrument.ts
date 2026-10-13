@@ -20,6 +20,8 @@ export interface PortCallEvent {
   ms: number;
   ok: boolean;
   error?: unknown;
+  /** 失败但属于调用方的问题（4xx 的 HttpError、永久性错误、对象不存在）：不计入被动健康信号 */
+  clientError?: boolean;
   /** 是否在 HTTP 请求上下文中 */
   inRequest: boolean;
   runId?: string;
@@ -37,8 +39,12 @@ export const UNTIMED_METHODS: ReadonlySet<string> = new Set([
   'publicConfig', 'jwks', 'current', 'describeSource', 'internalRedirectPath', 'mediaUrl',
   // 阻塞或包含其他端口调用
   'wrap', 'consume', 'bind', 'start', 'register', 'drain',
-  // 回调注册
-  'onChange', 'onRotate', 'onTerminating',
+  // 回调注册与装配期注入
+  'onChange', 'onRotate', 'onTerminating', 'attachPipeline', 'attachDetector',
+  // 阻塞的结果队列轮询器（image-processing=lambda 的 consumeResults）
+  'consumeResults',
+  // 内部组件复用连接（LockPort(redis) 取 RedisCache 的客户端）
+  'redisClient',
   // Logger / Metrics / Tracer 的热路径（这些端口默认不套代理）
   'log', 'debug', 'info', 'warn', 'error', 'child', 'flush', 'counter', 'histogram', 'gauge',
   'startSpan', 'withSpan', 'currentTraceId', 'inject', 'extract',
@@ -49,6 +55,15 @@ export interface InstrumentOptions {
   faults?: FaultRegistry;
   /** 额外不计时的方法 */
   untimed?: readonly string[];
+}
+
+/** 4xx 的 HttpError、`permanent: true` 的错误（坏图片等）与“对象不存在”是调用方的问题，不说明端口不健康 */
+export function isClientError(e: unknown): boolean {
+  if (typeof e !== 'object' || e === null) return false;
+  const x = e as { status?: unknown; permanent?: unknown; name?: unknown; code?: unknown };
+  if (x.permanent === true) return true;
+  if (typeof x.status === 'number' && x.status >= 400 && x.status < 500) return true;
+  return x.name === 'ObjectNotFoundError' || x.code === 'OBJECT_NOT_FOUND';
 }
 
 function isPromiseLike(v: unknown): v is PromiseLike<unknown> {
@@ -94,7 +109,8 @@ export function instrument<T extends Adapter>(adapter: T, opts: InstrumentOption
           const ms = performance.now() - t0;
           ctx?.timing.add(module, ms);
           emit({
-            module, driver, method: prop, ms, ok, ...(error !== undefined ? { error } : {}), inRequest: Boolean(ctx),
+            module, driver, method: prop, ms, ok, ...(error !== undefined ? { error, ...(isClientError(error) ? { clientError: true } : {}) } : {}),
+            inRequest: Boolean(ctx),
             ...(ctx?.experiment ? { runId: ctx.experiment.runId, ...(ctx.experiment.label ? { label: ctx.experiment.label } : {}) } : {}),
           });
         };

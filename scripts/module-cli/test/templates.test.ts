@@ -3,7 +3,7 @@ import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { classifyOutput } from '../src/outputs.js';
 import { IMPLEMENTED_MODULES, MODULE_IDS, REGISTRY } from '../src/registry.js';
-import { findExportsAndImports, loadTemplate, mainTemplatePath, type CfnTemplate } from '../src/template.js';
+import { findExportsAndImports, loadTemplate, mainTemplatePath, parseTemplate, staticOutputValue, type CfnTemplate } from '../src/template.js';
 import { REPO_ROOT } from './helpers.js';
 
 const TEMPLATES = readdirSync(path.join(REPO_ROOT, 'infra', 'modules')).filter((f) => f.endsWith('.yaml'));
@@ -144,5 +144,25 @@ describe('ec2 base stack (00-ec2-base.md 6.2 / 6.6)', () => {
     expect(JSON.stringify(a.Properties?.Volumes)).toContain('/dev/sdf');
     expect(JSON.stringify(a.Properties?.UserData)).toContain('l0-bootstrap.sh all');
     expect(JSON.stringify(a.Properties?.UserData)).not.toMatch(/SECRET|PASSWORD|HMAC/);
+  });
+});
+
+describe('staticOutputValue（--dry-run 计划校验用的部署前输出值）', () => {
+  it('字面量、!Ref 参数默认值，以及只依赖参数的 !If（auth / cache 的枚举型 Env 输出）', () => {
+    expect(staticOutputValue(load('auth.yaml'), 'EnvCognitoTriggers')).toBe('off');
+    expect(staticOutputValue(load('auth.yaml'), 'EnvCognitoTriggers', { EnableTriggers: 'true' })).toBe('on');
+    expect(staticOutputValue(load('cache.yaml'), 'EnvRedisClientMode')).toBe('single');
+    expect(staticOutputValue(load('cache.yaml'), 'EnvRedisClientMode', { CacheMode: 'serverless' })).toBe('cluster');
+    const t = parseTemplate([
+      'Parameters: { A: { Type: String, Default: x }, B: { Type: String } }',
+      'Conditions: { IsX: !Equals [!Ref A, x], Both: !And [!Condition IsX, !Not [!Equals [!Ref A, y]]], Unknown: !Equals [!Ref B, z] }',
+      'Outputs:',
+      '  O1: { Value: !If [Both, first, second] }',
+      '  O2: { Value: !If [Unknown, first, second] }',
+      '  O3: { Value: !GetAtt R.Arn }',
+    ].join('\n'));
+    expect(staticOutputValue(t, 'O1')).toBe('first');
+    expect(staticOutputValue(t, 'O2')).toBeUndefined();
+    expect(staticOutputValue(t, 'O3')).toBeUndefined();
   });
 });

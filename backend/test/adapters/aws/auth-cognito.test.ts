@@ -116,6 +116,8 @@ describe('CognitoAuth 其他端口方法', () => {
       driver: 'cognito', userPoolId: POOL, userPoolClientId: CLIENT, region: 'ap-northeast-1',
       hostedUiDomain: 'cloudalbum-lab-123.auth.ap-northeast-1.amazoncognito.com',
       passwordPolicy: { minLength: 12, requireUpper: true, requireDigit: true, requireSymbol: true }, mfa: 'optional',
+      // integration：sdk 子模式 = 浏览器经 Amplify 直连（前端 authMode 'amplify'）；SPA 客户端是无密钥的公有客户端
+      loginMode: 'amplify', publicClientId: CLIENT,
     });
   });
 

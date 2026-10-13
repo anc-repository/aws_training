@@ -198,3 +198,62 @@ export async function listCapabilityEvents(db: Knex, f: { module?: string; since
   if (f.since) q.where('ts', '>=', f.since);
   return ((await q) as Array<Record<string, unknown>>).map((r) => ({ ...r, id: Number(r.id) }));
 }
+
+// ------------------------------------------------------------------------------------------------
+// lab.compact（定时任务，jobs/schedule.ts）：把 before 之前的分钟级汇总压缩为小时级
+// ------------------------------------------------------------------------------------------------
+
+type RollupRow = Record<string, unknown>;
+
+const GROUP_COLS = ['instance_id', 'role', 'kind', 'route', 'method', 'path_sig', 'module', 'driver', 'op', 'run_id', 'label'] as const;
+
+function hourOf(minute: string): string {
+  return `${minute.slice(0, 13)}:00:00.000Z`;
+}
+
+/**
+ * 同一小时、同一维度（实例、角色、路由 / 端口、实验 runId 与标签）的分钟行合并为一行 granularity=hour：
+ * count / errors / sum_ms 相加，max_ms 取最大，直方图逐桶相加。每批最多 batchSize 行，在事务内“插入小时行 + 删除分钟行”。
+ * 返回压缩掉的分钟行数与写入的小时行数。
+ */
+export async function compactRollups(db: Knex, before: Date, opts: { batchSize?: number } = {}): Promise<{ minuteRows: number; hourRows: number }> {
+  const cutoff = before.toISOString();
+  const batchSize = opts.batchSize ?? 5000;
+  let minuteRows = 0;
+  let hourRows = 0;
+  for (;;) {
+    const rows = (await db('lab_metric_rollups')
+      .where('granularity', 'minute').andWhere('minute', '<', cutoff)
+      .orderBy('id', 'asc').limit(batchSize)) as RollupRow[];
+    if (!rows.length) break;
+    const groups = new Map<string, { base: RollupRow; count: number; errors: number; sum: number; max: number; hist: number[] }>();
+    for (const r of rows) {
+      const hour = hourOf(String(r.minute));
+      const key = JSON.stringify([hour, ...GROUP_COLS.map((c) => r[c] ?? null)]);
+      const hist = jsonIn<number[]>(r.hist, []) ?? [];
+      let g = groups.get(key);
+      if (!g) {
+        g = { base: { ...Object.fromEntries(GROUP_COLS.map((c) => [c, r[c] ?? null])), minute: hour }, count: 0, errors: 0, sum: 0, max: 0, hist: [] };
+        groups.set(key, g);
+      }
+      g.count += Number(r.count ?? 0);
+      g.errors += Number(r.errors ?? 0);
+      g.sum += Number(r.sum_ms ?? 0);
+      g.max = Math.max(g.max, Number(r.max_ms ?? 0));
+      hist.forEach((n, i) => { g!.hist[i] = (g!.hist[i] ?? 0) + Number(n ?? 0); });
+    }
+    const inserts = [...groups.values()].map((g) => ({
+      ...g.base, granularity: 'hour', count: g.count, errors: g.errors, sum_ms: g.sum, max_ms: g.max,
+      hist: jsonOut(Array.from(g.hist, (n) => n ?? 0)),
+    }));
+    const ids = rows.map((r) => r.id as number | string);
+    await db.transaction(async (trx) => {
+      for (let i = 0; i < inserts.length; i += 50) await trx('lab_metric_rollups').insert(inserts.slice(i, i + 50));
+      for (let i = 0; i < ids.length; i += 500) await trx('lab_metric_rollups').whereIn('id', ids.slice(i, i + 500)).del();
+    });
+    minuteRows += rows.length;
+    hourRows += inserts.length;
+    if (rows.length < batchSize) break;
+  }
+  return { minuteRows, hourRows };
+}

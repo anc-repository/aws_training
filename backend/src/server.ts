@@ -6,11 +6,17 @@
 import type { Server } from 'node:http';
 import { buildContainer, type Container } from './container.js';
 import { createApp } from './http/app.js';
+import { bindJobs, registerScheduledJobs, startJobConsumers } from './jobs/index.js';
 import { onShutdown, runMain } from './main.js';
 
-/** api 进程内的后台工作（memory 队列消费者等）；脚手架阶段为空 */
-async function startApiLoops(_c: Container, _signal: AbortSignal): Promise<void> {
-  // TODO(queue / L0)：bindJobs(c); if (c.config.queue.QUEUE_DRIVER === 'memory') void c.queue.consume({ concurrency, signal })
+/**
+ * api 进程内的后台工作：bind 全部任务 handler（sync 驱动入队即执行）；QUEUE_DRIVER=memory 时在本进程消费本进程入队的任务
+ * （sqs 只在 worker 消费）；登记定时任务但不调度（管理员“立即运行”= SchedulerPort.triggerNow 需要它，调度由 worker 负责）。
+ */
+async function startApiLoops(c: Container, signal: AbortSignal): Promise<void> {
+  bindJobs(c);
+  registerScheduledJobs(c);
+  startJobConsumers(c, signal);
 }
 
 await runMain('cloudalbum-api', async () => {

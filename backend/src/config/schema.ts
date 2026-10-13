@@ -45,6 +45,9 @@ export const Core = z.object({
   HOST: z.string().default('127.0.0.1'),                            // Nginx 反向代理到 127.0.0.1:3000
   AWS_REGION: z.string().regex(/^[a-z]{2}(-[a-z]+)+-\d$/).default('ap-northeast-1'),
   APP_BASE_URL: z.url().default('http://localhost:3000'),
+  // 仅开发机 / 集成自测：所有 AWS SDK 客户端的端点覆盖（LocalStack、MinIO 等；S3 自动改用路径风格）。EC2 上留空；
+  // NODE_ENV=production 下设置了它时 container 启动告警（integration 小节）
+  AWS_ENDPOINT_URL: optUrl,
   DEPLOY_MODE: z.enum(['single', 'asg']).default('single'),           // autoscaling（参数型）
   IAM_CREDENTIALS: z.enum(['none', 'role', 'keys']).default('none'),  // iam（D1）
   CDN_BASE_URL: optUrl,                                 // cdn（参数型）

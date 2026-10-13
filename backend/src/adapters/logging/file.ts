@@ -90,10 +90,14 @@ export class FileLogger implements LoggerPort {
     const p = this.ensureOpen();
     const ctx = currentContext();
     const inst = instanceIdentity().instanceId;
+    // role、pid 已在 pino 的 base 中；容器的 safeLogger 也会带 role —— 去掉重复键，避免同一行 JSON 出现两次 "role"
+    const rest = serializeFields(fields);
+    if (rest.role === this.deps.role) delete rest.role;
+    if (rest.pid === process.pid) delete rest.pid;
     p[level]({
       ...(inst ? { instanceId: inst } : {}),
       ...(ctx ? { requestId: ctx.requestId } : {}),
-      ...serializeFields(fields),
+      ...rest,
     }, msg);
     this.written += 1;
   }

@@ -100,15 +100,56 @@ export function noEchoParameters(t: CfnTemplate): string[] {
  * Value of an output that is known before deployment: a literal, or `!Ref <Parameter>` (given value or Default).
  * undefined = only CloudFormation knows it (resource attributes, Sub, If ...).
  */
-export function staticOutputValue(t: CfnTemplate, name: string, params: Readonly<Record<string, string>> = {}): string | undefined {
-  const v = t.Outputs[name]?.Value;
-  if (typeof v === 'string' || typeof v === 'number') return String(v);
+/** 只依赖参数（含默认值）与字面量的值：字面量、`!Ref 参数`；无法静态求值时返回 undefined */
+function staticScalar(t: CfnTemplate, v: unknown, params: Readonly<Record<string, string>>): string | undefined {
+  if (typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean') return String(v);
   if (v && typeof v === 'object' && 'Ref' in v && typeof (v as { Ref: unknown }).Ref === 'string') {
     const ref = (v as { Ref: string }).Ref;
     const p = t.Parameters[ref];
     if (!p) return undefined;
     if (ref in params) return params[ref];
     return p.Default !== undefined ? String(p.Default) : undefined;
+  }
+  return undefined;
+}
+
+/** 只依赖参数的条件（Fn::Equals / Not / And / Or / Condition）；无法静态求值时返回 undefined */
+export function staticCondition(t: CfnTemplate, cond: unknown, params: Readonly<Record<string, string>> = {}, depth = 0): boolean | undefined {
+  if (depth > 10 || !cond || typeof cond !== 'object') return undefined;
+  const o = cond as Record<string, unknown>;
+  if (typeof o.Condition === 'string') return staticCondition(t, t.Conditions[o.Condition], params, depth + 1);
+  if (Array.isArray(o['Fn::Equals'])) {
+    const [a, b] = (o['Fn::Equals'] as unknown[]).map((x) => staticScalar(t, x, params));
+    return a === undefined || b === undefined ? undefined : a === b;
+  }
+  if (Array.isArray(o['Fn::Not'])) {
+    const r = staticCondition(t, (o['Fn::Not'] as unknown[])[0], params, depth + 1);
+    return r === undefined ? undefined : !r;
+  }
+  for (const [k, all] of [['Fn::And', true], ['Fn::Or', false]] as const) {
+    if (Array.isArray(o[k])) {
+      const rs = (o[k] as unknown[]).map((x) => staticCondition(t, x, params, depth + 1));
+      if (rs.some((r) => r === undefined)) return undefined;
+      return all ? rs.every(Boolean) : rs.some(Boolean);
+    }
+  }
+  return undefined;
+}
+
+/**
+ * 部署前就能确定的输出值：字面量、`!Ref 参数`（取传入值或默认值），以及条件只依赖参数的 `!If [条件, a, b]`
+ * （例如 auth 的 EnvCognitoTriggers、cache 的 EnvRedisClientMode：--dry-run 的计划校验需要合法的枚举值，不能用占位符）。
+ */
+export function staticOutputValue(t: CfnTemplate, name: string, params: Readonly<Record<string, string>> = {}): string | undefined {
+  const v = t.Outputs[name]?.Value;
+  const direct = staticScalar(t, v, params);
+  if (direct !== undefined) return direct;
+  if (v && typeof v === 'object' && Array.isArray((v as Record<string, unknown>)['Fn::If'])) {
+    const [condName, a, b] = (v as { 'Fn::If': unknown[] })['Fn::If'];
+    if (typeof condName !== 'string') return undefined;
+    const c = staticCondition(t, t.Conditions[condName], params);
+    if (c === undefined) return undefined;
+    return staticScalar(t, c ? a : b, params);
   }
   return undefined;
 }

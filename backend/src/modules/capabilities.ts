@@ -206,7 +206,7 @@ export class CapabilityRegistry implements CallObserver {
   // ------------------------------------------------------------------------------------------
   onCall(e: PortCallEvent): void {
     const s = this.states.get(e.module);
-    if (!s || e.ok) return;
+    if (!s || e.ok || e.clientError) return;
     const nowMs = this.now().getTime();
     s.callFailures = s.callFailures.filter((t) => nowMs - t < PASSIVE_WINDOW_MS);
     s.callFailures.push(nowMs);

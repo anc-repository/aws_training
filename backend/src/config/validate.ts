@@ -46,11 +46,15 @@ export async function validateConfig(opts: ValidateOptions): Promise<ConfigValid
   const processEnv = opts.processEnv ?? process.env;
   const envDir = opts.envDir ?? processEnv.CLOUDALBUM_ENV_DIR ?? DEFAULT_ENV_DIR;
   const layers = opts.layers ?? (await loadEnvLayers(envDir, { processEnv, registry: REGISTRY }));
-  const parsed = parseConfig({ ...layers.merged, CLOUDALBUM_ROLE: opts.role },
-    opts.checkImplemented === undefined ? {} : { checkImplemented: opts.checkImplemented });
-  const verdict = parsed.config
+  const input = { ...layers.merged, CLOUDALBUM_ROLE: opts.role };
+  const parsed = parseConfig(input, opts.checkImplemented === undefined ? {} : { checkImplemented: opts.checkImplemented });
+  // 只有“未实现的驱动”（CFG-001）时结构本身是合法的：照样运行规则引擎，把语义错误（例如 ASG-002）一并列出（一次性打印全部错误）。
+  // parsed.config 仍为 undefined，container 照样拒绝启动。
+  const onlyImplementation = !parsed.config && parsed.errors.length > 0 && parsed.errors.every((e) => e.section === 'implementation');
+  const structural = onlyImplementation ? parseConfig(input, { checkImplemented: false }) : parsed;
+  const verdict = structural.config
     ? runRules(RULES, {
-      cfg: parsed.config, env: parsed.effective, layers, role: opts.role,
+      cfg: structural.config, env: structural.effective, layers, role: opts.role,
       ...(opts.lockScope ? { lockScope: opts.lockScope } : {}),
     }, { phases: opts.phases ?? ['startup'] })
     : layerIssuesVerdict(layers);

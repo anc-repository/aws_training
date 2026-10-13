@@ -1,5 +1,5 @@
-// http/app.ts 冒烟：用临时配置目录与 SQLite 文件装配完整容器（适配器仍是桩），验证中间件、能力接口、可观测性头与桩路由
-import { mkdtempSync } from 'node:fs';
+// http/app.ts 冒烟：用临时配置目录与 SQLite 文件装配完整的 L0 容器，验证中间件、能力接口、可观测性头与未实现路由的 501
+import { mkdtempSync, statfsSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -13,9 +13,11 @@ import { tempEnvDir } from '../helpers/config.js';
 
 let c: Container;
 let app: ReturnType<typeof createApp>;
+let dataDir: string;
 
 beforeAll(async () => {
   const data = mkdtempSync(path.join(os.tmpdir(), 'cloudalbum-data-'));
+  dataDir = data;
   const envDir = tempEnvDir({ base: { APP_BASE_URL: 'http://localhost:3000', CLOUDALBUM_DATA_DIR: data.replace(/\\/g, '/') } });
   c = await buildContainer('api', { envDir, processEnv: { NODE_ENV: 'test' } });
   app = createApp(c);
@@ -62,14 +64,20 @@ describe('L0 容器 + HTTP 骨架', () => {
   it('database 探针真实运行（SQLite），并计入请求的 Server-Timing', async () => {
     const res = await request(app).get('/api/capabilities').expect(200);
     const db = (res.body as CapabilitiesResponse).modules.database;
-    expect(db.localHealth).toBe('ok');
+    // 03#database 第 10 节：SQLite 数据卷剩余 < 15% 时 degraded——断言跟随本机磁盘水位，不与开发机的系统盘耦合
+    const st = statfsSync(dataDir);
+    const freePct = (Number(st.bavail) / Number(st.blocks)) * 100;
+    expect(db.localHealth).toBe(freePct < 15 ? 'degraded' : 'ok');
     expect(db.detail).toContain('SQLite');
   });
 
-  it('桩路由返回 501；未登记的 /internal/* 返回 404；未知 API 返回 404', async () => {
+  it('需要登录的接口返回 401；未登记的 /internal/* 与未知 API 返回 404', async () => {
     const r1 = await request(app).get('/api/albums').expect(401);   // albums 已实现（local-identity）：匿名访问需要登录
     expect(r1.body).toMatchObject({ error: 'UNAUTHENTICATED' });
-    await request(app).post('/api/photos/abc/complete').expect(501);
+    await request(app).post('/api/photos/abc/complete').expect(401);           // photos 已实现（local-media）
+    await request(app).get('/api/me').expect(401);                             // me 已实现（integration）
+    const jwks = await request(app).get('/.well-known/jwks.json');            // auth=local 发布 JWKS；本测试的配置目录没有签名密钥 → 503
+    expect([200, 503]).toContain(jwks.status);
     await request(app).post('/internal/hooks/image-processed').expect(404);   // IMAGE_PROCESSOR=inline：端点未启用
     await request(app).get('/internal/anything').expect(404);
     await request(app).get('/api/nope').expect(404);
