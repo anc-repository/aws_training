@@ -1,0 +1,16 @@
+node_modules/
+dist/
+build/
+coverage/
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+.aws-sam/
+cdk.out/
+experiments/results/
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
