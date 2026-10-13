@@ -1,40 +1,75 @@
 #!/usr/bin/env node
 // backend/src/worker.ts —— worker 进程入口（cloudalbum-worker.service）
 //
-// 职责（总纲 2.6）：定时任务（SCHEDULER_DRIVER=cron 的 node-cron；eventbridge 时轮询 tick 队列）、对账、
-// QUEUE_DRIVER=sqs 的消费者、模块自带队列的消费循环（image-processing 结果队列、workflow 结果队列、notification 收件队列、
-// email 反馈队列）、本地评估器（告警 / 安全分析 / 合规自检，LockPort 单例）、本地指标汇总写库（每 10 秒）。
-// 脚手架阶段：容器、探针与 LabMetricsStore 已运行；任务与消费循环由各实现者在 startWorkerLoops 中接入。
+// 职责（总纲 2.6；04 组公共约定 5：只装配当前配置需要的循环）：
+//   - 定时任务：SchedulerPort.register(jobs/schedule.ts 的注册表) + start()（cron 档 node-cron；eventbridge 档轮询 tick 队列）；
+//   - 队列消费：QUEUE_DRIVER=sqs 时消费应用任务队列；memory 时消费本进程（定时任务）入队的任务；
+//   - image-processing 的 lambda 档：结果 / 失败队列轮询器（lambda 适配器的 consumeResults()，
+//     拿到的结果交给 PhotoPipeline.handleImageOutcome 统一写回）；
+//   - 本地指标汇总写库（container.startBackground）。
 import { buildContainer, type Container } from './container.js';
 import { isNotImplemented } from './errors.js';
+import { bindJobs, registerScheduledJobs, startJobConsumers } from './jobs/index.js';
 import { onShutdown, runMain } from './main.js';
+import type { ImageFailure, ImageResult } from './ports/image-processor.js';
+import { handleImageOutcome, pipelineDeps } from './services/photo-pipeline.js';
 
-async function startWorkerLoops(c: Container, signal: AbortSignal): Promise<void> {
-  // TODO(L0 / scheduler)：c.scheduler.register(jobDefs(c))（jobs/*.ts 的 8 个 ScheduledJobName）
+/** lambda 适配器提供的结果队列轮询器（IMAGE_RESULT_CHANNEL=queue；同时轮询失败队列）；阻塞直到 signal 终止 */
+interface ImageResultConsumer {
+  consumeResults(opts: { signal: AbortSignal; apply?: (r: ImageResult | ImageFailure) => Promise<unknown> }): Promise<void>;
+}
+
+function hasResultConsumer(x: unknown): x is ImageResultConsumer {
+  return typeof (x as Partial<ImageResultConsumer>)?.consumeResults === 'function';
+}
+
+export async function startWorkerLoops(c: Container, signal: AbortSignal): Promise<void> {
+  // 1) 队列：两个进程都 bind；sqs / memory 在本进程消费
+  bindJobs(c);
+  startJobConsumers(c, signal);
+
+  // 2) 定时任务
   try {
+    registerScheduledJobs(c);
     void c.scheduler.start(signal).catch((e: unknown) => {
       if (!isNotImplemented(e)) c.logger.error('scheduler stopped', { error: e as Error });
     });
   } catch (e) {
     if (!isNotImplemented(e)) throw e;
+    c.logger.warn('scheduler 驱动尚未实现，定时任务未启动', { driver: c.config.scheduler.SCHEDULER_DRIVER });
   }
-  // TODO(queue)：if (c.config.queue.QUEUE_DRIVER === 'sqs') void c.queue.consume({ concurrency, signal })
-  // TODO(image-processing)：IMAGE_RESULT_CHANNEL=queue 时的结果队列轮询器
+
+  // 3) lambda 档：结果队列（queue 通道）与失败队列的轮询器；写回统一走 PhotoPipeline（幂等写回 + 打标签 + 通知）
+  if (c.config.image.IMAGE_PROCESSOR === 'lambda') {
+    if (hasResultConsumer(c.images)) {
+      const pd = pipelineDeps(c);
+      void c.images.consumeResults({ signal, apply: (r) => handleImageOutcome(pd, r) }).catch((e: unknown) => {
+        if (!isNotImplemented(e)) c.logger.error('image result consumer stopped', { error: e as Error });
+      });
+    } else {
+      c.logger.warn('image-processing(lambda) 未提供 consumeResults()，结果 / 失败队列不会被轮询');
+    }
+  }
 }
 
-await runMain('cloudalbum-worker', async () => {
-  const c = await buildContainer('worker');
-  const abort = new AbortController();
-  c.startBackground();
-  c.labMetrics.heartbeat('worker');
-  const heartbeat = setInterval(() => c.labMetrics.heartbeat('worker'), 10_000);
-  await startWorkerLoops(c, abort.signal);
-  c.logger.info('cloudalbum-worker started', { modules: c.capabilities.summary() });
+/** 被 vitest 导入（测试 startWorkerLoops）时不启动进程；作为入口执行（node dist/worker.js、tsx）时总是启动 */
+const imported = Boolean(process.env.VITEST);
 
-  onShutdown(async (signal) => {
-    c.logger.info('cloudalbum-worker shutting down', { signal });
-    abort.abort();
-    clearInterval(heartbeat);
-    await c.close();
+if (!imported) {
+  await runMain('cloudalbum-worker', async () => {
+    const c = await buildContainer('worker');
+    const abort = new AbortController();
+    c.startBackground();
+    c.labMetrics.heartbeat('worker');
+    const heartbeat = setInterval(() => c.labMetrics.heartbeat('worker'), 10_000);
+    await startWorkerLoops(c, abort.signal);
+    c.logger.info('cloudalbum-worker started', { modules: c.capabilities.summary() });
+
+    onShutdown(async (signal) => {
+      c.logger.info('cloudalbum-worker shutting down', { signal });
+      abort.abort();
+      clearInterval(heartbeat);
+      await c.close();
+    });
   });
-});
+}
