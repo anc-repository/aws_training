@@ -1,0 +1,36 @@
+# ATL-WorkstationSetup (03 §4.6): workstation wiring, sent by atl-lifecycle (WireWorkstation) after the workstation has
+# registered with SSM. Only the four bootstrap parameters; every other session fact comes from the agent context
+# (GET /api/v1/agent/sessions/{sid}/context). Parameters arrive as SSM_<Name> environment variables (ENV_VAR) and are
+# re-validated by /opt/atl/bin/atl-workstation-setup.sh. Exit code 3 = non-retryable rejection, 4 = temporarily unavailable.
+schemaVersion: '2.2'
+description: 'AWS Training Lab: wire the workstation to its session (learner CLI profile, session.env, session.json, SSH)'
+parameters:
+  SessionId:
+    type: String
+    description: 'ATL session id'
+    interpolationType: ENV_VAR
+    allowedPattern: '^s[0-9a-hjkmnp-tv-z]{12}$'
+  Region:
+    type: String
+    description: 'lab region'
+    interpolationType: ENV_VAR
+    allowedPattern: '^[a-z]{2}-[a-z]+-[0-9]$'
+  AgentApiEndpoint:
+    type: String
+    description: 'execute-api endpoint of the platform API (https://<apiId>.execute-api.<region>.amazonaws.com)'
+    interpolationType: ENV_VAR
+    allowedPattern: '^https://[a-z0-9]{10}\.execute-api\.[a-z]{2}-[a-z]+-[0-9]\.amazonaws\.com$'
+  PlatformOrigin:
+    type: String
+    description: 'origin of the platform web UI (https://<cloudfront or custom domain>)'
+    interpolationType: ENV_VAR
+    allowedPattern: '^https://[a-z0-9]([a-z0-9.-]{0,251}[a-z0-9])?$'
+mainSteps:
+  - action: aws:runShellScript
+    name: wireWorkstation
+    precondition:
+      StringEquals: [platformType, Linux]
+    inputs:
+      timeoutSeconds: '300'
+      runCommand:
+        - 'exec /opt/atl/bin/atl-workstation-setup.sh'

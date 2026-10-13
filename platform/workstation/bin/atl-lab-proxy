@@ -1,0 +1,44 @@
+#!/bin/bash
+# /opt/atl/bin/atl-lab-proxy — ssh ProxyCommand of "Host lab" (03 §4.8): looks up the lab instance on every connection
+# (atl:env-id + atl:role=lab-app + running + stack name of this environment), picks the private address when the lab
+# instance is in the workstation's VPC and the public address otherwise, then hands the connection to ncat.
+#   atl-lab-proxy <port>     ProxyCommand (ssh passes %p)
+#   atl-lab-proxy --reset    forget the lab host key (after the instance was replaced)
+set -euo pipefail
+known="${HOME}/.ssh/known_hosts_atl"
+if [ "${1:-}" = --reset ]; then
+  rm -f "$known"
+  echo "atl-lab-proxy: forgot the lab host keys (${known})" >&2
+  exit 0
+fi
+port="${1:-22}"
+[[ "$port" =~ ^[0-9]{1,5}$ ]] || { echo "atl-lab-proxy: bad port $port" >&2; exit 2; }
+[ -r /etc/atl/session.env ] || { echo "atl-lab-proxy: this workstation is not wired to a session" >&2; exit 1; }
+set -a
+# shellcheck disable=SC1091
+. /etc/atl/session.env
+set +a
+env_id="${ATL_ENV_ID:?}"
+env_name="${CLOUDALBUM_ENV:?}"
+json=$(aws ec2 describe-instances --region "${AWS_REGION:?}" --output json \
+  --filters "Name=tag:atl:env-id,Values=${env_id}" "Name=tag:atl:role,Values=lab-app" "Name=instance-state-name,Values=running")
+sel=$(printf '%s' "$json" | jq -r --arg p "cloudalbum-${env_name}-" '
+  [ .Reservations[].Instances[]
+    | select((.Tags // []) | any((.Key == "aws:cloudformation:stack-name" or .Key == "aws:autoscaling:groupName") and (.Value | startswith($p)))) ]
+  | sort_by(.LaunchTime) | .[0] // empty
+  | [.VpcId, (.PrivateIpAddress // ""), (.PublicIpAddress // "")] | @tsv')
+[ -n "$sel" ] || { echo "atl-lab-proxy: no running lab instance of environment ${env_name}" >&2; exit 1; }
+IFS=$'\t' read -r vpc private_ip public_ip <<<"$sel"
+token=$(curl -sS -m 3 -X PUT http://169.254.169.254/latest/api/token -H 'X-aws-ec2-metadata-token-ttl-seconds: 60')
+md() { curl -sS -m 3 -f -H "X-aws-ec2-metadata-token: ${token}" "http://169.254.169.254/latest/meta-data/$1"; }
+mac=$(md mac)
+my_vpc=$(md "network/interfaces/macs/${mac}/vpc-id")
+if [ "$vpc" = "$my_vpc" ] && [ -n "$private_ip" ]; then
+  addr="$private_ip"
+elif [ -n "$public_ip" ]; then
+  addr="$public_ip"
+else
+  echo "atl-lab-proxy: the lab instance has no address reachable from the workstation (private placement: use Session Manager)" >&2
+  exit 1
+fi
+exec ncat "$addr" "$port"

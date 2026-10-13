@@ -1,0 +1,375 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "AllowLabServices",
+      "Effect": "Allow",
+      "Action": [
+        "access-analyzer:Get*",
+        "access-analyzer:List*",
+        "acm:*",
+        "apigateway:*",
+        "application-autoscaling:*",
+        "athena:*",
+        "autoscaling:*",
+        "backup:*",
+        "backup-storage:*",
+        "budgets:*",
+        "ce:Describe*",
+        "ce:Get*",
+        "ce:List*",
+        "cloudformation:*",
+        "cloudfront:*",
+        "cloudshell:*",
+        "cloudtrail:*",
+        "cloudwatch:*",
+        "cognito-identity:*",
+        "cognito-idp:*",
+        "config:*",
+        "dynamodb:*",
+        "ec2:*",
+        "ec2-instance-connect:*",
+        "ec2messages:*",
+        "elasticache:*",
+        "elasticfilesystem:*",
+        "elasticloadbalancing:*",
+        "events:*",
+        "execute-api:*",
+        "firehose:*",
+        "glue:*",
+        "guardduty:*",
+        "health:Describe*",
+        "iam:*",
+        "imagebuilder:*",
+        "inspector2:*",
+        "kms:*",
+        "lambda:*",
+        "logs:*",
+        "pricing:*",
+        "rds:*",
+        "rds-db:*",
+        "rekognition:*",
+        "resource-groups:*",
+        "route53:*",
+        "s3:*",
+        "scheduler:*",
+        "secretsmanager:*",
+        "servicequotas:Get*",
+        "servicequotas:List*",
+        "ses:*",
+        "sns:*",
+        "sqs:*",
+        "ssm:*",
+        "ssmmessages:*",
+        "states:*",
+        "sts:*",
+        "tag:*",
+        "wafv2:*",
+        "xray:*"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "DenyOtherRegions",
+      "Effect": "Deny",
+      "NotAction": [
+        "iam:*",
+        "sts:*",
+        "cloudfront:*",
+        "route53:*",
+        "budgets:*",
+        "ce:*",
+        "health:*",
+        "pricing:*"
+      ],
+      "Resource": "*",
+      "Condition": {
+        "StringNotEquals": {
+          "aws:RequestedRegion": [
+            "ap-northeast-1",
+            "us-east-1",
+            "ap-northeast-3"
+          ]
+        }
+      }
+    },
+    {
+      "Sid": "UsEast1EdgeOnly",
+      "Effect": "Deny",
+      "NotAction": [
+        "iam:*",
+        "sts:*",
+        "cloudfront:*",
+        "route53:*",
+        "budgets:*",
+        "ce:*",
+        "health:*",
+        "pricing:*",
+        "acm:*",
+        "wafv2:*",
+        "cloudwatch:*",
+        "logs:*",
+        "sns:*",
+        "s3:ListAllMyBuckets",
+        "s3:GetBucketLocation",
+        "cloudtrail:LookupEvents",
+        "cloudformation:*"
+      ],
+      "Resource": "*",
+      "Condition": {
+        "StringEquals": {
+          "aws:RequestedRegion": "us-east-1"
+        }
+      }
+    },
+    {
+      "Sid": "DrRegionLimited",
+      "Effect": "Deny",
+      "NotAction": [
+        "iam:*",
+        "sts:*",
+        "backup:*",
+        "backup-storage:*",
+        "kms:*",
+        "s3:*",
+        "tag:GetResources",
+        "cloudformation:*",
+        "ec2:Describe*",
+        "ec2:*Snapshot*",
+        "ec2:CreateTags",
+        "ec2:CreateVolume",
+        "ec2:DeleteVolume",
+        "rds:Describe*",
+        "rds:*DBSnapshot*",
+        "rds:AddTagsToResource",
+        "rds:CreateDBInstanceReadReplica",
+        "rds:DeleteDBInstance",
+        "rds:*DBSubnetGroup",
+        "cloudwatch:Get*",
+        "cloudwatch:List*"
+      ],
+      "Resource": "*",
+      "Condition": {
+        "StringEquals": {
+          "aws:RequestedRegion": "ap-northeast-3"
+        }
+      }
+    },
+    {
+      "Sid": "DenyPlatformByName",
+      "Effect": "Deny",
+      "Action": "*",
+      "Resource": [
+        "arn:aws:iam::*:*/ATL*",
+        "arn:aws:s3:::atl-*",
+        "arn:aws:dynamodb:*:*:table/atl-*",
+        "arn:aws:lambda:*:*:function:atl-*",
+        "arn:aws:states:*:*:*:atl-*",
+        "arn:aws:codebuild:*:*:project/atl-*",
+        "arn:aws:cloudformation:*:*:stack/atl*",
+        "arn:aws:scheduler:*:*:schedule*/atl-*",
+        "arn:aws:logs:*:*:log-group:/atl/*",
+        "arn:aws:logs:*:*:log-group:/aws/*/atl-*",
+        "arn:aws:ssm:*:*:parameter/atl/*",
+        "arn:aws:sns:*:*:atl-*",
+        "arn:aws:sqs:*:*:atl-*",
+        "arn:aws:kms:*:*:alias/atl-*",
+        "arn:aws:events:*:*:*/atl-*",
+        "arn:aws:budgets::*:budget/atl-*",
+        "arn:aws:access-analyzer:*:*:analyzer/atl-*"
+      ]
+    },
+    {
+      "Sid": "DenyPlatformByTag",
+      "Effect": "Deny",
+      "NotAction": [
+        "ssm:StartSession",
+        "ssm:ResumeSession",
+        "ssm:TerminateSession",
+        "ssm:DescribeSessions",
+        "ssm:GetConnectionStatus",
+        "ssm:DescribeInstanceInformation",
+        "execute-api:Invoke"
+      ],
+      "Resource": "*",
+      "Condition": {
+        "StringEquals": {
+          "aws:ResourceTag/atl:component": [
+            "platform",
+            "workstation"
+          ]
+        }
+      }
+    },
+    {
+      "Sid": "ProtectComponentTag",
+      "Effect": "Deny",
+      "Action": "*",
+      "Resource": "*",
+      "Condition": {
+        "StringEquals": {
+          "aws:RequestTag/atl:component": [
+            "platform",
+            "workstation"
+          ]
+        }
+      }
+    },
+    {
+      "Sid": "DenyIamUsersAndAccountIam",
+      "Effect": "Deny",
+      "Action": [
+        "iam:CreateUser",
+        "iam:CreateAccessKey",
+        "iam:CreateLoginProfile",
+        "iam:UpdateLoginProfile",
+        "iam:AddUserToGroup",
+        "iam:CreateGroup",
+        "iam:AttachGroupPolicy",
+        "iam:PutGroupPolicy",
+        "iam:CreateSAMLProvider",
+        "iam:CreateOpenIDConnectProvider",
+        "iam:Update*Provider*",
+        "iam:*AccountAlias",
+        "iam:*AccountPasswordPolicy",
+        "iam:*MFADevice",
+        "iam:CreateServiceSpecificCredential",
+        "iam:UploadSSHPublicKey",
+        "iam:UploadSigningCertificate",
+        "iam:SetSecurityTokenServicePreferences"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "PrincipalWritesNeedWorkloadBoundary",
+      "Effect": "Deny",
+      "Action": [
+        "iam:CreateRole",
+        "iam:PutRolePermissionsBoundary",
+        "iam:AttachRolePolicy",
+        "iam:DetachRolePolicy",
+        "iam:PutRolePolicy",
+        "iam:DeleteRolePolicy",
+        "iam:AttachUserPolicy",
+        "iam:DetachUserPolicy",
+        "iam:PutUserPolicy",
+        "iam:DeleteUserPolicy"
+      ],
+      "Resource": "*",
+      "Condition": {
+        "StringNotEquals": {
+          "iam:PermissionsBoundary": "arn:aws:iam::111122223333:policy/ATLWorkloadBoundary"
+        }
+      }
+    },
+    {
+      "Sid": "NoBoundaryRemoval",
+      "Effect": "Deny",
+      "Action": [
+        "iam:DeleteRolePermissionsBoundary",
+        "iam:DeleteUserPermissionsBoundary",
+        "iam:PutUserPermissionsBoundary"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "PassOnlyLabRoles",
+      "Effect": "Deny",
+      "Action": "iam:PassRole",
+      "NotResource": [
+        "arn:aws:iam::*:role/CloudAlbum*",
+        "arn:aws:iam::*:role/*cloudalbum-*"
+      ]
+    },
+    {
+      "Sid": "AssumeOnlyLabRoles",
+      "Effect": "Deny",
+      "Action": "sts:AssumeRole",
+      "NotResource": [
+        "arn:aws:iam::111122223333:role/CloudAlbum*",
+        "arn:aws:iam::111122223333:role/*cloudalbum-*"
+      ]
+    },
+    {
+      "Sid": "LimitEc2InstanceTypes",
+      "Effect": "Deny",
+      "Action": [
+        "ec2:RunInstances",
+        "ec2:StartInstances"
+      ],
+      "Resource": "arn:aws:ec2:*:*:instance/*",
+      "Condition": {
+        "StringNotLike": {
+          "ec2:InstanceType": [
+            "t3.micro",
+            "t3.small",
+            "t3.medium",
+            "t4g.micro",
+            "t4g.small",
+            "t4g.medium"
+          ]
+        }
+      }
+    },
+    {
+      "Sid": "LimitDbClasses",
+      "Effect": "Deny",
+      "Action": [
+        "rds:CreateDBInstance",
+        "rds:CreateDBInstanceReadReplica",
+        "rds:ModifyDBInstance",
+        "rds:RestoreDBInstance*"
+      ],
+      "Resource": "*",
+      "Condition": {
+        "StringNotLike": {
+          "rds:DatabaseClass": [
+            "db.t3.micro",
+            "db.t4g.micro",
+            "db.t4g.small"
+          ]
+        },
+        "Null": {
+          "rds:DatabaseClass": "false"
+        }
+      }
+    },
+    {
+      "Sid": "LimitCacheNodeTypes",
+      "Effect": "Deny",
+      "Action": [
+        "elasticache:CreateCacheCluster",
+        "elasticache:CreateReplicationGroup",
+        "elasticache:ModifyCacheCluster",
+        "elasticache:ModifyReplicationGroup"
+      ],
+      "Resource": "*",
+      "Condition": {
+        "StringNotLike": {
+          "elasticache:CacheNodeType": [
+            "cache.t3.micro",
+            "cache.t4g.micro",
+            "cache.t4g.small"
+          ]
+        },
+        "Null": {
+          "elasticache:CacheNodeType": "false"
+        }
+      }
+    },
+    {
+      "Sid": "LimitAsgSize",
+      "Effect": "Deny",
+      "Action": [
+        "autoscaling:CreateAutoScalingGroup",
+        "autoscaling:UpdateAutoScalingGroup"
+      ],
+      "Resource": "*",
+      "Condition": {
+        "NumericGreaterThan": {
+          "autoscaling:MaxSize": "4"
+        }
+      }
+    }
+  ]
+}

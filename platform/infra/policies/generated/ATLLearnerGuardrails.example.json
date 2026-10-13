@@ -1,0 +1,248 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "NoCommitments",
+      "Effect": "Deny",
+      "Resource": "*",
+      "Action": [
+        "ec2:Purchase*",
+        "ec2:AllocateHosts",
+        "ec2:CreateCapacityReservation*",
+        "rds:PurchaseReserved*",
+        "elasticache:PurchaseReserved*",
+        "dynamodb:PurchaseReserved*"
+      ]
+    },
+    {
+      "Sid": "ProtectAppRole",
+      "Effect": "Deny",
+      "Action": [
+        "iam:DeleteRole",
+        "iam:UpdateAssumeRolePolicy",
+        "iam:TagRole",
+        "iam:UntagRole",
+        "iam:DeleteInstanceProfile",
+        "iam:RemoveRoleFromInstanceProfile"
+      ],
+      "Resource": [
+        "arn:aws:iam::111122223333:role/CloudAlbumAppRole",
+        "arn:aws:iam::111122223333:instance-profile/CloudAlbumAppRole"
+      ]
+    },
+    {
+      "Sid": "KeepPlatformChannel",
+      "Effect": "Deny",
+      "Action": "iam:DetachRolePolicy",
+      "Resource": "arn:aws:iam::111122223333:role/CloudAlbumAppRole",
+      "Condition": {
+        "ArnEquals": {
+          "iam:PolicyARN": "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
+        }
+      }
+    },
+    {
+      "Sid": "KeepInstanceProfiles",
+      "Effect": "Deny",
+      "Action": [
+        "ec2:DisassociateIamInstanceProfile",
+        "ec2:ReplaceIamInstanceProfileAssociation"
+      ],
+      "Resource": "*",
+      "Condition": {
+        "StringEquals": {
+          "ec2:ResourceTag/atl:role": [
+            "lab-app",
+            "workstation"
+          ]
+        }
+      }
+    },
+    {
+      "Sid": "ProtectNonLabTrails",
+      "Effect": "Deny",
+      "Action": [
+        "cloudtrail:StopLogging",
+        "cloudtrail:DeleteTrail",
+        "cloudtrail:UpdateTrail",
+        "cloudtrail:Put*Selectors"
+      ],
+      "NotResource": "arn:aws:cloudtrail:*:111122223333:trail/cloudalbum-*"
+    },
+    {
+      "Sid": "ProtectAtlDocuments",
+      "Effect": "Deny",
+      "Action": [
+        "ssm:UpdateDocument*",
+        "ssm:DeleteDocument",
+        "ssm:ModifyDocumentPermission",
+        "ssm:AddTagsToResource",
+        "ssm:RemoveTagsFromResource"
+      ],
+      "Resource": "arn:aws:ssm:*:111122223333:document/ATL-*"
+    },
+    {
+      "Sid": "ProtectRecordings",
+      "Effect": "Deny",
+      "Action": [
+        "logs:DeleteLogGroup",
+        "logs:DeleteLogStream",
+        "logs:PutRetentionPolicy",
+        "logs:DeleteRetentionPolicy",
+        "logs:AssociateKmsKey",
+        "logs:DisassociateKmsKey",
+        "logs:PutSubscriptionFilter",
+        "logs:DeleteSubscriptionFilter",
+        "logs:PutDataProtectionPolicy",
+        "logs:TagResource",
+        "logs:UntagResource",
+        "logs:TagLogGroup",
+        "logs:UntagLogGroup"
+      ],
+      "Resource": "arn:aws:logs:*:111122223333:log-group:/atl-recordings/*"
+    },
+    {
+      "Sid": "ProtectLabStateStore",
+      "Effect": "Deny",
+      "NotAction": [
+        "s3:ListBucket",
+        "s3:ListBucketVersions",
+        "s3:GetBucketLocation",
+        "s3:GetBucketVersioning",
+        "s3:GetBucketPolicy",
+        "dynamodb:GetItem",
+        "dynamodb:PutItem",
+        "dynamodb:UpdateItem",
+        "dynamodb:DeleteItem",
+        "dynamodb:ConditionCheckItem",
+        "dynamodb:Query",
+        "dynamodb:DescribeTable"
+      ],
+      "Resource": [
+        "arn:aws:s3:::cloudalbum-lab-state-111122223333-ap-northeast-1",
+        "arn:aws:dynamodb:ap-northeast-1:111122223333:table/cloudalbum-lab-locks"
+      ]
+    },
+    {
+      "Sid": "KeepAtlTags",
+      "Effect": "Deny",
+      "Action": "*",
+      "Resource": "*",
+      "Condition": {
+        "ForAnyValue:StringEquals": {
+          "aws:TagKeys": [
+            "atl:session-id",
+            "atl:lab-id",
+            "atl:env-id",
+            "atl:component"
+          ]
+        },
+        "Null": {
+          "aws:RequestTag/atl:session-id": "true",
+          "aws:RequestTag/atl:lab-id": "true",
+          "aws:RequestTag/atl:env-id": "true",
+          "aws:RequestTag/atl:component": "true"
+        }
+      }
+    },
+    {
+      "Sid": "ProtectRoleTag",
+      "Effect": "Deny",
+      "Action": "*",
+      "Resource": "*",
+      "Condition": {
+        "ForAnyValue:StringEquals": {
+          "aws:TagKeys": [
+            "atl:role",
+            "atl:active-session-id"
+          ]
+        },
+        "ForAllValues:StringNotEquals": {
+          "aws:CalledVia": [
+            "cloudformation.amazonaws.com"
+          ]
+        }
+      }
+    },
+    {
+      "Sid": "LabIamResourcesOnly",
+      "Effect": "Deny",
+      "Action": [
+        "iam:DeleteRole",
+        "iam:UpdateRole",
+        "iam:UpdateRoleDescription",
+        "iam:UpdateAssumeRolePolicy",
+        "iam:TagRole",
+        "iam:UntagRole",
+        "iam:CreatePolicyVersion",
+        "iam:DeletePolicy",
+        "iam:DeletePolicyVersion",
+        "iam:SetDefaultPolicyVersion",
+        "iam:AddRoleToInstanceProfile",
+        "iam:RemoveRoleFromInstanceProfile",
+        "iam:DeleteInstanceProfile"
+      ],
+      "NotResource": [
+        "arn:aws:iam::111122223333:role/CloudAlbum*",
+        "arn:aws:iam::111122223333:role/*cloudalbum-*",
+        "arn:aws:iam::111122223333:policy/CloudAlbum*",
+        "arn:aws:iam::111122223333:policy/*cloudalbum-*",
+        "arn:aws:iam::111122223333:instance-profile/CloudAlbum*",
+        "arn:aws:iam::111122223333:instance-profile/*cloudalbum-*"
+      ]
+    },
+    {
+      "Sid": "DenyPlatformByArn",
+      "Effect": "Deny",
+      "Action": "*",
+      "Resource": [
+        "arn:aws:cloudfront::111122223333:distribution/E2EXAMPLEATL01",
+        "arn:aws:cognito-idp:ap-northeast-1:111122223333:userpool/ap-northeast-1_EXAMPLE12",
+        "arn:aws:apigateway:ap-northeast-1::/apis/a1b2c3d4e5",
+        "arn:aws:apigateway:ap-northeast-1::/apis/a1b2c3d4e5/*",
+        "arn:aws:kms:ap-northeast-1:111122223333:key/1234abcd-12ab-34cd-56ef-1234567890ab",
+        "arn:aws:ssm:ap-northeast-1:111122223333:association/00000000-0000-4000-8000-000000000000"
+      ]
+    },
+    {
+      "Sid": "DenyInternalRoutes",
+      "Effect": "Deny",
+      "Action": "execute-api:Invoke",
+      "Resource": "arn:aws:execute-api:ap-northeast-1:111122223333:a1b2c3d4e5/*/*/api/v1/internal/*"
+    },
+    {
+      "Sid": "DrRegionLabStacksOnly",
+      "Effect": "Deny",
+      "Action": [
+        "cloudformation:CreateStack",
+        "cloudformation:UpdateStack",
+        "cloudformation:DeleteStack",
+        "cloudformation:CreateChangeSet",
+        "cloudformation:ExecuteChangeSet"
+      ],
+      "NotResource": "arn:aws:cloudformation:ap-northeast-3:111122223333:stack/cloudalbum-*/*",
+      "Condition": {
+        "StringEquals": {
+          "aws:RequestedRegion": "ap-northeast-3"
+        }
+      }
+    },
+    {
+      "Sid": "UsEast1LabStacksOnly",
+      "Effect": "Deny",
+      "Action": [
+        "cloudformation:CreateStack",
+        "cloudformation:UpdateStack",
+        "cloudformation:DeleteStack",
+        "cloudformation:CreateChangeSet",
+        "cloudformation:ExecuteChangeSet"
+      ],
+      "NotResource": "arn:aws:cloudformation:us-east-1:111122223333:stack/cloudalbum-*/*",
+      "Condition": {
+        "StringEquals": {
+          "aws:RequestedRegion": "us-east-1"
+        }
+      }
+    }
+  ]
+}

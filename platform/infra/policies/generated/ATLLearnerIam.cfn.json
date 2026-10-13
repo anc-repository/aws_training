@@ -1,0 +1,51 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "LabIam",
+      "Effect": "Allow",
+      "Resource": "*",
+      "Action": [
+        "iam:CreateRole",
+        "iam:DeleteRole",
+        "iam:AttachRolePolicy",
+        "iam:DetachRolePolicy",
+        "iam:PutRolePolicy",
+        "iam:DeleteRolePolicy",
+        "iam:PutRolePermissionsBoundary",
+        "iam:TagRole",
+        "iam:UntagRole",
+        "iam:UpdateRole*",
+        "iam:UpdateAssumeRolePolicy",
+        "iam:CreatePolicy",
+        "iam:CreatePolicyVersion",
+        "iam:DeletePolicy",
+        "iam:DeletePolicyVersion",
+        "iam:SetDefaultPolicyVersion",
+        "iam:TagPolicy",
+        "iam:UntagPolicy",
+        "iam:CreateInstanceProfile",
+        "iam:DeleteInstanceProfile",
+        "iam:AddRoleToInstanceProfile",
+        "iam:RemoveRoleFromInstanceProfile",
+        "iam:TagInstanceProfile",
+        "iam:UntagInstanceProfile",
+        "iam:PassRole",
+        "iam:Get*",
+        "iam:List*",
+        "iam:SimulatePrincipalPolicy"
+      ]
+    },
+    {
+      "Sid": "DemoUserPolicies",
+      "Effect": "Allow",
+      "Action": [
+        "iam:AttachUserPolicy",
+        "iam:DetachUserPolicy"
+      ],
+      "Resource": {
+        "Fn::Sub": "arn:${AWS::Partition}:iam::${AWS::AccountId}:user/cloudalbum/*"
+      }
+    }
+  ]
+}

@@ -1,0 +1,56 @@
+# 80-signing — certificate signing key (KMS asymmetric ECC_NIST_P256, SIGN_VERIFY) and alias/atl-certificates (01 §3.1,
+# §6.9, §10.5): the account root keeps key administration; only ATLCertsFunctionRole may sign; GetPublicKey for atl-certs
+# and the custom resources (JwksPublish). Asymmetric keys do not rotate automatically (rotation = new key + alias switch).
+Resources:
+  CertSigningKey:
+    Type: AWS::KMS::Key
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Retain
+    Properties:
+      Description: 'ATL certificate and revocation list signing key (ES256)'
+      KeySpec: ECC_NIST_P256
+      KeyUsage: SIGN_VERIFY
+      Enabled: true
+      EnableKeyRotation: false
+      PendingWindowInDays: !Ref KeyPendingWindowDays
+      KeyPolicy:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: AccountRootAdministers
+            Effect: Allow
+            Principal: { AWS: !Sub 'arn:${AWS::Partition}:iam::${AWS::AccountId}:root' }
+            Action:
+              - 'kms:Create*'
+              - 'kms:Describe*'
+              - 'kms:Enable*'
+              - 'kms:List*'
+              - 'kms:Put*'
+              - 'kms:Update*'
+              - 'kms:Revoke*'
+              - 'kms:Disable*'
+              - 'kms:Get*'
+              - 'kms:Delete*'
+              - 'kms:TagResource'
+              - 'kms:UntagResource'
+              - 'kms:ScheduleKeyDeletion'
+              - 'kms:CancelKeyDeletion'
+            Resource: '*'
+          - Sid: CertsSigns
+            Effect: Allow
+            Principal: { AWS: !GetAtt CertsFunctionRole.Arn }
+            Action: ['kms:Sign', 'kms:GetPublicKey', 'kms:DescribeKey']
+            Resource: '*'
+          - Sid: PublishPublicKey
+            Effect: Allow
+            Principal: { AWS: !GetAtt CustomResourceRole.Arn }
+            Action: ['kms:GetPublicKey', 'kms:DescribeKey']
+            Resource: '*'
+      Tags:
+        - { Key: 'atl:component', Value: platform }
+        - { Key: Project, Value: ATL }
+
+  CertSigningKeyAlias:
+    Type: AWS::KMS::Alias
+    Properties:
+      AliasName: alias/atl-certificates
+      TargetKeyId: !Ref CertSigningKey

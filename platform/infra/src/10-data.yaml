@@ -1,0 +1,126 @@
+# 10-data — DynamoDB atl-main (01 §7.1, key schema = ATL_MAIN_SPEC of @atl/shared, checked by test/template.test.ts),
+# atl-data and atl-artifacts (01 §3.7). DeletionPolicy Delete: uninstalling leaves nothing behind (01 A1); the stack policy
+# (StackGuard) forbids Update:Replace / Update:Delete of AtlMainTable while the platform is installed (01 §4.7).
+Resources:
+  AtlMainTable:
+    Type: AWS::DynamoDB::Table
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Retain
+    Properties:
+      TableName: atl-main
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - { AttributeName: PK, AttributeType: S }
+        - { AttributeName: SK, AttributeType: S }
+        - { AttributeName: GSI1PK, AttributeType: S }
+        - { AttributeName: GSI1SK, AttributeType: S }
+        - { AttributeName: GSI2PK, AttributeType: S }
+        - { AttributeName: GSI2SK, AttributeType: S }
+      KeySchema:
+        - { AttributeName: PK, KeyType: HASH }
+        - { AttributeName: SK, KeyType: RANGE }
+      GlobalSecondaryIndexes:
+        - IndexName: GSI1
+          KeySchema:
+            - { AttributeName: GSI1PK, KeyType: HASH }
+            - { AttributeName: GSI1SK, KeyType: RANGE }
+          Projection: { ProjectionType: ALL }
+        - IndexName: GSI2
+          KeySchema:
+            - { AttributeName: GSI2PK, KeyType: HASH }
+            - { AttributeName: GSI2SK, KeyType: RANGE }
+          Projection:
+            ProjectionType: INCLUDE
+            NonKeyAttributes: [type, state, labId, envId, deadlineAt, cleanupState, severity]
+      TimeToLiveSpecification: { AttributeName: ttl, Enabled: true }
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: !If [PitrEnabled, true, false]
+      Tags:
+        - { Key: 'atl:component', Value: platform }
+        - { Key: Project, Value: ATL }
+
+  DataBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Retain
+    Properties:
+      BucketName: !Sub 'atl-data-${AWS::AccountId}-${AWS::Region}'
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      OwnershipControls:
+        Rules: [{ ObjectOwnership: BucketOwnerEnforced }]
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault: { SSEAlgorithm: AES256 }
+      LifecycleConfiguration:
+        Rules:
+          - { Id: runs-expire, Status: Enabled, Prefix: runs/, ExpirationInDays: 90 }
+          - { Id: archive-expire, Status: Enabled, Prefix: archive/, ExpirationInDays: 90 }
+          - { Id: exports-expire, Status: Enabled, Prefix: exports/, ExpirationInDays: 30 }
+          - Id: abort-multipart
+            Status: Enabled
+            AbortIncompleteMultipartUpload: { DaysAfterInitiation: 1 }
+      Tags:
+        - { Key: 'atl:component', Value: platform }
+        - { Key: Project, Value: ATL }
+
+  DataBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref DataBucket
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: DenyInsecureTransport
+            Effect: Deny
+            Principal: '*'
+            Action: 's3:*'
+            Resource: [!GetAtt DataBucket.Arn, !Sub '${DataBucket.Arn}/*']
+            Condition: { Bool: { 'aws:SecureTransport': 'false' } }
+
+  ArtifactsBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Retain
+    Properties:
+      BucketName: !Sub 'atl-artifacts-${AWS::AccountId}-${AWS::Region}'
+      VersioningConfiguration: { Status: Enabled }
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      OwnershipControls:
+        Rules: [{ ObjectOwnership: BucketOwnerEnforced }]
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault: { SSEAlgorithm: AES256 }
+      LifecycleConfiguration:
+        Rules:
+          # older platform versions stay under releases/<ver>/ (rollback, 01 §4.7); overwritten copies expire
+          - Id: noncurrent-expire
+            Status: Enabled
+            NoncurrentVersionExpiration: { NoncurrentDays: 30 }
+          - Id: abort-multipart
+            Status: Enabled
+            AbortIncompleteMultipartUpload: { DaysAfterInitiation: 1 }
+      Tags:
+        - { Key: 'atl:component', Value: platform }
+        - { Key: Project, Value: ATL }
+
+  ArtifactsBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref ArtifactsBucket
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: DenyInsecureTransport
+            Effect: Deny
+            Principal: '*'
+            Action: 's3:*'
+            Resource: [!GetAtt ArtifactsBucket.Arn, !Sub '${ArtifactsBucket.Arn}/*']
+            Condition: { Bool: { 'aws:SecureTransport': 'false' } }

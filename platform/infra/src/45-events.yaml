@@ -1,0 +1,237 @@
+# 45-events — event bus atl-events, rule atl-sfn-failed (→ atl-lifecycle, 02 §2.6 second safety net), SNS atl-notify /
+# atl-alerts / atl-budget, optional budget atl-platform-guard, optional Access Analyzer atl-external-access, optional platform
+# trail atl-trail with the tagger rule atl-tagger-api-calls (01 §3.10, §3.12).
+# Payload contract for atl-lifecycle (action-routed): the rule delivers {"action":"ExecutionFailed","event":<EventBridge event>};
+# the budget topic delivers the SNS envelope (Records[0].EventSource = aws:sns) which atl-lifecycle maps to BudgetAlert.
+Resources:
+  EventBus:
+    Type: AWS::Events::EventBus
+    Properties:
+      Name: atl-events
+      Tags:
+        - { Key: 'atl:component', Value: platform }
+        - { Key: Project, Value: ATL }
+
+  SfnFailedRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: atl-sfn-failed
+      Description: 'ATL state machine executions that FAILED / TIMED_OUT / ABORTED → atl-lifecycle (02 §2.6)'
+      EventBusName: default
+      State: ENABLED
+      EventPattern:
+        source: [aws.states]
+        detail-type: [Step Functions Execution Status Change]
+        detail:
+          status: [FAILED, TIMED_OUT, ABORTED]
+          stateMachineArn:
+            - prefix: !Sub 'arn:${AWS::Partition}:states:${AWS::Region}:${AWS::AccountId}:stateMachine:atl-'
+      Targets:
+        - Id: atl-lifecycle
+          Arn: !GetAtt LifecycleFunction.Arn
+          InputTransformer:
+            InputTemplate: '{"action":"ExecutionFailed","event":<aws.events.event.json>}'
+          RetryPolicy: { MaximumRetryAttempts: 8, MaximumEventAgeInSeconds: 3600 }
+  SfnFailedRulePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref LifecycleFunction
+      Action: lambda:InvokeFunction
+      Principal: events.amazonaws.com
+      SourceArn: !GetAtt SfnFailedRule.Arn
+
+  NotifyTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: atl-notify
+      DisplayName: 'ATL notifications'
+      Tags:
+        - { Key: 'atl:component', Value: platform }
+        - { Key: Project, Value: ATL }
+  AlertsTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: atl-alerts
+      DisplayName: 'ATL alerts'
+      Tags:
+        - { Key: 'atl:component', Value: platform }
+        - { Key: Project, Value: ATL }
+  BudgetTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: atl-budget
+      DisplayName: 'ATL budget'
+      Tags:
+        - { Key: 'atl:component', Value: platform }
+        - { Key: Project, Value: ATL }
+  BudgetTopicPolicy:
+    Type: AWS::SNS::TopicPolicy
+    Properties:
+      Topics: [!Ref BudgetTopic]
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: AllowBudgetsPublish
+            Effect: Allow
+            Principal: { Service: budgets.amazonaws.com }
+            Action: sns:Publish
+            Resource: !Ref BudgetTopic
+            Condition:
+              StringEquals: { 'aws:SourceAccount': !Ref 'AWS::AccountId' }
+              ArnLike: { 'aws:SourceArn': !Sub 'arn:${AWS::Partition}:budgets::${AWS::AccountId}:*' }
+
+  NotifyEmailSubscription:
+    Type: AWS::SNS::Subscription
+    Properties:
+      TopicArn: !Ref NotifyTopic
+      Protocol: email
+      Endpoint: !If [HasNotificationEmail, !Ref NotificationEmail, !Ref LearnerEmail]
+  AlertsEmailSubscription:
+    Type: AWS::SNS::Subscription
+    Properties:
+      TopicArn: !Ref AlertsTopic
+      Protocol: email
+      Endpoint: !If [HasNotificationEmail, !Ref NotificationEmail, !Ref LearnerEmail]
+  BudgetLifecycleSubscription:
+    Type: AWS::SNS::Subscription
+    Properties:
+      TopicArn: !Ref BudgetTopic
+      Protocol: lambda
+      Endpoint: !GetAtt LifecycleFunction.Arn
+  BudgetTopicPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref LifecycleFunction
+      Action: lambda:InvokeFunction
+      Principal: sns.amazonaws.com
+      SourceArn: !Ref BudgetTopic
+
+  PlatformBudget:
+    Type: AWS::Budgets::Budget
+    Condition: HasBudget
+    Properties:
+      Budget:
+        BudgetName: atl-platform-guard
+        BudgetType: COST
+        TimeUnit: MONTHLY
+        BudgetLimit: { Amount: !Ref MonthlyBudgetAmount, Unit: USD }
+      NotificationsWithSubscribers:
+        - Notification: { NotificationType: ACTUAL, ComparisonOperator: GREATER_THAN, Threshold: 80, ThresholdType: PERCENTAGE }
+          Subscribers:
+            - { SubscriptionType: SNS, Address: !Ref BudgetTopic }
+            - { SubscriptionType: EMAIL, Address: !If [HasNotificationEmail, !Ref NotificationEmail, !Ref LearnerEmail] }
+        - Notification: { NotificationType: FORECASTED, ComparisonOperator: GREATER_THAN, Threshold: 100, ThresholdType: PERCENTAGE }
+          Subscribers:
+            - { SubscriptionType: SNS, Address: !Ref BudgetTopic }
+            - { SubscriptionType: EMAIL, Address: !If [HasNotificationEmail, !Ref NotificationEmail, !Ref LearnerEmail] }
+        - Notification: { NotificationType: ACTUAL, ComparisonOperator: GREATER_THAN, Threshold: 100, ThresholdType: PERCENTAGE }
+          Subscribers:
+            - { SubscriptionType: SNS, Address: !Ref BudgetTopic }
+            - { SubscriptionType: EMAIL, Address: !If [HasNotificationEmail, !Ref NotificationEmail, !Ref LearnerEmail] }
+    DependsOn: [BudgetTopicPolicy]
+
+  AccessAnalyzer:
+    Type: AWS::AccessAnalyzer::Analyzer
+    Condition: CreateAnalyzer
+    Properties:
+      AnalyzerName: atl-external-access
+      Type: ACCOUNT
+      Tags:
+        - { Key: 'atl:component', Value: platform }
+        - { Key: Project, Value: ATL }
+
+  # ---- optional platform trail + realtime tagger (PlatformTrail=enabled, 01 §3.12) ----
+  TrailBucket:
+    Type: AWS::S3::Bucket
+    Condition: TrailEnabled
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Retain
+    Properties:
+      BucketName: !Sub 'atl-trail-${AWS::AccountId}-${AWS::Region}'
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      OwnershipControls:
+        Rules: [{ ObjectOwnership: BucketOwnerEnforced }]
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault: { SSEAlgorithm: AES256 }
+      LifecycleConfiguration:
+        Rules:
+          - { Id: trail-expire, Status: Enabled, ExpirationInDays: 90 }
+      Tags:
+        - { Key: 'atl:component', Value: platform }
+        - { Key: Project, Value: ATL }
+  TrailBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Condition: TrailEnabled
+    Properties:
+      Bucket: !Ref TrailBucket
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: CloudTrailAclCheck
+            Effect: Allow
+            Principal: { Service: cloudtrail.amazonaws.com }
+            Action: s3:GetBucketAcl
+            Resource: !GetAtt TrailBucket.Arn
+            Condition: { StringEquals: { 'aws:SourceArn': !Sub 'arn:${AWS::Partition}:cloudtrail:${AWS::Region}:${AWS::AccountId}:trail/atl-trail' } }
+          - Sid: CloudTrailWrite
+            Effect: Allow
+            Principal: { Service: cloudtrail.amazonaws.com }
+            Action: s3:PutObject
+            Resource: !Sub '${TrailBucket.Arn}/AWSLogs/${AWS::AccountId}/*'
+            Condition:
+              StringEquals:
+                's3:x-amz-acl': bucket-owner-full-control
+                'aws:SourceArn': !Sub 'arn:${AWS::Partition}:cloudtrail:${AWS::Region}:${AWS::AccountId}:trail/atl-trail'
+          - Sid: DenyInsecureTransport
+            Effect: Deny
+            Principal: '*'
+            Action: 's3:*'
+            Resource: [!GetAtt TrailBucket.Arn, !Sub '${TrailBucket.Arn}/*']
+            Condition: { Bool: { 'aws:SecureTransport': 'false' } }
+  Trail:
+    Type: AWS::CloudTrail::Trail
+    Condition: TrailEnabled
+    DependsOn: [TrailBucketPolicy]
+    Properties:
+      TrailName: atl-trail
+      S3BucketName: !Ref TrailBucket
+      IsLogging: true
+      IsMultiRegionTrail: false
+      IncludeGlobalServiceEvents: true
+      EnableLogFileValidation: true
+      Tags:
+        - { Key: 'atl:component', Value: platform }
+        - { Key: Project, Value: ATL }
+  TaggerRule:
+    Type: AWS::Events::Rule
+    Condition: TrailEnabled
+    Properties:
+      Name: atl-tagger-api-calls
+      Description: 'write API calls of learner sessions (atl-<sid>-*) → atl-tagger (REALTIME ledger source, 02 §7.1)'
+      EventBusName: default
+      State: ENABLED
+      EventPattern:
+        detail-type: [AWS API Call via CloudTrail]
+        detail:
+          readOnly: [false]
+          userIdentity:
+            arn:
+              - prefix: !Sub 'arn:${AWS::Partition}:sts::${AWS::AccountId}:assumed-role/ATLLearnerRole/atl-s'
+      Targets:
+        - Id: atl-tagger
+          Arn: !GetAtt TaggerFunction.Arn
+          InputTransformer:
+            InputTemplate: '{"action":"TagFromCloudTrail","event":<aws.events.event.json>}'
+  TaggerRulePermission:
+    Type: AWS::Lambda::Permission
+    Condition: TrailEnabled
+    Properties:
+      FunctionName: !Ref TaggerFunction
+      Action: lambda:InvokeFunction
+      Principal: events.amazonaws.com
+      SourceArn: !GetAtt TaggerRule.Arn

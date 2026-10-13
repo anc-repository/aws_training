@@ -1,0 +1,7 @@
+{
+  "//": "01 §6.7 #1 ATLProvisionerPolicy-Core: service-level allow list (never *:*). gen-policies.ts checks that every resource type in infra/modules/*.yaml and the workstation template maps to one of these services; the reclaimer deletes learner-created resources of any lab service, so the list equals the lab services of the boundary. Narrowed at run time by the per-build session policies (01 §6.7 #6, #7).",
+  "Version": "2012-10-17",
+  "Statement": [
+    { "Sid": "LabServices", "Effect": "Allow", "Action": "@@PROVISIONER_SERVICE_ACTIONS", "Resource": "*" }
+  ]
+}

@@ -1,0 +1,106 @@
+# ATL-PrepareInstance (03 §3.4): prepares lab instances and workstations for the platform terminal. Run as root by the
+# State Manager association atl-prepare-instance (targets tag:atl:role ∈ {lab-app, workstation}) whenever such an instance
+# registers with SSM. Everything is inline (instances need no S3 access) and idempotent (re-runs only fix differences).
+# Does: labuser (uid/gid 2100, locked password, systemd-journal, passwordless sudo), /opt/atl/terminal helpers,
+# /etc/atl/host-role and term.conf, the shell integration in ~labuser/.bashrc, amazon-ssm-agent enabled, a TCP 443 probe to
+# CloudWatch Logs (choice of the recording document, 03 §3.2 step 6) → /var/lib/atl/prepared.json.
+# Does not: change the hostname, sshd, Nginx, systemd units, /etc/cloudalbum, /opt/atl/checks or /opt/atl/bin/atl-check.
+schemaVersion: '2.2'
+description: 'AWS Training Lab: prepare an instance for the platform terminal (labuser, terminal helpers)'
+parameters:
+  TermPersist:
+    type: String
+    description: 'terminal persistence (platform setting terminal.persistence)'
+    default: none
+    interpolationType: ENV_VAR
+    allowedPattern: '^(none|tmux)$'
+mainSteps:
+  - action: aws:runShellScript
+    name: prepareInstance
+    precondition:
+      StringEquals: [platformType, Linux]
+    inputs:
+      timeoutSeconds: '300'
+      runCommand:
+        - |
+          set -euo pipefail
+          DOC_VERSION=1
+          persist="${SSM_TermPersist:-none}"
+          [[ "$persist" =~ ^(none|tmux)$ ]] || persist=none
+          install -d -m 0755 /etc/atl /var/lib/atl /opt/atl /opt/atl/terminal
+
+          # ① labuser (same spec as the workstation user data, 03 §3.3)
+          getent group labuser >/dev/null || groupadd -g 2100 labuser
+          id labuser >/dev/null 2>&1 || useradd -u 2100 -g 2100 -m -s /bin/bash labuser
+          passwd -l labuser >/dev/null 2>&1 || true
+          if getent group systemd-journal >/dev/null; then usermod -aG systemd-journal labuser; fi
+          printf 'labuser ALL=(ALL) NOPASSWD: ALL\n' > /etc/sudoers.d/90-atl-labuser
+          chmod 0440 /etc/sudoers.d/90-atl-labuser
+
+          # ② terminal helpers (03 §3.7.5)
+          cat > /opt/atl/terminal/term-entry.sh <<'ATL_EOF'
+          #!/bin/bash
+          # ATL-SessionShell shellProfile: Session Manager opens sh; switch to a bash login shell
+          export LANG=C.UTF-8 TERM=xterm-256color
+          [ -r /etc/atl/term.conf ] && . /etc/atl/term.conf
+          cd ~ || true
+          if [ "${ATL_TERM_PERSIST:-none}" = tmux ] && command -v tmux >/dev/null && [ -z "${TMUX:-}" ]; then
+            exec tmux -f /opt/atl/terminal/tmux.conf new-session -A -s atl
+          fi
+          exec bash -l
+          ATL_EOF
+          cat > /opt/atl/terminal/shell-integration.bash <<'ATL_EOF'
+          # /opt/atl/terminal/shell-integration.bash — interactive bash only (OSC 133 / OSC 7 marks for the web terminal)
+          [[ $- == *i* ]] || return
+          __atl_role=$(cat /etc/atl/host-role 2>/dev/null || echo host)
+          __atl_precmd() {
+            local ec=$?
+            printf '\e]133;D;%s\a' "$ec"
+            printf '\e]7;file://%s%s\a' "$HOSTNAME" "$PWD"
+            printf '\e]133;A\a'
+          }
+          PROMPT_COMMAND="__atl_precmd${PROMPT_COMMAND:+;$PROMPT_COMMAND}"
+          PS0=$'\e]133;C\a'
+          case "$__atl_role" in
+            lab)         PS1='\[\e[30;43m\] 实验机 \[\e[0m\] \u@\h:\w\$ \[\e]133;B\a\]' ;;
+            workstation) PS1='\[\e[30;46m\] 工作台 \[\e[0m\] \u@\h:\w\$ \[\e]133;B\a\]' ;;
+          esac
+          ATL_EOF
+          cat > /opt/atl/terminal/tmux.conf <<'ATL_EOF'
+          set -g default-terminal "xterm-256color"
+          set -g history-limit 50000
+          set -g mouse on
+          ATL_EOF
+          chmod 0755 /opt/atl/terminal/term-entry.sh
+          chmod 0644 /opt/atl/terminal/shell-integration.bash /opt/atl/terminal/tmux.conf
+
+          # ③ host role (kept when the workstation user data already wrote it) and terminal persistence
+          imds_token=$(curl -sS -m 3 -X PUT http://169.254.169.254/latest/api/token -H 'X-aws-ec2-metadata-token-ttl-seconds: 60' 2>/dev/null || true)
+          md() { curl -sS -m 3 -f -H "X-aws-ec2-metadata-token: ${imds_token}" "http://169.254.169.254/latest/meta-data/$1" 2>/dev/null || true; }
+          role=$(cat /etc/atl/host-role 2>/dev/null || true)
+          if [ "$role" != lab ] && [ "$role" != workstation ]; then
+            case "$(md tags/instance/atl:role)" in
+              workstation) role=workstation ;;
+              *) role=lab ;;
+            esac
+          fi
+          printf '%s\n' "$role" > /etc/atl/host-role
+          printf 'ATL_TERM_PERSIST=%s\n' "$persist" > /etc/atl/term.conf
+
+          # ④ shell integration for labuser
+          touch /home/labuser/.bashrc
+          grep -q '/opt/atl/terminal/shell-integration.bash' /home/labuser/.bashrc || \
+            printf '[ -r /opt/atl/terminal/shell-integration.bash ] && . /opt/atl/terminal/shell-integration.bash\n' >> /home/labuser/.bashrc
+          chown labuser:labuser /home/labuser/.bashrc
+
+          # ⑤ the SSM Agent stays enabled
+          systemctl enable amazon-ssm-agent >/dev/null 2>&1 || true
+
+          # ⑥ can this instance reach CloudWatch Logs (recording document choice)?
+          region=$(md placement/region)
+          logs=false
+          if [ -n "$region" ] && timeout 5 bash -c "exec 3<>/dev/tcp/logs.${region}.amazonaws.com/443" >/dev/null 2>&1; then logs=true; fi
+          printf '{"docVersion":%s,"preparedAt":"%s","hostRole":"%s","termPersist":"%s","logsReachable":%s}\n' \
+            "$DOC_VERSION" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$role" "$persist" "$logs" > /var/lib/atl/prepared.json.tmp
+          mv /var/lib/atl/prepared.json.tmp /var/lib/atl/prepared.json
+          echo "ATL-PrepareInstance done (role=${role}, logsReachable=${logs})"

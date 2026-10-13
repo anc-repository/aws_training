@@ -1,0 +1,247 @@
+# 00-meta — Parameters (01 §4.3, names = INSTALL_PARAMETERS of @atl/shared), Rules, Conditions, parameter groups.
+# Build-time tokens (replaced by build/merge-template.ts): @@ATL_VERSION@@ (platform/VERSION), @@ATL_RELEASE_TAG@@
+# (v<VERSION>), @@ATL_VERIFIED_REGIONS@@ (release.config.json).
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label: { default: '学员' }
+        Parameters: [LearnerEmail, AssistantEmails, NotificationEmail, MfaMode]
+      - Label: { default: '实验限额' }
+        Parameters:
+          - MaxSessionMinutes
+          - ExtensionMinutes
+          - MaxExtensions
+          - MaxKeepHours
+          - EnvMaxAgeDays
+          - ReadyIdleMinutes
+          - AllowedInstanceTypes
+          - AllowedDbClasses
+          - AllowedCacheNodeTypes
+          - AsgMaxSizeLimit
+          - WorkstationInstanceType
+          - DrRegion
+      - Label: { default: '费用护栏' }
+        Parameters: [MaxEbsVolumeGiB, MaxDbStorageGiB, MonthlyBudgetAmount, BudgetEnforcement]
+      - Label: { default: '高级' }
+        Parameters:
+          - ReleaseVersion
+          - ArtifactSource
+          - ArtifactBaseUrl
+          - CustomDomainName
+          - CustomDomainCertificateArn
+          - ExistingWebAclArn
+          - PriceClass
+          - PlatformTrail
+          - TerminalRecording
+          - ExternalAccessAnalyzer
+          - EnablePitr
+          - LogRetentionDays
+          - RunnerTimeoutMinutes
+          - KeyPendingWindowDays
+
+Parameters:
+  LearnerEmail:
+    Type: String
+    Description: '学员邮箱（必填）。安装时创建 Cognito 用户（组 learner），临时密码通过邮件发送。'
+    AllowedPattern: '^[^\s@]+@[^\s@]+\.[^\s@]+$'
+    ConstraintDescription: 'must be an e-mail address'
+  AssistantEmails:
+    Type: String
+    Default: ''
+    Description: '可选：逗号分隔的助教邮箱（组 assistant）。也可以安装后在平台内邀请。'
+    AllowedPattern: '^$|^[^\s@,]+@[^\s@,]+\.[^\s@,]+(,[^\s@,]+@[^\s@,]+\.[^\s@,]+)*$'
+  MfaMode:
+    Type: String
+    Default: 'ON'
+    AllowedValues: ['ON', 'OPTIONAL']
+    Description: '平台能签发控制台登录链接，默认强制 TOTP MFA。'
+  ReleaseVersion:
+    Type: String
+    Default: '@@ATL_RELEASE_TAG@@'
+    AllowedPattern: '^(dev|v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?)$'
+    Description: 'Launch Stack 链接已预填，不要修改；必须等于模板内嵌制品清单的版本（dev = 从源码部署，以 ArtifactBaseUrl 下的 SHA256SUMS 为准）。'
+  ArtifactSource:
+    Type: String
+    Default: github-release
+    AllowedValues: [github-release, s3]
+  ArtifactBaseUrl:
+    Type: String
+    Default: ''
+    AllowedPattern: '^$|^s3://[a-z0-9][a-z0-9.-]{1,61}[a-z0-9](/[A-Za-z0-9._/-]*)?$'
+    Description: 'ArtifactSource=s3 时的 s3://bucket/prefix（与栈同区域）。'
+  MaxSessionMinutes:
+    Type: Number
+    Default: 360
+    MinValue: 300
+    MaxValue: 480
+    Description: '单次会话总时长上限（readyAt 到 deadlineAt，含延长）；不得小于卡片最大基础时长 + 2 × 30。'
+  ExtensionMinutes:
+    Type: Number
+    Default: 30
+    MinValue: 5
+    MaxValue: 60
+  MaxExtensions:
+    Type: Number
+    Default: 2
+    MinValue: 0
+    MaxValue: 4
+  MaxKeepHours:
+    Type: Number
+    Default: 24
+    MinValue: 1
+    MaxValue: 72
+  EnvMaxAgeDays:
+    Type: Number
+    Default: 7
+    MinValue: 1
+    MaxValue: 30
+  ReadyIdleMinutes:
+    Type: Number
+    Default: 60
+    MinValue: 0
+    MaxValue: 240
+    Description: 'READY 后一直未进入工作台的自动结束时间；0 表示关闭。'
+  AllowedInstanceTypes:
+    Type: CommaDelimitedList
+    Default: 't3.micro,t3.small,t3.medium,t4g.micro,t4g.small,t4g.medium'
+    Description: '实例规格白名单，写入学员边界与工作负载边界。'
+  AllowedDbClasses:
+    Type: CommaDelimitedList
+    Default: 'db.t3.micro,db.t4g.micro,db.t4g.small'
+  AllowedCacheNodeTypes:
+    Type: CommaDelimitedList
+    Default: 'cache.t3.micro,cache.t4g.micro,cache.t4g.small'
+  AsgMaxSizeLimit:
+    Type: Number
+    Default: 4
+    MinValue: 1
+    MaxValue: 10
+  MaxEbsVolumeGiB:
+    Type: Number
+    Default: 100
+    MinValue: 8
+    MaxValue: 1000
+  MaxDbStorageGiB:
+    Type: Number
+    Default: 100
+    MinValue: 20
+    MaxValue: 1000
+  DrRegion:
+    Type: String
+    Default: ap-northeast-3
+    AllowedPattern: '^$|^[a-z]{2}-[a-z]+-[0-9]$'
+    Description: '允许的灾备区域（卡片中以 ${atl:drRegion} 引用）；留空则不允许。'
+  WorkstationInstanceType:
+    Type: String
+    Default: t4g.small
+    AllowedPattern: '^[a-z0-9]+\.[a-z0-9]+$'
+    Description: '必须在 AllowedInstanceTypes 中。'
+  NotificationEmail:
+    Type: String
+    Default: ''
+    AllowedPattern: '^$|^[^\s@]+@[^\s@]+\.[^\s@]+$'
+    Description: '订阅 atl-notify、atl-alerts 与预算通知；留空 = LearnerEmail。'
+  CustomDomainName:
+    Type: String
+    Default: ''
+    AllowedPattern: '^$|^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$'
+  CustomDomainCertificateArn:
+    Type: String
+    Default: ''
+    AllowedPattern: '^$|^arn:aws:acm:us-east-1:[0-9]{12}:certificate/[0-9a-f-]{36}$'
+    Description: '自定义域名的证书，必须在 us-east-1。'
+  ExistingWebAclArn:
+    Type: String
+    Default: ''
+    AllowedPattern: '^$|^arn:aws:wafv2:us-east-1:[0-9]{12}:global/webacl/.+$'
+  PriceClass:
+    Type: String
+    Default: PriceClass_200
+    AllowedValues: [PriceClass_100, PriceClass_200, PriceClass_All]
+  PlatformTrail:
+    Type: String
+    Default: none
+    AllowedValues: [none, enabled]
+  TerminalRecording:
+    Type: String
+    Default: 'off'
+    AllowedValues: ['off', cloudwatch]
+  ExternalAccessAnalyzer:
+    Type: String
+    Default: create
+    AllowedValues: [create, existing, 'off']
+  MonthlyBudgetAmount:
+    Type: Number
+    Default: 0
+    MinValue: 0
+  BudgetEnforcement:
+    Type: String
+    Default: block-start
+    AllowedValues: [notify, block-start, end-active]
+  EnablePitr:
+    Type: String
+    Default: 'false'
+    AllowedValues: ['false', 'true']
+  LogRetentionDays:
+    Type: Number
+    Default: 30
+    AllowedValues: [1, 3, 5, 7, 14, 30, 60, 90, 120, 150, 180, 365, 400, 545, 731, 1096, 1827, 2192, 2557, 2922, 3288, 3653]
+  RunnerTimeoutMinutes:
+    Type: Number
+    Default: 120
+    MinValue: 5
+    MaxValue: 480
+  KeyPendingWindowDays:
+    Type: Number
+    Default: 7
+    MinValue: 7
+    MaxValue: 30
+
+Rules:
+  VerifiedRegion:
+    Assertions:
+      - Assert: !Contains ['@@ATL_VERIFIED_REGIONS@@', !Ref 'AWS::Region']
+        AssertDescription: 'ATL v1 has only been verified in the regions listed in the release notes (01 §4.2).'
+  WorkstationTypeAllowed:
+    Assertions:
+      - Assert: !Contains [!Ref AllowedInstanceTypes, !Ref WorkstationInstanceType]
+        AssertDescription: 'WorkstationInstanceType must be one of AllowedInstanceTypes.'
+  ArtifactBaseUrlForS3:
+    RuleCondition: !Equals [!Ref ArtifactSource, s3]
+    Assertions:
+      - Assert: !Not [!Equals [!Ref ArtifactBaseUrl, '']]
+        AssertDescription: 'ArtifactSource=s3 needs ArtifactBaseUrl (s3://bucket/prefix in the stack region).'
+  DevReleaseFromS3:
+    RuleCondition: !Equals [!Ref ReleaseVersion, dev]
+    Assertions:
+      - Assert: !Equals [!Ref ArtifactSource, s3]
+        AssertDescription: 'ReleaseVersion=dev is only valid with ArtifactSource=s3 (01 §4.9).'
+  ReleaseMatchesTemplate:
+    Assertions:
+      - Assert: !Or [!Equals [!Ref ReleaseVersion, dev], !Equals [!Ref ReleaseVersion, '@@ATL_RELEASE_TAG@@']]
+        AssertDescription: 'ReleaseVersion must equal the version of this template (or dev for source deployments).'
+  CustomDomainNeedsCertificate:
+    RuleCondition: !Not [!Equals [!Ref CustomDomainName, '']]
+    Assertions:
+      - Assert: !Not [!Equals [!Ref CustomDomainCertificateArn, '']]
+        AssertDescription: 'CustomDomainName needs CustomDomainCertificateArn (an ACM certificate in us-east-1).'
+  CertificateNeedsCustomDomain:
+    RuleCondition: !Not [!Equals [!Ref CustomDomainCertificateArn, '']]
+    Assertions:
+      - Assert: !Not [!Equals [!Ref CustomDomainName, '']]
+        AssertDescription: 'CustomDomainCertificateArn is only used together with CustomDomainName.'
+
+Conditions:
+  IsMfaOn: !Equals [!Ref MfaMode, 'ON']
+  ArtifactsFromS3: !Equals [!Ref ArtifactSource, s3]
+  IsUsEast1: !Equals [!Ref 'AWS::Region', us-east-1]
+  NotUsEast1: !Not [!Condition IsUsEast1]
+  HasDrRegion: !Not [!Equals [!Ref DrRegion, '']]
+  HasNotificationEmail: !Not [!Equals [!Ref NotificationEmail, '']]
+  HasCustomDomain: !Not [!Equals [!Ref CustomDomainName, '']]
+  HasWebAcl: !Not [!Equals [!Ref ExistingWebAclArn, '']]
+  TrailEnabled: !Equals [!Ref PlatformTrail, enabled]
+  RecordingOn: !Equals [!Ref TerminalRecording, cloudwatch]
+  CreateAnalyzer: !Equals [!Ref ExternalAccessAnalyzer, create]
+  HasBudget: !Not [!Equals [!Ref MonthlyBudgetAmount, '0']]
+  PitrEnabled: !Equals [!Ref EnablePitr, 'true']

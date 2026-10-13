@@ -1,0 +1,215 @@
+[
+  {
+    "scenario": "ap-northeast-1 + DR ap-northeast-3",
+    "managed": [
+      {
+        "name": "ATLLearnerBoundary",
+        "size": 5833,
+        "limit": 6144,
+        "headroom": 311
+      },
+      {
+        "name": "ATLWorkloadBoundary",
+        "size": 5909,
+        "limit": 6144,
+        "headroom": 235
+      },
+      {
+        "name": "ATLProvisionerBoundary",
+        "size": 5159,
+        "limit": 6144,
+        "headroom": 985
+      },
+      {
+        "name": "ATLLearnerGuardrails",
+        "size": 5120,
+        "limit": 6144,
+        "headroom": 1024
+      },
+      {
+        "name": "ATLLearnerCostGuards",
+        "size": 1823,
+        "limit": 6144,
+        "headroom": 4321
+      },
+      {
+        "name": "ATLProvisionerPolicy-Core",
+        "size": 1000,
+        "limit": 6144,
+        "headroom": 5144
+      },
+      {
+        "name": "ATLProvisionerPolicy-Guards",
+        "size": 2864,
+        "limit": 6144,
+        "headroom": 3280
+      }
+    ],
+    "inline": [
+      {
+        "role": "ATLLearnerRole",
+        "policies": [
+          "ATLLearnerIam",
+          "ATLAgentApi"
+        ],
+        "size": 1091,
+        "reserve": 2000,
+        "limit": 10240,
+        "headroom": 7149
+      },
+      {
+        "role": "ATLVerifierRole",
+        "policies": [
+          "ATLVerifierReadOnly",
+          "ATLVerifierRunCheck"
+        ],
+        "size": 7352,
+        "reserve": 0,
+        "limit": 10240,
+        "headroom": 2888
+      }
+    ]
+  },
+  {
+    "scenario": "ap-southeast-2 + DR ap-southeast-4",
+    "managed": [
+      {
+        "name": "ATLLearnerBoundary",
+        "size": 5833,
+        "limit": 6144,
+        "headroom": 311
+      },
+      {
+        "name": "ATLWorkloadBoundary",
+        "size": 5909,
+        "limit": 6144,
+        "headroom": 235
+      },
+      {
+        "name": "ATLProvisionerBoundary",
+        "size": 5159,
+        "limit": 6144,
+        "headroom": 985
+      },
+      {
+        "name": "ATLLearnerGuardrails",
+        "size": 5120,
+        "limit": 6144,
+        "headroom": 1024
+      },
+      {
+        "name": "ATLLearnerCostGuards",
+        "size": 1823,
+        "limit": 6144,
+        "headroom": 4321
+      },
+      {
+        "name": "ATLProvisionerPolicy-Core",
+        "size": 1000,
+        "limit": 6144,
+        "headroom": 5144
+      },
+      {
+        "name": "ATLProvisionerPolicy-Guards",
+        "size": 2864,
+        "limit": 6144,
+        "headroom": 3280
+      }
+    ],
+    "inline": [
+      {
+        "role": "ATLLearnerRole",
+        "policies": [
+          "ATLLearnerIam",
+          "ATLAgentApi"
+        ],
+        "size": 1091,
+        "reserve": 2000,
+        "limit": 10240,
+        "headroom": 7149
+      },
+      {
+        "role": "ATLVerifierRole",
+        "policies": [
+          "ATLVerifierReadOnly",
+          "ATLVerifierRunCheck"
+        ],
+        "size": 7352,
+        "reserve": 0,
+        "limit": 10240,
+        "headroom": 2888
+      }
+    ]
+  },
+  {
+    "scenario": "us-east-1 without DR",
+    "managed": [
+      {
+        "name": "ATLLearnerBoundary",
+        "size": 4936,
+        "limit": 6144,
+        "headroom": 1208
+      },
+      {
+        "name": "ATLWorkloadBoundary",
+        "size": 4967,
+        "limit": 6144,
+        "headroom": 1177
+      },
+      {
+        "name": "ATLProvisionerBoundary",
+        "size": 3531,
+        "limit": 6144,
+        "headroom": 2613
+      },
+      {
+        "name": "ATLLearnerGuardrails",
+        "size": 4344,
+        "limit": 6144,
+        "headroom": 1800
+      },
+      {
+        "name": "ATLLearnerCostGuards",
+        "size": 1823,
+        "limit": 6144,
+        "headroom": 4321
+      },
+      {
+        "name": "ATLProvisionerPolicy-Core",
+        "size": 1000,
+        "limit": 6144,
+        "headroom": 5144
+      },
+      {
+        "name": "ATLProvisionerPolicy-Guards",
+        "size": 2809,
+        "limit": 6144,
+        "headroom": 3335
+      }
+    ],
+    "inline": [
+      {
+        "role": "ATLLearnerRole",
+        "policies": [
+          "ATLLearnerIam",
+          "ATLAgentApi"
+        ],
+        "size": 1086,
+        "reserve": 2000,
+        "limit": 10240,
+        "headroom": 7154
+      },
+      {
+        "role": "ATLVerifierRole",
+        "policies": [
+          "ATLVerifierReadOnly",
+          "ATLVerifierRunCheck"
+        ],
+        "size": 7327,
+        "reserve": 0,
+        "limit": 10240,
+        "headroom": 2913
+      }
+    ]
+  }
+]

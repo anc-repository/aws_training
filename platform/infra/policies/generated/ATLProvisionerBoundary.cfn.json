@@ -1,0 +1,439 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "AllowLabServices",
+      "Effect": "Allow",
+      "Action": [
+        "access-analyzer:Get*",
+        "access-analyzer:List*",
+        "acm:*",
+        "apigateway:*",
+        "application-autoscaling:*",
+        "athena:*",
+        "autoscaling:*",
+        "backup:*",
+        "backup-storage:*",
+        "budgets:*",
+        "ce:Describe*",
+        "ce:Get*",
+        "ce:List*",
+        "cloudformation:*",
+        "cloudfront:*",
+        "cloudshell:*",
+        "cloudtrail:*",
+        "cloudwatch:*",
+        "cognito-identity:*",
+        "cognito-idp:*",
+        "config:*",
+        "dynamodb:*",
+        "ec2:*",
+        "ec2-instance-connect:*",
+        "ec2messages:*",
+        "elasticache:*",
+        "elasticfilesystem:*",
+        "elasticloadbalancing:*",
+        "events:*",
+        "execute-api:*",
+        "firehose:*",
+        "glue:*",
+        "guardduty:*",
+        "health:Describe*",
+        "iam:*",
+        "imagebuilder:*",
+        "inspector2:*",
+        "kms:*",
+        "lambda:*",
+        "logs:*",
+        "pricing:*",
+        "rds:*",
+        "rds-db:*",
+        "rekognition:*",
+        "resource-groups:*",
+        "route53:*",
+        "s3:*",
+        "scheduler:*",
+        "secretsmanager:*",
+        "servicequotas:Get*",
+        "servicequotas:List*",
+        "ses:*",
+        "sns:*",
+        "sqs:*",
+        "ssm:*",
+        "ssmmessages:*",
+        "states:*",
+        "sts:*",
+        "tag:*",
+        "wafv2:*",
+        "xray:*",
+        "ce:UpdateCostAllocationTagsStatus"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "DenyOtherRegions",
+      "Effect": "Deny",
+      "NotAction": [
+        "iam:*",
+        "sts:*",
+        "cloudfront:*",
+        "route53:*",
+        "budgets:*",
+        "ce:*",
+        "health:*",
+        "pricing:*"
+      ],
+      "Resource": "*",
+      "Condition": {
+        "StringNotEquals": {
+          "aws:RequestedRegion": {
+            "Fn::If": [
+              "IsUsEast1",
+              {
+                "Fn::If": [
+                  "HasDrRegion",
+                  [
+                    "us-east-1",
+                    {
+                      "Ref": "DrRegion"
+                    }
+                  ],
+                  [
+                    "us-east-1"
+                  ]
+                ]
+              },
+              {
+                "Fn::If": [
+                  "HasDrRegion",
+                  [
+                    {
+                      "Ref": "AWS::Region"
+                    },
+                    "us-east-1",
+                    {
+                      "Ref": "DrRegion"
+                    }
+                  ],
+                  [
+                    {
+                      "Ref": "AWS::Region"
+                    },
+                    "us-east-1"
+                  ]
+                ]
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "Fn::If": [
+        "NotUsEast1",
+        {
+          "Sid": "UsEast1EdgeOnly",
+          "Effect": "Deny",
+          "NotAction": [
+            "iam:*",
+            "sts:*",
+            "cloudfront:*",
+            "route53:*",
+            "budgets:*",
+            "ce:*",
+            "health:*",
+            "pricing:*",
+            "acm:*",
+            "wafv2:*",
+            "cloudwatch:*",
+            "logs:*",
+            "sns:*",
+            "s3:ListAllMyBuckets",
+            "s3:GetBucketLocation",
+            "cloudtrail:LookupEvents",
+            "cloudformation:*"
+          ],
+          "Resource": "*",
+          "Condition": {
+            "StringEquals": {
+              "aws:RequestedRegion": "us-east-1"
+            }
+          }
+        },
+        {
+          "Ref": "AWS::NoValue"
+        }
+      ]
+    },
+    {
+      "Fn::If": [
+        "HasDrRegion",
+        {
+          "Sid": "DrRegionLimited",
+          "Effect": "Deny",
+          "NotAction": [
+            "iam:*",
+            "sts:*",
+            "backup:*",
+            "backup-storage:*",
+            "kms:*",
+            "s3:*",
+            "tag:GetResources",
+            "cloudformation:*",
+            "ec2:Describe*",
+            "ec2:*Snapshot*",
+            "ec2:CreateTags",
+            "ec2:CreateVolume",
+            "ec2:DeleteVolume",
+            "rds:Describe*",
+            "rds:*DBSnapshot*",
+            "rds:AddTagsToResource",
+            "rds:CreateDBInstanceReadReplica",
+            "rds:DeleteDBInstance",
+            "rds:*DBSubnetGroup",
+            "cloudwatch:Get*",
+            "cloudwatch:List*"
+          ],
+          "Resource": "*",
+          "Condition": {
+            "StringEquals": {
+              "aws:RequestedRegion": {
+                "Fn::Sub": "${DrRegion}"
+              }
+            }
+          }
+        },
+        {
+          "Ref": "AWS::NoValue"
+        }
+      ]
+    },
+    {
+      "Fn::If": [
+        "NotUsEast1",
+        {
+          "Sid": "UsEast1LabStacksOnly",
+          "Effect": "Deny",
+          "Action": [
+            "cloudformation:CreateStack",
+            "cloudformation:UpdateStack",
+            "cloudformation:DeleteStack",
+            "cloudformation:CreateChangeSet",
+            "cloudformation:ExecuteChangeSet"
+          ],
+          "NotResource": {
+            "Fn::Sub": "arn:${AWS::Partition}:cloudformation:us-east-1:${AWS::AccountId}:stack/cloudalbum-*/*"
+          },
+          "Condition": {
+            "StringEquals": {
+              "aws:RequestedRegion": "us-east-1"
+            }
+          }
+        },
+        {
+          "Ref": "AWS::NoValue"
+        }
+      ]
+    },
+    {
+      "Fn::If": [
+        "HasDrRegion",
+        {
+          "Sid": "DrRegionLabStacksOnly",
+          "Effect": "Deny",
+          "Action": [
+            "cloudformation:CreateStack",
+            "cloudformation:UpdateStack",
+            "cloudformation:DeleteStack",
+            "cloudformation:CreateChangeSet",
+            "cloudformation:ExecuteChangeSet"
+          ],
+          "NotResource": {
+            "Fn::Sub": "arn:${AWS::Partition}:cloudformation:${DrRegion}:${AWS::AccountId}:stack/cloudalbum-*/*"
+          },
+          "Condition": {
+            "StringEquals": {
+              "aws:RequestedRegion": {
+                "Fn::Sub": "${DrRegion}"
+              }
+            }
+          }
+        },
+        {
+          "Ref": "AWS::NoValue"
+        }
+      ]
+    },
+    {
+      "Sid": "DenyPlatformByName",
+      "Effect": "Deny",
+      "Action": "*",
+      "Resource": [
+        {
+          "Fn::Sub": "arn:${AWS::Partition}:iam::*:policy/ATL*"
+        },
+        {
+          "Fn::Sub": "arn:${AWS::Partition}:s3:::atl-web-*"
+        },
+        {
+          "Fn::Sub": "arn:${AWS::Partition}:s3:::atl-trail-*"
+        },
+        {
+          "Fn::Sub": "arn:${AWS::Partition}:dynamodb:*:*:table/atl-*"
+        },
+        {
+          "Fn::Sub": "arn:${AWS::Partition}:lambda:*:*:function:atl-*"
+        },
+        {
+          "Fn::Sub": "arn:${AWS::Partition}:states:*:*:*:atl-*"
+        },
+        {
+          "Fn::Sub": "arn:${AWS::Partition}:codebuild:*:*:project/atl-*"
+        },
+        {
+          "Fn::Sub": "arn:${AWS::Partition}:cloudformation:*:*:stack/${AWS::StackName}/*"
+        },
+        {
+          "Fn::Sub": "arn:${AWS::Partition}:scheduler:*:*:schedule*/atl-*"
+        },
+        {
+          "Fn::Sub": "arn:${AWS::Partition}:logs:*:*:log-group:/atl/*"
+        },
+        {
+          "Fn::Sub": "arn:${AWS::Partition}:logs:*:*:log-group:/aws/*/atl-*"
+        },
+        {
+          "Fn::Sub": "arn:${AWS::Partition}:ssm:*:*:parameter/atl/*"
+        },
+        {
+          "Fn::Sub": "arn:${AWS::Partition}:sns:*:*:atl-*"
+        },
+        {
+          "Fn::Sub": "arn:${AWS::Partition}:sqs:*:*:atl-*"
+        },
+        {
+          "Fn::Sub": "arn:${AWS::Partition}:kms:*:*:alias/atl-*"
+        },
+        {
+          "Fn::Sub": "arn:${AWS::Partition}:events:*:*:*/atl-*"
+        },
+        {
+          "Fn::Sub": "arn:${AWS::Partition}:budgets::*:budget/atl-*"
+        },
+        {
+          "Fn::Sub": "arn:${AWS::Partition}:access-analyzer:*:*:analyzer/atl-*"
+        }
+      ]
+    },
+    {
+      "Sid": "DenyPlatformRoles",
+      "Effect": "Deny",
+      "NotAction": [
+        "iam:PassRole",
+        "iam:GetRole",
+        "iam:GetInstanceProfile"
+      ],
+      "Resource": [
+        {
+          "Fn::Sub": "arn:${AWS::Partition}:iam::*:role/ATL*"
+        },
+        {
+          "Fn::Sub": "arn:${AWS::Partition}:iam::*:instance-profile/ATL*"
+        }
+      ]
+    },
+    {
+      "Sid": "DenyPlatformByTag",
+      "Effect": "Deny",
+      "NotAction": [
+        "ssm:SendCommand",
+        "ssm:StartSession",
+        "ssm:TerminateSession",
+        "ssm:DescribeSessions",
+        "ssm:DescribeInstanceInformation",
+        "execute-api:Invoke"
+      ],
+      "Resource": "*",
+      "Condition": {
+        "StringEquals": {
+          "aws:ResourceTag/atl:component": "platform"
+        }
+      }
+    },
+    {
+      "Sid": "ProtectComponentTag",
+      "Effect": "Deny",
+      "Action": "*",
+      "Resource": "*",
+      "Condition": {
+        "StringEquals": {
+          "aws:RequestTag/atl:component": "platform"
+        }
+      }
+    },
+    {
+      "Sid": "PrincipalWritesNeedWorkloadBoundary",
+      "Effect": "Deny",
+      "Action": [
+        "iam:CreateRole",
+        "iam:CreateUser",
+        "iam:PutRolePermissionsBoundary",
+        "iam:AttachRolePolicy",
+        "iam:DetachRolePolicy",
+        "iam:PutRolePolicy",
+        "iam:DeleteRolePolicy",
+        "iam:AttachUserPolicy",
+        "iam:DetachUserPolicy",
+        "iam:PutUserPolicy",
+        "iam:DeleteUserPolicy"
+      ],
+      "Resource": "*",
+      "Condition": {
+        "StringNotEquals": {
+          "iam:PermissionsBoundary": {
+            "Fn::Sub": "arn:${AWS::Partition}:iam::${AWS::AccountId}:policy/ATLWorkloadBoundary"
+          }
+        }
+      }
+    },
+    {
+      "Sid": "NoBoundaryRemoval",
+      "Effect": "Deny",
+      "Action": [
+        "iam:DeleteRolePermissionsBoundary",
+        "iam:DeleteUserPermissionsBoundary",
+        "iam:PutUserPermissionsBoundary"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "PassOnlyLabRoles",
+      "Effect": "Deny",
+      "Action": "iam:PassRole",
+      "NotResource": [
+        {
+          "Fn::Sub": "arn:${AWS::Partition}:iam::*:role/CloudAlbum*"
+        },
+        {
+          "Fn::Sub": "arn:${AWS::Partition}:iam::*:role/*cloudalbum-*"
+        },
+        {
+          "Fn::Sub": "arn:${AWS::Partition}:iam::${AWS::AccountId}:role/ATLWorkstationRole"
+        }
+      ]
+    },
+    {
+      "Sid": "AssumeOnlyLabRoles",
+      "Effect": "Deny",
+      "Action": "sts:AssumeRole",
+      "NotResource": [
+        {
+          "Fn::Sub": "arn:${AWS::Partition}:iam::${AWS::AccountId}:role/CloudAlbum*"
+        },
+        {
+          "Fn::Sub": "arn:${AWS::Partition}:iam::${AWS::AccountId}:role/*cloudalbum-*"
+        }
+      ]
+    }
+  ]
+}

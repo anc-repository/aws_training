@@ -1,0 +1,68 @@
+# 15-labstate — learner-accessible environment state (01 §3.11, 02 §9.5): the state bucket cloudalbum-lab-state-<acct>-<region>
+# and the environment operation lock table cloudalbum-lab-locks (key = LAB_LOCKS_SPEC of @atl/shared). Names deliberately do
+# not start with atl- (DenyPlatformByName) and the component tag is lab-state, not platform (DenyPlatformByTag, 02 §9.5).
+Resources:
+  LabStateBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Retain
+    Properties:
+      BucketName: !Sub 'cloudalbum-lab-state-${AWS::AccountId}-${AWS::Region}'
+      VersioningConfiguration: { Status: Enabled }
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      OwnershipControls:
+        Rules: [{ ObjectOwnership: BucketOwnerEnforced }]
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault: { SSEAlgorithm: AES256 }
+      LifecycleConfiguration:
+        Rules:
+          - Id: noncurrent-expire
+            Status: Enabled
+            NoncurrentVersionExpiration: { NoncurrentDays: 14 }
+          - Id: abort-multipart
+            Status: Enabled
+            AbortIncompleteMultipartUpload: { DaysAfterInitiation: 1 }
+      Tags:
+        - { Key: 'atl:component', Value: lab-state }
+        - { Key: Project, Value: ATL }
+
+  LabStateBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref LabStateBucket
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: DenyInsecureTransport
+            Effect: Deny
+            Principal: '*'
+            Action: 's3:*'
+            Resource: [!GetAtt LabStateBucket.Arn, !Sub '${LabStateBucket.Arn}/*']
+            Condition: { Bool: { 'aws:SecureTransport': 'false' } }
+          - Sid: DenyOutsideAccount
+            Effect: Deny
+            Principal: '*'
+            Action: 's3:*'
+            Resource: [!GetAtt LabStateBucket.Arn, !Sub '${LabStateBucket.Arn}/*']
+            Condition: { StringNotEquals: { 'aws:PrincipalAccount': !Ref 'AWS::AccountId' } }
+
+  LabLockTable:
+    Type: AWS::DynamoDB::Table
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Retain
+    Properties:
+      TableName: cloudalbum-lab-locks
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - { AttributeName: lockKey, AttributeType: S }
+      KeySchema:
+        - { AttributeName: lockKey, KeyType: HASH }
+      TimeToLiveSpecification: { AttributeName: ttl, Enabled: true }
+      Tags:
+        - { Key: 'atl:component', Value: lab-state }
+        - { Key: Project, Value: ATL }

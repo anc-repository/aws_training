@@ -1,0 +1,314 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "NoCommitments",
+      "Effect": "Deny",
+      "Resource": "*",
+      "Action": [
+        "ec2:Purchase*",
+        "ec2:AllocateHosts",
+        "ec2:CreateCapacityReservation*",
+        "rds:PurchaseReserved*",
+        "elasticache:PurchaseReserved*",
+        "dynamodb:PurchaseReserved*"
+      ]
+    },
+    {
+      "Sid": "ProtectAppRole",
+      "Effect": "Deny",
+      "Action": [
+        "iam:DeleteRole",
+        "iam:UpdateAssumeRolePolicy",
+        "iam:TagRole",
+        "iam:UntagRole",
+        "iam:DeleteInstanceProfile",
+        "iam:RemoveRoleFromInstanceProfile"
+      ],
+      "Resource": [
+        {
+          "Fn::Sub": "arn:${AWS::Partition}:iam::${AWS::AccountId}:role/CloudAlbumAppRole"
+        },
+        {
+          "Fn::Sub": "arn:${AWS::Partition}:iam::${AWS::AccountId}:instance-profile/CloudAlbumAppRole"
+        }
+      ]
+    },
+    {
+      "Sid": "KeepPlatformChannel",
+      "Effect": "Deny",
+      "Action": "iam:DetachRolePolicy",
+      "Resource": {
+        "Fn::Sub": "arn:${AWS::Partition}:iam::${AWS::AccountId}:role/CloudAlbumAppRole"
+      },
+      "Condition": {
+        "ArnEquals": {
+          "iam:PolicyARN": {
+            "Fn::Sub": "arn:${AWS::Partition}:iam::aws:policy/AmazonSSMManagedInstanceCore"
+          }
+        }
+      }
+    },
+    {
+      "Sid": "KeepInstanceProfiles",
+      "Effect": "Deny",
+      "Action": [
+        "ec2:DisassociateIamInstanceProfile",
+        "ec2:ReplaceIamInstanceProfileAssociation"
+      ],
+      "Resource": "*",
+      "Condition": {
+        "StringEquals": {
+          "ec2:ResourceTag/atl:role": [
+            "lab-app",
+            "workstation"
+          ]
+        }
+      }
+    },
+    {
+      "Sid": "ProtectNonLabTrails",
+      "Effect": "Deny",
+      "Action": [
+        "cloudtrail:StopLogging",
+        "cloudtrail:DeleteTrail",
+        "cloudtrail:UpdateTrail",
+        "cloudtrail:Put*Selectors"
+      ],
+      "NotResource": {
+        "Fn::Sub": "arn:${AWS::Partition}:cloudtrail:*:${AWS::AccountId}:trail/cloudalbum-*"
+      }
+    },
+    {
+      "Sid": "ProtectAtlDocuments",
+      "Effect": "Deny",
+      "Action": [
+        "ssm:UpdateDocument*",
+        "ssm:DeleteDocument",
+        "ssm:ModifyDocumentPermission",
+        "ssm:AddTagsToResource",
+        "ssm:RemoveTagsFromResource"
+      ],
+      "Resource": {
+        "Fn::Sub": "arn:${AWS::Partition}:ssm:*:${AWS::AccountId}:document/ATL-*"
+      }
+    },
+    {
+      "Sid": "ProtectRecordings",
+      "Effect": "Deny",
+      "Action": [
+        "logs:DeleteLogGroup",
+        "logs:DeleteLogStream",
+        "logs:PutRetentionPolicy",
+        "logs:DeleteRetentionPolicy",
+        "logs:AssociateKmsKey",
+        "logs:DisassociateKmsKey",
+        "logs:PutSubscriptionFilter",
+        "logs:DeleteSubscriptionFilter",
+        "logs:PutDataProtectionPolicy",
+        "logs:TagResource",
+        "logs:UntagResource",
+        "logs:TagLogGroup",
+        "logs:UntagLogGroup"
+      ],
+      "Resource": {
+        "Fn::Sub": "arn:${AWS::Partition}:logs:*:${AWS::AccountId}:log-group:/atl-recordings/*"
+      }
+    },
+    {
+      "Sid": "ProtectLabStateStore",
+      "Effect": "Deny",
+      "NotAction": [
+        "s3:ListBucket",
+        "s3:ListBucketVersions",
+        "s3:GetBucketLocation",
+        "s3:GetBucketVersioning",
+        "s3:GetBucketPolicy",
+        "dynamodb:GetItem",
+        "dynamodb:PutItem",
+        "dynamodb:UpdateItem",
+        "dynamodb:DeleteItem",
+        "dynamodb:ConditionCheckItem",
+        "dynamodb:Query",
+        "dynamodb:DescribeTable"
+      ],
+      "Resource": [
+        {
+          "Fn::Sub": "arn:${AWS::Partition}:s3:::${LabStateBucket}"
+        },
+        {
+          "Fn::Sub": "${LabLockTable.Arn}"
+        }
+      ]
+    },
+    {
+      "Sid": "KeepAtlTags",
+      "Effect": "Deny",
+      "Action": "*",
+      "Resource": "*",
+      "Condition": {
+        "ForAnyValue:StringEquals": {
+          "aws:TagKeys": [
+            "atl:session-id",
+            "atl:lab-id",
+            "atl:env-id",
+            "atl:component"
+          ]
+        },
+        "Null": {
+          "aws:RequestTag/atl:session-id": "true",
+          "aws:RequestTag/atl:lab-id": "true",
+          "aws:RequestTag/atl:env-id": "true",
+          "aws:RequestTag/atl:component": "true"
+        }
+      }
+    },
+    {
+      "Sid": "ProtectRoleTag",
+      "Effect": "Deny",
+      "Action": "*",
+      "Resource": "*",
+      "Condition": {
+        "ForAnyValue:StringEquals": {
+          "aws:TagKeys": [
+            "atl:role",
+            "atl:active-session-id"
+          ]
+        },
+        "ForAllValues:StringNotEquals": {
+          "aws:CalledVia": [
+            "cloudformation.amazonaws.com"
+          ]
+        }
+      }
+    },
+    {
+      "Sid": "LabIamResourcesOnly",
+      "Effect": "Deny",
+      "Action": [
+        "iam:DeleteRole",
+        "iam:UpdateRole",
+        "iam:UpdateRoleDescription",
+        "iam:UpdateAssumeRolePolicy",
+        "iam:TagRole",
+        "iam:UntagRole",
+        "iam:CreatePolicyVersion",
+        "iam:DeletePolicy",
+        "iam:DeletePolicyVersion",
+        "iam:SetDefaultPolicyVersion",
+        "iam:AddRoleToInstanceProfile",
+        "iam:RemoveRoleFromInstanceProfile",
+        "iam:DeleteInstanceProfile"
+      ],
+      "NotResource": [
+        {
+          "Fn::Sub": "arn:${AWS::Partition}:iam::${AWS::AccountId}:role/CloudAlbum*"
+        },
+        {
+          "Fn::Sub": "arn:${AWS::Partition}:iam::${AWS::AccountId}:role/*cloudalbum-*"
+        },
+        {
+          "Fn::Sub": "arn:${AWS::Partition}:iam::${AWS::AccountId}:policy/CloudAlbum*"
+        },
+        {
+          "Fn::Sub": "arn:${AWS::Partition}:iam::${AWS::AccountId}:policy/*cloudalbum-*"
+        },
+        {
+          "Fn::Sub": "arn:${AWS::Partition}:iam::${AWS::AccountId}:instance-profile/CloudAlbum*"
+        },
+        {
+          "Fn::Sub": "arn:${AWS::Partition}:iam::${AWS::AccountId}:instance-profile/*cloudalbum-*"
+        }
+      ]
+    },
+    {
+      "Sid": "DenyPlatformByArn",
+      "Effect": "Deny",
+      "Action": "*",
+      "Resource": [
+        {
+          "Fn::Sub": "arn:${AWS::Partition}:cloudfront::${AWS::AccountId}:distribution/${WebDistribution}"
+        },
+        {
+          "Fn::Sub": "arn:${AWS::Partition}:cognito-idp:${AWS::Region}:${AWS::AccountId}:userpool/${UserPool}"
+        },
+        {
+          "Fn::Sub": "arn:${AWS::Partition}:apigateway:${AWS::Region}::/apis/${HttpApi}"
+        },
+        {
+          "Fn::Sub": "arn:${AWS::Partition}:apigateway:${AWS::Region}::/apis/${HttpApi}/*"
+        },
+        {
+          "Fn::Sub": "${CertSigningKey.Arn}"
+        },
+        {
+          "Fn::Sub": "arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:association/${PrepareInstanceAssociation}"
+        }
+      ]
+    },
+    {
+      "Sid": "DenyInternalRoutes",
+      "Effect": "Deny",
+      "Action": "execute-api:Invoke",
+      "Resource": {
+        "Fn::Sub": "arn:${AWS::Partition}:execute-api:${AWS::Region}:${AWS::AccountId}:${HttpApi}/*/*/api/v1/internal/*"
+      }
+    },
+    {
+      "Fn::If": [
+        "HasDrRegion",
+        {
+          "Sid": "DrRegionLabStacksOnly",
+          "Effect": "Deny",
+          "Action": [
+            "cloudformation:CreateStack",
+            "cloudformation:UpdateStack",
+            "cloudformation:DeleteStack",
+            "cloudformation:CreateChangeSet",
+            "cloudformation:ExecuteChangeSet"
+          ],
+          "NotResource": {
+            "Fn::Sub": "arn:${AWS::Partition}:cloudformation:${DrRegion}:${AWS::AccountId}:stack/cloudalbum-*/*"
+          },
+          "Condition": {
+            "StringEquals": {
+              "aws:RequestedRegion": {
+                "Fn::Sub": "${DrRegion}"
+              }
+            }
+          }
+        },
+        {
+          "Ref": "AWS::NoValue"
+        }
+      ]
+    },
+    {
+      "Fn::If": [
+        "NotUsEast1",
+        {
+          "Sid": "UsEast1LabStacksOnly",
+          "Effect": "Deny",
+          "Action": [
+            "cloudformation:CreateStack",
+            "cloudformation:UpdateStack",
+            "cloudformation:DeleteStack",
+            "cloudformation:CreateChangeSet",
+            "cloudformation:ExecuteChangeSet"
+          ],
+          "NotResource": {
+            "Fn::Sub": "arn:${AWS::Partition}:cloudformation:us-east-1:${AWS::AccountId}:stack/cloudalbum-*/*"
+          },
+          "Condition": {
+            "StringEquals": {
+              "aws:RequestedRegion": "us-east-1"
+            }
+          }
+        },
+        {
+          "Ref": "AWS::NoValue"
+        }
+      ]
+    }
+  ]
+}

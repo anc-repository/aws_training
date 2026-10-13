@@ -1,0 +1,120 @@
+# 60-ssm — SSM documents (content from platform/infra/ssm/<Name>.yaml, embedded by merge-template: @@SSM_CONTENT:<Name>@@),
+# the State Manager association atl-prepare-instance, non-secret platform parameters under /atl/ (01 §3.6 hard constraint:
+# String only, no secret-like names — test/template.test.ts), and the conditional terminal recording resources
+# (TerminalRecording=cloudwatch, 01 §3.6 / 03 §3.3: stack-managed, never written at run time).
+# The documents and the recording log group carry Project=ATL but not atl:component=platform: the SSM Agent on lab instances
+# (CloudAlbumAppRole, bounded by ATLWorkloadBoundary → DenyPlatformByTag) must still read them / write to them.
+Resources:
+  RunCheckDocument:
+    Type: AWS::SSM::Document
+    Properties:
+      Name: ATL-RunCheck
+      DocumentType: Command
+      DocumentFormat: JSON
+      UpdateMethod: NewVersion
+      Content: '@@SSM_CONTENT:ATL-RunCheck@@'
+      Tags: [{ Key: Project, Value: ATL }]
+  SessionShellDocument:
+    Type: AWS::SSM::Document
+    Properties:
+      Name: ATL-SessionShell
+      DocumentType: Session
+      DocumentFormat: JSON
+      UpdateMethod: NewVersion
+      Content: '@@SSM_CONTENT:ATL-SessionShell@@'
+      Tags: [{ Key: Project, Value: ATL }]
+  SessionShellLoggedDocument:
+    Type: AWS::SSM::Document
+    Properties:
+      Name: ATL-SessionShell-Logged
+      DocumentType: Session
+      DocumentFormat: JSON
+      UpdateMethod: NewVersion
+      Content: '@@SSM_CONTENT:ATL-SessionShell-Logged@@'
+      Tags: [{ Key: Project, Value: ATL }]
+  PrepareInstanceDocument:
+    Type: AWS::SSM::Document
+    Properties:
+      Name: ATL-PrepareInstance
+      DocumentType: Command
+      DocumentFormat: JSON
+      UpdateMethod: NewVersion
+      Content: '@@SSM_CONTENT:ATL-PrepareInstance@@'
+      Tags: [{ Key: Project, Value: ATL }]
+  WorkstationSetupDocument:
+    Type: AWS::SSM::Document
+    Properties:
+      Name: ATL-WorkstationSetup
+      DocumentType: Command
+      DocumentFormat: JSON
+      UpdateMethod: NewVersion
+      Content: '@@SSM_CONTENT:ATL-WorkstationSetup@@'
+      Tags: [{ Key: Project, Value: ATL }]
+
+  # runs on every instance tagged atl:role=lab-app|workstation when it registers with SSM (03 §3.4); its id is protected by
+  # DenyPlatformByArn (learner guardrails) and ProtectSsmPlatform (workload boundary)
+  PrepareInstanceAssociation:
+    Type: AWS::SSM::Association
+    Properties:
+      AssociationName: atl-prepare-instance
+      Name: !Ref PrepareInstanceDocument
+      DocumentVersion: $DEFAULT
+      Targets:
+        - Key: 'tag:atl:role'
+          Values: [lab-app, workstation]
+      ApplyOnlyAtCronInterval: false
+      MaxConcurrency: '10'
+      MaxErrors: '100%'
+      ComplianceSeverity: MEDIUM
+
+  InstallationIdParameter:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /atl/installation-id
+      Type: String
+      Value: !Select [2, !Split ['/', !Ref 'AWS::StackId']]
+      Description: 'ATL installation id (non-secret)'
+      Tags: { 'atl:component': platform, Project: ATL }
+  VersionParameter:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /atl/version
+      Type: String
+      Value: '@@ATL_VERSION@@'
+      Description: 'ATL platform version (non-secret)'
+      Tags: { 'atl:component': platform, Project: ATL }
+
+  RecordingLogGroup:
+    Type: AWS::Logs::LogGroup
+    Condition: RecordingOn
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Delete
+    Properties:
+      LogGroupName: /atl-recordings/terminal-sessions
+      RetentionInDays: !Ref LogRetentionDays
+      Tags:
+        - { Key: Project, Value: ATL }
+  AppRoleRecordingPolicy:
+    Type: AWS::IAM::RolePolicy
+    Condition: RecordingOn
+    Properties:
+      RoleName: !Ref AppRole
+      PolicyName: atl-terminal-recording
+      PolicyDocument: &recordingPolicy
+        Version: '2012-10-17'
+        Statement:
+          - Sid: WriteRecording
+            Effect: Allow
+            Action: ['logs:CreateLogStream', 'logs:PutLogEvents']
+            Resource: !Sub 'arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/atl-recordings/terminal-sessions:*'
+          - Sid: DescribeForAgent
+            Effect: Allow
+            Action: ['logs:DescribeLogGroups', 'logs:DescribeLogStreams']
+            Resource: '*'
+  WorkstationRoleRecordingPolicy:
+    Type: AWS::IAM::RolePolicy
+    Condition: RecordingOn
+    Properties:
+      RoleName: !Ref WorkstationRole
+      PolicyName: atl-terminal-recording
+      PolicyDocument: *recordingPolicy

@@ -1,0 +1,174 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "ArtifactsReadOnly",
+      "Effect": "Deny",
+      "NotAction": [
+        "s3:GetObject",
+        "s3:GetObjectVersion"
+      ],
+      "Resource": {
+        "Fn::Sub": "arn:${AWS::Partition}:s3:::atl-artifacts-*"
+      }
+    },
+    {
+      "Sid": "DataRunsAndArchiveOnly",
+      "Effect": "Deny",
+      "Action": "*",
+      "Resource": [
+        {
+          "Fn::Sub": "arn:${AWS::Partition}:s3:::${DataBucket}"
+        },
+        {
+          "Fn::Sub": "arn:${AWS::Partition}:s3:::${DataBucket}/reports/*"
+        },
+        {
+          "Fn::Sub": "arn:${AWS::Partition}:s3:::${DataBucket}/experiments/*"
+        },
+        {
+          "Fn::Sub": "arn:${AWS::Partition}:s3:::${DataBucket}/evidence/*"
+        },
+        {
+          "Fn::Sub": "arn:${AWS::Partition}:s3:::${DataBucket}/exports/*"
+        }
+      ]
+    },
+    {
+      "Sid": "DenyPlatformByArn",
+      "Effect": "Deny",
+      "Action": "*",
+      "Resource": [
+        {
+          "Fn::Sub": "arn:${AWS::Partition}:cloudfront::${AWS::AccountId}:distribution/${WebDistribution}"
+        },
+        {
+          "Fn::Sub": "arn:${AWS::Partition}:cognito-idp:${AWS::Region}:${AWS::AccountId}:userpool/${UserPool}"
+        },
+        {
+          "Fn::Sub": "arn:${AWS::Partition}:apigateway:${AWS::Region}::/apis/${HttpApi}"
+        },
+        {
+          "Fn::Sub": "arn:${AWS::Partition}:apigateway:${AWS::Region}::/apis/${HttpApi}/*"
+        },
+        {
+          "Fn::Sub": "${CertSigningKey.Arn}"
+        },
+        {
+          "Fn::Sub": "arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:association/${PrepareInstanceAssociation}"
+        }
+      ]
+    },
+    {
+      "Sid": "DenyAccountIam",
+      "Effect": "Deny",
+      "Action": [
+        "iam:CreateLoginProfile",
+        "iam:UpdateLoginProfile",
+        "iam:AddUserToGroup",
+        "iam:CreateGroup",
+        "iam:AttachGroupPolicy",
+        "iam:PutGroupPolicy",
+        "iam:CreateSAMLProvider",
+        "iam:CreateOpenIDConnectProvider",
+        "iam:Update*Provider*",
+        "iam:*AccountAlias",
+        "iam:*AccountPasswordPolicy",
+        "iam:*MFADevice",
+        "iam:CreateServiceSpecificCredential",
+        "iam:UploadSSHPublicKey",
+        "iam:UploadSigningCertificate",
+        "iam:SetSecurityTokenServicePreferences"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "UsersOnlyUnderLabPath",
+      "Effect": "Deny",
+      "Action": [
+        "iam:CreateUser",
+        "iam:CreateAccessKey",
+        "iam:UpdateAccessKey"
+      ],
+      "NotResource": {
+        "Fn::Sub": "arn:${AWS::Partition}:iam::${AWS::AccountId}:user/cloudalbum/*"
+      }
+    },
+    {
+      "Sid": "LimitEc2InstanceTypes",
+      "Effect": "Deny",
+      "Action": [
+        "ec2:RunInstances",
+        "ec2:StartInstances"
+      ],
+      "Resource": {
+        "Fn::Sub": "arn:${AWS::Partition}:ec2:*:*:instance/*"
+      },
+      "Condition": {
+        "StringNotLike": {
+          "ec2:InstanceType": {
+            "Ref": "AllowedInstanceTypes"
+          }
+        }
+      }
+    },
+    {
+      "Sid": "LimitDbClasses",
+      "Effect": "Deny",
+      "Action": [
+        "rds:CreateDBInstance",
+        "rds:CreateDBInstanceReadReplica",
+        "rds:ModifyDBInstance",
+        "rds:RestoreDBInstance*"
+      ],
+      "Resource": "*",
+      "Condition": {
+        "StringNotLike": {
+          "rds:DatabaseClass": {
+            "Ref": "AllowedDbClasses"
+          }
+        },
+        "Null": {
+          "rds:DatabaseClass": "false"
+        }
+      }
+    },
+    {
+      "Sid": "LimitCacheNodeTypes",
+      "Effect": "Deny",
+      "Action": [
+        "elasticache:CreateCacheCluster",
+        "elasticache:CreateReplicationGroup",
+        "elasticache:ModifyCacheCluster",
+        "elasticache:ModifyReplicationGroup"
+      ],
+      "Resource": "*",
+      "Condition": {
+        "StringNotLike": {
+          "elasticache:CacheNodeType": {
+            "Ref": "AllowedCacheNodeTypes"
+          }
+        },
+        "Null": {
+          "elasticache:CacheNodeType": "false"
+        }
+      }
+    },
+    {
+      "Sid": "LimitAsgSize",
+      "Effect": "Deny",
+      "Action": [
+        "autoscaling:CreateAutoScalingGroup",
+        "autoscaling:UpdateAutoScalingGroup"
+      ],
+      "Resource": "*",
+      "Condition": {
+        "NumericGreaterThan": {
+          "autoscaling:MaxSize": {
+            "Fn::Sub": "${AsgMaxSizeLimit}"
+          }
+        }
+      }
+    }
+  ]
+}

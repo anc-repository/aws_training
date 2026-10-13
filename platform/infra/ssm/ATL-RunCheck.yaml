@@ -1,0 +1,49 @@
+# ATL-RunCheck (04 §6.1; 01 §3.6): whitelisted read-only checks from the pinned check bundle. Every parameter has a tight
+# allowedPattern and reaches the script only as the environment variable SSM_<Name> (interpolationType ENV_VAR): the
+# command text never contains {{ }} substitutions, and /opt/atl/bin/atl-check re-validates every value. No secrets as
+# parameters (Run Command keeps parameter values in its history). The patterns equal RUN_CHECK_PARAMETER_PATTERNS of
+# @atl/shared (test/ssm-documents.test.ts).
+schemaVersion: '2.2'
+description: 'AWS Training Lab: run whitelisted read-only probes from the pinned check bundle'
+parameters:
+  CheckId:
+    type: String
+    description: 'checkId in the bundle manifest (e.g. http-probe, base.ready), or "batch"'
+    interpolationType: ENV_VAR
+    allowedPattern: '^(batch|[a-z][a-z0-9-]{1,31}(\.[a-z][a-z0-9-]{1,31})?)$'
+  ArgsB64:
+    type: String
+    description: 'base64url(JSON args); validated again by the runner against the per-check schema'
+    default: 'e30'
+    interpolationType: ENV_VAR
+    allowedPattern: '^[A-Za-z0-9_-]{2,6000}$'
+  RunToken:
+    type: String
+    description: 'per-invocation nonce, echoed in the result'
+    interpolationType: ENV_VAR
+    allowedPattern: '^[A-Za-z0-9_-]{22,64}$'
+  SessionId:
+    type: String
+    description: 'ATL session id'
+    interpolationType: ENV_VAR
+    allowedPattern: '^s[0-9a-hjkmnp-tv-z]{12}$'
+  BundleDigest:
+    type: String
+    description: 'sha256 of manifest.json pinned by the platform'
+    interpolationType: ENV_VAR
+    allowedPattern: '^[a-f0-9]{64}$'
+  TimeoutSec:
+    type: String
+    description: 'per-check timeout in seconds'
+    default: '20'
+    interpolationType: ENV_VAR
+    allowedPattern: '^([1-9]|[1-7][0-9]|80)$'
+mainSteps:
+  - action: aws:runShellScript
+    name: runCheck
+    precondition:
+      StringEquals: [platformType, Linux]
+    inputs:
+      timeoutSeconds: '90'
+      runCommand:
+        - 'exec /opt/atl/bin/atl-check'

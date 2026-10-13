@@ -1,0 +1,176 @@
+# 90-install — install / upgrade / uninstall custom resources (01 §4.5–§4.8) and the stack outputs (01 §4.6).
+# Order: CopyArtifacts (inline function atl-copy-artifacts) → functions → Preflight / SeedData / SchemaMigrator / WebDeploy /
+# JwksPublish → UninstallGuard (DependsOn every unconditional resource → deleted FIRST) → StackGuard (DependsOn everything →
+# created LAST, so a failed install can still be deleted). BucketEmptier depends on the four buckets (emptied before they are
+# deleted). The DependsOn lists of StackGuard / UninstallGuard are computed by build/merge-template.ts (@@DEPENDS_ON_ALL@@).
+Resources:
+  CopyArtifacts:
+    Type: Custom::CopyArtifacts
+    Properties:
+      ServiceToken: !GetAtt CopyArtifactsFunction.Arn
+      ServiceTimeout: 900
+      ReleaseVersion: !Ref ReleaseVersion
+      Source: !Ref ArtifactSource
+      BaseUrl: !Ref ArtifactBaseUrl
+      GitHubRepository: '@@ATL_GITHUB_REPOSITORY@@'
+      Bucket: !Ref ArtifactsBucket
+      Prefix: !Sub 'releases/${ReleaseVersion}/'
+      # embedded SHA-256 manifest of this release (01 §4.5); ReleaseVersion=dev uses SHA256SUMS under ArtifactBaseUrl
+      Manifest: '@@MANIFEST@@'
+
+  Preflight:
+    Type: Custom::Preflight
+    DependsOn: [SeedData]
+    Properties:
+      ServiceToken: !GetAtt CustomResourcesFunction.Arn
+      ServiceTimeout: 600
+      Table: !Ref AtlMainTable
+      ExternalAccessAnalyzer: !Ref ExternalAccessAnalyzer
+      WorkstationInstanceType: !Ref WorkstationInstanceType
+      ReleaseVersion: !Ref ReleaseVersion
+
+  SeedData:
+    Type: Custom::SeedData
+    Properties:
+      ServiceToken: !GetAtt CustomResourcesFunction.Arn
+      ServiceTimeout: 600
+      Table: !Ref AtlMainTable
+      Version: '@@ATL_VERSION@@'
+      ReleaseVersion: !Ref ReleaseVersion
+      InstallationId: !Select [2, !Split ['/', !Ref 'AWS::StackId']]
+      Region: !Ref 'AWS::Region'
+      DrRegion: !Ref DrRegion
+      PlatformUrl: !If [HasCustomDomain, !Sub 'https://${CustomDomainName}', !Sub 'https://${WebDistribution.DomainName}']
+      AgentApiEndpoint: !Sub 'https://${HttpApi}.execute-api.${AWS::Region}.${AWS::URLSuffix}'
+      WorkloadBoundaryArn: !Ref WorkloadBoundary
+      MaxSessionMinutes: !Ref MaxSessionMinutes
+      ExtensionMinutes: !Ref ExtensionMinutes
+      MaxExtensions: !Ref MaxExtensions
+      MaxKeepHours: !Ref MaxKeepHours
+      EnvMaxAgeDays: !Ref EnvMaxAgeDays
+      ReadyIdleMinutes: !Ref ReadyIdleMinutes
+      AsgMaxSizeLimit: !Ref AsgMaxSizeLimit
+      AllowedInstanceTypes: !Join [',', !Ref AllowedInstanceTypes]
+      WorkstationInstanceType: !Ref WorkstationInstanceType
+      MonthlyBudgetAmount: !Ref MonthlyBudgetAmount
+      BudgetEnforcement: !Ref BudgetEnforcement
+      TerminalRecording: !Ref TerminalRecording
+      ExternalAccessAnalyzer: !Ref ExternalAccessAnalyzer
+      AnalyzerArn: !If [CreateAnalyzer, !GetAtt AccessAnalyzer.Arn, '']
+      UserPoolId: !Ref UserPool
+      AssistantEmails: !Ref AssistantEmails
+
+  SchemaMigrator:
+    Type: Custom::SchemaMigrator
+    DependsOn: [SeedData]
+    Properties:
+      ServiceToken: !GetAtt CustomResourcesFunction.Arn
+      ServiceTimeout: 900
+      Table: !Ref AtlMainTable
+      Version: '@@ATL_VERSION@@'
+
+  WebDeploy:
+    Type: Custom::WebDeploy
+    Properties:
+      ServiceToken: !GetAtt CustomResourcesFunction.Arn
+      ServiceTimeout: 900
+      ArtifactsBucket: !Ref ArtifactsBucket
+      ReleasePrefix: !Sub 'releases/${ReleaseVersion}/'
+      ReleaseDigest: !GetAtt CopyArtifacts.ManifestDigest
+      WebBucket: !Ref WebBucket
+      DistributionId: !Ref WebDistribution
+      Table: !Ref AtlMainTable
+      Version: '@@ATL_VERSION@@'
+      Config:
+        apiBase: /api/v1
+        region: !Ref 'AWS::Region'
+        userPoolId: !Ref UserPool
+        clientId: !Ref WebClient
+        domain: !Join ['', ['atl-', !Select [0, !Split ['-', !Select [2, !Split ['/', !Ref 'AWS::StackId']]]], '.auth.', !Ref 'AWS::Region', '.amazoncognito.com']]
+        platformUrl: !If [HasCustomDomain, !Sub 'https://${CustomDomainName}', !Sub 'https://${WebDistribution.DomainName}']
+        redirectUri: !If [HasCustomDomain, !Sub 'https://${CustomDomainName}/auth/callback', !Sub 'https://${WebDistribution.DomainName}/auth/callback']
+        logoutUri: !If [HasCustomDomain, !Sub 'https://${CustomDomainName}/', !Sub 'https://${WebDistribution.DomainName}/']
+        version: '@@ATL_VERSION@@'
+        releaseVersion: !Ref ReleaseVersion
+
+  JwksPublish:
+    Type: Custom::JwksPublish
+    DependsOn: [SeedData]
+    Properties:
+      ServiceToken: !GetAtt CustomResourcesFunction.Arn
+      ServiceTimeout: 300
+      KeyId: !Ref CertSigningKey
+      WebBucket: !Ref WebBucket
+      DistributionId: !Ref WebDistribution
+      Table: !Ref AtlMainTable
+
+  # the Refs below make BucketEmptier depend on the four buckets (emptied before CloudFormation deletes them)
+  BucketEmptier:
+    Type: Custom::BucketEmptier
+    Properties:
+      ServiceToken: !GetAtt CustomResourcesFunction.Arn
+      ServiceTimeout: 3600
+      Buckets: [!Ref WebBucket, !Ref ArtifactsBucket, !Ref DataBucket, !Ref LabStateBucket]
+  TrailBucketEmptier:
+    Type: Custom::BucketEmptier
+    Condition: TrailEnabled
+    Properties:
+      ServiceToken: !GetAtt CustomResourcesFunction.Arn
+      ServiceTimeout: 3600
+      Buckets: [!Ref TrailBucket]
+
+  # Delete: hands the CloudFormation response URL to atl-platform-uninstall and returns without responding; the state
+  # machine answers through atl-custom-resources UninstallRoleCleanup (01 §4.8, 02 §10.5). ServiceTimeout ≤ 3600 s.
+  UninstallGuard:
+    Type: Custom::UninstallGuard
+    DependsOn: '@@DEPENDS_ON_ALL@@'
+    Properties:
+      ServiceToken: !GetAtt CustomResourcesFunction.Arn
+      ServiceTimeout: 3600
+      Table: !Ref AtlMainTable
+      UninstallStateMachineArn: !Sub 'arn:${AWS::Partition}:states:${AWS::Region}:${AWS::AccountId}:stateMachine:atl-platform-uninstall'
+      # policies that belong to the stack; UninstallRoleCleanup removes everything else from these roles (01 §4.8).
+      # test/template.test.ts checks that the lists equal the policies declared on the three roles.
+      KeepPolicies:
+        ATLLearnerRole:
+          Inline: [ATLLearnerIam, ATLAgentApi]
+          Managed: [!Sub 'arn:${AWS::Partition}:iam::aws:policy/PowerUserAccess', !Ref LearnerGuardrails, !Ref LearnerCostGuards]
+        ATLWorkstationRole:
+          Inline: [ATLWorkstation, !If [RecordingOn, atl-terminal-recording, !Ref 'AWS::NoValue']]
+          Managed: [!Sub 'arn:${AWS::Partition}:iam::aws:policy/AmazonSSMManagedInstanceCore']
+        CloudAlbumAppRole:
+          Inline: [!If [RecordingOn, atl-terminal-recording, !Ref 'AWS::NoValue']]
+          Managed: [!Sub 'arn:${AWS::Partition}:iam::aws:policy/AmazonSSMManagedInstanceCore']
+
+  StackGuard:
+    Type: Custom::StackGuard
+    DependsOn: '@@DEPENDS_ON_ALL@@'
+    Properties:
+      ServiceToken: !GetAtt CustomResourcesFunction.Arn
+      ServiceTimeout: 300
+      StackId: !Ref 'AWS::StackId'
+      Table: !Ref AtlMainTable
+      # 01 §4.7 #6: no Update:Replace / Update:Delete of the data and identity anchors
+      ProtectedResources: [AtlMainTable, CertSigningKey, UserPool, LabStateBucket, LabLockTable]
+
+Outputs:
+  PlatformUrl:
+    Description: 'Open the platform here'
+    Value: !If [HasCustomDomain, !Sub 'https://${CustomDomainName}', !Sub 'https://${WebDistribution.DomainName}']
+  AgentApiEndpoint:
+    Description: 'execute-api endpoint for the workstation (agent routes) and the runner (internal routes)'
+    Value: !Sub 'https://${HttpApi}.execute-api.${AWS::Region}.${AWS::URLSuffix}'
+  UserPoolId:
+    Value: !Ref UserPool
+  LearnerRoleArn:
+    Value: !GetAtt LearnerRole.Arn
+  WorkloadBoundaryArn:
+    Value: !Ref WorkloadBoundary
+  LabStateBucket:
+    Value: !Ref LabStateBucket
+  LabLockTable:
+    Value: !Ref LabLockTable
+  Version:
+    Value: '@@ATL_VERSION@@'
+  InstallationId:
+    Value: !Select [2, !Split ['/', !Ref 'AWS::StackId']]

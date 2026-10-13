@@ -1,0 +1,1071 @@
+# 50-iam — all roles, the three permission boundaries, the two learner guardrails and the provisioner identity policies
+# (01 §6). The large policy documents come from policies/*.json.tmpl via build/gen-policies.ts (@@POLICY:<Name>@@); the
+# function role policies are written here and checked against the 01 §6.9 allow list by test/inventory.test.ts.
+# Identity policies reference other platform roles by constructed ARN (never !GetAtt) so trust policies can use !GetAtt
+# without dependency cycles; KMS permissions live in separate AWS::IAM::RolePolicy resources (the key policy names the roles).
+# YAML anchors below are resolved by build/cfn-yaml.ts (the published template is JSON).
+Resources:
+  # ------------------------------------------------------------------------------------------------ boundaries & guardrails
+  LearnerBoundary:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      ManagedPolicyName: ATLLearnerBoundary
+      Description: 'ATL permissions boundary of ATLLearnerRole (01 §6.5)'
+      PolicyDocument: '@@POLICY:ATLLearnerBoundary@@'
+  LearnerGuardrails:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      ManagedPolicyName: ATLLearnerGuardrails
+      Description: 'ATL guardrails of ATLLearnerRole: platform and tag protection, internal routes (01 §6.5)'
+      PolicyDocument: '@@POLICY:ATLLearnerGuardrails@@'
+  LearnerCostGuards:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      ManagedPolicyName: ATLLearnerCostGuards
+      Description: 'ATL cost and irreversible-storage guardrails of ATLLearnerRole (01 §6.5)'
+      PolicyDocument: '@@POLICY:ATLLearnerCostGuards@@'
+  WorkloadBoundary:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      ManagedPolicyName: ATLWorkloadBoundary
+      Description: 'ATL permissions boundary of CloudAlbumAppRole and every role created by learners or module stacks (01 §6.6)'
+      PolicyDocument: '@@POLICY:ATLWorkloadBoundary@@'
+  ProvisionerBoundary:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      ManagedPolicyName: ATLProvisionerBoundary
+      Description: 'ATL permissions boundary of ATLProvisionerRole (01 §6.7)'
+      PolicyDocument: '@@POLICY:ATLProvisionerBoundary@@'
+  ProvisionerPolicyCore:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      ManagedPolicyName: ATLProvisionerPolicy-Core
+      Description: 'ATL provisioner identity policy: lab services (narrowed per build by session policies, 01 §6.7)'
+      PolicyDocument: '@@POLICY:ATLProvisionerPolicy-Core@@'
+  ProvisionerPolicyGuards:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      ManagedPolicyName: ATLProvisionerPolicy-Guards
+      Description: 'ATL provisioner guard Deny statements that do not fit into ATLProvisionerBoundary (01 §6.7)'
+      PolicyDocument: '@@POLICY:ATLProvisionerPolicy-Guards@@'
+
+  # ------------------------------------------------------------------------------------------------ external roles (01 §6.1)
+  LearnerRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: ATLLearnerRole
+      Description: 'ATL learner: console (atl-<sid>-console), terminal (atl-<sid>-term), workstation CLI (atl-<sid>-ws)'
+      MaxSessionDuration: 3600
+      PermissionsBoundary: !Ref LearnerBoundary
+      ManagedPolicyArns:
+        - !Sub 'arn:${AWS::Partition}:iam::aws:policy/PowerUserAccess'
+        - !Ref LearnerGuardrails
+        - !Ref LearnerCostGuards
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: PlatformApiConsoleAndTerminal
+            Effect: Allow
+            Principal: { AWS: !GetAtt ApiFunctionRole.Arn }
+            Action: ['sts:AssumeRole', 'sts:SetSourceIdentity']
+            Condition: { StringLike: { 'sts:RoleSessionName': [atl-s*-console, atl-s*-term] } }
+          # the workstation can only obtain atl-<current sid>-ws (role tag atl:active-session-id, 01 §6.2; verified by 07 V1-1)
+          - Sid: WorkstationCurrentSessionOnly
+            Effect: Allow
+            Principal: { AWS: !GetAtt WorkstationRole.Arn }
+            Action: 'sts:AssumeRole'
+            Condition: { StringEquals: { 'sts:RoleSessionName': 'atl-${aws:PrincipalTag/atl:active-session-id}-ws' } }
+      Policies:
+        - PolicyName: ATLLearnerIam
+          PolicyDocument: '@@POLICY:ATLLearnerIam@@'
+        - PolicyName: ATLAgentApi
+          PolicyDocument: '@@POLICY:ATLAgentApi@@'
+      Tags:
+        - { Key: 'atl:component', Value: platform }
+        - { Key: Project, Value: ATL }
+
+  ProvisionerRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: ATLProvisionerRole
+      Description: 'ATL provisioner: atl-runner (atl-<sid>-prov-<op>) and atl-reaper (atl-<sid>-reap-<n>)'
+      MaxSessionDuration: 3600
+      PermissionsBoundary: !Ref ProvisionerBoundary
+      ManagedPolicyArns: [!Ref ProvisionerPolicyCore, !Ref ProvisionerPolicyGuards]
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: Runner
+            Effect: Allow
+            Principal: { AWS: !GetAtt RunnerServiceRole.Arn }
+            Action: 'sts:AssumeRole'
+            Condition: { StringLike: { 'sts:RoleSessionName': 'atl-s*-prov-*' } }
+          - Sid: Reaper
+            Effect: Allow
+            Principal: { AWS: !GetAtt ReaperFunctionRole.Arn }
+            Action: 'sts:AssumeRole'
+            Condition: { StringLike: { 'sts:RoleSessionName': 'atl-s*-reap-*' } }
+      Tags:
+        - { Key: 'atl:component', Value: platform }
+        - { Key: Project, Value: ATL }
+
+  VerifierRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: ATLVerifierRole
+      Description: 'ATL verifier: read-only checks and ATL-RunCheck (atl-<sid>-verify, session tags atl:session-id / atl:env-id)'
+      MaxSessionDuration: 3600
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: ChecksWithSessionTags
+            Effect: Allow
+            Principal: { AWS: !GetAtt ChecksFunctionRole.Arn }
+            Action: ['sts:AssumeRole', 'sts:TagSession']
+            Condition:
+              StringLike: { 'sts:RoleSessionName': 'atl-s*-verify' }
+              'ForAllValues:StringEquals': { 'aws:TagKeys': ['atl:session-id', 'atl:env-id'] }
+      Policies:
+        - PolicyName: ATLVerifierReadOnly
+          PolicyDocument: '@@POLICY:ATLVerifierReadOnly@@'
+        - PolicyName: ATLVerifierRunCheck
+          PolicyDocument: '@@POLICY:ATLVerifierRunCheck@@'
+      Tags:
+        - { Key: 'atl:component', Value: platform }
+        - { Key: Project, Value: ATL }
+
+  # not tagged atl:component=platform: learners attach module policies to it from the workstation (protected by
+  # ProtectAppRole / KeepPlatformChannel instead, 01 §6.5)
+  AppRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: CloudAlbumAppRole
+      Description: 'CloudAlbum lab instance role. AmazonSSMManagedInstanceCore = platform management channel, not an application permission. Module policies are attached by scripts/module.'
+      PermissionsBoundary: !Ref WorkloadBoundary
+      ManagedPolicyArns: [!Sub 'arn:${AWS::Partition}:iam::aws:policy/AmazonSSMManagedInstanceCore']
+      AssumeRolePolicyDocument: '@@EC2_TRUST@@'
+      Tags:
+        - { Key: Project, Value: ATL }
+  AppInstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      InstanceProfileName: CloudAlbumAppRole
+      Roles: [!Ref AppRole]
+
+  WorkstationRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: ATLWorkstationRole
+      Description: 'ATL workstation instance role: SSM channel, chains to ATLLearnerRole as atl-<sid>-ws, reads the bootstrap bundle'
+      ManagedPolicyArns: [!Sub 'arn:${AWS::Partition}:iam::aws:policy/AmazonSSMManagedInstanceCore']
+      AssumeRolePolicyDocument: '@@EC2_TRUST@@'
+      Policies:
+        - PolicyName: ATLWorkstation
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: ChainToLearner
+                Effect: Allow
+                Action: 'sts:AssumeRole'
+                Resource: !Sub 'arn:${AWS::Partition}:iam::${AWS::AccountId}:role/ATLLearnerRole'
+              - Sid: BootstrapBundle
+                Effect: Allow
+                Action: 's3:GetObject'
+                Resource: !Sub '${ArtifactsBucket.Arn}/releases/*/atl-workstation.tar.gz'
+      Tags:
+        - { Key: 'atl:component', Value: workstation }
+        - { Key: Project, Value: ATL }
+  WorkstationInstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      InstanceProfileName: ATLWorkstationRole
+      Roles: [!Ref WorkstationRole]
+
+  # ------------------------------------------------------------------------------------------------ service roles (01 §6.9)
+  OrchestratorRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: ATLOrchestratorRole
+      Description: 'ATL state machines (never assumes ATLProvisionerRole, 01 §3.3)'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal: { Service: states.amazonaws.com }
+            Action: 'sts:AssumeRole'
+            Condition:
+              StringEquals: { 'aws:SourceAccount': !Ref 'AWS::AccountId' }
+              ArnLike: { 'aws:SourceArn': !Sub 'arn:${AWS::Partition}:states:${AWS::Region}:${AWS::AccountId}:stateMachine:atl-*' }
+      Policies:
+        - PolicyName: ATLOrchestrator
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: InvokeFunctions
+                Effect: Allow
+                Action: 'lambda:InvokeFunction'
+                Resource:
+                  - !Sub 'arn:${AWS::Partition}:lambda:${AWS::Region}:${AWS::AccountId}:function:atl-lifecycle'
+                  - !Sub 'arn:${AWS::Partition}:lambda:${AWS::Region}:${AWS::AccountId}:function:atl-lifecycle:*'
+                  - !Sub 'arn:${AWS::Partition}:lambda:${AWS::Region}:${AWS::AccountId}:function:atl-reaper'
+                  - !Sub 'arn:${AWS::Partition}:lambda:${AWS::Region}:${AWS::AccountId}:function:atl-reaper:*'
+                  - !Sub 'arn:${AWS::Partition}:lambda:${AWS::Region}:${AWS::AccountId}:function:atl-checks'
+                  - !Sub 'arn:${AWS::Partition}:lambda:${AWS::Region}:${AWS::AccountId}:function:atl-checks:*'
+                  - !Sub 'arn:${AWS::Partition}:lambda:${AWS::Region}:${AWS::AccountId}:function:atl-custom-resources'
+                  - !Sub 'arn:${AWS::Partition}:lambda:${AWS::Region}:${AWS::AccountId}:function:atl-custom-resources:*'
+              - Sid: Runner
+                Effect: Allow
+                Action: ['codebuild:StartBuild', 'codebuild:StopBuild', 'codebuild:BatchGetBuilds']
+                Resource: !Sub 'arn:${AWS::Partition}:codebuild:${AWS::Region}:${AWS::AccountId}:project/atl-runner'
+              - Sid: SyncIntegrationRules
+                Effect: Allow
+                Action: ['events:PutTargets', 'events:PutRule', 'events:DescribeRule']
+                Resource:
+                  - !Sub 'arn:${AWS::Partition}:events:${AWS::Region}:${AWS::AccountId}:rule/StepFunctionsGetEventForCodeBuildStartBuildRule'
+                  - !Sub 'arn:${AWS::Partition}:events:${AWS::Region}:${AWS::AccountId}:rule/StepFunctionsGetEventsForStepFunctionsExecutionRule'
+              - Sid: ChildExecutions
+                Effect: Allow
+                Action: 'states:StartExecution'
+                Resource: !Sub 'arn:${AWS::Partition}:states:${AWS::Region}:${AWS::AccountId}:stateMachine:atl-*'
+              - Sid: ChildExecutionStatus
+                Effect: Allow
+                Action: ['states:DescribeExecution', 'states:StopExecution']
+                Resource: !Sub 'arn:${AWS::Partition}:states:${AWS::Region}:${AWS::AccountId}:execution:atl-*:*'
+              - Sid: VendedLogs
+                Effect: Allow
+                Action:
+                  - 'logs:CreateLogDelivery'
+                  - 'logs:GetLogDelivery'
+                  - 'logs:UpdateLogDelivery'
+                  - 'logs:DeleteLogDelivery'
+                  - 'logs:ListLogDeliveries'
+                  - 'logs:PutResourcePolicy'
+                  - 'logs:DescribeResourcePolicies'
+                  - 'logs:DescribeLogGroups'
+                Resource: '*'
+      Tags:
+        - { Key: 'atl:component', Value: platform }
+        - { Key: Project, Value: ATL }
+
+  RunnerServiceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: ATLRunnerServiceRole
+      Description: 'CodeBuild atl-runner service role: logs, release artifacts and content, run artifacts, assume ATLProvisionerRole'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal: { Service: codebuild.amazonaws.com }
+            Action: 'sts:AssumeRole'
+            Condition:
+              StringEquals: { 'aws:SourceAccount': !Ref 'AWS::AccountId' }
+              ArnLike: { 'aws:SourceArn': !Sub 'arn:${AWS::Partition}:codebuild:${AWS::Region}:${AWS::AccountId}:project/atl-runner' }
+      Policies:
+        - PolicyName: ATLRunnerService
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: Logs
+                Effect: Allow
+                Action: ['logs:CreateLogStream', 'logs:PutLogEvents']
+                Resource: !Sub 'arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/codebuild/atl-runner:*'
+              - Sid: ReleaseSource
+                Effect: Allow
+                Action: ['s3:GetObject', 's3:GetObjectVersion']
+                Resource: !Sub '${ArtifactsBucket.Arn}/releases/*'
+              - Sid: ReleaseBucket
+                Effect: Allow
+                Action: ['s3:GetBucketLocation', 's3:GetBucketAcl', 's3:GetBucketVersioning']
+                Resource: !GetAtt ArtifactsBucket.Arn
+              - Sid: Content
+                Effect: Allow
+                Action: 's3:GetObject'
+                Resource:
+                  - !Sub '${WebBucket.Arn}/content/*/profiles/*'
+                  - !Sub '${WebBucket.Arn}/content/*/stacks/*'
+                  - !Sub '${WebBucket.Arn}/content/*/labs/*'
+                  - !Sub '${WebBucket.Arn}/content/*/manifest.json'
+              # post_build uploads result.json / ledger.json / progress.jsonl with the service role (02 §4.3)
+              - Sid: RunArtifacts
+                Effect: Allow
+                Action: 's3:PutObject'
+                Resource: [!Sub '${DataBucket.Arn}/runs/*', !Sub '${DataBucket.Arn}/archive/*']
+              - Sid: Provisioner
+                Effect: Allow
+                Action: 'sts:AssumeRole'
+                Resource: !Sub 'arn:${AWS::Partition}:iam::${AWS::AccountId}:role/ATLProvisionerRole'
+      Tags:
+        - { Key: 'atl:component', Value: platform }
+        - { Key: Project, Value: ATL }
+
+  SchedulerRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: ATLSchedulerRole
+      Description: 'EventBridge Scheduler: invoke atl-timer, dead letters to atl-timer-dlq'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal: { Service: scheduler.amazonaws.com }
+            Action: 'sts:AssumeRole'
+            Condition:
+              StringEquals: { 'aws:SourceAccount': !Ref 'AWS::AccountId' }
+              ArnLike:
+                'aws:SourceArn':
+                  - !Sub 'arn:${AWS::Partition}:scheduler:${AWS::Region}:${AWS::AccountId}:schedule/atl-sessions/*'
+                  - !Sub 'arn:${AWS::Partition}:scheduler:${AWS::Region}:${AWS::AccountId}:schedule/atl-system/*'
+      Policies:
+        - PolicyName: ATLScheduler
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: 'lambda:InvokeFunction'
+                Resource:
+                  - !Sub 'arn:${AWS::Partition}:lambda:${AWS::Region}:${AWS::AccountId}:function:atl-timer'
+                  - !Sub 'arn:${AWS::Partition}:lambda:${AWS::Region}:${AWS::AccountId}:function:atl-timer:*'
+              - Effect: Allow
+                Action: 'sqs:SendMessage'
+                Resource: !GetAtt TimerDlq.Arn
+      Tags:
+        - { Key: 'atl:component', Value: platform }
+        - { Key: Project, Value: ATL }
+
+  # ------------------------------------------------------------------------------------------------ function roles (01 §6.9)
+  ApiFunctionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: ATLApiFunctionRole
+      AssumeRolePolicyDocument: &lambdaTrust
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal: { Service: lambda.amazonaws.com }
+            Action: 'sts:AssumeRole'
+      Policies:
+        - PolicyName: ATLApiFunction
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: Logs
+                Effect: Allow
+                Action: &logActions ['logs:CreateLogStream', 'logs:PutLogEvents']
+                Resource: !Sub 'arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/atl-api:*'
+              - Sid: Table
+                Effect: Allow
+                Action: &ddbReadWrite
+                  - 'dynamodb:GetItem'
+                  - 'dynamodb:BatchGetItem'
+                  - 'dynamodb:Query'
+                  - 'dynamodb:PutItem'
+                  - 'dynamodb:UpdateItem'
+                  - 'dynamodb:DeleteItem'
+                  - 'dynamodb:BatchWriteItem'
+                  - 'dynamodb:ConditionCheckItem'
+                  - 'dynamodb:DescribeTable'
+                Resource: &atlMainArns [!GetAtt AtlMainTable.Arn, !Sub '${AtlMainTable.Arn}/index/*']
+              - Sid: InvokeFunctions
+                Effect: Allow
+                Action: 'lambda:InvokeFunction'
+                Resource:
+                  - !Sub 'arn:${AWS::Partition}:lambda:${AWS::Region}:${AWS::AccountId}:function:atl-lifecycle'
+                  - !Sub 'arn:${AWS::Partition}:lambda:${AWS::Region}:${AWS::AccountId}:function:atl-pricing'
+                  - !Sub 'arn:${AWS::Partition}:lambda:${AWS::Region}:${AWS::AccountId}:function:atl-checks'
+                  - !Sub 'arn:${AWS::Partition}:lambda:${AWS::Region}:${AWS::AccountId}:function:atl-certs'
+                  - !Sub 'arn:${AWS::Partition}:lambda:${AWS::Region}:${AWS::AccountId}:function:atl-reaper'
+              - Sid: StartWorkflows
+                Effect: Allow
+                Action: 'states:StartExecution'
+                Resource:
+                  - !Sub 'arn:${AWS::Partition}:states:${AWS::Region}:${AWS::AccountId}:stateMachine:atl-session-start'
+                  - !Sub 'arn:${AWS::Partition}:states:${AWS::Region}:${AWS::AccountId}:stateMachine:atl-session-end'
+                  - !Sub 'arn:${AWS::Partition}:states:${AWS::Region}:${AWS::AccountId}:stateMachine:atl-module-op'
+                  - !Sub 'arn:${AWS::Partition}:states:${AWS::Region}:${AWS::AccountId}:stateMachine:atl-platform-uninstall'
+              - Sid: CancelStart
+                Effect: Allow
+                Action: 'states:StopExecution'
+                Resource: !Sub 'arn:${AWS::Partition}:states:${AWS::Region}:${AWS::AccountId}:execution:atl-session-start:*'
+              - Sid: LearnerCredentials
+                Effect: Allow
+                Action: ['sts:AssumeRole', 'sts:SetSourceIdentity']
+                Resource: !Sub 'arn:${AWS::Partition}:iam::${AWS::AccountId}:role/ATLLearnerRole'
+              - Sid: Members
+                Effect: Allow
+                Action: 'cognito-idp:Admin*'
+                Resource: !GetAtt UserPool.Arn
+              - Sid: AppAdminPassword
+                Effect: Allow
+                Action: 'ssm:GetParameter'
+                Resource: !Sub 'arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/cloudalbum/*/atl/app-admin-password'
+              - Sid: DataDownloads
+                Effect: Allow
+                Action: 's3:GetObject'
+                Resource:
+                  - !Sub '${DataBucket.Arn}/reports/*'
+                  - !Sub '${DataBucket.Arn}/exports/*'
+                  - !Sub '${DataBucket.Arn}/evidence/*'
+                  - !Sub '${ArtifactsBucket.Arn}/releases/*/private/quiz/*'
+              - Sid: Exports
+                Effect: Allow
+                Action: 's3:PutObject'
+                Resource: !Sub '${DataBucket.Arn}/exports/*'
+              - Sid: LabStateRead
+                Effect: Allow
+                Action: ['s3:GetObject', 's3:ListBucket']
+                Resource: &labStateArns [!GetAtt LabStateBucket.Arn, !Sub '${LabStateBucket.Arn}/*']
+              - Sid: LabLockRead
+                Effect: Allow
+                Action: 'dynamodb:GetItem'
+                Resource: !GetAtt LabLockTable.Arn
+              - Sid: CostExplorer
+                Effect: Allow
+                Action: 'ce:GetCostAndUsage'
+                Resource: '*'
+              - Sid: Events
+                Effect: Allow
+                Action: 'events:PutEvents'
+                Resource: &eventBusArn !GetAtt EventBus.Arn
+              - Sid: TerminationProtection
+                Effect: Allow
+                Action: 'cloudformation:UpdateTerminationProtection'
+                Resource: !Sub 'arn:${AWS::Partition}:cloudformation:${AWS::Region}:${AWS::AccountId}:stack/${AWS::StackName}/*'
+      Tags: &platformTags
+        - { Key: 'atl:component', Value: platform }
+        - { Key: Project, Value: ATL }
+
+  PublicFunctionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: ATLPublicFunctionRole
+      AssumeRolePolicyDocument: *lambdaTrust
+      Policies:
+        - PolicyName: ATLPublicFunction
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: Logs
+                Effect: Allow
+                Action: *logActions
+                Resource: !Sub 'arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/atl-public:*'
+              - Sid: CertificatesAndKeysOnly
+                Effect: Allow
+                Action: ['dynamodb:GetItem', 'dynamodb:Query']
+                Resource: !GetAtt AtlMainTable.Arn
+                Condition: { 'ForAllValues:StringLike': { 'dynamodb:LeadingKeys': ['CERT#*', 'KEY#*'] } }
+      Tags: *platformTags
+
+  AgentFunctionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: ATLAgentFunctionRole
+      AssumeRolePolicyDocument: *lambdaTrust
+      Policies:
+        - PolicyName: ATLAgentFunction
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: Logs
+                Effect: Allow
+                Action: *logActions
+                Resource: !Sub 'arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/atl-agent:*'
+              - Sid: TableRead
+                Effect: Allow
+                Action: ['dynamodb:GetItem', 'dynamodb:BatchGetItem', 'dynamodb:Query', 'dynamodb:DescribeTable']
+                Resource: *atlMainArns
+              # ExperimentRun / ModuleOp / RunnerRun / CredentialGrant / SessionEvent live under SESSION#; plus the
+              # IdempotencyRecord (IDEMP#) of PUT …/result and AuditEvent (AUDIT#) written by every function
+              - Sid: TableWrite
+                Effect: Allow
+                Action: ['dynamodb:PutItem', 'dynamodb:UpdateItem', 'dynamodb:DeleteItem', 'dynamodb:ConditionCheckItem', 'dynamodb:BatchWriteItem']
+                Resource: !GetAtt AtlMainTable.Arn
+                Condition: { 'ForAllValues:StringLike': { 'dynamodb:LeadingKeys': ['SESSION#*', 'IDEMP#*', 'AUDIT#*'] } }
+              - Sid: ExperimentUploads
+                Effect: Allow
+                Action: ['s3:PutObject', 's3:GetObject']
+                Resource: !Sub '${DataBucket.Arn}/experiments/*'
+              - Sid: CrossCheck
+                Effect: Allow
+                Action: 'lambda:InvokeFunction'
+                Resource: !Sub 'arn:${AWS::Partition}:lambda:${AWS::Region}:${AWS::AccountId}:function:atl-checks'
+              - Sid: Events
+                Effect: Allow
+                Action: 'events:PutEvents'
+                Resource: *eventBusArn
+      Tags: *platformTags
+
+  ChecksFunctionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: ATLChecksFunctionRole
+      AssumeRolePolicyDocument: *lambdaTrust
+      Policies:
+        - PolicyName: ATLChecksFunction
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: Logs
+                Effect: Allow
+                Action: *logActions
+                Resource: !Sub 'arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/atl-checks:*'
+              - Sid: Table
+                Effect: Allow
+                Action: *ddbReadWrite
+                Resource: *atlMainArns
+              - Sid: Verifier
+                Effect: Allow
+                Action: ['sts:AssumeRole', 'sts:TagSession']
+                Resource: !Sub 'arn:${AWS::Partition}:iam::${AWS::AccountId}:role/ATLVerifierRole'
+              - Sid: InvokeFunctions
+                Effect: Allow
+                Action: 'lambda:InvokeFunction'
+                Resource:
+                  - !Sub 'arn:${AWS::Partition}:lambda:${AWS::Region}:${AWS::AccountId}:function:atl-certs'
+                  - !Sub 'arn:${AWS::Partition}:lambda:${AWS::Region}:${AWS::AccountId}:function:atl-reaper'
+              - Sid: Evidence
+                Effect: Allow
+                Action: ['s3:PutObject', 's3:GetObject']
+                Resource: !Sub '${DataBucket.Arn}/evidence/*'
+              - Sid: Content
+                Effect: Allow
+                Action: 's3:GetObject'
+                Resource: !Sub '${WebBucket.Arn}/content/*'
+              - Sid: LabStateRead
+                Effect: Allow
+                Action: ['s3:GetObject', 's3:ListBucket']
+                Resource: *labStateArns
+              - Sid: Events
+                Effect: Allow
+                Action: 'events:PutEvents'
+                Resource: *eventBusArn
+      Tags: *platformTags
+
+  LifecycleFunctionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: ATLLifecycleFunctionRole
+      AssumeRolePolicyDocument: *lambdaTrust
+      Policies:
+        - PolicyName: ATLLifecycleFunction
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: Logs
+                Effect: Allow
+                Action: *logActions
+                Resource: !Sub 'arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/atl-lifecycle:*'
+              - Sid: Table
+                Effect: Allow
+                Action: *ddbReadWrite
+                Resource: *atlMainArns
+              - Sid: Schedules
+                Effect: Allow
+                Action: &scheduleActions ['scheduler:CreateSchedule', 'scheduler:UpdateSchedule', 'scheduler:DeleteSchedule', 'scheduler:GetSchedule']
+                Resource: &scheduleArns
+                  - !Sub 'arn:${AWS::Partition}:scheduler:${AWS::Region}:${AWS::AccountId}:schedule/atl-sessions/*'
+                  - !Sub 'arn:${AWS::Partition}:scheduler:${AWS::Region}:${AWS::AccountId}:schedule/atl-system/*'
+              - Sid: PassSchedulerRole
+                Effect: Allow
+                Action: 'iam:PassRole'
+                Resource: &schedulerRoleArn !Sub 'arn:${AWS::Partition}:iam::${AWS::AccountId}:role/ATLSchedulerRole'
+                Condition: &passToScheduler { StringEquals: { 'iam:PassedToService': scheduler.amazonaws.com } }
+              - Sid: Diagnostics
+                Effect: Allow
+                Action: ['ec2:Describe*', 'ec2:GetConsoleOutput', 'ssm:DescribeInstanceInformation', 'ssm:GetCommandInvocation', 'ssm:ListCommandInvocations', 'ssm:DescribeSessions']
+                Resource: '*'
+              - Sid: RebootLabInstances
+                Effect: Allow
+                Action: 'ec2:RebootInstances'
+                Resource: !Sub 'arn:${AWS::Partition}:ec2:${AWS::Region}:${AWS::AccountId}:instance/*'
+                Condition: { StringEquals: { 'ec2:ResourceTag/atl:role': lab-app } }
+              - Sid: WireWorkstationDocument
+                Effect: Allow
+                Action: 'ssm:SendCommand'
+                Resource: !Sub 'arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:document/ATL-WorkstationSetup'
+              - Sid: WireWorkstationInstance
+                Effect: Allow
+                Action: 'ssm:SendCommand'
+                Resource: !Sub 'arn:${AWS::Partition}:ec2:${AWS::Region}:${AWS::AccountId}:instance/*'
+                Condition: { StringEquals: { 'ssm:resourceTag/atl:role': workstation } }
+              - Sid: TerminateLearnerSessions
+                Effect: Allow
+                Action: 'ssm:TerminateSession'
+                Resource: !Sub 'arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:session/atl-*'
+              - Sid: RevokedSessions
+                Effect: Allow
+                Action: ['iam:PutRolePolicy', 'iam:GetRolePolicy', 'iam:DeleteRolePolicy']
+                Resource: !Sub 'arn:${AWS::Partition}:iam::${AWS::AccountId}:role/ATLLearnerRole'
+              - Sid: ActiveSessionTag
+                Effect: Allow
+                Action: ['iam:TagRole', 'iam:UntagRole', 'iam:ListRoleTags']
+                Resource: !Sub 'arn:${AWS::Partition}:iam::${AWS::AccountId}:role/ATLWorkstationRole'
+              - Sid: EndWorkflow
+                Effect: Allow
+                Action: 'states:StartExecution'
+                Resource: !Sub 'arn:${AWS::Partition}:states:${AWS::Region}:${AWS::AccountId}:stateMachine:atl-session-end'
+              - Sid: StopStart
+                Effect: Allow
+                Action: ['states:StopExecution', 'states:DescribeExecution']
+                Resource: !Sub 'arn:${AWS::Partition}:states:${AWS::Region}:${AWS::AccountId}:execution:atl-session-start:*'
+              - Sid: Runner
+                Effect: Allow
+                Action: ['codebuild:StopBuild', 'codebuild:BatchGetBuilds', 'codebuild:ListBuildsForProject']
+                Resource: !Sub 'arn:${AWS::Partition}:codebuild:${AWS::Region}:${AWS::AccountId}:project/atl-runner'
+              - Sid: Stacks
+                Effect: Allow
+                Action: ['cloudformation:DescribeStacks', 'cloudformation:DescribeStackEvents', 'cloudformation:ListStackResources']
+                Resource:
+                  - !Sub 'arn:${AWS::Partition}:cloudformation:*:${AWS::AccountId}:stack/cloudalbum-*/*'
+                  - !Sub 'arn:${AWS::Partition}:cloudformation:${AWS::Region}:${AWS::AccountId}:stack/atl-ws-*/*'
+              - Sid: RunArtifactsAndState
+                Effect: Allow
+                Action: 's3:GetObject'
+                Resource: [!Sub '${DataBucket.Arn}/runs/*', !Sub '${LabStateBucket.Arn}/*']
+              - Sid: LabStateList
+                Effect: Allow
+                Action: 's3:ListBucket'
+                Resource: !GetAtt LabStateBucket.Arn
+              - Sid: Checks
+                Effect: Allow
+                Action: 'lambda:InvokeFunction'
+                Resource: !Sub 'arn:${AWS::Partition}:lambda:${AWS::Region}:${AWS::AccountId}:function:atl-checks'
+              - Sid: Events
+                Effect: Allow
+                Action: 'events:PutEvents'
+                Resource: *eventBusArn
+              - Sid: Notify
+                Effect: Allow
+                Action: 'sns:Publish'
+                Resource: &notifyTopics [!Ref NotifyTopic, !Ref AlertsTopic]
+      Tags: *platformTags
+
+  TimerFunctionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: ATLTimerFunctionRole
+      AssumeRolePolicyDocument: *lambdaTrust
+      Policies:
+        - PolicyName: ATLTimerFunction
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: Logs
+                Effect: Allow
+                Action: *logActions
+                Resource: !Sub 'arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/atl-timer:*'
+              - Sid: Table
+                Effect: Allow
+                Action: *ddbReadWrite
+                Resource: *atlMainArns
+              - Sid: InvokeFunctions
+                Effect: Allow
+                Action: 'lambda:InvokeFunction'
+                Resource:
+                  - !Sub 'arn:${AWS::Partition}:lambda:${AWS::Region}:${AWS::AccountId}:function:atl-lifecycle'
+                  - !Sub 'arn:${AWS::Partition}:lambda:${AWS::Region}:${AWS::AccountId}:function:atl-certs'
+              - Sid: StartWorkflows
+                Effect: Allow
+                Action: ['states:StartExecution', 'states:ListExecutions']
+                Resource:
+                  - !Sub 'arn:${AWS::Partition}:states:${AWS::Region}:${AWS::AccountId}:stateMachine:atl-session-end'
+                  - !Sub 'arn:${AWS::Partition}:states:${AWS::Region}:${AWS::AccountId}:stateMachine:atl-reclaim'
+                  - !Sub 'arn:${AWS::Partition}:states:${AWS::Region}:${AWS::AccountId}:stateMachine:atl-reclaim-rescan'
+              - Sid: WorkflowStatus
+                Effect: Allow
+                Action: 'states:DescribeExecution'
+                Resource:
+                  - !Sub 'arn:${AWS::Partition}:states:${AWS::Region}:${AWS::AccountId}:execution:atl-session-end:*'
+                  - !Sub 'arn:${AWS::Partition}:states:${AWS::Region}:${AWS::AccountId}:execution:atl-reclaim:*'
+                  - !Sub 'arn:${AWS::Partition}:states:${AWS::Region}:${AWS::AccountId}:execution:atl-reclaim-rescan:*'
+              - Sid: Schedules
+                Effect: Allow
+                Action: *scheduleActions
+                Resource: *scheduleArns
+              - Sid: PassSchedulerRole
+                Effect: Allow
+                Action: 'iam:PassRole'
+                Resource: *schedulerRoleArn
+                Condition: *passToScheduler
+              - Sid: DeadLetters
+                Effect: Allow
+                Action: ['sqs:ReceiveMessage', 'sqs:DeleteMessage', 'sqs:GetQueueAttributes']
+                Resource: !GetAtt TimerDlq.Arn
+              - Sid: HealthProbe
+                Effect: Allow
+                Action: ['ec2:DescribeInstances', 'cloudformation:DescribeStacks']
+                Resource: '*'
+              - Sid: Events
+                Effect: Allow
+                Action: 'events:PutEvents'
+                Resource: *eventBusArn
+              - Sid: Notify
+                Effect: Allow
+                Action: 'sns:Publish'
+                Resource: *notifyTopics
+      Tags: *platformTags
+
+  ReaperFunctionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: ATLReaperFunctionRole
+      AssumeRolePolicyDocument: *lambdaTrust
+      Policies:
+        - PolicyName: ATLReaperFunction
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: Logs
+                Effect: Allow
+                Action: *logActions
+                Resource: !Sub 'arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/atl-reaper:*'
+              - Sid: Table
+                Effect: Allow
+                Action: *ddbReadWrite
+                Resource: *atlMainArns
+              - Sid: Discovery
+                Effect: Allow
+                Action:
+                  - 'cloudtrail:LookupEvents'
+                  - 'tag:GetResources'
+                  - 'iam:ListRoles'
+                  - 'iam:ListRoleTags'
+                  - 'iam:GetRole'
+                  - 'autoscaling:DescribeAutoScalingGroups'
+                  - 'access-analyzer:ListAnalyzers'
+                  - 'access-analyzer:ListFindings'
+                  - 'access-analyzer:ListFindingsV2'
+                  - 'access-analyzer:GetFinding'
+                Resource: '*'
+              # inventory and existence checks of the reclaim rule table (02 §7): read-only Describe / List / Get
+              - Sid: InventoryReadOnly
+                Effect: Allow
+                Action:
+                  - 'acm:DescribeCertificate'
+                  - 'acm:List*'
+                  - 'apigateway:GET'
+                  - 'athena:GetWorkGroup'
+                  - 'athena:List*'
+                  - 'autoscaling:Describe*'
+                  - 'backup:Describe*'
+                  - 'backup:List*'
+                  - 'cloudformation:Describe*'
+                  - 'cloudformation:List*'
+                  - 'cloudfront:Get*'
+                  - 'cloudfront:List*'
+                  - 'cloudtrail:DescribeTrails'
+                  - 'cloudtrail:ListTrails'
+                  - 'cloudwatch:Describe*'
+                  - 'cloudwatch:List*'
+                  - 'cognito-identity:Describe*'
+                  - 'cognito-identity:List*'
+                  - 'cognito-idp:Describe*'
+                  - 'cognito-idp:List*'
+                  - 'config:Describe*'
+                  - 'dynamodb:Describe*'
+                  - 'dynamodb:List*'
+                  - 'ec2:Describe*'
+                  - 'elasticache:Describe*'
+                  - 'elasticache:List*'
+                  - 'elasticfilesystem:Describe*'
+                  - 'elasticloadbalancing:Describe*'
+                  - 'events:Describe*'
+                  - 'events:List*'
+                  - 'firehose:Describe*'
+                  - 'firehose:List*'
+                  - 'glue:GetDatabases'
+                  - 'glue:GetTables'
+                  - 'guardduty:GetDetector'
+                  - 'guardduty:List*'
+                  - 'iam:Get*'
+                  - 'iam:List*'
+                  - 'imagebuilder:Get*'
+                  - 'imagebuilder:List*'
+                  - 'inspector2:BatchGetAccountStatus'
+                  - 'inspector2:List*'
+                  - 'kms:DescribeKey'
+                  - 'kms:List*'
+                  - 'lambda:GetFunction'
+                  - 'lambda:GetFunctionConfiguration'
+                  - 'lambda:List*'
+                  - 'logs:Describe*'
+                  - 'logs:ListTagsForResource'
+                  - 'logs:ListTagsLogGroup'
+                  - 'rds:Describe*'
+                  - 'rds:ListTagsForResource'
+                  - 'route53:Get*'
+                  - 'route53:List*'
+                  - 's3:GetBucketLocation'
+                  - 's3:GetBucketTagging'
+                  - 's3:GetBucketVersioning'
+                  - 's3:ListAllMyBuckets'
+                  - 'scheduler:GetSchedule'
+                  - 'scheduler:List*'
+                  - 'secretsmanager:DescribeSecret'
+                  - 'secretsmanager:List*'
+                  - 'ses:GetEmailIdentity'
+                  - 'ses:List*'
+                  - 'sns:GetTopicAttributes'
+                  - 'sns:List*'
+                  - 'sqs:GetQueueAttributes'
+                  - 'sqs:List*'
+                  - 'ssm:Describe*'
+                  - 'ssm:ListTagsForResource'
+                  - 'states:Describe*'
+                  - 'states:List*'
+                  - 'wafv2:Get*'
+                  - 'wafv2:List*'
+                Resource: '*'
+              - Sid: Provisioner
+                Effect: Allow
+                Action: 'sts:AssumeRole'
+                Resource: !Sub 'arn:${AWS::Partition}:iam::${AWS::AccountId}:role/ATLProvisionerRole'
+              - Sid: LabStateAndRuns
+                Effect: Allow
+                Action: ['s3:GetObject', 's3:ListBucket']
+                Resource:
+                  - !GetAtt LabStateBucket.Arn
+                  - !Sub '${LabStateBucket.Arn}/*'
+                  - !GetAtt DataBucket.Arn
+                  - !Sub '${DataBucket.Arn}/runs/*'
+              - Sid: PlatformStackResources
+                Effect: Allow
+                Action: 'cloudformation:ListStackResources'
+                Resource: !Sub 'arn:${AWS::Partition}:cloudformation:${AWS::Region}:${AWS::AccountId}:stack/${AWS::StackName}/*'
+              - Sid: Events
+                Effect: Allow
+                Action: 'events:PutEvents'
+                Resource: *eventBusArn
+      Tags: *platformTags
+
+  CertsFunctionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: ATLCertsFunctionRole
+      AssumeRolePolicyDocument: *lambdaTrust
+      Policies:
+        - PolicyName: ATLCertsFunction
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: Logs
+                Effect: Allow
+                Action: *logActions
+                Resource: !Sub 'arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/atl-certs:*'
+              - Sid: Table
+                Effect: Allow
+                Action: *ddbReadWrite
+                Resource: *atlMainArns
+              - Sid: Reports
+                Effect: Allow
+                Action: ['s3:GetObject', 's3:PutObject']
+                Resource: [!Sub '${DataBucket.Arn}/reports/*', !Sub '${DataBucket.Arn}/exports/*']
+              - Sid: Evidence
+                Effect: Allow
+                Action: 's3:GetObject'
+                Resource: !Sub '${DataBucket.Arn}/evidence/*'
+              - Sid: PublicFiles
+                Effect: Allow
+                Action: ['s3:PutObject', 's3:DeleteObject']
+                Resource:
+                  - !Sub '${WebBucket.Arn}/verify/*'
+                  - !Sub '${WebBucket.Arn}/.well-known/atl/*'
+                  - !Sub '${WebBucket.Arn}/public/*'
+                  - !Sub '${WebBucket.Arn}/share/*'
+              - Sid: Invalidations
+                Effect: Allow
+                Action: 'cloudfront:CreateInvalidation'
+                Resource: !Sub 'arn:${AWS::Partition}:cloudfront::${AWS::AccountId}:distribution/${WebDistribution}'
+      Tags: *platformTags
+  CertsSigningPolicy:
+    Type: AWS::IAM::RolePolicy
+    Properties:
+      RoleName: !Ref CertsFunctionRole
+      PolicyName: ATLCertsSigning
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: SignOnlyWithTheCertificateKey
+            Effect: Allow
+            Action: ['kms:Sign', 'kms:GetPublicKey']
+            Resource: !GetAtt CertSigningKey.Arn
+
+  PricingFunctionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: ATLPricingFunctionRole
+      AssumeRolePolicyDocument: *lambdaTrust
+      Policies:
+        - PolicyName: ATLPricingFunction
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: Logs
+                Effect: Allow
+                Action: *logActions
+                Resource: !Sub 'arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/atl-pricing:*'
+              - Sid: PriceList
+                Effect: Allow
+                Action: 'pricing:GetProducts'
+                Resource: '*'
+              - Sid: PriceAndQuoteItems
+                Effect: Allow
+                Action: ['dynamodb:GetItem', 'dynamodb:Query', 'dynamodb:PutItem', 'dynamodb:UpdateItem', 'dynamodb:BatchWriteItem']
+                Resource: !GetAtt AtlMainTable.Arn
+                Condition: { 'ForAllValues:StringLike': { 'dynamodb:LeadingKeys': ['PRICE#*', 'USER#*'] } }
+      Tags: *platformTags
+
+  TaggerFunctionRole:
+    Type: AWS::IAM::Role
+    Condition: TrailEnabled
+    Properties:
+      RoleName: ATLTaggerFunctionRole
+      AssumeRolePolicyDocument: *lambdaTrust
+      Policies:
+        - PolicyName: ATLTaggerFunction
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: Logs
+                Effect: Allow
+                Action: *logActions
+                Resource: !Sub 'arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/atl-tagger:*'
+              - Sid: SessionTagsOnly
+                Effect: Allow
+                Action:
+                  - 'tag:TagResources'
+                  - 'ec2:CreateTags'
+                  - 's3:PutBucketTagging'
+                  - 'lambda:TagResource'
+                  - 'rds:AddTagsToResource'
+                  - 'elasticache:AddTagsToResource'
+                  - 'dynamodb:TagResource'
+                  - 'sqs:TagQueue'
+                  - 'sns:TagResource'
+                  - 'logs:TagResource'
+                  - 'cloudfront:TagResource'
+                  - 'elasticloadbalancing:AddTags'
+                  - 'kms:TagResource'
+                  - 'secretsmanager:TagResource'
+                  - 'states:TagResource'
+                  - 'events:TagResource'
+                Resource: '*'
+                Condition: { 'ForAllValues:StringEquals': { 'aws:TagKeys': ['atl:session-id', 'atl:lab-id', 'atl:env-id'] } }
+              - Sid: Ledger
+                Effect: Allow
+                Action: ['dynamodb:GetItem', 'dynamodb:PutItem', 'dynamodb:UpdateItem', 'dynamodb:Query']
+                Resource: *atlMainArns
+      Tags: *platformTags
+
+  CustomResourceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: ATLCustomResourceRole
+      AssumeRolePolicyDocument: *lambdaTrust
+      Policies:
+        - PolicyName: ATLCustomResource
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: Logs
+                Effect: Allow
+                Action: *logActions
+                Resource:
+                  - !Sub 'arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/atl-custom-resources:*'
+                  - !Sub 'arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/atl-copy-artifacts:*'
+              - Sid: Table
+                Effect: Allow
+                Action: *ddbReadWrite
+                Resource: *atlMainArns
+              - Sid: ReleaseAndWebWrite
+                Effect: Allow
+                Action: ['s3:GetObject', 's3:PutObject', 's3:DeleteObject']
+                Resource: [!Sub '${ArtifactsBucket.Arn}/*', !Sub '${WebBucket.Arn}/*']
+              - Sid: EmptyBuckets
+                Effect: Allow
+                Action: ['s3:ListBucket', 's3:ListBucketVersions', 's3:DeleteObject', 's3:DeleteObjectVersion']
+                Resource:
+                  - !GetAtt WebBucket.Arn
+                  - !Sub '${WebBucket.Arn}/*'
+                  - !GetAtt ArtifactsBucket.Arn
+                  - !Sub '${ArtifactsBucket.Arn}/*'
+                  - !GetAtt DataBucket.Arn
+                  - !Sub '${DataBucket.Arn}/*'
+                  - !GetAtt LabStateBucket.Arn
+                  - !Sub '${LabStateBucket.Arn}/*'
+                  - !Sub 'arn:${AWS::Partition}:s3:::atl-trail-${AWS::AccountId}-${AWS::Region}'
+                  - !Sub 'arn:${AWS::Partition}:s3:::atl-trail-${AWS::AccountId}-${AWS::Region}/*'
+              - !If
+                - ArtifactsFromS3
+                - Sid: ArtifactSource
+                  Effect: Allow
+                  Action: ['s3:GetObject', 's3:ListBucket']
+                  Resource:
+                    - !Sub ['arn:${AWS::Partition}:s3:::${B}', { B: !Select [2, !Split ['/', !Ref ArtifactBaseUrl]] }]
+                    - !Sub ['arn:${AWS::Partition}:s3:::${B}/*', { B: !Select [2, !Split ['/', !Ref ArtifactBaseUrl]] }]
+                - !Ref 'AWS::NoValue'
+              - Sid: Invalidations
+                Effect: Allow
+                Action: 'cloudfront:CreateInvalidation'
+                Resource: !Sub 'arn:${AWS::Partition}:cloudfront::${AWS::AccountId}:distribution/${WebDistribution}'
+              - Sid: StackGuard
+                Effect: Allow
+                Action: ['cloudformation:UpdateTerminationProtection', 'cloudformation:SetStackPolicy', 'cloudformation:ListStackResources', 'cloudformation:DescribeStacks']
+                Resource: !Sub 'arn:${AWS::Partition}:cloudformation:${AWS::Region}:${AWS::AccountId}:stack/${AWS::StackName}/*'
+              - Sid: Uninstall
+                Effect: Allow
+                Action: 'states:StartExecution'
+                Resource: !Sub 'arn:${AWS::Partition}:states:${AWS::Region}:${AWS::AccountId}:stateMachine:atl-platform-uninstall'
+              - Sid: UninstallRoleCleanup
+                Effect: Allow
+                Action: ['iam:ListRolePolicies', 'iam:DeleteRolePolicy', 'iam:ListAttachedRolePolicies', 'iam:DetachRolePolicy']
+                Resource:
+                  - !Sub 'arn:${AWS::Partition}:iam::${AWS::AccountId}:role/ATLLearnerRole'
+                  - !Sub 'arn:${AWS::Partition}:iam::${AWS::AccountId}:role/ATLWorkstationRole'
+                  - !Sub 'arn:${AWS::Partition}:iam::${AWS::AccountId}:role/CloudAlbumAppRole'
+              - Sid: UninstallRoleTags
+                Effect: Allow
+                Action: ['iam:ListRoleTags', 'iam:UntagRole']
+                Resource: !Sub 'arn:${AWS::Partition}:iam::${AWS::AccountId}:role/ATLWorkstationRole'
+              # SeedData: assistants from the AssistantEmails parameter (01 §4.3)
+              - Sid: SeedAssistants
+                Effect: Allow
+                Action: ['cognito-idp:AdminCreateUser', 'cognito-idp:AdminAddUserToGroup', 'cognito-idp:AdminGetUser']
+                Resource: !GetAtt UserPool.Arn
+              - Sid: PreflightReadOnly
+                Effect: Allow
+                Action:
+                  - 'ec2:DescribeVpcs'
+                  - 'ec2:DescribeSubnets'
+                  - 'ec2:DescribeInstances'
+                  - 'servicequotas:GetServiceQuota'
+                  - 'cloudtrail:DescribeTrails'
+                  - 'guardduty:ListDetectors'
+                  - 'config:DescribeConfigurationRecorders'
+                  - 'inspector2:BatchGetAccountStatus'
+                  - 'access-analyzer:ListAnalyzers'
+                  - 'ses:GetAccount'
+                  - 'organizations:DescribeOrganization'
+                  - 'iam:List*'
+                  - 'iam:GetRole'
+                  - 'iam:GetPolicy'
+                  - 'iam:GetPolicyVersion'
+                  - 'lambda:ListFunctions'
+                  - 'states:ListStateMachines'
+                  - 'cloudformation:ListStacks'
+                  - 'dynamodb:DescribeTable'
+                  - 's3:ListAllMyBuckets'
+                Resource: '*'
+      Tags: *platformTags
+  CustomResourceKmsPolicy:
+    Type: AWS::IAM::RolePolicy
+    Properties:
+      RoleName: !Ref CustomResourceRole
+      PolicyName: ATLCustomResourceKms
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: JwksPublish
+            Effect: Allow
+            Action: 'kms:GetPublicKey'
+            Resource: !GetAtt CertSigningKey.Arn

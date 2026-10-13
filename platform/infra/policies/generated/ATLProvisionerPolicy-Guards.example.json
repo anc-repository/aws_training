@@ -1,0 +1,153 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "ArtifactsReadOnly",
+      "Effect": "Deny",
+      "NotAction": [
+        "s3:GetObject",
+        "s3:GetObjectVersion"
+      ],
+      "Resource": "arn:aws:s3:::atl-artifacts-*"
+    },
+    {
+      "Sid": "DataRunsAndArchiveOnly",
+      "Effect": "Deny",
+      "Action": "*",
+      "Resource": [
+        "arn:aws:s3:::atl-data-111122223333-ap-northeast-1",
+        "arn:aws:s3:::atl-data-111122223333-ap-northeast-1/reports/*",
+        "arn:aws:s3:::atl-data-111122223333-ap-northeast-1/experiments/*",
+        "arn:aws:s3:::atl-data-111122223333-ap-northeast-1/evidence/*",
+        "arn:aws:s3:::atl-data-111122223333-ap-northeast-1/exports/*"
+      ]
+    },
+    {
+      "Sid": "DenyPlatformByArn",
+      "Effect": "Deny",
+      "Action": "*",
+      "Resource": [
+        "arn:aws:cloudfront::111122223333:distribution/E2EXAMPLEATL01",
+        "arn:aws:cognito-idp:ap-northeast-1:111122223333:userpool/ap-northeast-1_EXAMPLE12",
+        "arn:aws:apigateway:ap-northeast-1::/apis/a1b2c3d4e5",
+        "arn:aws:apigateway:ap-northeast-1::/apis/a1b2c3d4e5/*",
+        "arn:aws:kms:ap-northeast-1:111122223333:key/1234abcd-12ab-34cd-56ef-1234567890ab",
+        "arn:aws:ssm:ap-northeast-1:111122223333:association/00000000-0000-4000-8000-000000000000"
+      ]
+    },
+    {
+      "Sid": "DenyAccountIam",
+      "Effect": "Deny",
+      "Action": [
+        "iam:CreateLoginProfile",
+        "iam:UpdateLoginProfile",
+        "iam:AddUserToGroup",
+        "iam:CreateGroup",
+        "iam:AttachGroupPolicy",
+        "iam:PutGroupPolicy",
+        "iam:CreateSAMLProvider",
+        "iam:CreateOpenIDConnectProvider",
+        "iam:Update*Provider*",
+        "iam:*AccountAlias",
+        "iam:*AccountPasswordPolicy",
+        "iam:*MFADevice",
+        "iam:CreateServiceSpecificCredential",
+        "iam:UploadSSHPublicKey",
+        "iam:UploadSigningCertificate",
+        "iam:SetSecurityTokenServicePreferences"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "UsersOnlyUnderLabPath",
+      "Effect": "Deny",
+      "Action": [
+        "iam:CreateUser",
+        "iam:CreateAccessKey",
+        "iam:UpdateAccessKey"
+      ],
+      "NotResource": "arn:aws:iam::111122223333:user/cloudalbum/*"
+    },
+    {
+      "Sid": "LimitEc2InstanceTypes",
+      "Effect": "Deny",
+      "Action": [
+        "ec2:RunInstances",
+        "ec2:StartInstances"
+      ],
+      "Resource": "arn:aws:ec2:*:*:instance/*",
+      "Condition": {
+        "StringNotLike": {
+          "ec2:InstanceType": [
+            "t3.micro",
+            "t3.small",
+            "t3.medium",
+            "t4g.micro",
+            "t4g.small",
+            "t4g.medium"
+          ]
+        }
+      }
+    },
+    {
+      "Sid": "LimitDbClasses",
+      "Effect": "Deny",
+      "Action": [
+        "rds:CreateDBInstance",
+        "rds:CreateDBInstanceReadReplica",
+        "rds:ModifyDBInstance",
+        "rds:RestoreDBInstance*"
+      ],
+      "Resource": "*",
+      "Condition": {
+        "StringNotLike": {
+          "rds:DatabaseClass": [
+            "db.t3.micro",
+            "db.t4g.micro",
+            "db.t4g.small"
+          ]
+        },
+        "Null": {
+          "rds:DatabaseClass": "false"
+        }
+      }
+    },
+    {
+      "Sid": "LimitCacheNodeTypes",
+      "Effect": "Deny",
+      "Action": [
+        "elasticache:CreateCacheCluster",
+        "elasticache:CreateReplicationGroup",
+        "elasticache:ModifyCacheCluster",
+        "elasticache:ModifyReplicationGroup"
+      ],
+      "Resource": "*",
+      "Condition": {
+        "StringNotLike": {
+          "elasticache:CacheNodeType": [
+            "cache.t3.micro",
+            "cache.t4g.micro",
+            "cache.t4g.small"
+          ]
+        },
+        "Null": {
+          "elasticache:CacheNodeType": "false"
+        }
+      }
+    },
+    {
+      "Sid": "LimitAsgSize",
+      "Effect": "Deny",
+      "Action": [
+        "autoscaling:CreateAutoScalingGroup",
+        "autoscaling:UpdateAutoScalingGroup"
+      ],
+      "Resource": "*",
+      "Condition": {
+        "NumericGreaterThan": {
+          "autoscaling:MaxSize": "4"
+        }
+      }
+    }
+  ]
+}

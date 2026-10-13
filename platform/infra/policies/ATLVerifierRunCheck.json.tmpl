@@ -1,0 +1,17 @@
+{
+  "//": "01 §6.8, 04 §5.7: SendCommand split into document / lab instance / workstation statements (conditions must not apply to the document resource); lab instances are bound by atl:env-id, the workstation by atl:session-id, both from the session tags passed by atl-checks (sts:TagSession).",
+  "Version": "2012-10-17",
+  "Statement": [
+    { "Sid": "RunCheckDocument", "Effect": "Allow", "Action": "ssm:SendCommand",
+      "Resource": "arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:document/ATL-RunCheck" },
+    { "Sid": "RunCheckLabInstances", "Effect": "Allow", "Action": "ssm:SendCommand",
+      "Resource": "arn:${AWS::Partition}:ec2:${AWS::Region}:${AWS::AccountId}:instance/*",
+      "Condition": { "StringEquals": { "ssm:resourceTag/atl:role": "lab-app", "ssm:resourceTag/atl:env-id": "${!aws:PrincipalTag/atl:env-id}" } } },
+    { "Sid": "RunCheckWorkstation", "Effect": "Allow", "Action": "ssm:SendCommand",
+      "Resource": "arn:${AWS::Partition}:ec2:${AWS::Region}:${AWS::AccountId}:instance/*",
+      "Condition": { "StringEquals": { "ssm:resourceTag/atl:role": "workstation", "ssm:resourceTag/atl:session-id": "${!aws:PrincipalTag/atl:session-id}" } } },
+    { "Sid": "ReadBack", "Effect": "Allow",
+      "Action": ["ssm:GetCommandInvocation", "ssm:ListCommandInvocations", "ssm:DescribeInstanceInformation", "cloudtrail:LookupEvents", "tag:GetResources"],
+      "Resource": "*" }
+  ]
+}

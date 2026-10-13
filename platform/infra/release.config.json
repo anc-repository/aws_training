@@ -1,0 +1,7 @@
+{
+  "//": "Release settings read by build/merge-template.ts and build/package.ts. githubRepository: where atl-copy-artifacts downloads release assets (ArtifactSource=github-release, https://github.com/<repo>/releases/download/<ReleaseVersion>/<file>). verifiedRegions: the template Rule VerifiedRegion (01 §4.2). ec2TrustSourceAccount: aws:SourceAccount in the EC2 trust of CloudAlbumAppRole / ATLWorkstationRole (01 §6.2; set to false if 07 V1-6 shows EC2 does not send it). templateBucket: maintainer bucket that hosts atl/<ver>/atl-platform.template.json for Launch Stack links (01 §4.2).",
+  "githubRepository": "anc-repository/aws_training",
+  "verifiedRegions": ["ap-northeast-1"],
+  "ec2TrustSourceAccount": true,
+  "templateBucket": "<release-bucket>"
+}

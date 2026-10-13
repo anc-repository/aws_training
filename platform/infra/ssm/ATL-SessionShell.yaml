@@ -1,0 +1,21 @@
+# ATL-SessionShell (03 §3.3): the platform's own Session document, passed explicitly to StartSession, so the account-level
+# singleton SSM-SessionManagerRunShell (modified by svc-shell-access) never affects the platform terminal. RunAs labuser
+# (created by ATL-PrepareInstance); no KMS session encryption (the browser client does not implement it); no recording.
+schemaVersion: '1.0'
+description: 'ATL web terminal (platform management channel, not an application permission)'
+sessionType: Standard_Stream
+inputs:
+  s3BucketName: ''
+  s3KeyPrefix: ''
+  s3EncryptionEnabled: false
+  cloudWatchLogGroupName: ''
+  cloudWatchEncryptionEnabled: false
+  cloudWatchStreamingEnabled: false
+  kmsKeyId: ''
+  runAsEnabled: true
+  runAsDefaultUser: labuser
+  idleSessionTimeout: '20'
+  maxSessionDuration: '240'
+  shellProfile:
+    windows: ''
+    linux: '[ -x /opt/atl/terminal/term-entry.sh ] && exec /opt/atl/terminal/term-entry.sh || exec bash -l'

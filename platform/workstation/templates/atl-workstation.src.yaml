@@ -1,0 +1,100 @@
+# Source of templates/atl-workstation.yaml (the workstation stack atl-ws-<sid>, 03 §4.4); bootstrap/user-data.sh is embedded at @@USER_DATA@@.
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'AWS Training Lab workstation atl-ws-<sid> (03 §4.4): one small EC2 per session in the default VPC, learner CLI via ATLLearnerRole'
+
+Parameters:
+  SessionId:
+    Type: String
+    AllowedPattern: '^s[0-9a-hjkmnp-tv-z]{12}$'
+  EnvName:
+    Type: String
+    AllowedPattern: '^e[0-9a-z]{7}$'
+  EnvId:
+    Type: String
+    AllowedPattern: '^[0-9a-hjkmnp-tv-z]{26}$'
+  LabId:
+    Type: String
+    AllowedPattern: '^(svc|sc)-[a-z0-9]+(-[a-z0-9]+)*$'
+  InstanceType:
+    Type: String
+    Default: t4g.small
+    AllowedPattern: '^[a-z0-9]+\.[a-z0-9]+$'
+  ImageId:
+    Type: 'AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>'
+    Default: /aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-arm64
+  VpcId:
+    Type: 'AWS::EC2::VPC::Id'
+    Description: 'the default VPC of the lab region (01 §4.1)'
+  SubnetId:
+    Type: 'AWS::EC2::Subnet::Id'
+    Description: 'a default (public) subnet of the default VPC'
+  InstanceProfile:
+    Type: String
+    Default: ATLWorkstationRole
+    AllowedValues: [ATLWorkstationRole]
+  BundleUri:
+    Type: String
+    AllowedPattern: '^s3://atl-artifacts-[0-9]{12}-[a-z0-9-]+/releases/[A-Za-z0-9._-]+/atl-workstation\.tar\.gz$'
+  BundleSha256:
+    Type: String
+    AllowedPattern: '^[0-9a-f]{64}$'
+
+Resources:
+  SecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: !Sub 'atl-ws-${SessionId}-sg'
+      GroupDescription: !Sub 'ATL workstation of ${SessionId} (environment ${EnvName}): no inbound rules, terminal via Session Manager'
+      VpcId: !Ref VpcId
+      SecurityGroupEgress:
+        - { IpProtocol: '-1', CidrIp: 0.0.0.0/0, Description: 'all outbound' }
+      Tags:
+        - { Key: Name, Value: !Sub 'atl-ws-${SessionId}-sg' }
+        - { Key: 'atl:session-id', Value: !Ref SessionId }
+        - { Key: 'atl:lab-id', Value: !Ref LabId }
+        - { Key: 'atl:env-id', Value: !Ref EnvId }
+        - { Key: 'atl:component', Value: workstation }
+        - { Key: Project, Value: CloudAlbum }
+
+  Instance:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: !Ref ImageId
+      InstanceType: !Ref InstanceType
+      IamInstanceProfile: !Ref InstanceProfile
+      CreditSpecification: { CPUCredits: standard }
+      MetadataOptions:
+        HttpTokens: required
+        HttpPutResponseHopLimit: 1
+        HttpEndpoint: enabled
+        InstanceMetadataTags: enabled
+      NetworkInterfaces:
+        - DeviceIndex: '0'
+          SubnetId: !Ref SubnetId
+          GroupSet: [!Ref SecurityGroup]
+          AssociatePublicIpAddress: true
+      BlockDeviceMappings:
+        - DeviceName: /dev/xvda
+          Ebs: { VolumeSize: 16, VolumeType: gp3, Encrypted: true, DeleteOnTermination: true }
+      PropagateTagsToVolumeOnCreation: true
+      UserData:
+        Fn::Base64: !Sub
+          - |
+            @@USER_DATA@@
+          - Region: !Ref 'AWS::Region'
+      Tags:
+        - { Key: Name, Value: !Sub 'atl-ws-${SessionId}' }
+        - { Key: 'atl:session-id', Value: !Ref SessionId }
+        - { Key: 'atl:lab-id', Value: !Ref LabId }
+        - { Key: 'atl:env-id', Value: !Ref EnvId }
+        - { Key: 'atl:component', Value: workstation }
+        - { Key: 'atl:role', Value: workstation }
+        - { Key: Project, Value: CloudAlbum }
+
+Outputs:
+  InstanceId:
+    Value: !Ref Instance
+  PrivateIp:
+    Value: !GetAtt Instance.PrivateIp
+  PublicIp:
+    Value: !GetAtt Instance.PublicIp

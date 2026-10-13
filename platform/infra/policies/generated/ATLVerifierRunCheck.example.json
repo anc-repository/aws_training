@@ -1,0 +1,47 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "RunCheckDocument",
+      "Effect": "Allow",
+      "Action": "ssm:SendCommand",
+      "Resource": "arn:aws:ssm:ap-northeast-1:111122223333:document/ATL-RunCheck"
+    },
+    {
+      "Sid": "RunCheckLabInstances",
+      "Effect": "Allow",
+      "Action": "ssm:SendCommand",
+      "Resource": "arn:aws:ec2:ap-northeast-1:111122223333:instance/*",
+      "Condition": {
+        "StringEquals": {
+          "ssm:resourceTag/atl:role": "lab-app",
+          "ssm:resourceTag/atl:env-id": "${aws:PrincipalTag/atl:env-id}"
+        }
+      }
+    },
+    {
+      "Sid": "RunCheckWorkstation",
+      "Effect": "Allow",
+      "Action": "ssm:SendCommand",
+      "Resource": "arn:aws:ec2:ap-northeast-1:111122223333:instance/*",
+      "Condition": {
+        "StringEquals": {
+          "ssm:resourceTag/atl:role": "workstation",
+          "ssm:resourceTag/atl:session-id": "${aws:PrincipalTag/atl:session-id}"
+        }
+      }
+    },
+    {
+      "Sid": "ReadBack",
+      "Effect": "Allow",
+      "Action": [
+        "ssm:GetCommandInvocation",
+        "ssm:ListCommandInvocations",
+        "ssm:DescribeInstanceInformation",
+        "cloudtrail:LookupEvents",
+        "tag:GetResources"
+      ],
+      "Resource": "*"
+    }
+  ]
+}

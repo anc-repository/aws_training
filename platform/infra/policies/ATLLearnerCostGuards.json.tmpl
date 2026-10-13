@@ -1,0 +1,26 @@
+{
+  "//": "01 §6.5 ATLLearnerCostGuards: cost and irreversible-storage guardrails (limits from MaxEbsVolumeGiB / MaxDbStorageGiB).",
+  "Version": "2012-10-17",
+  "Statement": [
+    { "Sid": "NoProvisionedIopsVolumes", "Effect": "Deny", "Action": ["ec2:CreateVolume", "ec2:RunInstances"],
+      "Resource": "arn:${AWS::Partition}:ec2:*:*:volume/*",
+      "Condition": { "StringLike": { "ec2:VolumeType": ["io1", "io2"] } } },
+    { "Sid": "LimitVolumeSize", "Effect": "Deny", "Action": ["ec2:CreateVolume", "ec2:RunInstances"],
+      "Resource": "arn:${AWS::Partition}:ec2:*:*:volume/*",
+      "Condition": { "NumericGreaterThan": { "ec2:VolumeSize": "${MaxEbsVolumeGiB}" } } },
+    { "Sid": "LimitRdsStorage", "Effect": "Deny", "Action": "@@RDS_INSTANCE_WRITE_ACTIONS", "Resource": "*",
+      "Condition": { "NumericGreaterThan": { "rds:StorageSize": "${MaxDbStorageGiB}" } } },
+    { "Sid": "NoRdsProvisionedIops", "Effect": "Deny", "Action": "@@RDS_INSTANCE_WRITE_ACTIONS", "Resource": "*",
+      "Condition": { "Null": { "rds:Piops": "false" } } },
+    { "Sid": "NoDirectServerlessCache", "Effect": "Deny", "Action": "elasticache:CreateServerlessCache", "Resource": "*",
+      "Condition": { "ForAllValues:StringNotEquals": { "aws:CalledVia": ["cloudformation.amazonaws.com"] } } },
+    { "Sid": "NoComplianceObjectLock", "Effect": "Deny", "Action": ["s3:PutObject", "s3:PutObjectRetention"], "Resource": "*",
+      "Condition": { "StringEquals": { "s3:object-lock-mode": "COMPLIANCE" } } },
+    { "Sid": "BucketObjectLockViaStackOnly", "Effect": "Deny", "Action": "s3:PutBucketObjectLockConfiguration", "Resource": "*",
+      "Condition": { "ForAllValues:StringNotEquals": { "aws:CalledVia": ["cloudformation.amazonaws.com"] } } },
+    { "Sid": "NoComplianceVaultLock", "Effect": "Deny", "Action": "backup:PutBackupVaultLockConfiguration", "Resource": "*",
+      "Condition": { "Null": { "backup:ChangeableForDays": "false" } } },
+    { "Sid": "NoKeyPolicyLockout", "Effect": "Deny", "Action": ["kms:CreateKey", "kms:PutKeyPolicy"], "Resource": "*",
+      "Condition": { "Bool": { "kms:BypassPolicyLockoutSafetyCheck": "true" } } }
+  ]
+}

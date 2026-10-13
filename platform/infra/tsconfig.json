@@ -1,9 +1,9 @@
 {
-  "//": "Build scripts run with tsx; tsc only type-checks them (root `npm run build` runs `tsc -p platform/infra/tsconfig.json` after `tsc -b`, so @atl/shared resolves to its built dist).",
+  "//": "Build scripts and the custom resources run through tsx / esbuild; tsc only type-checks them (root `npm run build` runs `tsc -p platform/infra/tsconfig.json` after `tsc -b`, so @atl/shared and @atl/workflows resolve to their built dist).",
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
     "noEmit": true,
     "rootDir": "."
   },
-  "include": ["build/**/*.ts"]
+  "include": ["build/**/*.ts", "custom-resources/src/**/*.ts"]
 }

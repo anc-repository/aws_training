@@ -2,11 +2,19 @@
   "name": "@atl/infra",
   "version": "0.1.0",
   "private": true,
-  "description": "ATL platform single-stack CloudFormation template: YAML fragments (src/NN-*.yaml), policy templates (policies/), build scripts (build/: merge-template, gen-policies, package, manifest) and template tests.",
+  "description": "ATL platform single-stack CloudFormation template (src/NN-*.yaml), policy templates (policies/), SSM documents (ssm/), the install custom resources (custom-resources/: atl-custom-resources and the inline atl-copy-artifacts) and the release tooling (build/: merge-template, gen-policies, package, publish-s3, launch-link, cfn-lint, workstation-template).",
   "type": "module",
   "scripts": {
     "typecheck": "tsc -p tsconfig.json",
     "template": "tsx build/merge-template.ts",
+    "policies": "tsx build/gen-policies.ts",
+    "policies:check": "tsx build/gen-policies.ts --check",
+    "workstation-template": "tsx build/workstation-template.ts",
+    "package": "tsx build/package.ts",
+    "publish:s3": "tsx build/publish-s3.ts",
+    "launch-link": "tsx build/launch-link.ts",
+    "cfn-lint": "tsx build/cfn-lint.ts",
+    "check": "tsx build/gen-policies.ts --check && tsx build/workstation-template.ts --check && tsx build/merge-template.ts && tsx build/cfn-lint.ts",
     "test": "vitest run"
   },
   "dependencies": {

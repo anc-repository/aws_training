@@ -1,0 +1,21 @@
+# ATL-SessionShell-Logged (03 §3.3): ATL-SessionShell plus streaming of the session output to the recording log group
+# /atl-recordings/terminal-sessions (only used when the stack parameter TerminalRecording=cloudwatch; the log group and the
+# atl-terminal-recording policies exist only then). The log group is not KMS-encrypted, so cloudWatchEncryptionEnabled=false.
+schemaVersion: '1.0'
+description: 'ATL web terminal with CloudWatch Logs recording (platform management channel)'
+sessionType: Standard_Stream
+inputs:
+  s3BucketName: ''
+  s3KeyPrefix: ''
+  s3EncryptionEnabled: false
+  cloudWatchLogGroupName: /atl-recordings/terminal-sessions
+  cloudWatchEncryptionEnabled: false
+  cloudWatchStreamingEnabled: true
+  kmsKeyId: ''
+  runAsEnabled: true
+  runAsDefaultUser: labuser
+  idleSessionTimeout: '20'
+  maxSessionDuration: '240'
+  shellProfile:
+    windows: ''
+    linux: '[ -x /opt/atl/terminal/term-entry.sh ] && exec /opt/atl/terminal/term-entry.sh || exec bash -l'

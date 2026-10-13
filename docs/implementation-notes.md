@@ -1095,3 +1095,110 @@ npm run platform:db:up && CLOUDALBUM_IT=1 npx vitest run --project atl-api test/
 - 03：实现 `WorkspaceProvider`（终端、控制台、管理员密码、预览探测、实例发现）。成员管理需要 Cognito 管理端口。
 - 01：登记第 3 节的新动作名、`IDEMPOTENCY_*` / `TARGET_ALREADY_SATISFIED` 等码、LabSession 的新增属性（第 5 节第 7、8 条）、CostQuote 的扩展字段、
   atl-agent 读取内容包的权限。
+
+## platform-infra
+
+平台单栈模板 `atl`（01 §3～§6）、IAM 策略生成与校验、SSM 文档、安装自定义资源、打包与发布工具、工作台引导与工具（03 §4）。
+本节只记录取舍；名称一律取自 `@atl/shared`，权威仍是 01。
+
+### 1. 交付内容
+
+```
+platform/infra/
+  src/00-meta.yaml … 90-install.yaml   模板片段（参数 = INSTALL_PARAMETERS；表结构 = ATL_MAIN_SPEC / LAB_LOCKS_SPEC，测试比对）
+  policies/*.json.tmpl                 三条边界、两条护栏、ATLProvisionerPolicy-Core/-Guards、ATLLearnerIam、ATLAgentApi、Verifier
+  policies/verifier-readonly.base.json 04 §5.7 基础白名单（SDK 名已换成 IAM 动作）；labs:policy 写出 generated/verifier-readonly.json 后优先用它
+  policies/generated/                  gen-policies 输出：<Name>.cfn.json（模板用）、<Name>.example.json（渲染示例）、sizes.json（字符预算）
+  ssm/*.yaml                           ATL-RunCheck、ATL-SessionShell(-Logged)、ATL-PrepareInstance、ATL-WorkstationSetup
+  custom-resources/src/                atl-custom-resources（Preflight、SeedData、WebDeploy、JwksPublish、SchemaMigrator、StackGuard、
+                                       UninstallGuard、BucketEmptier + 动作 UninstallRoleCleanup；端口 ports.ts，生产实现 aws-ports.ts）
+  custom-resources/copy-artifacts.cjs  atl-copy-artifacts 内联代码（esbuild 压缩后 2,980 字符，测试上限 4,096）
+  build/                               merge-template、template-parts（12 个函数 + 6 个状态机由表生成）、gen-policies、intrinsics（CFN
+                                       内置函数求值）、package、archive、publish-s3、launch-link、cfn-lint、workstation-template
+  release.config.json                  GitHub 仓库、已验证区域、EC2 信任是否带 aws:SourceAccount、模板桶
+platform/workstation/
+  src/agent-call.ts + src/cli/         atl-agent-call（SigV4 execute-api，2/4/8/16/30 s 退避，退出码 3/4）
+  bin/                                 atl-workstation-setup.sh（03 §4.6 第 1～7 步）、atl-credentials、atl-lab-proxy
+  bootstrap/                           user-data.sh（Fn::Sub 模板）、profile.d-atl.sh
+  templates/atl-workstation.src.yaml   → atl-workstation.yaml（生成并提交，嵌入 user data；测试校验是最新的）
+```
+
+命令：`npm run template|policies|package|publish:s3|launch-link|cfn-lint|check -w @atl/infra`（见 `platform/infra/src/README.md`）。
+cfn-lint 不是 npm 依赖：`pip install cfn-lint` 或设 `ATL_CFN_LINT=<路径>`；`test/template.test.ts` 在找到它时对平台模板与工作台模板跑一遍，零错误。
+
+### 2. 设计取舍与偏离
+
+1. **位置**：SSM 文档放 `platform/infra/ssm/`（04 §6.1 的路径；01 §13 写的是 `platform/workflows/ssm/`），工作台栈模板放
+   `platform/workstation/templates/atl-workstation.yaml`（01 §13、03 §4.4 写的是 `platform/workflows/templates/`），按本轮分工。
+   `cloudalbum-infra.zip` 收录 `platform/workstation/templates/` 与 `platform/workflows/runner/`，运行器按这两个路径读取。
+2. **atl-custom-resources 的代码在 infra**：Lambda 包由 `build/package.ts` 从 `platform/infra/custom-resources/src/index.ts` 打包；
+   `platform/api/src/functions/{custom-resources,copy-artifacts}` 的桩不再进入发布包（集成时可删除或改为再导出）。dev 运行时里
+   这两个桩不变（UninstallRoleCleanup 在 dev 下仍是 NotImplemented）。
+3. **一个 Lambda 包**：全部函数共用 `atl-lambdas.zip`（01 §4.5“每个函数一个子目录”），`Handler = <函数名>/index.handler`；
+   `Code.S3ObjectVersion` 取自 CopyArtifacts 返回的对象版本，`ReleaseVersion=dev` 重复发布时函数也会更新。
+4. **安装 ID = `AWS::StackId` 的 UUID 部分**：安装前即已知，可直接用于 Cognito 域名前缀 `atl-<前 8 位>`，并写入 `/atl/installation-id`、
+   PlatformConfig 与输出 `InstallationId`（01 说“UUID v4、安装时生成”，栈 ID 的 UUID 满足唯一性）。
+5. **Provisioner 边界超限**：01 §6.7 的完整边界约 7,900 字符。桶前缀保护、DenyPlatformByArn、账号级 IAM、实例规格限制等 Deny 外移到
+   身份策略 `ATLProvisionerPolicy-Guards`（符合 `ATLProvisionerPolicy-*` 命名；对该角色自身会话与放在边界中效果相同，同学员护栏的做法），
+   允许部分为 `ATLProvisionerPolicy-Core`（服务级通配，不是 `*:*`）。`atl-data` 用精确桶名（`atl-data-*` 会连同 `runs/` 对象一起匹配）。
+6. **字符预算**（ap-northeast-1 + DR ap-northeast-3，非空白字符）：学员边界 5,833、工作负载边界 5,909、Provisioner 边界 5,159、护栏
+   5,120（上限 6,144）；Verifier 内联 7,352 / 10,240；学员角色内联 1,091，另为运行期 `ATLRevokedSessions` 预留 2,000（约 12 条吊销条目）。
+   为此 DenyPlatformByName 把 role/policy/instance-profile 合并为 `arn:aws:iam::*:*/ATL*`、规则与总线合并为 `events:*:*:*/atl-*`（超集）。
+   列表参数（`AllowedInstanceTypes` 等）每多一项约 +15 字符；工作负载边界余量 235，测试确认再加 3 种实例类型仍不超限。CI 超限即失败。
+7. **工作负载边界与 SSM Agent**：实验机的 Agent 要读关联与 `ATL-PrepareInstance`、要写录制日志，所以工作负载边界的 DenyPlatformByArn
+   不含关联，改由 `ProtectSsmPlatform` 只拒绝修改 / 删除关联与 `ATL-*` 文档；SSM 文档与录制日志组只打 `Project=ATL`，不打
+   `atl:component=platform`（否则会被工作负载边界的 DenyPlatformByTag 拦截）。
+8. **标签**：`CloudAlbumAppRole` 不打 `atl:component`（学员在工作台给它附加模块策略，按 platform 标签会被拒绝；由 ProtectAppRole /
+   KeepPlatformChannel 保护）；`ATLWorkstationRole` 打 `workstation`（Provisioner 边界只拒 `platform`，可以 PassRole）。
+9. **小幅补充**：`ProtectLabStateStore` 的 NotAction 加 `s3:GetBucketPolicy`（07 V5-2 G3 期望只读允许）；`ATLLearnerIam` 加
+   `UpdateAssumeRolePolicy`、`PutRolePermissionsBoundary`、`Tag/UntagPolicy`、`Tag/UntagInstanceProfile`（CloudFormation 传播栈标签、
+   LabIamResourcesOnly 的前提），仍受边界与护栏约束；`ATLRunnerServiceRole` 加 `atl-data` 的 `runs/`、`archive/` 写入（02 §4.3 post_build）
+   与 S3 源所需的 `GetBucketLocation/Acl/Versioning`；`ATLCustomResourceRole` 加 `cognito-idp:AdminCreateUser/AdminAddUserToGroup/AdminGetUser`
+   （`AssistantEmails` 由 SeedData 创建）与预检只读。atl-agent 的写入限 `LeadingKeys` = `SESSION#*`、`IDEMP#*`、`AUDIT#*`，atl-pricing 限
+   `PRICE#*`、`USER#*`，atl-public 限 `CERT#*`、`KEY#*`。`test/inventory.test.ts` 按 01 §6.9 的清单核对每个函数角色。
+10. **EC2 信任的 `aws:SourceAccount`**：由 `release.config.json` 的 `ec2TrustSourceAccount` 控制（默认按 01 加上）；07 V1-6 不成立时改为 false
+    重新打包。工作台的 `atl:active-session-id` 信任回退（`UpdateAssumeRolePolicy`）未预授权，07 V1-1 失败时再加到 atl-lifecycle 角色。
+11. **事件载荷**（atl-lifecycle / atl-tagger 是按 `action` 分派的）：`atl-sfn-failed` 投递 `{"action":"ExecutionFailed","event":<事件>}`；
+    `atl-budget` 以 SNS 订阅直接调用 atl-lifecycle（SNS 信封，`Records[0].EventSource = aws:sns`，需映射到 `BudgetAlert`）；
+    `atl-tagger-api-calls` 投递 `{"action":"TagFromCloudTrail","event":…}`。
+12. **函数环境变量**：`PLATFORM_ENV_VARS` 全部（`ATL_DEV_MODE` 永不出现），另加 `ATL_RELEASE`、`ATL_HTTP_API_ID`、`ATL_AGENT_API_ENDPOINT`、
+    `ATL_PLATFORM_URL`、`ATL_DISTRIBUTION_ID`、`ATL_STACK_NAME`、`ATL_INSTALLATION_ID`、`ATL_TERMINAL_RECORDING`。CodeBuild 项目的静态变量：
+    `ATL_RELEASE`、`ATL_RELEASE_PREFIX`、`ATL_REGION`、`ATL_ACCOUNT_ID`、`ATL_DR_REGION`、桶 / 表名、`ATL_PROVISIONER_ROLE_ARN`、`ATL_AGENT_API_ENDPOINT`、
+    `ATL_WORKLOAD_BOUNDARY_ARN`、`ATL_ASG_MAX_SIZE_LIMIT`、`ATL_WORKSTATION_{INSTANCE_TYPE,INSTANCE_PROFILE,BUNDLE_URI,BUNDLE_SHA256}`、
+    `ATL_CHECKS_BUNDLE_DIGEST`；`ATL_OP` 等由编排逐次覆盖。
+13. **DefinitionSubstitutions**：由 `DEV_SUBSTITUTIONS` 的取值推导（函数名 → 函数 ARN；状态机 ARN → 本账号本区域同名状态机；其他键查
+    `KNOWN_SUBSTITUTIONS`），每个状态机只传自己用到的占位符；ASL 用了没有映射的占位符时构建失败。
+14. **卸载守卫**：Create / Update 只把“属于栈的策略”清单（`KeepPolicies`，测试核对与三个角色声明的一致）写入 `PlatformConfig.uninstallGuard`。
+    Delete 先置 `mode = UNINSTALLING`；没有非终态会话、复扫窗口内的会话、未释放的环境，且 `ATLLearnerRole` 上没有 `ATLRevokedSessions` 时
+    走快速路径（直接清理角色并回调，也覆盖安装失败的回滚）；否则以 `uninstall-<PlatformConfig.uninstallSeq>` 启动 `atl-platform-uninstall`，
+    输入 `{trigger: 'guard', cfn: {responseUrl, requestId, stackId, logicalResourceId, physicalResourceId}, keep, deadlineAt}`，守卫自己不回调。
+    `UninstallRoleCleanup` 核对 `mode = UNINSTALLING` 且无非终态会话后才清理，保留清单优先取输入 `keep`，其次 PlatformConfig；任何失败回调 FAILED。
+15. **StackGuard**：先开终止保护再写栈策略；`SetStackPolicy` 若在 `CREATE_IN_PROGRESS` 被拒，不让整个安装回滚，记录到
+    `PlatformConfig.stackGuard`（07 V5-1 第 2 步核对）。
+16. **JwksPublish** 只发布 `jwks.json` 与 `SigningKey`；空的签名吊销列表需要 `kms:Sign`（01 §6.9 只给 atl-certs），由 atl-certs 首次运行时发布。
+17. **WebDeploy**：没有 `atl-web.zip` 内容时发布占位页（`platform/web` 下一轮）；内容包根目录 `manifest.json` 的 `catalogVersion`（缺省用
+    `contentDigest`）决定 `content/<catalogVersion>/`；`private/` 写入 `atl-artifacts releases/<ver>/private/`；写 `CatalogRelease` 与 `CATALOG/CURRENT`；
+    从不删除对象，也不写 `.well-known/`、`public/`、`share/`。
+18. **Cognito**：功能层级 `LITE` + 经典托管登录（`ManagedLoginVersion: 1`，TOTP 可用，以 07 为准）；回调 `<PlatformUrl>/auth/callback`（08），
+    登出 `<PlatformUrl>/`；邀请邮件不含平台地址（避免 User Pool ↔ CloudFront 的循环依赖），写“打开栈输出 PlatformUrl”。
+19. **发布**：`ReleaseVersion` = `v<VERSION>`；Rule 只接受它或 `dev`；已验证区域暂只有 `ap-northeast-1`。GitHub 源为
+    `https://github.com/<githubRepository>/releases/download/<ReleaseVersion>/<file>`。`build/package.ts` 输出 `dist/release/<tag>/`（全部资产 +
+    `SHA256SUMS` + `release-manifest.json` + 模板 + `launch-stack.md`），模板内嵌清单；`SHA256SUMS` 另有 `# checks-bundle-digest <hex>` 行（dev 安装用）。
+    模板大于 51,200 字节，01 §4.9 的 `aws cloudformation deploy` 需要加 `--s3-bucket`（`publish-s3.ts` 打印完整命令）。
+20. **工作台引导包**：`atl-agent-call`、`atl-write-session-files` 用 esbuild 打成单文件 CJS；session-manager-plugin、k6、检查包、arm64
+    `node_modules` 由参数或环境变量提供（`--ssm-plugin-rpm`、`--k6-tarball`、`--checks-dir`、`--workstation-node-modules`），缺失时只告警。
+    不含 `node_modules` 的源码构建由 user data 在启动时 `npm ci`（需访问 npm 源，偏离 03 §4.5“启动时不访问第三方源”，正式发布应传入预构建结果）。
+
+### 3. 需要其他实现者配合
+
+- **02 / workflows**：atl-lifecycle 登记 `ExecutionFailed`，把 SNS 信封映射为 `BudgetAlert`；卸载编排按第 14 条的输入结束时调用
+  `UninstallRoleCleanup`（`{action, cfn, outcome, reason}`）；`POST /platform/uninstall/prepare` 用同一个 `uninstallSeq`；运行器 `workstation-up`
+  以 `platform/workstation/templates/atl-workstation.yaml` 建栈，参数 `SessionId, EnvName, EnvId, LabId, InstanceType, VpcId, SubnetId, BundleUri,
+  BundleSha256`（后三项取 CodeBuild 的 `ATL_WORKSTATION_*`），VpcId / SubnetId 为默认 VPC 的公有子网。
+- **API**：可读取第 12 条的附加环境变量；平台准备卸载时 `UpdateTerminationProtection` 的栈名用 `ATL_STACK_NAME`。
+- **检查包（06 PM-04）**：构建输出 `platform/infra/checks-bundle/dist/{checks/<digest>/…, bin/atl-check}`（或 `ATL_CHECKS_BUNDLE_DIR`）；
+  CloudAlbum 发布包 `build/release/cloudalbum-<ver>-<arch>.tgz`（`scripts/release`）由 package.ts 自动拾取。
+- **labs**：`labs:policy` 写 `platform/infra/policies/generated/verifier-readonly.json`（IAM 动作形式的策略文档）；`labs:build` 的
+  `dist/content/<digest>/manifest.json` 带 `catalogVersion`。
+- **根 / platform 的 package.json（不在本节路径内）**：`platform/package.json` 的 `publish:s3` 改为转发到 `npm run publish:s3 -w @atl/infra --`；
+  `platform:build` 可追加 `npm run package -w @atl/infra`。

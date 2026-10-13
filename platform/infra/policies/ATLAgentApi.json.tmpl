@@ -1,0 +1,8 @@
+{
+  "//": "01 §6.4 inline policy ATLAgentApi: the workstation (atl-<sid>-ws) may call the agent routes only; internal/* is denied by the guardrail DenyInternalRoutes.",
+  "Version": "2012-10-17",
+  "Statement": [
+    { "Sid": "AgentRoutes", "Effect": "Allow", "Action": "execute-api:Invoke",
+      "Resource": "arn:${AWS::Partition}:execute-api:${AWS::Region}:${AWS::AccountId}:${HttpApi}/$default/*/api/v1/agent/*" }
+  ]
+}

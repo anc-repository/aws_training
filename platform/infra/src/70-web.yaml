@@ -1,0 +1,226 @@
+# 70-web — atl-web bucket (OAC only), CloudFront distribution atl-web with the behaviours of 01 §3.8, the viewer-request
+# function atl-spa-rewrite and the response headers policies atl-web-spa / atl-web-verify / atl-web-share (01 §10.6).
+# No custom error responses (they would rewrite API 403/404s to index.html, 01 §3.2). Managed policy ids:
+# CachingOptimized 658327ea-…, CachingDisabled 4135ea2d-…, AllViewerExceptHostHeader b689b0a8-… (07 V5-1 checks that
+# Authorization reaches the HTTP API).
+Resources:
+  WebBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Retain
+    Properties:
+      BucketName: !Sub 'atl-web-${AWS::AccountId}-${AWS::Region}'
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      OwnershipControls:
+        Rules: [{ ObjectOwnership: BucketOwnerEnforced }]
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault: { SSEAlgorithm: AES256 }
+      Tags:
+        - { Key: 'atl:component', Value: platform }
+        - { Key: Project, Value: ATL }
+
+  WebBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref WebBucket
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: CloudFrontOacRead
+            Effect: Allow
+            Principal: { Service: cloudfront.amazonaws.com }
+            Action: 's3:GetObject'
+            Resource: !Sub '${WebBucket.Arn}/*'
+            Condition:
+              StringEquals: { 'AWS:SourceArn': !Sub 'arn:${AWS::Partition}:cloudfront::${AWS::AccountId}:distribution/${WebDistribution}' }
+          - Sid: DenyInsecureTransport
+            Effect: Deny
+            Principal: '*'
+            Action: 's3:*'
+            Resource: [!GetAtt WebBucket.Arn, !Sub '${WebBucket.Arn}/*']
+            Condition: { Bool: { 'aws:SecureTransport': 'false' } }
+
+  WebOac:
+    Type: AWS::CloudFront::OriginAccessControl
+    Properties:
+      OriginAccessControlConfig:
+        Name: !Sub 'atl-web-${AWS::Region}'
+        Description: 'ATL web bucket (SigV4, always sign)'
+        OriginAccessControlOriginType: s3
+        SigningBehavior: always
+        SigningProtocol: sigv4
+
+  SpaRewriteFunction:
+    Type: AWS::CloudFront::Function
+    Properties:
+      Name: atl-spa-rewrite
+      AutoPublish: true
+      FunctionConfig:
+        Comment: 'ATL: /verify/ and /verify/<certId> -> /verify/index.html; extensionless SPA routes -> /index.html (01 §3.8)'
+        Runtime: cloudfront-js-2.0
+      FunctionCode: |
+        function handler(event) {
+          var request = event.request;
+          var uri = request.uri;
+          if (uri === '/verify' || uri === '/verify/' || /^\/verify\/[^\/.]+\/?$/.test(uri)) {
+            request.uri = '/verify/index.html';
+            return request;
+          }
+          if (/^\/(share|public|\.well-known|content|kit|api)(\/|$)/.test(uri)) return request;
+          var last = uri.substring(uri.lastIndexOf('/') + 1);
+          if (last.indexOf('.') === -1) request.uri = '/index.html';
+          return request;
+        }
+
+  SpaHeadersPolicy:
+    Type: AWS::CloudFront::ResponseHeadersPolicy
+    Properties:
+      ResponseHeadersPolicyConfig:
+        Name: atl-web-spa
+        Comment: 'ATL SPA (01 §10.6)'
+        SecurityHeadersConfig:
+          StrictTransportSecurity: { AccessControlMaxAgeSec: 63072000, IncludeSubdomains: true, Override: true }
+          ContentTypeOptions: { Override: true }
+          FrameOptions: { FrameOption: DENY, Override: true }
+          ReferrerPolicy: { ReferrerPolicy: strict-origin-when-cross-origin, Override: true }
+          ContentSecurityPolicy:
+            Override: true
+            ContentSecurityPolicy: !Sub
+              - "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self' https://cognito-idp.${AWS::Region}.amazonaws.com https://${CognitoDomain}.auth.${AWS::Region}.amazoncognito.com wss://ssmmessages.${AWS::Region}.amazonaws.com; frame-src https:; frame-ancestors 'none'; form-action 'self' https://${CognitoDomain}.auth.${AWS::Region}.amazoncognito.com https://signin.aws.amazon.com https://*.signin.aws.amazon.com; base-uri 'none'; object-src 'none'"
+              - CognitoDomain: !Join ['', ['atl-', !Select [0, !Split ['-', !Select [2, !Split ['/', !Ref 'AWS::StackId']]]]]]
+  VerifyHeadersPolicy:
+    Type: AWS::CloudFront::ResponseHeadersPolicy
+    Properties:
+      ResponseHeadersPolicyConfig:
+        Name: atl-web-verify
+        Comment: 'ATL certificate verification page and public files (04 §10.6)'
+        SecurityHeadersConfig:
+          StrictTransportSecurity: { AccessControlMaxAgeSec: 63072000, IncludeSubdomains: true, Override: true }
+          ContentTypeOptions: { Override: true }
+          FrameOptions: { FrameOption: DENY, Override: true }
+          ReferrerPolicy: { ReferrerPolicy: strict-origin-when-cross-origin, Override: true }
+          ContentSecurityPolicy:
+            Override: true
+            ContentSecurityPolicy: "default-src 'self'; connect-src 'self'; img-src 'self' data:; script-src 'self'; frame-ancestors 'none'"
+  ShareHeadersPolicy:
+    Type: AWS::CloudFront::ResponseHeadersPolicy
+    Properties:
+      ResponseHeadersPolicyConfig:
+        Name: atl-web-share
+        Comment: 'ATL redacted report share copies (04 §9.5)'
+        SecurityHeadersConfig:
+          StrictTransportSecurity: { AccessControlMaxAgeSec: 63072000, IncludeSubdomains: true, Override: true }
+          ContentTypeOptions: { Override: true }
+          FrameOptions: { FrameOption: DENY, Override: true }
+          ReferrerPolicy: { ReferrerPolicy: no-referrer, Override: true }
+          ContentSecurityPolicy:
+            Override: true
+            ContentSecurityPolicy: "default-src 'none'; style-src 'unsafe-inline'; img-src data:; frame-ancestors 'none'"
+        CustomHeadersConfig:
+          Items:
+            - { Header: X-Robots-Tag, Value: 'noindex, nofollow', Override: true }
+
+  ShortTtlCachePolicy:
+    Type: AWS::CloudFront::CachePolicy
+    Properties:
+      CachePolicyConfig:
+        Name: !Sub 'atl-web-short-ttl-${AWS::Region}'
+        Comment: 'ATL: verify/, .well-known/atl/, public/, share/ (short TTL, invalidated by atl-certs)'
+        MinTTL: 0
+        DefaultTTL: 60
+        MaxTTL: 300
+        ParametersInCacheKeyAndForwardedToOrigin:
+          EnableAcceptEncodingGzip: true
+          EnableAcceptEncodingBrotli: true
+          CookiesConfig: { CookieBehavior: none }
+          HeadersConfig: { HeaderBehavior: none }
+          QueryStringsConfig: { QueryStringBehavior: none }
+
+  WebDistribution:
+    Type: AWS::CloudFront::Distribution
+    Properties:
+      DistributionConfig:
+        Comment: atl-web
+        Enabled: true
+        HttpVersion: http2and3
+        IPV6Enabled: true
+        PriceClass: !Ref PriceClass
+        DefaultRootObject: index.html
+        Aliases: !If [HasCustomDomain, [!Ref CustomDomainName], !Ref 'AWS::NoValue']
+        ViewerCertificate: !If
+          - HasCustomDomain
+          - { AcmCertificateArn: !Ref CustomDomainCertificateArn, SslSupportMethod: sni-only, MinimumProtocolVersion: TLSv1.2_2021 }
+          - { CloudFrontDefaultCertificate: true }
+        WebACLId: !If [HasWebAcl, !Ref ExistingWebAclArn, !Ref 'AWS::NoValue']
+        Origins:
+          - Id: web
+            DomainName: !GetAtt WebBucket.RegionalDomainName
+            OriginAccessControlId: !GetAtt WebOac.Id
+            S3OriginConfig: { OriginAccessIdentity: '' }
+          - Id: api
+            DomainName: !Sub '${HttpApi}.execute-api.${AWS::Region}.${AWS::URLSuffix}'
+            CustomOriginConfig: { OriginProtocolPolicy: https-only, OriginSSLProtocols: [TLSv1.2] }
+        DefaultCacheBehavior:
+          TargetOriginId: web
+          ViewerProtocolPolicy: redirect-to-https
+          AllowedMethods: [GET, HEAD]
+          Compress: true
+          CachePolicyId: 658327ea-f89d-4fab-a63d-7e88639e58f6
+          ResponseHeadersPolicyId: !Ref SpaHeadersPolicy
+          FunctionAssociations:
+            - { EventType: viewer-request, FunctionARN: !GetAtt SpaRewriteFunction.FunctionMetadata.FunctionARN }
+        CacheBehaviors:
+          - PathPattern: '/api/v1/*'
+            TargetOriginId: api
+            ViewerProtocolPolicy: https-only
+            AllowedMethods: [GET, HEAD, OPTIONS, PUT, PATCH, POST, DELETE]
+            CachedMethods: [GET, HEAD]
+            Compress: true
+            CachePolicyId: 4135ea2d-6df8-44a3-9df3-4b5a84be39ad
+            OriginRequestPolicyId: b689b0a8-53d0-40ab-baf2-68738e2966ac
+          - PathPattern: '/content/*'
+            TargetOriginId: web
+            ViewerProtocolPolicy: redirect-to-https
+            Compress: true
+            CachePolicyId: 658327ea-f89d-4fab-a63d-7e88639e58f6
+            ResponseHeadersPolicyId: !Ref SpaHeadersPolicy
+          - PathPattern: '/verify*'
+            TargetOriginId: web
+            ViewerProtocolPolicy: redirect-to-https
+            Compress: true
+            CachePolicyId: !Ref ShortTtlCachePolicy
+            ResponseHeadersPolicyId: !Ref VerifyHeadersPolicy
+            FunctionAssociations:
+              - { EventType: viewer-request, FunctionARN: !GetAtt SpaRewriteFunction.FunctionMetadata.FunctionARN }
+          - PathPattern: '/.well-known/atl/*'
+            TargetOriginId: web
+            ViewerProtocolPolicy: redirect-to-https
+            Compress: true
+            CachePolicyId: !Ref ShortTtlCachePolicy
+            ResponseHeadersPolicyId: !Ref VerifyHeadersPolicy
+          - PathPattern: '/public/*'
+            TargetOriginId: web
+            ViewerProtocolPolicy: redirect-to-https
+            Compress: true
+            CachePolicyId: !Ref ShortTtlCachePolicy
+            ResponseHeadersPolicyId: !Ref VerifyHeadersPolicy
+          - PathPattern: '/share/*'
+            TargetOriginId: web
+            ViewerProtocolPolicy: redirect-to-https
+            Compress: true
+            CachePolicyId: !Ref ShortTtlCachePolicy
+            ResponseHeadersPolicyId: !Ref ShareHeadersPolicy
+          - PathPattern: '/kit/*'
+            TargetOriginId: web
+            ViewerProtocolPolicy: redirect-to-https
+            Compress: true
+            CachePolicyId: 658327ea-f89d-4fab-a63d-7e88639e58f6
+            ResponseHeadersPolicyId: !Ref SpaHeadersPolicy
+      Tags:
+        - { Key: 'atl:component', Value: platform }
+        - { Key: Project, Value: ATL }

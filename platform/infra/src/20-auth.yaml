@@ -1,0 +1,94 @@
+# 20-auth — Cognito User Pool atl-users (01 §5.1): admin-created users only, e-mail sign-in, TOTP MFA, hosted login with
+# authorization code + PKCE for the public client atl-web, groups learner / assistant / observer (no admin group, 01 §5.2).
+# Installation ID = the UUID part of AWS::StackId (unique per installation, known before any custom resource runs); the hosted
+# login domain prefix is atl-<first 8 characters> (01 §5.1). Assistants from AssistantEmails are created by SeedData.
+Resources:
+  UserPool:
+    Type: AWS::Cognito::UserPool
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Retain
+    Properties:
+      UserPoolName: atl-users
+      # lowest feature plan with TOTP MFA and the (classic) hosted login; plan features per the Cognito docs (07)
+      UserPoolTier: LITE
+      UsernameAttributes: [email]
+      AutoVerifiedAttributes: [email]
+      UsernameConfiguration: { CaseSensitive: false }
+      AdminCreateUserConfig:
+        AllowAdminCreateUserOnly: true
+        InviteMessageTemplate:
+          EmailSubject: 'AWS Training Lab invitation'
+          EmailMessage: 'AWS Training Lab (ATL): user {username}, temporary password {####}. Open the PlatformUrl output of the CloudFormation stack, sign in, change the password and register a TOTP authenticator.'
+      MfaConfiguration: !If [IsMfaOn, 'ON', OPTIONAL]
+      EnabledMfas: [SOFTWARE_TOKEN_MFA]
+      Policies:
+        PasswordPolicy:
+          MinimumLength: 12
+          RequireLowercase: true
+          RequireNumbers: true
+          RequireSymbols: true
+          RequireUppercase: true
+          TemporaryPasswordValidityDays: 3
+      AccountRecoverySetting:
+        RecoveryMechanisms: [{ Name: verified_email, Priority: 1 }]
+      DeletionProtection: INACTIVE
+      UserPoolTags:
+        'atl:component': platform
+        Project: ATL
+
+  UserPoolDomain:
+    Type: AWS::Cognito::UserPoolDomain
+    Properties:
+      UserPoolId: !Ref UserPool
+      Domain: !Join ['', ['atl-', !Select [0, !Split ['-', !Select [2, !Split ['/', !Ref 'AWS::StackId']]]]]]
+      ManagedLoginVersion: 1
+
+  WebClient:
+    Type: AWS::Cognito::UserPoolClient
+    Properties:
+      ClientName: atl-web
+      UserPoolId: !Ref UserPool
+      GenerateSecret: false
+      AllowedOAuthFlowsUserPoolClient: true
+      AllowedOAuthFlows: [code]
+      AllowedOAuthScopes: [openid, email, profile]
+      SupportedIdentityProviders: [COGNITO]
+      CallbackURLs:
+        - !If [HasCustomDomain, !Sub 'https://${CustomDomainName}/auth/callback', !Sub 'https://${WebDistribution.DomainName}/auth/callback']
+      LogoutURLs:
+        - !If [HasCustomDomain, !Sub 'https://${CustomDomainName}/', !Sub 'https://${WebDistribution.DomainName}/']
+      ExplicitAuthFlows: [ALLOW_REFRESH_TOKEN_AUTH, ALLOW_USER_SRP_AUTH]
+      EnableTokenRevocation: true
+      PreventUserExistenceErrors: ENABLED
+      AuthSessionValidity: 5
+      AccessTokenValidity: 60
+      IdTokenValidity: 60
+      RefreshTokenValidity: 12
+      TokenValidityUnits: { AccessToken: minutes, IdToken: minutes, RefreshToken: hours }
+
+  LearnerGroup:
+    Type: AWS::Cognito::UserPoolGroup
+    Properties: { GroupName: learner, UserPoolId: !Ref UserPool, Precedence: 0, Description: 'the account owner (exactly one)' }
+  AssistantGroup:
+    Type: AWS::Cognito::UserPoolGroup
+    Properties: { GroupName: assistant, UserPoolId: !Ref UserPool, Precedence: 10, Description: 'reviews manual confirmations; never gets AWS credentials' }
+  ObserverGroup:
+    Type: AWS::Cognito::UserPoolGroup
+    Properties: { GroupName: observer, UserPoolId: !Ref UserPool, Precedence: 20, Description: 'read-only; never gets AWS credentials' }
+
+  LearnerUser:
+    Type: AWS::Cognito::UserPoolUser
+    Properties:
+      UserPoolId: !Ref UserPool
+      Username: !Ref LearnerEmail
+      DesiredDeliveryMediums: [EMAIL]
+      UserAttributes:
+        - { Name: email, Value: !Ref LearnerEmail }
+        - { Name: email_verified, Value: 'true' }
+
+  LearnerGroupMembership:
+    Type: AWS::Cognito::UserPoolUserToGroupAttachment
+    Properties:
+      UserPoolId: !Ref UserPool
+      GroupName: !Ref LearnerGroup
+      Username: !Ref LearnerUser
