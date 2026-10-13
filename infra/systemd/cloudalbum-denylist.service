@@ -1,0 +1,7 @@
+# /etc/systemd/system/cloudalbum-denylist.service — owned by ec2 (triggered by cloudalbum-denylist.path)
+[Unit]
+Description=Validate the CloudAlbum IP deny list and reload Nginx
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/lib/cloudalbum/denylist-apply.sh

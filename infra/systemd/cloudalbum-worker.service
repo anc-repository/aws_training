@@ -1,0 +1,34 @@
+# /etc/systemd/system/cloudalbum-worker.service — owned by ec2 (modular-design.md 2.6).
+# Same as cloudalbum-api.service except Description, CLOUDALBUM_ROLE, PORT and ExecStart.
+[Unit]
+Description=CloudAlbum Worker (scheduler / queue consumer / reconcilers / local evaluators)
+After=network-online.target
+Wants=network-online.target
+RequiresMountsFor=/var/lib/cloudalbum
+
+[Service]
+Type=simple
+User=cloudalbum
+Group=cloudalbum
+UMask=0027
+WorkingDirectory=/opt/cloudalbum/backend
+Environment=NODE_ENV=production
+Environment=CLOUDALBUM_ROLE=worker
+Environment=CLOUDALBUM_ENV_DIR=/etc/cloudalbum
+ExecStart=/usr/bin/node --enable-source-maps dist/worker.js
+Restart=on-failure
+RestartSec=3
+RestartPreventExitStatus=78
+TimeoutStopSec=20
+LimitNOFILE=65536
+RuntimeDirectory=cloudalbum
+RuntimeDirectoryPreserve=yes
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/cloudalbum
+ReadOnlyPaths=/var/lib/cloudalbum/etc
+
+[Install]
+WantedBy=multi-user.target

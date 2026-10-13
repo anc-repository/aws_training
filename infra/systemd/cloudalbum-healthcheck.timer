@@ -1,0 +1,11 @@
+# /etc/systemd/system/cloudalbum-healthcheck.timer — owned by ec2
+[Unit]
+Description=CloudAlbum API liveness check every 30 seconds
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=30s
+AccuracySec=5s
+
+[Install]
+WantedBy=timers.target

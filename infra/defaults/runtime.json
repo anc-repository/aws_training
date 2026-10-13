@@ -1,0 +1,12 @@
+{
+  "maintenanceMode": false,
+  "readOnly": false,
+  "maxUploadMb": 25,
+  "allowedEmailDomains": [],
+  "feedCacheTtlSec": 30,
+  "labBypassEnabled": true,
+  "logLevel": "info",
+  "featureFlags": {
+    "email.selfPreview": true
+  }
+}

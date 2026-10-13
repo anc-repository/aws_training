@@ -1,0 +1,172 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >-
+  CloudAlbum module "cache" - Amazon ElastiCache (Valkey / Redis OSS): node-based replication group (default) or
+  serverless cache; reachable only from the instance security group. docs/modules/03-data-storage.md#cache
+
+Metadata:
+  CloudAlbum:
+    module: cache
+    registryVersion: 1
+    # Injected parameters: VpcId, SubnetIds (network data subnets; base context = default VPC subnets otherwise),
+    # KmsKeyArn (kms; at-rest encryption key can only be chosen at creation). VPC-bound module (DEP-016).
+    # Secret parameter: AuthToken (logical name redis-auth-token, value also in secrets.env REDIS_AUTH_TOKEN).
+
+Parameters:
+  Env:
+    Type: String
+    Default: lab
+    AllowedPattern: '^[a-z][a-z0-9-]{1,15}$'
+  ModuleVersion:
+    Type: String
+    Default: '1'
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+  SubnetIds:
+    Type: List<AWS::EC2::Subnet::Id>
+    Description: Default VPC subnets (base context) or network data subnets
+  InstanceSecurityGroupId:
+    Type: AWS::EC2::SecurityGroup::Id
+  CacheMode:
+    Type: String
+    Default: nodes
+    AllowedValues: [nodes, serverless]
+  Engine:
+    Type: String
+    Default: valkey
+    AllowedValues: [valkey, redis]
+  CacheNodeType:
+    Type: String
+    Default: cache.t4g.micro
+  Replicas:
+    Type: String
+    Default: '0'
+    AllowedValues: ['0', '1']
+    Description: 1 = primary + replica with Multi-AZ automatic failover (nodes mode)
+  AuthToken:
+    Type: String
+    Default: ''
+    NoEcho: true
+    Description: Optional AUTH token (nodes mode). 16-128 printable characters.
+  KmsKeyArn:
+    Type: String
+    Default: ''
+  ServerlessMaxDataGiB:
+    Type: Number
+    Default: 1
+    MinValue: 1
+  ServerlessMaxEcpuPerSecond:
+    Type: Number
+    Default: 5000
+    MinValue: 1000
+
+Rules:
+  AuthTokenLength:
+    RuleCondition: !Not [!Equals [!Ref AuthToken, '']]
+    Assertions:
+      - Assert: !Equals [!Ref CacheMode, nodes]
+        AssertDescription: AuthToken is only supported in nodes mode (serverless uses RBAC user groups)
+
+Conditions:
+  IsNodes: !Equals [!Ref CacheMode, nodes]
+  IsServerless: !Equals [!Ref CacheMode, serverless]
+  HasReplica: !Equals [!Ref Replicas, '1']
+  HasKms: !Not [!Equals [!Ref KmsKeyArn, '']]
+  HasAuthToken: !And [!Condition IsNodes, !Not [!Equals [!Ref AuthToken, '']]]
+
+Resources:
+  CacheSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: !Sub 'cloudalbum-${Env}-cache'
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 6379
+          ToPort: !If [IsServerless, 6380, 6379]   # serverless: 6380 = read-from-replica port
+          SourceSecurityGroupId: !Ref InstanceSecurityGroupId
+          Description: CloudAlbum instance only
+      Tags:
+        - { Key: Name, Value: !Sub 'cloudalbum-${Env}-cache' }
+
+  CacheSubnetGroup:
+    Condition: IsNodes
+    Type: AWS::ElastiCache::SubnetGroup
+    Properties:
+      Description: !Sub 'cloudalbum-${Env}-cache'
+      SubnetIds: !Ref SubnetIds
+
+  ReplicationGroup:
+    Condition: IsNodes
+    Type: AWS::ElastiCache::ReplicationGroup
+    Metadata:
+      cfn-lint: { config: { ignore_checks: [W1011] } }   # secretParams are NoEcho parameters by design (9.1, D5)
+    DeletionPolicy: Delete            # no authoritative data in a cache
+    UpdateReplacePolicy: Delete
+    Properties:
+      ReplicationGroupId: !Sub 'cloudalbum-${Env}-cache'
+      ReplicationGroupDescription: !Sub 'cloudalbum-${Env}-cache'
+      Engine: !Ref Engine
+      CacheNodeType: !Ref CacheNodeType
+      NumCacheClusters: !If [HasReplica, 2, 1]
+      AutomaticFailoverEnabled: !If [HasReplica, true, false]
+      MultiAZEnabled: !If [HasReplica, true, false]
+      CacheSubnetGroupName: !Ref CacheSubnetGroup
+      SecurityGroupIds: [!Ref CacheSecurityGroup]
+      TransitEncryptionEnabled: true
+      AtRestEncryptionEnabled: true
+      KmsKeyId: !If [HasKms, !Ref KmsKeyArn, !Ref 'AWS::NoValue']
+      AuthToken: !If [HasAuthToken, !Ref AuthToken, !Ref 'AWS::NoValue']
+      SnapshotRetentionLimit: 0
+      AutoMinorVersionUpgrade: true
+
+  ServerlessCache:
+    Condition: IsServerless
+    Type: AWS::ElastiCache::ServerlessCache
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Delete
+    Properties:
+      ServerlessCacheName: !Sub 'cloudalbum-${Env}-cache'
+      Engine: !Ref Engine
+      SubnetIds: !Ref SubnetIds
+      SecurityGroupIds: [!Ref CacheSecurityGroup]
+      KmsKeyId: !If [HasKms, !Ref KmsKeyArn, !Ref 'AWS::NoValue']
+      CacheUsageLimits:                 # cost guard rails (minimum billed storage applies; see the official pricing page)
+        DataStorage: { Maximum: !Ref ServerlessMaxDataGiB, Unit: GB }
+        ECPUPerSecond: { Maximum: !Ref ServerlessMaxEcpuPerSecond }
+
+  AppPolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      ManagedPolicyName: !Sub 'cloudalbum-${Env}-cache'   # attached by scripts/module (D2)
+      Description: CloudAlbum cache module - deep probe only (the data plane does not use IAM)
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Action: [elasticache:DescribeReplicationGroups, elasticache:DescribeServerlessCaches, elasticache:DescribeCacheClusters]
+            Resource: '*'
+
+Outputs:
+  ModuleId:
+    Value: cache
+  ModuleVersion:
+    Value: !Ref ModuleVersion
+  PolicyArn:
+    Value: !Ref AppPolicy
+  EnvCacheDriver:
+    Value: redis
+  EnvRedisUrl:
+    Value: !If
+      - IsNodes
+      - !Sub 'rediss://${ReplicationGroup.PrimaryEndPoint.Address}:${ReplicationGroup.PrimaryEndPoint.Port}'
+      - !Sub 'rediss://${ServerlessCache.Endpoint.Address}:${ServerlessCache.Endpoint.Port}'
+  EnvRedisTls:
+    Value: 'on'
+  EnvRedisClientMode:
+    Value: !If [IsNodes, single, cluster]
+  InfoReplicationGroupId:
+    Condition: IsNodes
+    Value: !Ref ReplicationGroup
+  InfoServerlessCacheName:
+    Condition: IsServerless
+    Value: !Ref ServerlessCache

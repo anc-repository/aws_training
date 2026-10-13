@@ -1,0 +1,69 @@
+#!/usr/bin/env bash
+# scripts/release <version> [--arch arm64|x86_64] [--out <dir>] [--skip-build] — build the per-architecture release
+# archive downloaded by the User Data stub (AppArchiveUrl / AppArchiveSha256; 00-ec2-base.md 6.5).
+# Run on Linux (or CloudShell). Layout of cloudalbum-<version>-<arch>.tgz (single top-level directory, --strip-components=1):
+#   VERSION  package.json  package-lock.json  node_modules/ (production deps for linux-<arch>, incl. sharp)
+#   backend/{package.json,dist}  packages/{contracts,image-core}/{package.json,dist}  frontend/dist
+#   infra/ (templates, nginx, systemd, host helpers, userdata/l0-bootstrap.sh, defaults)
+#   modules/{registry.yaml,registry.json,hostsetup-order.txt}  scripts/{local-backup.sh,selfhost/}
+# Prints the SHA-256 to pass as AppArchiveSha256. Uploading (GitHub Release or the toolchain bucket releases/ mirror) is manual.
+set -euo pipefail
+
+ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+version=${1:-}; shift || true
+arch=arm64; out="$ROOT/build/release"; build=yes
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --arch) arch=$2; shift 2 ;;
+    --out) out=$2; shift 2 ;;
+    --skip-build) build=no; shift ;;
+    *) echo "unknown option: $1" >&2; exit 64 ;;
+  esac
+done
+[[ $version =~ ^[A-Za-z0-9._-]+$ ]] || { echo "usage: scripts/release <version> [--arch arm64|x86_64] [--out dir] [--skip-build]" >&2; exit 64; }
+case "$arch" in arm64) cpu=arm64 ;; x86_64) cpu=x64 ;; *) echo "--arch must be arm64 or x86_64" >&2; exit 64 ;; esac
+
+name="cloudalbum-$version-$arch"
+stage="$out/$name"
+rm -rf "$stage"; mkdir -p "$stage"
+
+if [ "$build" = yes ]; then
+  (cd "$ROOT" && npm run build && npm run build:frontend)
+fi
+
+copy() { mkdir -p "$stage/$(dirname "$1")"; cp -a "$ROOT/$1" "$stage/$1"; }
+echo "$version" > "$stage/VERSION"
+copy package-lock.json
+copy backend/package.json; copy backend/dist
+for p in contracts image-core; do copy "packages/$p/package.json"; copy "packages/$p/dist"; done
+copy frontend/dist
+copy infra
+copy modules/registry.yaml
+copy scripts/local-backup.sh; copy scripts/selfhost
+# remove TypeScript build info and source maps of type declarations (not needed at runtime)
+find "$stage" -name '*.tsbuildinfo' -delete
+
+# root package.json restricted to the runtime workspaces
+node -e '
+  const fs = require("node:fs");
+  const pkg = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+  pkg.workspaces = ["packages/*", "backend"];
+  delete pkg.devDependencies; pkg.scripts = {};
+  fs.writeFileSync(process.argv[2], JSON.stringify(pkg, null, 2) + "\n");
+' "$ROOT/package.json" "$stage/package.json"
+
+# registry.json + topological order for run-hostsetup.sh (computed by the module tool from the same registry)
+"$ROOT/scripts/module" release-meta --out "$stage/modules"
+
+# production dependencies for the target platform (sharp ships prebuilt linux-<arch> binaries)
+(cd "$stage" && npm install --omit=dev --no-audit --no-fund --os=linux --cpu="$cpu" --libc=glibc)
+
+chmod 0755 "$stage"/infra/install-host-files.sh "$stage"/infra/userdata/l0-bootstrap.sh "$stage"/infra/host/*.sh \
+           "$stage"/infra/host/cloudalbum-* "$stage"/scripts/local-backup.sh "$stage"/scripts/selfhost/*.sh \
+           "$stage"/infra/modules/*/host-setup.sh 2>/dev/null || true
+
+tar czf "$out/$name.tgz" -C "$out" "$name"
+sha=$(sha256sum "$out/$name.tgz" | awk '{print $1}')
+echo "$sha  $name.tgz" > "$out/$name.tgz.sha256"
+echo "release: $out/$name.tgz"
+echo "AppArchiveSha256=$sha"

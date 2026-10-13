@@ -1,0 +1,86 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >-
+  CloudAlbum toolchain stack (NOT an application module): artifact bucket for Lambda code packages and the
+  releases/ mirror of the release archives (private subnets without NAT, ASG). Created by scripts/module bootstrap.
+
+Metadata:
+  CloudAlbum:
+    module: toolchain
+    # The application never reads this stack; L0 does not need it. Prefixes: lambda/<function>/<sha256>.zip, releases/<version>/<arch>.tgz
+
+Parameters:
+  Env:
+    Type: String
+    Default: lab
+    AllowedPattern: '^[a-z][a-z0-9-]{1,15}$'
+  ModuleVersion:
+    Type: String
+    Default: '1'
+
+Resources:
+  ArtifactBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      BucketName: !Sub 'cloudalbum-${Env}-toolchain-${AWS::AccountId}-${AWS::Region}'
+      VersioningConfiguration: { Status: Enabled }
+      OwnershipControls:
+        Rules: [{ ObjectOwnership: BucketOwnerEnforced }]
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault: { SSEAlgorithm: AES256 }
+      LifecycleConfiguration:
+        Rules:
+          - Id: abort-mpu
+            Status: Enabled
+            AbortIncompleteMultipartUpload: { DaysAfterInitiation: 7 }
+          - Id: old-lambda-packages
+            Status: Enabled
+            Prefix: lambda/
+            NoncurrentVersionExpiration: { NoncurrentDays: 30 }
+      Tags:
+        - { Key: DataClass, Value: artifacts }
+
+  ArtifactBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref ArtifactBucket
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: DenyInsecureTransport
+            Effect: Deny
+            Principal: '*'
+            Action: 's3:*'
+            Resource: [!GetAtt ArtifactBucket.Arn, !Sub '${ArtifactBucket.Arn}/*']
+            Condition: { Bool: { 'aws:SecureTransport': 'false' } }
+
+  ReleaseReadPolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      ManagedPolicyName: !Sub 'cloudalbum-${Env}-toolchain-releases'
+      Description: Instance role read access to releases/ (private placement without NAT, DEP-009); attached by scripts/module only when needed
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Action: s3:GetObject
+            Resource: !Sub '${ArtifactBucket.Arn}/releases/*'
+
+Outputs:
+  ModuleId:
+    Value: toolchain
+  ModuleVersion:
+    Value: !Ref ModuleVersion
+  InfoArtifactBucket:
+    Value: !Ref ArtifactBucket
+  InfoArtifactBucketArn:
+    Value: !GetAtt ArtifactBucket.Arn
+  InfoReleaseReadPolicyArn:
+    Value: !Ref ReleaseReadPolicy

@@ -1,0 +1,439 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >-
+  CloudAlbum module "image-processing" - AWS Lambda thumbnail function triggered by S3 Object Created events through
+  an EventBridge rule (or a buffer SQS queue); results via HMAC callback or a result queue; failure queue for
+  reconciliation. docs/modules/04-compute-async.md#image-processing
+
+Metadata:
+  CloudAlbum:
+    module: image-processing
+    registryVersion: 1
+    # Injected parameters: RawBucketName, MediaBucketName (storage), OriginBaseUrl (load-balancer; base context
+    # http://<EIP> otherwise), Tracing (tracing), KmsKeyArn (kms).
+    # Secret parameter: CallbackHmacKey (logical name callback-hmac-key, read from secrets.env) or CallbackSecretArn.
+    # Code: scripts/module packages lambdas/image-thumbnail (esbuild + linux-arm64 sharp) and uploads the zip to the
+    # toolchain bucket (prerequisite toolchain), then passes CodeS3Bucket / CodeS3Key.
+    # The EventBridge rule name is fixed: cloudalbum-<env>-image-processing-raw-created (the probe looks it up).
+
+Parameters:
+  Env:
+    Type: String
+    Default: lab
+    AllowedPattern: '^[a-z][a-z0-9-]{1,15}$'
+  ModuleVersion:
+    Type: String
+    Default: '1'
+  RawBucketName:
+    Type: String
+    MinLength: 3
+    Description: Injected by storage (EnvStorageS3RawBucket)
+  MediaBucketName:
+    Type: String
+    MinLength: 3
+    Description: Injected by storage (EnvStorageS3MediaBucket)
+  CodeS3Bucket:
+    Type: String
+    MinLength: 3
+    Description: Toolchain artifact bucket
+  CodeS3Key:
+    Type: String
+    MinLength: 1
+  Trigger:
+    Type: String
+    Default: eventbridge
+    AllowedValues: [eventbridge, buffer-queue]
+  ResultChannel:
+    Type: String
+    Default: callback
+    AllowedValues: [callback, queue]
+  OriginBaseUrl:
+    Type: String
+    Default: ''
+    Description: http(s)://<origin> of the EC2 (or ALB); CallbackUrl defaults to <OriginBaseUrl>/internal/hooks/image-processed
+  CallbackUrl:
+    Type: String
+    Default: ''
+  CallbackHmacKey:
+    Type: String
+    Default: ''
+    NoEcho: true
+    Description: secrets=env - value of CALLBACK_HMAC_KEY (environment variables are encrypted at rest but readable by GetFunctionConfiguration)
+  CallbackSecretArn:
+    Type: String
+    Default: ''
+    Description: secrets=secretsmanager - the Lambda reads the key at init and caches it
+  MemorySize:
+    Type: Number
+    Default: 1024
+    MinValue: 512
+    MaxValue: 10240
+  ReservedConcurrency:
+    Type: String
+    Default: ''
+    AllowedPattern: '^$|^[0-9]+$'
+    Description: Empty = not set (new accounts may have a low concurrency quota)
+  MaxConcurrency:
+    Type: Number
+    Default: 2
+    MinValue: 2
+    MaxValue: 1000
+    Description: Buffer-queue event source mapping maximum concurrency
+  Tracing:
+    Type: String
+    Default: PassThrough
+    AllowedValues: [PassThrough, Active]
+  MaxPixels:
+    Type: Number
+    Default: 40000000
+  MaxBytes:
+    Type: Number
+    Default: 31457280
+  LogRetentionDays:
+    Type: Number
+    Default: 14
+    AllowedValues: [1, 3, 5, 7, 14, 30, 60, 90]
+  KmsKeyArn:
+    Type: String
+    Default: ''
+  PermissionsBoundaryArn:
+    Type: String
+    Default: ''
+
+Rules:
+  CallbackNeedsUrlAndKey:
+    RuleCondition: !Equals [!Ref ResultChannel, callback]
+    Assertions:
+      - Assert: !Not [!And [!Equals [!Ref CallbackUrl, ''], !Equals [!Ref OriginBaseUrl, '']]]
+        AssertDescription: ResultChannel=callback requires CallbackUrl or OriginBaseUrl
+      - Assert: !Not [!And [!Equals [!Ref CallbackHmacKey, ''], !Equals [!Ref CallbackSecretArn, '']]]
+        AssertDescription: ResultChannel=callback requires CallbackHmacKey or CallbackSecretArn
+
+Conditions:
+  IsBuffer: !Equals [!Ref Trigger, buffer-queue]
+  IsDirect: !Equals [!Ref Trigger, eventbridge]
+  IsQueueChannel: !Equals [!Ref ResultChannel, queue]
+  IsCallback: !Equals [!Ref ResultChannel, callback]
+  HasCallbackUrl: !Not [!Equals [!Ref CallbackUrl, '']]
+  HasSecretArn: !Not [!Equals [!Ref CallbackSecretArn, '']]
+  CallbackWithSecretArn: !And [!Condition IsCallback, !Condition HasSecretArn]
+  CallbackWithPlainKey: !And [!Condition IsCallback, !Not [!Condition HasSecretArn]]
+  HasReserved: !Not [!Equals [!Ref ReservedConcurrency, '']]
+  HasKms: !Not [!Equals [!Ref KmsKeyArn, '']]
+  ActiveTracing: !Equals [!Ref Tracing, Active]
+  HasBoundary: !Not [!Equals [!Ref PermissionsBoundaryArn, '']]
+
+Resources:
+  FailureQueue:
+    Type: AWS::SQS::Queue
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Delete
+    Properties:
+      QueueName: !Sub 'cloudalbum-${Env}-image-processing-failures'
+      MessageRetentionPeriod: 1209600
+      SqsManagedSseEnabled: !If [HasKms, !Ref 'AWS::NoValue', true]
+      KmsMasterKeyId: !If [HasKms, !Ref KmsKeyArn, !Ref 'AWS::NoValue']
+
+  FailureQueuePolicy:
+    Type: AWS::SQS::QueuePolicy
+    Properties:
+      Queues: [!Ref FailureQueue]
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: RuleDeadLetter
+            Effect: Allow
+            Principal: { Service: events.amazonaws.com }
+            Action: sqs:SendMessage
+            Resource: !GetAtt FailureQueue.Arn
+            Condition:
+              ArnEquals:
+                'aws:SourceArn': !Sub 'arn:${AWS::Partition}:events:${AWS::Region}:${AWS::AccountId}:rule/cloudalbum-${Env}-image-processing-raw-created'
+
+  ResultDlq:
+    Condition: IsQueueChannel
+    Type: AWS::SQS::Queue
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Delete
+    Properties:
+      QueueName: !Sub 'cloudalbum-${Env}-image-processing-results-dlq'
+      MessageRetentionPeriod: 1209600
+      SqsManagedSseEnabled: !If [HasKms, !Ref 'AWS::NoValue', true]
+      KmsMasterKeyId: !If [HasKms, !Ref KmsKeyArn, !Ref 'AWS::NoValue']
+
+  ResultQueue:
+    Condition: IsQueueChannel
+    Type: AWS::SQS::Queue
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Delete
+    Properties:
+      QueueName: !Sub 'cloudalbum-${Env}-image-processing-results'
+      ReceiveMessageWaitTimeSeconds: 20
+      VisibilityTimeout: 60
+      MessageRetentionPeriod: 345600
+      SqsManagedSseEnabled: !If [HasKms, !Ref 'AWS::NoValue', true]
+      KmsMasterKeyId: !If [HasKms, !Ref KmsKeyArn, !Ref 'AWS::NoValue']
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt ResultDlq.Arn
+        maxReceiveCount: 5
+
+  BufferQueue:
+    Condition: IsBuffer
+    Type: AWS::SQS::Queue
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Delete
+    Properties:
+      QueueName: !Sub 'cloudalbum-${Env}-image-processing-buffer'
+      VisibilityTimeout: 180                       # 6 x function timeout
+      MessageRetentionPeriod: 345600
+      SqsManagedSseEnabled: !If [HasKms, !Ref 'AWS::NoValue', true]
+      KmsMasterKeyId: !If [HasKms, !Ref KmsKeyArn, !Ref 'AWS::NoValue']
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt FailureQueue.Arn
+        maxReceiveCount: 3
+
+  BufferQueuePolicy:
+    Condition: IsBuffer
+    Type: AWS::SQS::QueuePolicy
+    Properties:
+      Queues: [!Ref BufferQueue]
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: RuleTarget
+            Effect: Allow
+            Principal: { Service: events.amazonaws.com }
+            Action: sqs:SendMessage
+            Resource: !GetAtt BufferQueue.Arn
+            Condition:
+              ArnEquals:
+                'aws:SourceArn': !Sub 'arn:${AWS::Partition}:events:${AWS::Region}:${AWS::AccountId}:rule/cloudalbum-${Env}-image-processing-raw-created'
+
+  ThumbnailLogGroup:
+    Type: AWS::Logs::LogGroup
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Delete
+    Properties:
+      LogGroupName: !Sub '/aws/lambda/cloudalbum-${Env}-image-processing-thumbnail'
+      RetentionInDays: !Ref LogRetentionDays
+
+  ThumbnailRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub 'cloudalbum-${Env}-image-processing-thumbnail'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - { Effect: Allow, Principal: { Service: lambda.amazonaws.com }, Action: sts:AssumeRole }
+      PermissionsBoundary: !If [HasBoundary, !Ref PermissionsBoundaryArn, !Ref 'AWS::NoValue']
+      ManagedPolicyArns: !If
+        - ActiveTracing
+        - [!Sub 'arn:${AWS::Partition}:iam::aws:policy/AWSXRayDaemonWriteAccess']
+        - !Ref 'AWS::NoValue'
+      Policies:
+        - PolicyName: thumbnail
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: Logs
+                Effect: Allow
+                Action: [logs:CreateLogStream, logs:PutLogEvents]
+                Resource: !Sub '${ThumbnailLogGroup.Arn}:*'
+              - Sid: ReadRaw
+                Effect: Allow
+                Action: s3:GetObject
+                Resource: !Sub 'arn:${AWS::Partition}:s3:::${RawBucketName}/raw/*'
+              - Sid: ListRaw            # HeadObject on a missing key returns 404 (not 403) only with ListBucket
+                Effect: Allow
+                Action: s3:ListBucket
+                Resource: !Sub 'arn:${AWS::Partition}:s3:::${RawBucketName}'
+              - Sid: WriteVariants
+                Effect: Allow
+                Action: s3:PutObject
+                Resource: !Sub 'arn:${AWS::Partition}:s3:::${MediaBucketName}/variants/*'
+              - Sid: FailureDestination
+                Effect: Allow
+                Action: sqs:SendMessage
+                Resource: !GetAtt FailureQueue.Arn
+              - !If
+                - IsQueueChannel
+                - Sid: ResultQueue
+                  Effect: Allow
+                  Action: sqs:SendMessage
+                  Resource: !GetAtt ResultQueue.Arn
+                - !Ref 'AWS::NoValue'
+              - !If
+                - IsBuffer
+                - Sid: BufferQueue
+                  Effect: Allow
+                  Action: [sqs:ReceiveMessage, sqs:DeleteMessage, sqs:GetQueueAttributes, sqs:ChangeMessageVisibility]
+                  Resource: !GetAtt BufferQueue.Arn
+                - !Ref 'AWS::NoValue'
+              - !If
+                - CallbackWithSecretArn
+                - Sid: CallbackSecret
+                  Effect: Allow
+                  Action: secretsmanager:GetSecretValue
+                  Resource: !Ref CallbackSecretArn
+                - !Ref 'AWS::NoValue'
+              - !If
+                - HasKms
+                - Sid: Kms
+                  Effect: Allow
+                  Action: [kms:Decrypt, kms:GenerateDataKey]
+                  Resource: !Ref KmsKeyArn
+                - !Ref 'AWS::NoValue'
+
+  ThumbnailFunction:
+    Type: AWS::Lambda::Function
+    Metadata:
+      cfn-lint: { config: { ignore_checks: [W1011] } }   # secretParams are NoEcho parameters by design (9.1, D5)
+    Properties:
+      FunctionName: !Sub 'cloudalbum-${Env}-image-processing-thumbnail'
+      Description: CloudAlbum thumbnails (packages/image-core, sharp linux-arm64)
+      Runtime: nodejs22.x
+      Architectures: [arm64]
+      Handler: index.handler
+      Role: !GetAtt ThumbnailRole.Arn
+      Code:
+        S3Bucket: !Ref CodeS3Bucket
+        S3Key: !Ref CodeS3Key
+      MemorySize: !Ref MemorySize
+      Timeout: 30
+      ReservedConcurrentExecutions: !If [HasReserved, !Ref ReservedConcurrency, !Ref 'AWS::NoValue']
+      TracingConfig: { Mode: !Ref Tracing }
+      KmsKeyArn: !If [HasKms, !Ref KmsKeyArn, !Ref 'AWS::NoValue']
+      LoggingConfig:
+        LogGroup: !Ref ThumbnailLogGroup
+        LogFormat: JSON
+      Environment:
+        Variables:
+          MEDIA_BUCKET: !Ref MediaBucketName
+          RAW_PREFIX: raw/
+          RESULT_CHANNEL: !Ref ResultChannel
+          CALLBACK_URL: !If
+            - IsCallback
+            - !If [HasCallbackUrl, !Ref CallbackUrl, !Sub '${OriginBaseUrl}/internal/hooks/image-processed']
+            - !Ref 'AWS::NoValue'
+          CALLBACK_HMAC_KEY: !If [CallbackWithPlainKey, !Ref CallbackHmacKey, !Ref 'AWS::NoValue']
+          CALLBACK_SECRET_ARN: !If [CallbackWithSecretArn, !Ref CallbackSecretArn, !Ref 'AWS::NoValue']
+          RESULT_QUEUE_URL: !If [IsQueueChannel, !Ref ResultQueue, !Ref 'AWS::NoValue']
+          MAX_PIXELS: !Ref MaxPixels
+          MAX_BYTES: !Ref MaxBytes
+          CALLBACK_TIMEOUT_MS: '10000'
+          NODE_OPTIONS: --enable-source-maps
+
+  ThumbnailInvokeConfig:
+    Type: AWS::Lambda::EventInvokeConfig
+    Properties:
+      FunctionName: !Ref ThumbnailFunction
+      Qualifier: $LATEST
+      MaximumRetryAttempts: 2
+      MaximumEventAgeInSeconds: 3600
+      DestinationConfig:
+        OnFailure: { Destination: !GetAtt FailureQueue.Arn }
+
+  RawObjectCreatedRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: !Sub 'cloudalbum-${Env}-image-processing-raw-created'
+      Description: S3 Object Created (PutObject, CopyObject, CompleteMultipartUpload) under raw/ -> thumbnails
+      EventBusName: default
+      State: ENABLED
+      EventPattern:
+        source: [aws.s3]
+        detail-type: [Object Created]
+        detail:
+          bucket: { name: [!Ref RawBucketName] }
+          object: { key: [{ prefix: raw/ }] }
+      Targets:
+        - !If
+          - IsDirect
+          - Id: thumbnail
+            Arn: !GetAtt ThumbnailFunction.Arn
+            RetryPolicy: { MaximumRetryAttempts: 8, MaximumEventAgeInSeconds: 3600 }
+            DeadLetterConfig: { Arn: !GetAtt FailureQueue.Arn }
+          - Id: buffer
+            Arn: !GetAtt BufferQueue.Arn
+            RetryPolicy: { MaximumRetryAttempts: 8, MaximumEventAgeInSeconds: 3600 }
+            DeadLetterConfig: { Arn: !GetAtt FailureQueue.Arn }
+
+  RulePermission:
+    Condition: IsDirect
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref ThumbnailFunction
+      Action: lambda:InvokeFunction
+      Principal: events.amazonaws.com
+      SourceArn: !GetAtt RawObjectCreatedRule.Arn
+
+  BufferMapping:
+    Condition: IsBuffer
+    Type: AWS::Lambda::EventSourceMapping
+    Properties:
+      FunctionName: !Ref ThumbnailFunction
+      EventSourceArn: !GetAtt BufferQueue.Arn
+      BatchSize: 5
+      MaximumBatchingWindowInSeconds: 2
+      FunctionResponseTypes: [ReportBatchItemFailures]
+      ScalingConfig: { MaximumConcurrency: !Ref MaxConcurrency }
+
+  AppPolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      ManagedPolicyName: !Sub 'cloudalbum-${Env}-image-processing'   # attached by scripts/module (D2)
+      Description: CloudAlbum image-processing module - probe, reconciliation re-invoke, failure / result queue consumers
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: Function
+            Effect: Allow
+            Action: [lambda:GetFunctionConfiguration, lambda:InvokeFunction]
+            Resource: !GetAtt ThumbnailFunction.Arn
+          - Sid: Rule
+            Effect: Allow
+            Action: events:DescribeRule
+            Resource: !GetAtt RawObjectCreatedRule.Arn
+          - Sid: Queues
+            Effect: Allow
+            Action: [sqs:GetQueueAttributes, sqs:ReceiveMessage, sqs:DeleteMessage, sqs:ChangeMessageVisibility]
+            Resource: !If
+              - IsQueueChannel
+              - [!GetAtt FailureQueue.Arn, !GetAtt ResultQueue.Arn, !GetAtt ResultDlq.Arn]
+              - [!GetAtt FailureQueue.Arn]
+          - !If
+            - HasKms
+            - Sid: Kms
+              Effect: Allow
+              Action: kms:Decrypt
+              Resource: !Ref KmsKeyArn
+            - !Ref 'AWS::NoValue'
+
+Outputs:
+  ModuleId:
+    Value: image-processing
+  ModuleVersion:
+    Value: !Ref ModuleVersion
+  PolicyArn:
+    Value: !Ref AppPolicy
+  EnvImageProcessor:
+    Value: lambda
+  EnvImageLambdaFunction:
+    Value: !GetAtt ThumbnailFunction.Arn
+  EnvImageTrigger:
+    Value: !Ref Trigger
+  EnvImageResultChannel:
+    Value: !Ref ResultChannel
+  EnvImageCallbackUrl:
+    Condition: IsCallback
+    Value: !If [HasCallbackUrl, !Ref CallbackUrl, !Sub '${OriginBaseUrl}/internal/hooks/image-processed']
+  EnvImageResultQueueUrl:
+    Condition: IsQueueChannel
+    Value: !Ref ResultQueue
+  EnvImageFailureQueueUrl:
+    Value: !Ref FailureQueue
+  InfoFunctionName:
+    Value: !Ref ThumbnailFunction
+  InfoRuleName:
+    Value: !Ref RawObjectCreatedRule
+  InfoLogGroup:
+    Value: !Ref ThumbnailLogGroup

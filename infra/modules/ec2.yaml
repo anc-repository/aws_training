@@ -1,0 +1,450 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >-
+  CloudAlbum base module "ec2" - EC2 (two instance slots) + independent EBS data volume + EIP + security group (L0).
+  No IAM resources, no Export (D2). Contract: docs/modules/00-ec2-base.md section 6.
+
+Metadata:
+  CloudAlbum:
+    module: ec2
+    registryVersion: 2
+    # 30 parameters = 00-ec2-base.md 6.2 (29) + PlatformMode (14.1, PM-05)
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label: { default: Standard }
+        Parameters: [Env, ModuleVersion]
+      - Label: { default: Instance }
+        Parameters: [Arch, InstanceType, ImageId, InstanceSlot, KeyName, CpuCredits, HttpPutResponseHopLimit,
+                     RootVolumeSizeGiB, DetailedMonitoring, InstanceProfileName, InstanceBackupTag]
+      - Label: { default: Network }
+        Parameters: [VpcId, SubnetId, AssociateEip, PublicHttpIngress, AdminIngressCidr, SshIngressCidr,
+                     ExtraSecurityGroupIds, AlbSecurityGroupId]
+      - Label: { default: Data volume }
+        Parameters: [DataVolumeAttach, DataVolumeId, DataVolumeAz, DataVolumeSizeGiB, DataVolumeKmsKeyId]
+      - Label: { default: First boot (written into User Data; do not change after deploy) }
+        Parameters: [AppArchiveUrl, AppArchiveSha256, AdminEmail, PlatformMode]
+
+Parameters:
+  Env:
+    Type: String
+    Default: lab
+    AllowedPattern: '^[a-z][a-z0-9-]{1,15}$'
+    Description: Environment name (stack names cloudalbum-<env>-<id>). Never changed after the first deploy.
+  ModuleVersion:
+    Type: String
+    Default: '1'
+    Description: registry version of the ec2 module (Outputs.ModuleVersion, CFG-006)
+  Arch:
+    Type: String
+    Default: arm64
+    AllowedValues: [arm64, x86_64]
+    Description: Release archive and AMI architecture (must match InstanceType, see Rules)
+  InstanceType:
+    Type: String
+    Default: t4g.small
+    AllowedValues: [t4g.small, t4g.medium, t3.small, t3.medium]
+  ImageId:
+    Type: 'AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>'
+    Default: /aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-arm64
+    Description: >-
+      Name of an SSM parameter holding the AMI ID. scripts/module pins the AL2023 public AMI into
+      /cloudalbum/<env>/ec2/image-id on first deploy (E1) and passes that name here.
+  InstanceSlot:
+    Type: String
+    Default: A
+    AllowedValues: [A, B]
+    Description: Switching the slot forces a new instance without changing anything else (E3, rebuild-instance)
+  KeyName:
+    Type: String
+    Default: cloudalbum-key
+    Description: SSH key pair (L0 operations channel). Empty = no key pair.
+  CpuCredits:
+    Type: String
+    Default: standard
+    AllowedValues: [standard, unlimited]
+  HttpPutResponseHopLimit:
+    Type: Number
+    Default: 1
+    MinValue: 1
+    MaxValue: 64
+  RootVolumeSizeGiB:
+    Type: Number
+    Default: 20
+    MinValue: 8
+  DetailedMonitoring:
+    Type: String
+    Default: 'false'
+    AllowedValues: ['true', 'false']
+  InstanceProfileName:
+    Type: String
+    Default: ''
+    Description: Written by the iam module (role mode). Empty in L0 (IAM_CREDENTIALS=none).
+  InstanceBackupTag:
+    Type: String
+    Default: 'false'
+    AllowedValues: ['true', 'false']
+    Description: Tag the instance itself with Backup=true (backup module, whole-instance variant)
+  VpcId:
+    Type: String
+    AllowedPattern: '^vpc-[0-9a-f]+$'
+    Description: Default VPC (resolved by scripts/module) or the network module VPC
+  SubnetId:
+    Type: String
+    AllowedPattern: '^subnet-[0-9a-f]+$'
+    Description: Instance subnet (default subnet of ap-northeast-1a unless network says otherwise)
+  AssociateEip:
+    Type: String
+    Default: 'true'
+    AllowedValues: ['true', 'false']
+  PublicHttpIngress:
+    Type: String
+    Default: open
+    AllowedValues: [open, admin-ip, closed]
+    Description: Exposure of 80/443 to the internet (strictest of cdn / load-balancer / network requirements)
+  AdminIngressCidr:
+    Type: String
+    Default: ''
+    AllowedPattern: '^$|^[0-9]{1,3}(\.[0-9]{1,3}){3}/[0-9]{1,2}$'
+  SshIngressCidr:
+    Type: String
+    Default: ''
+    AllowedPattern: '^$|^[0-9]{1,3}(\.[0-9]{1,3}){3}/[0-9]{1,2}$'
+    Description: Operator IP/32 for port 22. Empty = no SSH rule (shell-access sets it empty).
+  ExtraSecurityGroupIds:
+    Type: CommaDelimitedList
+    Default: ''
+    Description: Module-owned security groups attached to the instance (cdn origin SG, ...)
+  AlbSecurityGroupId:
+    Type: String
+    Default: ''
+    Description: load-balancer ALB security group allowed to reach port 80
+  DataVolumeAttach:
+    Type: String
+    Default: 'true'
+    AllowedValues: ['true', 'false']
+    Description: Attach the data volume; mirrored into the instance tag CloudAlbumDataVolume=attach|detach (E2)
+  DataVolumeId:
+    Type: String
+    Default: ''
+    Description: Attach an external volume (created from a snapshot) instead of the volume of this stack
+  DataVolumeAz:
+    Type: String
+    Default: ''
+    Description: AZ of the data volume of this stack. Locked after the first deploy (preflight ec2-volume-immutable).
+  DataVolumeSizeGiB:
+    Type: Number
+    Default: 20
+    MinValue: 20
+  DataVolumeKmsKeyId:
+    Type: String
+    Default: ''
+    Description: KMS key for a NEW data volume only (empty = aws/ebs)
+  AppArchiveUrl:
+    Type: String
+    AllowedPattern: '^(https|s3)://.+'
+    Description: Release archive for this architecture (GitHub Release, or the toolchain bucket mirror s3://...)
+  AppArchiveSha256:
+    Type: String
+    AllowedPattern: '^[0-9a-f]{64}$'
+  AdminEmail:
+    Type: String
+    Default: ''
+    Description: Initial administrator (admin:ensure). Not used in platform mode.
+  PlatformMode:
+    Type: String
+    Default: 'off'
+    AllowedValues: ['off', 'on']
+    Description: ATL platform mode (first-boot parameter, written to params.env as PLATFORM_MODE)
+
+Rules:
+  ArchMatchesType:
+    Assertions:
+      - Assert:
+          Fn::Or:
+            - Fn::And:
+                - Fn::Equals: [!Ref Arch, arm64]
+                - Fn::Contains: [[t4g.small, t4g.medium], !Ref InstanceType]
+            - Fn::And:
+                - Fn::Equals: [!Ref Arch, x86_64]
+                - Fn::Contains: [[t3.small, t3.medium], !Ref InstanceType]
+        AssertDescription: InstanceType does not match Arch (release archive and AMI architecture)
+  AdminCidrRequired:
+    RuleCondition: !Equals [!Ref PublicHttpIngress, admin-ip]
+    Assertions:
+      - Assert: !Not [!Equals [!Ref AdminIngressCidr, '']]
+        AssertDescription: PublicHttpIngress=admin-ip requires AdminIngressCidr
+  DataVolumeAzRequired:
+    RuleCondition: !Equals [!Ref DataVolumeId, '']
+    Assertions:
+      - Assert: !Not [!Equals [!Ref DataVolumeAz, '']]
+        AssertDescription: DataVolumeAz is required when this stack creates the data volume
+
+Conditions:
+  SlotA: !Equals [!Ref InstanceSlot, A]
+  SlotB: !Equals [!Ref InstanceSlot, B]
+  HasKey: !Not [!Equals [!Ref KeyName, '']]
+  HasSsh: !Not [!Equals [!Ref SshIngressCidr, '']]
+  HttpOpen: !Equals [!Ref PublicHttpIngress, open]
+  HttpAdmin: !Equals [!Ref PublicHttpIngress, admin-ip]
+  HasAlbSg: !Not [!Equals [!Ref AlbSecurityGroupId, '']]
+  HasExtraSgs: !Not [!Equals [!Join ['', !Ref ExtraSecurityGroupIds], '']]
+  HasProfile: !Not [!Equals [!Ref InstanceProfileName, '']]
+  CreateDataVol: !Equals [!Ref DataVolumeId, '']
+  HasVolKms: !Not [!Equals [!Ref DataVolumeKmsKeyId, '']]
+  AttachData: !Equals [!Ref DataVolumeAttach, 'true']
+  DoEip: !Equals [!Ref AssociateEip, 'true']
+  BackupInstance: !Equals [!Ref InstanceBackupTag, 'true']
+  Platform: !Equals [!Ref PlatformMode, 'on']
+  Monitoring: !Equals [!Ref DetailedMonitoring, 'true']
+
+Resources:
+  InstanceSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: !Sub 'cloudalbum-${Env}-ec2-sg'
+      VpcId: !Ref VpcId
+      SecurityGroupEgress:
+        - { IpProtocol: '-1', CidrIp: 0.0.0.0/0, Description: 'packages, release download, AWS APIs' }
+      Tags:
+        - { Key: Name, Value: !Sub 'cloudalbum-${Env}-ec2-sg' }
+
+  SshIngress:
+    Condition: HasSsh
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref InstanceSecurityGroup
+      IpProtocol: tcp
+      FromPort: 22
+      ToPort: 22
+      CidrIp: !Ref SshIngressCidr
+      Description: SSH from the operator (L0 delivery channel)
+
+  HttpOpen80V4:
+    Condition: HttpOpen
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties: { GroupId: !Ref InstanceSecurityGroup, IpProtocol: tcp, FromPort: 80, ToPort: 80, CidrIp: 0.0.0.0/0, Description: HTTP }
+  HttpOpen443V4:
+    Condition: HttpOpen
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties: { GroupId: !Ref InstanceSecurityGroup, IpProtocol: tcp, FromPort: 443, ToPort: 443, CidrIp: 0.0.0.0/0, Description: HTTPS }
+  HttpOpen80V6:
+    Condition: HttpOpen
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties: { GroupId: !Ref InstanceSecurityGroup, IpProtocol: tcp, FromPort: 80, ToPort: 80, CidrIpv6: '::/0', Description: HTTP (IPv6) }
+  HttpOpen443V6:
+    Condition: HttpOpen
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties: { GroupId: !Ref InstanceSecurityGroup, IpProtocol: tcp, FromPort: 443, ToPort: 443, CidrIpv6: '::/0', Description: HTTPS (IPv6) }
+  HttpAdmin80:
+    Condition: HttpAdmin
+    Type: AWS::EC2::SecurityGroupIngress
+    Metadata:
+      cfn-lint: { config: { ignore_checks: [W1030] } }   # AdminIngressCidr defaults to '' but Rules require it under this condition
+    Properties: { GroupId: !Ref InstanceSecurityGroup, IpProtocol: tcp, FromPort: 80, ToPort: 80, CidrIp: !Ref AdminIngressCidr, Description: HTTP (admin only) }
+  HttpAdmin443:
+    Condition: HttpAdmin
+    Type: AWS::EC2::SecurityGroupIngress
+    Metadata:
+      cfn-lint: { config: { ignore_checks: [W1030] } }   # AdminIngressCidr defaults to '' but Rules require it under this condition
+    Properties: { GroupId: !Ref InstanceSecurityGroup, IpProtocol: tcp, FromPort: 443, ToPort: 443, CidrIp: !Ref AdminIngressCidr, Description: HTTPS (admin only) }
+  AlbIngress80:
+    Condition: HasAlbSg
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref InstanceSecurityGroup
+      IpProtocol: tcp
+      FromPort: 80
+      ToPort: 80
+      SourceSecurityGroupId: !Ref AlbSecurityGroupId
+      Description: ALB to instance (load-balancer module)
+
+  DataVolume:
+    Condition: CreateDataVol
+    Type: AWS::EC2::Volume
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      AvailabilityZone: !Ref DataVolumeAz
+      Size: !Ref DataVolumeSizeGiB
+      VolumeType: gp3
+      Encrypted: true
+      KmsKeyId: !If [HasVolKms, !Ref DataVolumeKmsKeyId, !Ref 'AWS::NoValue']
+      Tags:
+        - { Key: Name, Value: !Sub 'cloudalbum-${Env}-data' }
+        - { Key: Backup, Value: 'true' }
+        - { Key: DataClass, Value: user-content }
+
+  Eip:
+    Type: AWS::EC2::EIP
+    Properties:
+      Domain: vpc
+      Tags:
+        - { Key: Name, Value: !Sub 'cloudalbum-${Env}-eip' }
+
+  EipAssociation:
+    Condition: DoEip
+    Type: AWS::EC2::EIPAssociation
+    Properties:
+      AllocationId: !GetAtt Eip.AllocationId
+      InstanceId: !If [SlotA, !Ref InstanceA, !Ref InstanceB]
+
+  # InstanceA and InstanceB are identical except for Condition and the CloudAlbumLogicalId tag
+  # (scripts/module-cli/test/templates.test.ts asserts this).
+  InstanceA:
+    Condition: SlotA
+    Type: AWS::EC2::Instance
+    CreationPolicy:
+      ResourceSignal: { Count: 1, Timeout: PT20M }
+    Properties:
+      ImageId: !Ref ImageId
+      InstanceType: !Ref InstanceType
+      KeyName: !If [HasKey, !Ref KeyName, !Ref 'AWS::NoValue']
+      SubnetId: !Ref SubnetId
+      SecurityGroupIds: !If
+        - HasExtraSgs
+        - !Split [',', !Join [',', [!Ref InstanceSecurityGroup, !Join [',', !Ref ExtraSecurityGroupIds]]]]
+        - [!Ref InstanceSecurityGroup]
+      IamInstanceProfile: !If [HasProfile, !Ref InstanceProfileName, !Ref 'AWS::NoValue']
+      Monitoring: !If [Monitoring, true, false]
+      CreditSpecification: { CPUCredits: !Ref CpuCredits }
+      MetadataOptions:
+        HttpEndpoint: enabled
+        HttpTokens: required
+        HttpPutResponseHopLimit: !Ref HttpPutResponseHopLimit
+        InstanceMetadataTags: enabled
+      BlockDeviceMappings:
+        - DeviceName: /dev/xvda
+          Ebs: { VolumeType: gp3, VolumeSize: !Ref RootVolumeSizeGiB, Encrypted: true, DeleteOnTermination: true }
+      Volumes: !If
+        - AttachData
+        - - Device: /dev/sdf
+            VolumeId: !If [CreateDataVol, !Ref DataVolume, !Ref DataVolumeId]
+        - !Ref 'AWS::NoValue'
+      Tags:
+        - { Key: Name, Value: !Sub 'cloudalbum-${Env}-l0' }
+        - { Key: CloudAlbumDataVolume, Value: !If [AttachData, attach, detach] }
+        - { Key: CloudAlbumLogicalId, Value: InstanceA }
+        - !If [BackupInstance, { Key: Backup, Value: 'true' }, !Ref 'AWS::NoValue']
+        - !If [Platform, { Key: 'atl:role', Value: lab-app }, !Ref 'AWS::NoValue']
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          # CloudAlbum User Data bootstrap stub (00-ec2-base.md 6.5): parameters only, no secrets, no values that change after deploy.
+          set -euo pipefail
+          install -d -m 0700 /etc/cloudalbum-bootstrap
+          cat > /etc/cloudalbum-bootstrap/params.env <<'EOF'
+          CLOUDALBUM_ENV='${Env}'
+          AWS_REGION='${AWS::Region}'
+          DEPLOY_MODE=single
+          APP_ARCHIVE_URL='${AppArchiveUrl}'
+          APP_ARCHIVE_SHA256='${AppArchiveSha256}'
+          APP_PUBLIC_IP='${Eip}'
+          ADMIN_EMAIL='${AdminEmail}'
+          PLATFORM_MODE='${PlatformMode}'
+          BOOTSTRAP_SIGNAL=cfn
+          CFN_STACK='${AWS::StackName}'
+          EOF
+          chmod 0600 /etc/cloudalbum-bootstrap/params.env
+          A=/var/tmp/cloudalbum-release.tgz
+          U='${AppArchiveUrl}'
+          case "$U" in
+            s3://*) for _ in 1 2 3 4 5; do aws s3 cp "$U" "$A" --region '${AWS::Region}' && break; sleep 10; done ;;
+            *)      for _ in 1 2 3 4 5; do curl -fsSL "$U" -o "$A" && break; sleep 10; done ;;
+          esac
+          echo '${AppArchiveSha256}  /var/tmp/cloudalbum-release.tgz' | sha256sum -c -
+          tar xzf "$A" -O --wildcards '*/infra/userdata/l0-bootstrap.sh' > /var/tmp/l0-bootstrap.sh
+          exec bash /var/tmp/l0-bootstrap.sh all
+
+  InstanceB:
+    Condition: SlotB
+    Type: AWS::EC2::Instance
+    CreationPolicy:
+      ResourceSignal: { Count: 1, Timeout: PT20M }
+    Properties:
+      ImageId: !Ref ImageId
+      InstanceType: !Ref InstanceType
+      KeyName: !If [HasKey, !Ref KeyName, !Ref 'AWS::NoValue']
+      SubnetId: !Ref SubnetId
+      SecurityGroupIds: !If
+        - HasExtraSgs
+        - !Split [',', !Join [',', [!Ref InstanceSecurityGroup, !Join [',', !Ref ExtraSecurityGroupIds]]]]
+        - [!Ref InstanceSecurityGroup]
+      IamInstanceProfile: !If [HasProfile, !Ref InstanceProfileName, !Ref 'AWS::NoValue']
+      Monitoring: !If [Monitoring, true, false]
+      CreditSpecification: { CPUCredits: !Ref CpuCredits }
+      MetadataOptions:
+        HttpEndpoint: enabled
+        HttpTokens: required
+        HttpPutResponseHopLimit: !Ref HttpPutResponseHopLimit
+        InstanceMetadataTags: enabled
+      BlockDeviceMappings:
+        - DeviceName: /dev/xvda
+          Ebs: { VolumeType: gp3, VolumeSize: !Ref RootVolumeSizeGiB, Encrypted: true, DeleteOnTermination: true }
+      Volumes: !If
+        - AttachData
+        - - Device: /dev/sdf
+            VolumeId: !If [CreateDataVol, !Ref DataVolume, !Ref DataVolumeId]
+        - !Ref 'AWS::NoValue'
+      Tags:
+        - { Key: Name, Value: !Sub 'cloudalbum-${Env}-l0' }
+        - { Key: CloudAlbumDataVolume, Value: !If [AttachData, attach, detach] }
+        - { Key: CloudAlbumLogicalId, Value: InstanceB }
+        - !If [BackupInstance, { Key: Backup, Value: 'true' }, !Ref 'AWS::NoValue']
+        - !If [Platform, { Key: 'atl:role', Value: lab-app }, !Ref 'AWS::NoValue']
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          # CloudAlbum User Data bootstrap stub (00-ec2-base.md 6.5): parameters only, no secrets, no values that change after deploy.
+          set -euo pipefail
+          install -d -m 0700 /etc/cloudalbum-bootstrap
+          cat > /etc/cloudalbum-bootstrap/params.env <<'EOF'
+          CLOUDALBUM_ENV='${Env}'
+          AWS_REGION='${AWS::Region}'
+          DEPLOY_MODE=single
+          APP_ARCHIVE_URL='${AppArchiveUrl}'
+          APP_ARCHIVE_SHA256='${AppArchiveSha256}'
+          APP_PUBLIC_IP='${Eip}'
+          ADMIN_EMAIL='${AdminEmail}'
+          PLATFORM_MODE='${PlatformMode}'
+          BOOTSTRAP_SIGNAL=cfn
+          CFN_STACK='${AWS::StackName}'
+          EOF
+          chmod 0600 /etc/cloudalbum-bootstrap/params.env
+          A=/var/tmp/cloudalbum-release.tgz
+          U='${AppArchiveUrl}'
+          case "$U" in
+            s3://*) for _ in 1 2 3 4 5; do aws s3 cp "$U" "$A" --region '${AWS::Region}' && break; sleep 10; done ;;
+            *)      for _ in 1 2 3 4 5; do curl -fsSL "$U" -o "$A" && break; sleep 10; done ;;
+          esac
+          echo '${AppArchiveSha256}  /var/tmp/cloudalbum-release.tgz' | sha256sum -c -
+          tar xzf "$A" -O --wildcards '*/infra/userdata/l0-bootstrap.sh' > /var/tmp/l0-bootstrap.sh
+          exec bash /var/tmp/l0-bootstrap.sh all
+
+Outputs:
+  # No Export (D2) and no PolicyArn (L0 has no IAM). Unprefixed outputs are the "base context" (9.1).
+  ModuleId:
+    Value: ec2
+  ModuleVersion:
+    Value: !Ref ModuleVersion
+  InstanceId:
+    Value: !If [SlotA, !Ref InstanceA, !Ref InstanceB]
+  InstanceSecurityGroupId:
+    Value: !Ref InstanceSecurityGroup
+  VpcId:
+    Value: !Ref VpcId
+  SubnetId:
+    Value: !Ref SubnetId
+  AvailabilityZone:
+    Value: !If [SlotA, !GetAtt InstanceA.AvailabilityZone, !GetAtt InstanceB.AvailabilityZone]
+  DataVolumeId:
+    Value: !If [CreateDataVol, !Ref DataVolume, !Ref DataVolumeId]
+  PublicIp:
+    Value: !Ref Eip
+  InfoPublicDnsName:
+    Description: Public DNS name of the EIP (cdn ec2 origin, DEP-014). us-east-1 uses a different format.
+    Value: !Sub
+      - 'ec2-${Dashed}.${AWS::Region}.compute.amazonaws.com'
+      - Dashed: !Join ['-', !Split ['.', !Ref Eip]]
+  InfoImageId:
+    Value: !Ref ImageId
+  InfoInstanceSlot:
+    Value: !Ref InstanceSlot

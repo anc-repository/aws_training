@@ -1,0 +1,30 @@
+# /etc/logrotate.d/cloudalbum — owned by ec2. Daily, keep 14 days (modular-design.md 2.4).
+# Runs as root. The log directory is cloudalbum:cloudalbum 0750 (no group/other write), which logrotate accepts without `su`.
+# copytruncate everywhere: pino (api / worker) and Nginx keep their files open with O_APPEND, so ownership and modes
+# are preserved and nobody has to be signalled.
+
+/var/lib/cloudalbum/logs/api.log
+/var/lib/cloudalbum/logs/worker.log
+/var/lib/cloudalbum/logs/audit.log
+/var/lib/cloudalbum/logs/cli.log
+/var/lib/cloudalbum/logs/nginx-access.json {
+    daily
+    rotate 14
+    missingok
+    notifempty
+    compress
+    delaycompress
+    copytruncate
+    dateext
+}
+
+# TRACING_DRIVER=local spans: keep 3 days
+/var/lib/cloudalbum/logs/spans/*.jsonl {
+    daily
+    rotate 3
+    maxage 3
+    missingok
+    notifempty
+    compress
+    copytruncate
+}

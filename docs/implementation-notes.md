@@ -570,3 +570,64 @@ npm run exp:report -- queue
 npx vitest run --project experiments                     # mock 服务器上的全部测试（约 10 秒）
 npm run typecheck -w @cloudalbum/experiments
 ```
+
+---
+
+## infra
+
+ec2 基础栈与 8 个 MVP 模块的 CloudFormation 模板、L0 引导脚本与主机文件（Nginx / systemd / logrotate / 辅助脚本）、`scripts/module` 工具（TypeScript）与档位文件。全部 AWS 调用都经一个网关，`--dry-run` 时只打印、不执行（包括只读调用），本机不需要凭证。
+
+### 1. 文件
+
+- `infra/modules/`：`ec2.yaml`（00-ec2-base.md 6.2 的 29 个参数 + `PlatformMode` = 30 个；独立数据卷、EIP、安全组的条件化入站规则、`InstanceA/B` 两个槽位、`CreationPolicy`、User Data 引导段、`Rules`）、`iam.yaml`、`storage.yaml`、`cdn.yaml`、`auth.yaml`、`queue.yaml`、`image-processing.yaml`、`cache.yaml`、`database.yaml`、`toolchain.yaml`（工具链栈，不是应用模块）；模块主机产物 `cdn/nginx/cdn-origin.conf.tpl`、`cdn/host-setup.sh`、`image-processing/systemd/50-image-processing.conf`。
+- `infra/userdata/l0-bootstrap.sh`（00 6.5 合并骨架的完整实现）、`infra/install-host-files.sh`、`infra/nginx/`（nginx.conf、cloudalbum.conf、locations、proxy、upstream、`cloudalbum.d/00-entry.conf` 与三个槽位、`cloudalbum.server.d/00-acme-challenge.conf`、vpc-cidr 占位、`_ca_errors/upstream.html`）、`infra/systemd/`（api、api@、worker、4 组 timer、denylist path、nginx 加固 drop-in、journald 上限）、`infra/logrotate/cloudalbum`、`infra/host/`（render-fail2ban、render-vpc-cidr、security-snapshot、vuln-scan、healthcheck、denylist-apply / denylist-edit、nginx-reload、run-hostsetup、`cloudalbum-{postattach,predetach,runtime}`、sshd 加固片段、fail2ban 过滤器 / 动作 / jail 模板）、`infra/defaults/{runtime.json,alerts.yaml}`。
+- `scripts/module`（Bash 包装 → `scripts/module-cli/dist/index.js`，未构建时用 tsx）、`scripts/module-cli/src/*`（index、context、aws、stack、outputs、deps、plan、ops、hooks、injects、base-params、policy、deliver、health、package、profiles、profile-cmd、status、bootstrap、meta、state…）、`scripts/teardown`、`scripts/release`、`scripts/local-backup.sh`、`scripts/selfhost/{postgres,valkey,pgbouncer}.sh`。
+- `profiles/l0-ec2.env`、`profiles/single/{iam,storage,cdn,auth,queue,image-processing,cache,database}.env`（`scripts/module profile gen-single --all` 生成；测试保证提交的文件与生成器一致）。
+
+### 2. 如何运行
+
+```bash
+npm run build -w @cloudalbum/module-cli          # 或 npx tsc -b scripts/module-cli
+npx vitest run --project module-cli               # 输出 -> env、依赖规划、模板约定、baseParams / injects、dry-run 流程、档位
+scripts/module --dry-run enable storage --with-deps    # 打印 iam -> 基础栈 InstanceProfileName -> storage 的全部调用与投递脚本
+scripts/module --dry-run enable cdn --set CDN_DIRECT_ACCESS=admin-ip --set CDN_ADMIN_CIDR=198.51.100.7/32
+scripts/module --dry-run plan queue --single | profile diff single/queue | status
+scripts/module nginx-internal-endpoints [--write]   # cloudalbum_locations.conf 的内部端点块与 registry 一致
+scripts/release <version> --arch arm64              # 发布包（含 modules/registry.json、hostsetup-order.txt），打印 AppArchiveSha256
+pip install cfn-lint && cfn-lint infra/modules/*.yaml   # 0 个错误 / 警告（两处 W1030 / W1011 以资源级 Metadata 说明理由后忽略）
+```
+
+主机脚本已在 `amazonlinux:2023` 容器中实测（nginx 1.30：install-host-files.sh → `nginx -t`；denylist 校验与 last-good 恢复；`run-hostsetup.sh cdn apply/revert`、`--all`；坏片段回滚；security-snapshot / vuln-scan / runtime / healthcheck；systemctl 用桩代替）。
+
+### 3. 设计有歧义时的取舍
+
+1. **iam 栈不输出 `PolicyArn`**：总纲 9.1“iam 栈自身只输出 Info*：它创建的角色在自己的定义中引用同栈的只读基础策略”优先于 02#iam 第 2 节。只读策略 `cloudalbum-<env>-iam` 由 `CloudAlbumAppRole`（与 keys 模式的演示用户）的 `ManagedPolicyArns` 直接引用；`AppRoleMode=existing`（平台模式）时用策略的 `Roles` 附加到已有角色。策略资源 ARN 用拼接字符串，避免角色 ↔ 策略循环依赖。
+2. **auth 模板**：SPA 客户端为公有客户端（`GenerateSecret=false`，与 `## aws-adapters` 取舍 1 一致）；OAuth（授权码 + PKCE）只配置 https 入口——`scripts/module` 从 `AppOrigins` 中过滤出 https 源，L0 的 `http://<EIP>` 不能做回调（Cognito 要求 https），此时只有 sdk 子模式。`AUTH_MIGRATION=lazy`（VPC 内 User Migration 触发器 + `/internal/legacy-auth`）不在本轮，CLI 拒绝。触发器（F3 / F4）用 `Code.ZipFile` 内联、CommonJS。
+3. **Lambda 代码包**：不用 `aws cloudformation package` 改写模板，而是由 CLI 构建（`npm run build -w lambda` + linux-arm64 sharp）、自写的最小 zip、按 sha256 内容寻址上传到工具链桶 `lambda/image-thumbnail/<sha256>.zip`，模板参数 `CodeS3Bucket` / `CodeS3Key`。效果等价，且同一代码不会重复部署。
+4. **cdn**：源站只实现 `ec2` / `alb`（`vpc-origin` 需要 network(private)，不在本轮）；`CDN_SIGNED_MEDIA=on` 拒绝。`CDN_DIRECT_ACCESS`、`CDN_ADMIN_CIDR`、`CDN_ORIGIN_DIRECT_URL` 不是栈输出，由 `--set` / 默认值写进 cdn.env（registry baseParams 从 env 读取）；额外输出 `EnvCdnOriginPort` 供 8080 片段渲染。`OriginVerifySecret` 复用 secrets.env 中已有的 `ORIGIN_VERIFY`，没有时现场生成。
+5. **database**：`ClientSecurityGroupIds` 最多支持 2 个来源（CloudFormation 没有循环）；参数组固定 `postgres16`，`EngineVersion` 约束为 16.x。只读副本 `DeletionPolicy: Delete`（没有独有数据）。RDS CA 包由投递脚本下载到 `/etc/cloudalbum/rds-ca.pem`。
+6. **image-processing**：未指定 `IMAGE_RESULT_CHANNEL` 时，若 cdn 已启用自动选 `queue`（DEP-020）并打印原因；失败队列策略里的规则 ARN 用拼接字符串（规则名固定），避免循环。cache 的 `AuthToken` 用 `--param AuthToken=generate` 现场生成并写 `REDIS_AUTH_TOKEN`。
+7. **drop-in 白名单**：在 00 6.8 的允许指令外增加 `CPUWeight`、`Nice`、`MemoryMax`、`MemoryHigh`（04#image-processing 的 worker 隔离 drop-in 需要）。drop-in 文件首行 `# units: worker` 指定投放到哪些单元（缺省 api + worker；api 的同时复制到 `cloudalbum-api@.service.d/`）。Nginx 片段模板首行 `# target: server` 投放到 `cloudalbum.server.d/`（缺省 `cloudalbum.d/`），`# defaults: K=V` 为 env 中缺失的占位符给缺省值；只替换 `${已知键}`。
+8. **重放顺序**：`run-hostsetup.sh --all` 按发布包中的 `modules/hostsetup-order.txt` 执行，它由 `scripts/module release-meta` 从 registry 计算（requires 中的模块 id 与“另一模块开关变量”的 `=` / `!=` 都算依赖边、凭证 required → iam、再加 orderBefore；平手时 ec2、iam 优先，其余按注册表顺序）。
+9. **Nginx**：`00-entry.conf` 同时包含平台修订 PM-18～20 的 map（`$ca_log_args`、`$ca_log_run`、`$ca_probe`、`$ca_https_redirect`、`$ca_frame_csp`，两种模式都生效），访问日志在原字段后追加 4 个字段；`cloudalbum_proxy.conf` 加 `X-CloudAlbum-Entry`（脚手架要求）与 `X-CA-Received-XFF`。`http2 on` 在 nginx < 1.25.1 时由 install-host-files.sh 改写为 `listen … http2`。内部端点的 `location =` 写在 `cloudalbum_locations.conf` 的 BEGIN / END 标记之间，由 `scripts/module nginx-internal-endpoints --write` 从 registry 生成（测试校验一致；“构建期生成”改为“生成后提交”）。`/_ca/nginx-health` 同时允许 `::1`。
+10. **reload 结果**：`nginx-reload.sh` / `denylist-apply.sh` 把结果写进 `security/nginx-state.json`（`lastReloadAt`、`lastReloadOk`、`denylistRejectedLines`，另加持久的 `lastRejectedAt` / `lastRejectedLines`，避免恢复 last-good 后证据立即消失），`security-snapshot.sh` 并入 `snapshot.json` 的 `host.nginx`；快照另加 `host.timers`（各 timer 最近 / 下次触发）与 `fail2ban.httpBanaction`。
+11. **logrotate**：全部 `copytruncate`、以 root 运行（日志目录 0750 无组写，logrotate 不要求 `su`；pino 与 Nginx 都以 O_APPEND 打开）。
+12. **state.json**（v1，`.cloudalbum/state.json`，不含任何机密值）：env、region、base（实例、EIP、DNS、安全组、默认 VPC 子网、基础栈参数）、delivery、toolchain、iam 模式、baseConfig、modules（tier / 值 / modules.d 内容 / Outputs / 非机密栈参数 / 本模块写入的 secrets.env 键）、attachments、baseParams（原值与贡献方）、outOfBand、history。`--dry-run` 从不写 state.json，但同一次调用中后面的步骤会在内存中看到前面步骤的效果（例如 `--with-deps` 先启用 iam 后，storage 的 PolicyArn 附加到 `CloudAlbumAppRole`）。
+13. **计划校验在运维机本地运行**：总纲写“在实例上运行 check-config --plan”；这里把“启用后的 env 集合”暂存到临时目录（尚未产生的输出用能通过 zod 的占位值；字面量输出与 `!Ref` 参数默认值直接使用），用仓库里同一份 `backend/dist/cli.js check-config --plan --json` 求值，部署前就能给出规则结论。实例上第 8 步仍会对真实值再跑一次 `check-config`，失败则恢复 `.bak`（退出码 2）。
+14. **投递通道**：ssh（脚本经 stdin 交给 `sudo bash -s`，机密不出现在命令行）。SSM Run Command 会在命令历史中保留参数，所以携带或读回机密的脚本在 SSM 通道上被拒绝（shell-access 不在本轮；以后可经 secrets 模块解决）。
+15. **健康探针**：在实例上执行 `cli.js probe <id> --deep --json`（与 `/api/capabilities?deep=1` 管理员视图同一探针，不需要管理员令牌），先等 `/api/health/ready`（60 秒），再等模块 `ok|degraded`（120 秒）；失败则恢复 `.bak`、重启，退出码 5，栈保留。disable 后要求 `off` 且 `localHealth=ok`。
+16. **部署范围规则**：DEP-014（cdn 的 ec2 源站要求基础栈 `AssociateEip=true`）与 MUTEX-004（storage 模板的桶通知只允许 `EventBridgeConfiguration`）在 `scripts/module` 中检查；DEP-016 / DEP-037 属于 network / ami（不在本轮）。`rules.ts` 的 `deployCheck()` 桩保持不变（不是本组文件）。
+17. **未实现（打印提示或 exit 2）**：托管策略超配额的打包模式（超配额时 exit 2，提示申请提额）、`disable --purge` / `teardown --purge-data`、`base set`、`rebuild-instance` / `replaceInstance()`、平台模式（`--platform`）。ec2 preflight 中：`ec2-ssh-cidr`、`ec2-public-ipv4-at-boot` 在 `base deploy` 中实现；`ec2-replacement-staged` 由 baseParams 合并拒绝替换类参数实现；`ec2-ami-pin` 由首次部署把 AMI 固定到 `/cloudalbum/<env>/ec2/image-id` 落实。
+18. **单模块档位**：registry 没有 `singleLocalSettings` 字段，10.4 规则 3 的本地档调整（queue → `IMAGE_PROCESSOR=worker`）写在 `deps.ts` 的 `SINGLE_LOCAL_SETTINGS`，档位文件用 `PROFILE_LOCAL_SETTINGS` 表达（`PROFILE_DRIVERS` 中某个未列入 `PROFILE_MODULES` 的模块取本地档 / 自建值时同样按本地档处理）。`toolchain` 前置由 bootstrap 自动满足，不写进 `PROFILE_PREREQUISITES`。
+19. **自建本地档**：PostgreSQL 16 数据目录放在数据卷 `/var/lib/cloudalbum/pgsql`（随数据卷保留；postgres 用户加入 cloudalbum 组以穿越 0750 的卷根），只监听回环、scram-sha-256，密码取 secrets.env 的 `DB_PASSWORD`；Valkey（旧 AL2023 退回 redis6）不持久化、带内存上限；PgBouncer 单元名 `cloudalbum-pgbouncer`，userlist 渲染到 `/run`。
+20. **local-backup.sh**：sqlite `.backup` + `PRAGMA integrity_check` + gzip；回环 PostgreSQL 用 `pg_dump -Fc`；RDS 跳过（托管备份 / PITR）；上传清单；保留 7 天；结果写 `backup/last-run.json`。
+21. **ec2.yaml 细节**：安全组不设 `GroupName`（只打 Name 标签，避免同 VPC 内替换时重名）；`AdminIngressCidr` 默认空导致的 W1030、NoEcho 参数的 W1011 以资源级 `Metadata.cfn-lint` 忽略并写明理由；User Data 中不出现任何机密与部署后会变化的值，EIP 地址在实例之前分配（不导致 User Data 变化）。
+22. **数据迁移**：`enable` 对声明了 `migration: scripts/migrate/…` 的模块默认在只读窗口内调用实例上的 `cli.js migrate-module <id> up` + `verify`（`--no-migrate` 跳过）。
+
+### 4. 需要其他文件配合
+
+- `scripts/migrate/**` 与 backend `cli.js migrate-module`（目前是桩）：在它们实现之前，`enable storage|database|auth` 需要加 `--no-migrate`，否则第 6 步以退出码 4 停止（env 不写、栈保留）。
+- backend `cli.js probe <id> --deep --json` 的输出形状（`status`、`localHealth`、`detail`）被 `scripts/module-cli/src/health.ts` 解析。
+- `experiments/ec2/smoke.ts`：`base deploy` / `profile apply l0-ec2` 结束时打印 `npm run exp -- ec2 --scenario smoke --label l0`，未自动执行。
+- 平台模式文件 `infra/host/install-atl-bundle.sh` 不在本轮：`l0-bootstrap.sh` 只在它存在时调用。`scripts/deploy`（发布新版本）不在本轮。
+- `rules.ts`：DEP-014、MUTEX-004 的部署范围检查已由 `scripts/module` 实现，`deployCheck()` 可继续保持桩或改为文档引用。

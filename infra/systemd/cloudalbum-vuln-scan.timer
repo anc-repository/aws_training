@@ -1,0 +1,11 @@
+# /etc/systemd/system/cloudalbum-vuln-scan.timer — installed by ec2 (daily)
+[Unit]
+Description=CloudAlbum daily vulnerability scan
+
+[Timer]
+OnCalendar=*-*-* 04:30:00 Asia/Tokyo
+Persistent=true
+RandomizedDelaySec=900
+
+[Install]
+WantedBy=timers.target

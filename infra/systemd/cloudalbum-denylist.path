@@ -1,0 +1,10 @@
+# /etc/systemd/system/cloudalbum-denylist.path — owned by ec2: denylist.conf changed -> validate it and reload Nginx
+[Unit]
+Description=Watch the CloudAlbum IP deny list
+RequiresMountsFor=/var/lib/cloudalbum
+
+[Path]
+PathChanged=/var/lib/cloudalbum/security/denylist.conf
+
+[Install]
+WantedBy=multi-user.target

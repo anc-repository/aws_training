@@ -1,0 +1,367 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >-
+  CloudAlbum module "auth" - Amazon Cognito User Pool (public SPA app client, optional managed login domain,
+  optional inline Lambda triggers). docs/modules/02-identity-security.md#auth
+
+Metadata:
+  CloudAlbum:
+    module: auth
+    registryVersion: 1
+    # Total outline 4.2 wins over 02#auth (BFF): with AUTH_DRIVER=cognito the AuthPort has flows = null, the browser talks
+    # to the User Pool (Amplify, COGNITO_LOGIN_MODE=sdk) or to managed login (PKCE, managed). The SPA client is therefore
+    # PUBLIC (GenerateSecret=false); the backend only verifies access tokens (aws-jwt-verify). See implementation-notes ## infra.
+    # Injected parameters: AppOrigins (dns / cdn / load-balancer; scripts/module passes https origins only),
+    # AlbCallbackUrls (load-balancer), SesIdentityArn (email), KmsKeyArn (kms).
+    # AUTH_MIGRATION=lazy (User Migration trigger in the VPC + /internal/legacy-auth) is not part of this MVP template.
+
+Parameters:
+  Env:
+    Type: String
+    Default: lab
+    AllowedPattern: '^[a-z][a-z0-9-]{1,15}$'
+  ModuleVersion:
+    Type: String
+    Default: '1'
+  LoginMode:
+    Type: String
+    Default: sdk
+    AllowedValues: [sdk, managed]
+    Description: COGNITO_LOGIN_MODE (managed needs trusted HTTPS, DEP-029)
+  UserPoolTier:
+    Type: String
+    Default: ESSENTIALS
+    AllowedValues: [LITE, ESSENTIALS, PLUS]
+  AppOrigins:
+    Type: CommaDelimitedList
+    Default: ''
+    Description: HTTPS entry origins -> callback <origin>/api/auth/callback and logout <origin>/ (OAuth client settings)
+  AlbCallbackUrls:
+    Type: CommaDelimitedList
+    Default: ''
+    Description: Injected by load-balancer (F12 authenticate-cognito). Non-empty = create the confidential ALB client.
+  SesIdentityArn:
+    Type: String
+    Default: ''
+    Description: Injected by email. Non-empty = send Cognito mail through SES (DEVELOPER).
+  SesFromAddress:
+    Type: String
+    Default: ''
+  EnableTriggers:
+    Type: String
+    Default: 'false'
+    AllowedValues: ['true', 'false']
+    Description: COGNITO_TRIGGERS=on - Pre Sign-up (domain allow-list, F3) and Pre Token Generation V2 (plan claim, F4)
+  AllowedEmailDomains:
+    Type: String
+    Default: ''
+    Description: Comma separated allow-list for the Pre Sign-up trigger (empty = allow all)
+  KmsKeyArn:
+    Type: String
+    Default: ''
+    Description: Injected by kms (trigger environment encryption)
+  PermissionsBoundaryArn:
+    Type: String
+    Default: ''
+
+Conditions:
+  Managed: !Equals [!Ref LoginMode, managed]
+  IsPlus: !Equals [!Ref UserPoolTier, PLUS]
+  HasOrigins: !Not [!Equals [!Join ['', !Ref AppOrigins], '']]
+  HasAlbClient: !Not [!Equals [!Join ['', !Ref AlbCallbackUrls], '']]
+  HasSes: !Not [!Equals [!Ref SesIdentityArn, '']]
+  HasSesFrom: !And [!Condition HasSes, !Not [!Equals [!Ref SesFromAddress, '']]]
+  Triggers: !Equals [!Ref EnableTriggers, 'true']
+  HasKms: !Not [!Equals [!Ref KmsKeyArn, '']]
+  HasBoundary: !Not [!Equals [!Ref PermissionsBoundaryArn, '']]
+
+Resources:
+  UserPool:
+    Type: AWS::Cognito::UserPool
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      UserPoolName: !Sub 'cloudalbum-${Env}-users'
+      DeletionProtection: ACTIVE
+      UserPoolTier: !Ref UserPoolTier
+      UsernameAttributes: [email]
+      AutoVerifiedAttributes: [email]
+      UsernameConfiguration: { CaseSensitive: false }
+      Policies:
+        PasswordPolicy:
+          MinimumLength: 10
+          RequireLowercase: true
+          RequireUppercase: true
+          RequireNumbers: true
+          RequireSymbols: false
+          TemporaryPasswordValidityDays: 7
+      MfaConfiguration: 'OPTIONAL'
+      EnabledMfas: [SOFTWARE_TOKEN_MFA]
+      AccountRecoverySetting:
+        RecoveryMechanisms: [{ Name: verified_email, Priority: 1 }]
+      AdminCreateUserConfig: { AllowAdminCreateUserOnly: false }
+      Schema:
+        - { Name: email, AttributeDataType: String, Required: true, Mutable: true }
+        - { Name: plan, AttributeDataType: String, Mutable: true, StringAttributeConstraints: { MinLength: '0', MaxLength: '32' } }
+        - { Name: legacy_id, AttributeDataType: String, Mutable: true, StringAttributeConstraints: { MinLength: '0', MaxLength: '64' } }
+        - { Name: app_uid, AttributeDataType: String, Mutable: true, StringAttributeConstraints: { MinLength: '0', MaxLength: '64' } }
+      UserPoolAddOns: !If [IsPlus, { AdvancedSecurityMode: AUDIT }, !Ref 'AWS::NoValue']
+      EmailConfiguration: !If
+        - HasSes
+        - EmailSendingAccount: DEVELOPER
+          SourceArn: !Ref SesIdentityArn
+          From: !If [HasSesFrom, !Ref SesFromAddress, !Ref 'AWS::NoValue']
+        - EmailSendingAccount: COGNITO_DEFAULT
+      LambdaConfig: !If
+        - Triggers
+        - PreSignUp: !GetAtt PreSignUpFunction.Arn
+          PreTokenGenerationConfig:
+            LambdaArn: !GetAtt PreTokenFunction.Arn
+            LambdaVersion: V2_0
+        - !Ref 'AWS::NoValue'
+
+  AdminGroup:
+    Type: AWS::Cognito::UserPoolGroup
+    Properties: { GroupName: admin, UserPoolId: !Ref UserPool, Description: CloudAlbum administrators, Precedence: 1 }
+  MemberGroup:
+    Type: AWS::Cognito::UserPoolGroup
+    Properties: { GroupName: member, UserPoolId: !Ref UserPool, Description: CloudAlbum members, Precedence: 10 }
+
+  SpaClient:
+    Type: AWS::Cognito::UserPoolClient
+    Properties:
+      ClientName: cloudalbum-spa
+      UserPoolId: !Ref UserPool
+      GenerateSecret: false                       # public client: Amplify (sdk) / PKCE (managed); the probe flags a secret as degraded
+      ExplicitAuthFlows: [ALLOW_USER_SRP_AUTH, ALLOW_REFRESH_TOKEN_AUTH]
+      PreventUserExistenceErrors: ENABLED
+      EnableTokenRevocation: true
+      AccessTokenValidity: 15
+      IdTokenValidity: 15
+      RefreshTokenValidity: 30
+      TokenValidityUnits: { AccessToken: minutes, IdToken: minutes, RefreshToken: days }
+      ReadAttributes: [email, email_verified, 'custom:plan', 'custom:app_uid', 'custom:legacy_id']
+      WriteAttributes: [email]                    # never custom:plan / custom:app_uid (users could upgrade or impersonate)
+      SupportedIdentityProviders: [COGNITO]
+      AllowedOAuthFlowsUserPoolClient: !If [HasOrigins, true, false]
+      AllowedOAuthFlows: !If [HasOrigins, [code], !Ref 'AWS::NoValue']
+      AllowedOAuthScopes: !If [HasOrigins, [openid, email, profile], !Ref 'AWS::NoValue']
+      CallbackURLs: !If
+        - HasOrigins
+        - !Split
+          - ','
+          - !Sub
+            - '${Joined}/api/auth/callback'
+            - Joined: !Join ['/api/auth/callback,', !Ref AppOrigins]
+        - !Ref 'AWS::NoValue'
+      LogoutURLs: !If
+        - HasOrigins
+        - !Split
+          - ','
+          - !Sub
+            - '${Joined}/'
+            - Joined: !Join ['/,', !Ref AppOrigins]
+        - !Ref 'AWS::NoValue'
+
+  AlbClient:
+    Condition: HasAlbClient
+    Type: AWS::Cognito::UserPoolClient
+    Properties:
+      ClientName: cloudalbum-alb
+      UserPoolId: !Ref UserPool
+      GenerateSecret: true                        # ALB authenticate-cognito needs a confidential client (F12)
+      AllowedOAuthFlowsUserPoolClient: true
+      AllowedOAuthFlows: [code]
+      AllowedOAuthScopes: [openid]
+      CallbackURLs: !Ref AlbCallbackUrls
+      SupportedIdentityProviders: [COGNITO]
+      ExplicitAuthFlows: [ALLOW_REFRESH_TOKEN_AUTH]
+      PreventUserExistenceErrors: ENABLED
+
+  UserPoolDomain:
+    Condition: Managed
+    Type: AWS::Cognito::UserPoolDomain
+    Properties:
+      UserPoolId: !Ref UserPool
+      Domain: !Sub 'cloudalbum-${Env}-${AWS::AccountId}'
+      ManagedLoginVersion: 2
+
+  ManagedLoginBranding:
+    Condition: Managed
+    Type: AWS::Cognito::ManagedLoginBranding
+    DependsOn: UserPoolDomain
+    Properties:
+      UserPoolId: !Ref UserPool
+      ClientId: !Ref SpaClient
+      UseCognitoProvidedValues: true
+
+  # ---- optional triggers (COGNITO_TRIGGERS=on): inline code, nodejs22.x arm64, no toolchain bucket (3.2 decision 3) ----
+  TriggerRole:
+    Condition: Triggers
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub 'cloudalbum-${Env}-auth-triggers'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - { Effect: Allow, Principal: { Service: lambda.amazonaws.com }, Action: sts:AssumeRole }
+      PermissionsBoundary: !If [HasBoundary, !Ref PermissionsBoundaryArn, !Ref 'AWS::NoValue']
+      Policies:
+        - PolicyName: logs
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: [logs:CreateLogStream, logs:PutLogEvents]
+                Resource:
+                  - !Sub 'arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/cloudalbum-${Env}-auth-*:*'
+
+  PreSignUpLogGroup:
+    Condition: Triggers
+    Type: AWS::Logs::LogGroup
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Delete
+    Properties:
+      LogGroupName: !Sub '/aws/lambda/cloudalbum-${Env}-auth-pre-signup'
+      RetentionInDays: 14
+
+  PreTokenLogGroup:
+    Condition: Triggers
+    Type: AWS::Logs::LogGroup
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Delete
+    Properties:
+      LogGroupName: !Sub '/aws/lambda/cloudalbum-${Env}-auth-pre-token'
+      RetentionInDays: 14
+
+  PreSignUpFunction:
+    Condition: Triggers
+    Type: AWS::Lambda::Function
+    DependsOn: PreSignUpLogGroup
+    Properties:
+      FunctionName: !Sub 'cloudalbum-${Env}-auth-pre-signup'
+      Description: F3 - email domain allow-list
+      Runtime: nodejs22.x
+      Architectures: [arm64]
+      Handler: index.handler
+      Role: !GetAtt TriggerRole.Arn
+      Timeout: 5
+      MemorySize: 128
+      KmsKeyArn: !If [HasKms, !Ref KmsKeyArn, !Ref 'AWS::NoValue']
+      Environment:
+        Variables:
+          ALLOWED_EMAIL_DOMAINS: !Ref AllowedEmailDomains
+      Code:
+        ZipFile: |
+          'use strict';
+          exports.handler = async (event) => {
+            const allowed = (process.env.ALLOWED_EMAIL_DOMAINS || '').split(',').map((d) => d.trim().toLowerCase()).filter(Boolean);
+            const email = String((event.request && event.request.userAttributes && event.request.userAttributes.email) || '').toLowerCase();
+            const domain = email.includes('@') ? email.slice(email.lastIndexOf('@') + 1) : '';
+            if (allowed.length && !allowed.includes(domain)) {
+              throw new Error('EMAIL_DOMAIN_NOT_ALLOWED');
+            }
+            return event;
+          };
+
+  PreTokenFunction:
+    Condition: Triggers
+    Type: AWS::Lambda::Function
+    DependsOn: PreTokenLogGroup
+    Properties:
+      FunctionName: !Sub 'cloudalbum-${Env}-auth-pre-token'
+      Description: F4 - add the plan claim to the access token (V2_0 event, Essentials or higher)
+      Runtime: nodejs22.x
+      Architectures: [arm64]
+      Handler: index.handler
+      Role: !GetAtt TriggerRole.Arn
+      Timeout: 5
+      MemorySize: 128
+      KmsKeyArn: !If [HasKms, !Ref KmsKeyArn, !Ref 'AWS::NoValue']
+      Code:
+        ZipFile: |
+          'use strict';
+          exports.handler = async (event) => {
+            const attrs = (event.request && event.request.userAttributes) || {};
+            const plan = attrs['custom:plan'] || 'free';
+            event.response = event.response || {};
+            event.response.claimsAndScopeOverrideDetails = {
+              accessTokenGeneration: { claimsToAddOrOverride: { plan } },
+              idTokenGeneration: { claimsToAddOrOverride: { plan } },
+            };
+            return event;
+          };
+
+  PreSignUpPermission:
+    Condition: Triggers
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !GetAtt PreSignUpFunction.Arn
+      Action: lambda:InvokeFunction
+      Principal: cognito-idp.amazonaws.com
+      SourceArn: !GetAtt UserPool.Arn
+
+  PreTokenPermission:
+    Condition: Triggers
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !GetAtt PreTokenFunction.Arn
+      Action: lambda:InvokeFunction
+      Principal: cognito-idp.amazonaws.com
+      SourceArn: !GetAtt UserPool.Arn
+
+  AppPolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      ManagedPolicyName: !Sub 'cloudalbum-${Env}-auth'   # attached by scripts/module (D2)
+      Description: CloudAlbum auth module - Admin* user management, bulk migration and DescribeUserPool probe
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Action:
+              - cognito-idp:DescribeUserPool
+              - cognito-idp:DescribeUserPoolClient
+              - cognito-idp:ListUsers
+              - cognito-idp:AdminGetUser
+              - cognito-idp:AdminCreateUser
+              - cognito-idp:AdminUpdateUserAttributes
+              - cognito-idp:AdminResetUserPassword
+              - cognito-idp:AdminListGroupsForUser
+              - cognito-idp:AdminAddUserToGroup
+              - cognito-idp:AdminRemoveUserFromGroup
+              - cognito-idp:AdminDisableUser
+              - cognito-idp:AdminEnableUser
+              - cognito-idp:AdminUserGlobalSignOut
+            Resource: !GetAtt UserPool.Arn
+
+Outputs:
+  ModuleId:
+    Value: auth
+  ModuleVersion:
+    Value: !Ref ModuleVersion
+  PolicyArn:
+    Value: !Ref AppPolicy
+  EnvAuthDriver:
+    Value: cognito
+  EnvCognitoUserPoolId:
+    Value: !Ref UserPool
+  EnvCognitoClientId:
+    Value: !Ref SpaClient
+  EnvCognitoLoginMode:
+    Value: !Ref LoginMode
+  EnvCognitoTriggers:
+    Value: !If [Triggers, 'on', 'off']
+  EnvCognitoDomain:
+    Condition: Managed
+    Value: !Sub '${UserPoolDomain}.auth.${AWS::Region}.amazoncognito.com'
+  InfoUserPoolArn:
+    Value: !GetAtt UserPool.Arn
+  InfoUserPoolId:
+    Value: !Ref UserPool
+  InfoIssuer:
+    Value: !Sub 'https://cognito-idp.${AWS::Region}.amazonaws.com/${UserPool}'
+  InfoJwksUri:
+    Value: !Sub 'https://cognito-idp.${AWS::Region}.amazonaws.com/${UserPool}/.well-known/jwks.json'
+  InfoAlbClientId:
+    Condition: HasAlbClient
+    Value: !Ref AlbClient

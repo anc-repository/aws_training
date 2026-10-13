@@ -1,0 +1,125 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >-
+  CloudAlbum module "iam" - AWS IAM: CloudAlbumAppRole + instance profile (role mode) and the optional
+  demo user for the long-term-key anti-pattern (keys mode). docs/modules/02-identity-security.md#iam
+
+Metadata:
+  CloudAlbum:
+    module: iam
+    registryVersion: 1
+    # Total-outline 9.1: the iam stack only outputs Info* (no PolicyArn). The roles/users it creates reference the
+    # read-only base policy of this same stack directly; every other module's PolicyArn is attached by scripts/module.
+    # No AWS::IAM::AccessKey here: keys mode creates the access key out of band (scripts/module) so the secret
+    # never appears in the template or stack outputs.
+
+Parameters:
+  Env:
+    Type: String
+    Default: lab
+    AllowedPattern: '^[a-z][a-z0-9-]{1,15}$'
+  ModuleVersion:
+    Type: String
+    Default: '1'
+  CreateDemoUser:
+    Type: String
+    Default: 'false'
+    AllowedValues: ['true', 'false']
+    Description: keys mode (anti-pattern) - create the demo IAM user cloudalbum-<env>-demo-keys
+  AppRoleMode:
+    Type: String
+    Default: create
+    AllowedValues: [create, existing]
+    Description: platform mode passes existing (CloudAlbumAppRole and its instance profile are owned by the platform)
+  PermissionsBoundaryArn:
+    Type: String
+    Default: ''
+    Description: Platform mode workload boundary (empty in standalone mode)
+
+Conditions:
+  CreateRole: !Equals [!Ref AppRoleMode, create]
+  ExistingRole: !Equals [!Ref AppRoleMode, existing]
+  CreateUser: !Equals [!Ref CreateDemoUser, 'true']
+  HasBoundary: !Not [!Equals [!Ref PermissionsBoundaryArn, '']]
+
+Resources:
+  ReadPolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      ManagedPolicyName: !Sub 'cloudalbum-${Env}-iam'
+      Description: CloudAlbum iam module - read-only permissions for the /lab card and the credentials probe
+      Roles: !If [ExistingRole, [CloudAlbumAppRole], !Ref 'AWS::NoValue']
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: SelfRole
+            Effect: Allow
+            Action: [iam:GetRole, iam:ListAttachedRolePolicies, iam:ListRolePolicies]
+            Resource: !Sub 'arn:${AWS::Partition}:iam::${AWS::AccountId}:role/CloudAlbumAppRole'
+          - !If
+            - CreateUser
+            - Sid: SelfDemoUser
+              Effect: Allow
+              Action: [iam:GetUser, iam:ListAttachedUserPolicies]
+              Resource: !Sub 'arn:${AWS::Partition}:iam::${AWS::AccountId}:user/cloudalbum-${Env}-demo-keys'
+            - !Ref 'AWS::NoValue'
+          - Sid: EventHistory
+            Effect: Allow
+            Action: cloudtrail:LookupEvents
+            Resource: '*'
+
+  AppRole:
+    Condition: CreateRole
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: CloudAlbumAppRole
+      Description: CloudAlbum application identity (IMDSv2 temporary credentials). Never grant iam:* or cloudformation:*.
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal: { Service: ec2.amazonaws.com }
+            Action: sts:AssumeRole
+      ManagedPolicyArns: [!Ref ReadPolicy]
+      PermissionsBoundary: !If [HasBoundary, !Ref PermissionsBoundaryArn, !Ref 'AWS::NoValue']
+      MaxSessionDuration: 3600
+
+  AppInstanceProfile:
+    Condition: CreateRole
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      InstanceProfileName: CloudAlbumAppRole
+      Roles: [!Ref AppRole]
+
+  DemoUser:
+    Condition: CreateUser
+    Type: AWS::IAM::User
+    Properties:
+      UserName: !Sub 'cloudalbum-${Env}-demo-keys'
+      ManagedPolicyArns: [!Ref ReadPolicy]
+      PermissionsBoundary: !If [HasBoundary, !Ref PermissionsBoundaryArn, !Ref 'AWS::NoValue']
+
+Outputs:
+  ModuleId:
+    Value: iam
+  ModuleVersion:
+    Value: !Ref ModuleVersion
+  EnvIamCredentials:
+    Description: role (scripts/module rewrites it to keys in keys mode)
+    Value: role
+  EnvIamExpectedRole:
+    Value: CloudAlbumAppRole
+  InfoAppRoleName:
+    Value: CloudAlbumAppRole
+  InfoAppRoleArn:
+    Value: !If
+      - CreateRole
+      - !GetAtt AppRole.Arn
+      - !Sub 'arn:${AWS::Partition}:iam::${AWS::AccountId}:role/CloudAlbumAppRole'
+  InfoInstanceProfileName:
+    Description: Written to the base stack parameter InstanceProfileName (baseParams)
+    Value: CloudAlbumAppRole
+  InfoReadPolicyArn:
+    Value: !Ref ReadPolicy
+  InfoDemoUserName:
+    Condition: CreateUser
+    Value: !Ref DemoUser

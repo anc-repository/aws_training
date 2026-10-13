@@ -1,0 +1,16 @@
+# /etc/systemd/system/cloudalbum-backup.service — owned by ec2. The local backup is the control group of the backup
+# module: it lives on the same volume as the data (a single point of failure, on purpose).
+[Unit]
+Description=CloudAlbum local backup (sqlite .backup or pg_dump + uploads manifest, keep 7 days)
+RequiresMountsFor=/var/lib/cloudalbum
+After=cloudalbum-api.service
+
+[Service]
+Type=oneshot
+User=cloudalbum
+Group=cloudalbum
+UMask=0027
+Environment=CLOUDALBUM_ENV_DIR=/etc/cloudalbum
+ExecStart=/opt/cloudalbum/scripts/local-backup.sh
+Nice=10
+IOSchedulingClass=idle

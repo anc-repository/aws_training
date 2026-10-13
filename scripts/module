@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+# scripts/module — Bash wrapper of the module tool (modular-design.md 9.2). The logic lives in scripts/module-cli (TypeScript).
+# Runs on the operator machine (your computer or CloudShell) with the DEPLOYER identity; never with the application role.
+#   scripts/module bootstrap | base deploy | enable <id> | disable <id> | status [id] | plan <id> [--single]
+#                  profile apply|diff|gen-single <name> | teardown | --help
+# Every AWS call can be printed instead of executed with --dry-run.
+set -euo pipefail
+ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+CLI="$ROOT/scripts/module-cli/dist/index.js"
+export CLOUDALBUM_REPO_ROOT="$ROOT"
+if [ -f "$CLI" ]; then
+  exec node "$CLI" "$@"
+fi
+# not built yet: run the TypeScript sources through tsx (npm run build creates dist/)
+exec npx --no-install tsx "$ROOT/scripts/module-cli/src/index.ts" "$@"

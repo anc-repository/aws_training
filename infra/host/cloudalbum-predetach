@@ -1,0 +1,24 @@
+#!/bin/bash
+# /usr/local/sbin/cloudalbum-predetach — owned by ec2. First step of a staged instance replacement (00-ec2-base.md 8):
+# read-only window -> stop api / worker / timers / Nginx -> sync -> umount /var/lib/cloudalbum.
+# Only after it succeeded may scripts/module set DataVolumeAttach=false.
+#   --no-readonly   skip the runtime readOnly flag (the caller already opened the window, e.g. CONFIG_DRIVER=ssm)
+set -euo pipefail
+[ "$(id -u)" = 0 ] || { echo "cloudalbum-predetach must run as root" >&2; exit 1; }
+
+if [ "${1:-}" != --no-readonly ] && [ -f /etc/cloudalbum/runtime.json ]; then
+  /usr/local/sbin/cloudalbum-runtime set readOnly true
+  sleep 3   # ConfigPort(file) watches the directory; give the processes a moment to refuse writes
+fi
+
+timers=(cloudalbum-backup.timer cloudalbum-security-snapshot.timer cloudalbum-healthcheck.timer cloudalbum-vuln-scan.timer
+        cloudalbum-denylist.path)
+systemctl stop "${timers[@]}" 2>/dev/null || true
+mapfile -t extra < <(systemctl list-units --plain --no-legend 'cloudalbum-api@*.service' 'cloudalbum-*-*.timer' 2>/dev/null | awk '{print $1}')
+systemctl stop cloudalbum-api cloudalbum-worker "${extra[@]}" 2>/dev/null || true
+systemctl stop nginx fail2ban 2>/dev/null || true
+sync
+if mountpoint -q /var/lib/cloudalbum; then
+  umount /var/lib/cloudalbum
+fi
+echo "predetach: services stopped, /var/lib/cloudalbum unmounted; safe to set DataVolumeAttach=false"

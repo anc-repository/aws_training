@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CloudAlbum 暂时不可用</title>
+<style>
+  body { font-family: system-ui, sans-serif; max-width: 40rem; margin: 4rem auto; padding: 0 1rem; color: #222; background: #fff; }
+  code { background: #f2f2f2; padding: .1rem .3rem; border-radius: 3px; }
+  @media (prefers-color-scheme: dark) { body { color: #eee; background: #111; } code { background: #333; } }
+</style>
+</head>
+<body>
+<h1>应用进程暂时不可用（502 / 504）</h1>
+<p>Nginx 无法连接到 <code>cloudalbum-api</code>。如果刚刚启用或禁用了模块，最常见的原因是配置校验失败：进程以退出码 78 退出，systemd 不会自动重启它。</p>
+<p>在实例上运行：</p>
+<pre><code>sudo -u cloudalbum CLOUDALBUM_ENV_DIR=/etc/cloudalbum node /opt/cloudalbum/backend/dist/cli.js check-config
+journalctl -u cloudalbum-api -n 50 --no-pager</code></pre>
+<p>按输出中的修复命令处理后执行 <code>sudo systemctl restart cloudalbum-api cloudalbum-worker</code>；或在运维机上执行 <code>scripts/module status --repair</code>。</p>
+</body>
+</html>

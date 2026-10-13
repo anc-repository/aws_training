@@ -1,0 +1,329 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >-
+  CloudAlbum module "cdn" - Amazon CloudFront distribution in front of the EC2 Nginx 8080 origin listener
+  (X-Origin-Verify) with an optional S3 media origin (OAC). docs/modules/01-edge-network-scaling.md#cdn
+
+Metadata:
+  CloudAlbum:
+    module: cdn
+    registryVersion: 1
+    # Injected parameters: VpcId (network; base context otherwise), MediaBucketDomain (storage),
+    # AcmCertificateArn + Aliases (tls edge stack), WebAclArn (waf edge stack).
+    # OriginType=vpc-origin (DEP-039) needs network(private) + load-balancer, which are outside this MVP: only ec2 / alb.
+
+Parameters:
+  Env:
+    Type: String
+    Default: lab
+    AllowedPattern: '^[a-z][a-z0-9-]{1,15}$'
+  ModuleVersion:
+    Type: String
+    Default: '1'
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+    Description: VPC of the instance (only the origin security group lives in it)
+  OriginType:
+    Type: String
+    Default: ec2
+    AllowedValues: [ec2, alb]
+  OriginDomainName:
+    Type: String
+    Description: ec2 = public DNS name of the EIP (ec2-x-x-x-x.<region>.compute.amazonaws.com, never an IP); alb = ALB DNS name
+  OriginPort:
+    Type: Number
+    Default: 8080
+  AlbOriginProtocol:
+    Type: String
+    Default: http-only
+    AllowedValues: [http-only, https-only]
+  CloudFrontPrefixListId:
+    Type: String
+    AllowedPattern: '^pl-[0-9a-f]+$'
+    Description: Managed prefix list com.amazonaws.global.cloudfront.origin-facing (looked up by scripts/module)
+  OriginVerifySecret:
+    Type: String
+    NoEcho: true
+    MinLength: 16
+    Description: Value of the X-Origin-Verify header (logical secret origin-verify; also in secrets.env as ORIGIN_VERIFY)
+  MediaOrigin:
+    Type: String
+    Default: ec2
+    AllowedValues: [ec2, s3]
+  MediaBucketDomain:
+    Type: String
+    Default: ''
+    Description: Injected by storage (InfoMediaBucketRegionalDomainName); required when MediaOrigin=s3
+  PriceClass:
+    Type: String
+    Default: PriceClass_200
+    AllowedValues: [PriceClass_100, PriceClass_200, PriceClass_All]
+  AcmCertificateArn:
+    Type: String
+    Default: ''
+    Description: us-east-1 certificate injected by tls (edge stack)
+  Aliases:
+    Type: String
+    Default: ''
+    Description: Custom domain injected by tls (TLS_DOMAIN)
+  WebAclArn:
+    Type: String
+    Default: ''
+    Description: CLOUDFRONT scope Web ACL injected by waf
+
+Rules:
+  S3MediaNeedsBucket:
+    RuleCondition: !Equals [!Ref MediaOrigin, s3]
+    Assertions:
+      - Assert: !Not [!Equals [!Ref MediaBucketDomain, '']]
+        AssertDescription: MediaOrigin=s3 requires MediaBucketDomain (enable storage first, DEP-010)
+  AliasNeedsCertificate:
+    RuleCondition: !Not [!Equals [!Ref Aliases, '']]
+    Assertions:
+      - Assert: !Not [!Equals [!Ref AcmCertificateArn, '']]
+        AssertDescription: Aliases requires a us-east-1 ACM certificate (tls module)
+
+Conditions:
+  IsEc2Origin: !Equals [!Ref OriginType, ec2]
+  S3Media: !Equals [!Ref MediaOrigin, s3]
+  HasCert: !Not [!Equals [!Ref AcmCertificateArn, '']]
+  HasAliases: !Not [!Equals [!Ref Aliases, '']]
+  HasWaf: !Not [!Equals [!Ref WebAclArn, '']]
+
+Mappings:
+  ManagedPolicies:   # AWS managed cache / origin request policy IDs (fixed, documented by CloudFront)
+    Cache:
+      CachingOptimized: 658327ea-f89d-4fab-a63d-7e88639e58f6
+      CachingDisabled: 4135ea2d-6df8-44a3-9df3-4b5a84be39ad
+      UseOriginCacheControlHeaders: 83da9c7e-98b4-4e11-a168-04f0df8e2c65
+    OriginRequest:
+      AllViewer: 216adef6-5c7f-47e4-b989-5492eafa07d3
+
+Resources:
+  OriginSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: !Sub 'cloudalbum-${Env}-cdn-origin-sg (8080 only from CloudFront origin-facing)'
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: !Ref OriginPort
+          ToPort: !Ref OriginPort
+          SourcePrefixListId: !Ref CloudFrontPrefixListId
+          Description: CloudFront origin-facing (managed prefix list)
+      Tags:
+        - { Key: Name, Value: !Sub 'cloudalbum-${Env}-cdn-origin-sg' }
+
+  MediaCachePolicy:
+    Type: AWS::CloudFront::CachePolicy
+    Properties:
+      CachePolicyConfig:
+        Name: !Sub 'cloudalbum-${Env}-media'
+        Comment: /media/* - cache key = exp + sig query parameters only
+        MinTTL: 0
+        DefaultTTL: 86400
+        MaxTTL: 31536000
+        ParametersInCacheKeyAndForwardedToOrigin:
+          EnableAcceptEncodingGzip: false
+          EnableAcceptEncodingBrotli: false
+          CookiesConfig: { CookieBehavior: none }
+          HeadersConfig: { HeaderBehavior: none }
+          QueryStringsConfig:
+            QueryStringBehavior: whitelist
+            QueryStrings: [exp, sig]
+
+  ApiMicroCachePolicy:
+    Type: AWS::CloudFront::CachePolicy
+    Properties:
+      CachePolicyConfig:
+        Name: !Sub 'cloudalbum-${Env}-api-micro'
+        Comment: /api/public/* - s-maxage micro cache demo (no cookies in the key)
+        MinTTL: 0
+        DefaultTTL: 0
+        MaxTTL: 60
+        ParametersInCacheKeyAndForwardedToOrigin:
+          EnableAcceptEncodingGzip: true
+          EnableAcceptEncodingBrotli: true
+          CookiesConfig: { CookieBehavior: none }
+          HeadersConfig: { HeaderBehavior: none }
+          QueryStringsConfig: { QueryStringBehavior: all }
+
+  LabResponseHeadersPolicy:
+    Type: AWS::CloudFront::ResponseHeadersPolicy
+    Properties:
+      ResponseHeadersPolicyConfig:
+        Name: !Sub 'cloudalbum-${Env}-lab'
+        Comment: CORS exposing the comparison headers, Timing-Allow-Origin, Server-Timing (100 percent sampling)
+        CorsConfig:
+          AccessControlAllowCredentials: false
+          AccessControlAllowHeaders: { Items: ['*'] }
+          AccessControlAllowMethods: { Items: [ALL] }
+          AccessControlAllowOrigins: { Items: ['*'] }
+          AccessControlExposeHeaders: { Items: [X-Cache, Age, X-Amz-Cf-Pop, Server-Timing, X-CloudAlbum-Path] }
+          AccessControlMaxAgeSec: 600
+          OriginOverride: false
+        CustomHeadersConfig:
+          Items:
+            - { Header: Timing-Allow-Origin, Value: '*', Override: false }
+        ServerTimingHeadersConfig:
+          Enabled: true
+          SamplingRate: 100
+
+  MediaOac:
+    Condition: S3Media
+    Type: AWS::CloudFront::OriginAccessControl
+    Properties:
+      OriginAccessControlConfig:
+        Name: !Sub 'cloudalbum-${Env}-media-oac'
+        OriginAccessControlOriginType: s3
+        SigningBehavior: always
+        SigningProtocol: sigv4
+
+  MediaPrefixFunction:
+    Condition: S3Media
+    Type: AWS::CloudFront::Function
+    Properties:
+      Name: !Sub 'cloudalbum-${Env}-media-prefix'
+      AutoPublish: true
+      FunctionConfig:
+        Comment: /media/variants/... -> variants/... (object key in the media bucket)
+        Runtime: cloudfront-js-2.0
+      FunctionCode: |
+        function handler(event) {
+          var request = event.request;
+          if (request.uri.indexOf('/media/') === 0) {
+            request.uri = request.uri.substring(6);
+          }
+          return request;
+        }
+
+  Distribution:
+    Type: AWS::CloudFront::Distribution
+    Properties:
+      DistributionConfig:
+        Comment: !Sub 'cloudalbum-${Env}-cdn'
+        Enabled: true
+        HttpVersion: http2and3
+        IPV6Enabled: true
+        PriceClass: !Ref PriceClass
+        Aliases: !If [HasAliases, [!Ref Aliases], !Ref 'AWS::NoValue']
+        WebACLId: !If [HasWaf, !Ref WebAclArn, !Ref 'AWS::NoValue']
+        ViewerCertificate: !If
+          - HasCert
+          - { AcmCertificateArn: !Ref AcmCertificateArn, SslSupportMethod: sni-only, MinimumProtocolVersion: TLSv1.2_2021 }
+          - { CloudFrontDefaultCertificate: true }
+        Origins:
+          - Id: app-origin
+            DomainName: !Ref OriginDomainName
+            ConnectionAttempts: 3
+            ConnectionTimeout: 10
+            CustomOriginConfig:
+              HTTPPort: !If [IsEc2Origin, !Ref OriginPort, 80]
+              HTTPSPort: 443
+              OriginProtocolPolicy: !If [IsEc2Origin, http-only, !Ref AlbOriginProtocol]
+              OriginReadTimeout: 30
+              OriginSSLProtocols: [TLSv1.2]
+            OriginCustomHeaders:
+              - { HeaderName: X-Origin-Verify, HeaderValue: !Ref OriginVerifySecret }
+          - !If
+            - S3Media
+            - Id: s3-media
+              DomainName: !Ref MediaBucketDomain
+              OriginAccessControlId: !GetAtt MediaOac.Id
+              S3OriginConfig: { OriginAccessIdentity: '' }
+            - !Ref 'AWS::NoValue'
+        DefaultCacheBehavior:
+          TargetOriginId: app-origin
+          ViewerProtocolPolicy: redirect-to-https
+          AllowedMethods: [GET, HEAD]
+          CachedMethods: [GET, HEAD]
+          Compress: true
+          CachePolicyId: !FindInMap [ManagedPolicies, Cache, UseOriginCacheControlHeaders]
+          ResponseHeadersPolicyId: !Ref LabResponseHeadersPolicy
+        CacheBehaviors:
+          - PathPattern: /assets/*
+            TargetOriginId: app-origin
+            ViewerProtocolPolicy: redirect-to-https
+            AllowedMethods: [GET, HEAD]
+            CachedMethods: [GET, HEAD]
+            Compress: true
+            CachePolicyId: !FindInMap [ManagedPolicies, Cache, CachingOptimized]
+            ResponseHeadersPolicyId: !Ref LabResponseHeadersPolicy
+          - PathPattern: /media/*
+            TargetOriginId: !If [S3Media, s3-media, app-origin]
+            ViewerProtocolPolicy: redirect-to-https
+            AllowedMethods: [GET, HEAD]
+            CachedMethods: [GET, HEAD]
+            Compress: false
+            CachePolicyId: !Ref MediaCachePolicy
+            ResponseHeadersPolicyId: !Ref LabResponseHeadersPolicy
+            FunctionAssociations: !If
+              - S3Media
+              - [{ EventType: viewer-request, FunctionARN: !GetAtt MediaPrefixFunction.FunctionMetadata.FunctionARN }]
+              - !Ref 'AWS::NoValue'
+          - PathPattern: /api/public/*
+            TargetOriginId: app-origin
+            ViewerProtocolPolicy: redirect-to-https
+            AllowedMethods: [GET, HEAD]
+            CachedMethods: [GET, HEAD]
+            Compress: true
+            CachePolicyId: !Ref ApiMicroCachePolicy
+            ResponseHeadersPolicyId: !Ref LabResponseHeadersPolicy
+          - PathPattern: /api/*
+            TargetOriginId: app-origin
+            ViewerProtocolPolicy: redirect-to-https
+            AllowedMethods: [GET, HEAD, OPTIONS, PUT, PATCH, POST, DELETE]
+            CachedMethods: [GET, HEAD]
+            Compress: true
+            CachePolicyId: !FindInMap [ManagedPolicies, Cache, CachingDisabled]
+            OriginRequestPolicyId: !FindInMap [ManagedPolicies, OriginRequest, AllViewer]
+            ResponseHeadersPolicyId: !Ref LabResponseHeadersPolicy
+          - PathPattern: /.well-known/jwks.json
+            TargetOriginId: app-origin
+            ViewerProtocolPolicy: redirect-to-https
+            AllowedMethods: [GET, HEAD]
+            CachedMethods: [GET, HEAD]
+            Compress: true
+            CachePolicyId: !FindInMap [ManagedPolicies, Cache, UseOriginCacheControlHeaders]
+        CustomErrorResponses:
+          - { ErrorCode: 403, ErrorCachingMinTTL: 5 }
+          - { ErrorCode: 404, ErrorCachingMinTTL: 5 }
+          - { ErrorCode: 502, ErrorCachingMinTTL: 0 }
+          - { ErrorCode: 503, ErrorCachingMinTTL: 0 }
+          - { ErrorCode: 504, ErrorCachingMinTTL: 0 }
+
+  AppPolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      ManagedPolicyName: !Sub 'cloudalbum-${Env}-cdn'   # attached by scripts/module (D2)
+      Description: CloudFront invalidation button and GetDistribution probe (credentials optional, CRED-004)
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Action: [cloudfront:CreateInvalidation, cloudfront:GetInvalidation, cloudfront:GetDistribution]
+            Resource: !Sub 'arn:${AWS::Partition}:cloudfront::${AWS::AccountId}:distribution/${Distribution}'
+
+Outputs:
+  ModuleId:
+    Value: cdn
+  ModuleVersion:
+    Value: !Ref ModuleVersion
+  PolicyArn:
+    Value: !Ref AppPolicy
+  EnvCdnBaseUrl:
+    Value: !If [HasAliases, !Sub 'https://${Aliases}', !Sub 'https://${Distribution.DomainName}']
+  EnvCdnDistributionId:
+    Value: !Ref Distribution
+  EnvCdnOriginType:
+    Value: !Ref OriginType
+  EnvCdnOriginPort:
+    Value: !Ref OriginPort
+  EnvCdnMediaOrigin:
+    Value: !Ref MediaOrigin
+  InfoDistributionArn:
+    Value: !Sub 'arn:${AWS::Partition}:cloudfront::${AWS::AccountId}:distribution/${Distribution}'
+  InfoDistributionDomainName:
+    Value: !GetAtt Distribution.DomainName
+  InfoOriginSecurityGroupId:
+    Description: Appended to the base stack ExtraSecurityGroupIds (baseParams)
+    Value: !Ref OriginSecurityGroup

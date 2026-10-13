@@ -1,0 +1,13 @@
+#!/bin/bash
+# /usr/local/sbin/cloudalbum-postattach [--grow] [--regenerate-secrets] — owned by ec2 (00-ec2-base.md 6.5).
+# Runs the postattach phase of the installed bootstrap script: mount the data volume -> /etc/cloudalbum -> secrets ->
+# replay module host artifacts -> migrations -> start. scripts/module calls it through the delivery channel after it
+# re-attached the data volume (staged instance replacement, 00 section 8).
+#   --grow   only grow the XFS file system after DataVolumeSizeGiB was increased
+set -euo pipefail
+[ "$(id -u)" = 0 ] || { echo "cloudalbum-postattach must run as root" >&2; exit 1; }
+if [ "${1:-}" = --grow ]; then
+  mountpoint -q /var/lib/cloudalbum || { echo "/var/lib/cloudalbum is not mounted" >&2; exit 1; }
+  exec xfs_growfs /var/lib/cloudalbum
+fi
+exec bash /opt/cloudalbum/infra/userdata/l0-bootstrap.sh postattach "$@"

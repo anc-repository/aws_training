@@ -1,0 +1,8 @@
+# /etc/systemd/system/cloudalbum-healthcheck.service — owned by ec2 (00-ec2-base.md 6.8). Restarts cloudalbum-api(@port)
+# when /api/health/live fails, unless the unit stopped with exit status 78 (configuration error: restarting cannot help).
+[Unit]
+Description=CloudAlbum API liveness check
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/lib/cloudalbum/healthcheck.sh

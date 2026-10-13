@@ -1,0 +1,129 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >-
+  CloudAlbum module "queue" - Amazon SQS standard job queue + DLQ consumed by cloudalbum-worker (long polling,
+  at-least-once). docs/modules/04-compute-async.md#queue
+
+Metadata:
+  CloudAlbum:
+    module: queue
+    registryVersion: 1
+    # Injected parameters: KmsKeyArn (kms). No queue policy: only the application role sends/receives (IAM is enough).
+
+Parameters:
+  Env:
+    Type: String
+    Default: lab
+    AllowedPattern: '^[a-z][a-z0-9-]{1,15}$'
+  ModuleVersion:
+    Type: String
+    Default: '1'
+  VisibilityTimeout:
+    Type: Number
+    Default: 120
+    MinValue: 30
+    MaxValue: 43200
+    Description: Longest job duration x safety factor (the worker heartbeats every half of it)
+  MaxReceiveCount:
+    Type: Number
+    Default: 3
+    MinValue: 1
+    MaxValue: 1000
+  KmsKeyArn:
+    Type: String
+    Default: ''
+    Description: Injected by kms. Empty = SSE-SQS.
+
+Conditions:
+  HasKms: !Not [!Equals [!Ref KmsKeyArn, '']]
+
+Resources:
+  JobsDlq:
+    Type: AWS::SQS::Queue
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Delete
+    Properties:
+      QueueName: !Sub 'cloudalbum-${Env}-queue-jobs-dlq'
+      MessageRetentionPeriod: 1209600          # 14 days: always longer than the source queue
+      SqsManagedSseEnabled: !If [HasKms, !Ref 'AWS::NoValue', true]
+      KmsMasterKeyId: !If [HasKms, !Ref KmsKeyArn, !Ref 'AWS::NoValue']
+      KmsDataKeyReusePeriodSeconds: !If [HasKms, 300, !Ref 'AWS::NoValue']
+      RedriveAllowPolicy:
+        redrivePermission: byQueue
+        # constructed ARN (not GetAtt) to avoid a cycle with JobsQueue.RedrivePolicy
+        sourceQueueArns: [!Sub 'arn:${AWS::Partition}:sqs:${AWS::Region}:${AWS::AccountId}:cloudalbum-${Env}-queue-jobs']
+
+  JobsQueue:
+    Type: AWS::SQS::Queue
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Delete
+    Properties:
+      QueueName: !Sub 'cloudalbum-${Env}-queue-jobs'
+      ReceiveMessageWaitTimeSeconds: 20
+      VisibilityTimeout: !Ref VisibilityTimeout
+      MessageRetentionPeriod: 345600           # 4 days
+      SqsManagedSseEnabled: !If [HasKms, !Ref 'AWS::NoValue', true]
+      KmsMasterKeyId: !If [HasKms, !Ref KmsKeyArn, !Ref 'AWS::NoValue']
+      KmsDataKeyReusePeriodSeconds: !If [HasKms, 300, !Ref 'AWS::NoValue']
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt JobsDlq.Arn
+        maxReceiveCount: !Ref MaxReceiveCount
+
+  AppPolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      ManagedPolicyName: !Sub 'cloudalbum-${Env}-queue'   # attached by scripts/module (D2)
+      Description: CloudAlbum queue module - producer/consumer, DLQ redrive and probe permissions
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: Messages
+            Effect: Allow
+            Action:
+              - sqs:SendMessage
+              - sqs:ReceiveMessage
+              - sqs:DeleteMessage
+              - sqs:ChangeMessageVisibility
+              - sqs:GetQueueAttributes
+              - sqs:GetQueueUrl
+            Resource: [!GetAtt JobsQueue.Arn, !GetAtt JobsDlq.Arn]
+          - Sid: Redrive
+            Effect: Allow
+            Action: [sqs:StartMessageMoveTask, sqs:ListMessageMoveTasks, sqs:CancelMessageMoveTask]
+            Resource: [!GetAtt JobsQueue.Arn, !GetAtt JobsDlq.Arn]
+          - Sid: OldestMessageAge
+            Effect: Allow
+            Action: cloudwatch:GetMetricData
+            Resource: '*'
+          - !If
+            - HasKms
+            - Sid: Kms
+              Effect: Allow
+              Action: [kms:GenerateDataKey, kms:Decrypt]
+              Resource: !Ref KmsKeyArn
+            - !Ref 'AWS::NoValue'
+
+Outputs:
+  ModuleId:
+    Value: queue
+  ModuleVersion:
+    Value: !Ref ModuleVersion
+  PolicyArn:
+    Value: !Ref AppPolicy
+  EnvQueueDriver:
+    Value: sqs
+  EnvSqsQueueUrl:
+    Value: !Ref JobsQueue
+  EnvSqsDlqUrl:
+    Value: !Ref JobsDlq
+  EnvSqsWaitTimeSec:
+    Value: '20'
+  InfoQueueArn:
+    Value: !GetAtt JobsQueue.Arn
+  InfoDlqArn:
+    Value: !GetAtt JobsDlq.Arn
+  InfoQueueName:
+    Value: !GetAtt JobsQueue.QueueName
+  InfoDlqName:
+    Value: !GetAtt JobsDlq.QueueName
+  InfoQueueUrl:
+    Value: !Ref JobsQueue

@@ -1,0 +1,28 @@
+#!/bin/bash
+# /usr/local/sbin/cloudalbum-runtime — owned by ec2. Atomic edits of /etc/cloudalbum/runtime.json (ConfigPort(file)
+# runtime hot keys, D7). The application only reads the file and watches the directory, so "temporary file + rename".
+#   cloudalbum-runtime get [key]
+#   cloudalbum-runtime set <key> <json-value>     e.g. set readOnly true | set maxUploadMb 25 | set featureFlags '{"a":true}'
+set -euo pipefail
+
+F=/etc/cloudalbum/runtime.json
+cmd=${1:-}; key=${2:-}
+
+case "$cmd" in
+  get)
+    if [ -n "$key" ]; then jq --arg k "$key" '.[$k]' "$F"; else jq . "$F"; fi ;;
+  set)
+    [ "$(id -u)" = 0 ] || { echo "cloudalbum-runtime set must run as root" >&2; exit 1; }
+    [ -n "$key" ] && [ $# -ge 3 ] || { echo "usage: $0 set <key> <json-value>" >&2; exit 64; }
+    value=$3
+    jq -e . >/dev/null 2>&1 <<< "$value" || { echo "value is not valid JSON: $value" >&2; exit 64; }
+    dir=$(dirname "$(readlink -f "$F")")
+    tmp=$(mktemp "$dir/.runtime.XXXXXX")
+    { [ -s "$F" ] && cat "$F" || echo '{}'; } | jq --arg k "$key" --argjson v "$value" '.[$k] = $v' > "$tmp"
+    chown root:cloudalbum "$tmp"
+    chmod 0640 "$tmp"
+    mv -f "$tmp" "$(readlink -f "$F")"
+    echo "runtime.json: $key = $value" ;;
+  *)
+    echo "usage: $0 get [key] | set <key> <json-value>" >&2; exit 64 ;;
+esac

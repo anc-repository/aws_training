@@ -1,0 +1,11 @@
+# /etc/systemd/system/cloudalbum-security-snapshot.timer — owned by ec2 (every 2 minutes, monotonic)
+[Unit]
+Description=CloudAlbum security snapshot every 2 minutes
+
+[Timer]
+OnBootSec=1min
+OnUnitActiveSec=2min
+AccuracySec=10s
+
+[Install]
+WantedBy=timers.target

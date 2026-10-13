@@ -1,0 +1,11 @@
+# /etc/systemd/system/cloudalbum-backup.timer — owned by ec2. Wall-clock timers always name the time zone (AL2023 runs in UTC).
+[Unit]
+Description=CloudAlbum local backup at 03:30 Asia/Tokyo
+
+[Timer]
+OnCalendar=*-*-* 03:30:00 Asia/Tokyo
+Persistent=true
+RandomizedDelaySec=120
+
+[Install]
+WantedBy=timers.target

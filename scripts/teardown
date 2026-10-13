@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+# scripts/teardown [--purge-data] [--dry-run] [--yes] — alias of `scripts/module teardown` (modular-design.md 10.2, 00-ec2-base.md 8):
+# disable every module in reverse topological order, then delete the toolchain stack and finally the ec2 base stack.
+# Retained data resources (data volume, S3 buckets, RDS final snapshot, ...) are printed and kept unless --purge-data.
+set -euo pipefail
+exec "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/module" teardown "$@"

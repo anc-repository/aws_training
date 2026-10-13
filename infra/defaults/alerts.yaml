@@ -1,0 +1,23 @@
+# /etc/cloudalbum/alerts.yaml — rules of the monitoring local alert evaluator (METRICS_DRIVER=local; 05#monitoring).
+# Installed once by l0-bootstrap.sh from the release defaults; never overwritten afterwards (the operator owns it).
+# Each rule: id, metric (LabMetricsStore / process metric name), op (> < >= <=), threshold, forMinutes, severity.
+version: 1
+rules:
+  - id: api-5xx-rate
+    metric: http.5xx_ratio
+    op: ">"
+    threshold: 0.05
+    forMinutes: 5
+    severity: warning
+  - id: worker-heartbeat
+    metric: process.heartbeat_age_sec.worker
+    op: ">"
+    threshold: 120
+    forMinutes: 2
+    severity: critical
+  - id: data-volume-free
+    metric: host.data_volume_free_pct
+    op: "<"
+    threshold: 15
+    forMinutes: 10
+    severity: warning

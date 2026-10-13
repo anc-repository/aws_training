@@ -1,0 +1,198 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >-
+  CloudAlbum module "storage" - Amazon S3: private raw (original) bucket + media (variants/reports) bucket.
+  S3 events are delivered only through EventBridge (MUTEX-004). docs/modules/03-data-storage.md#storage
+
+Metadata:
+  CloudAlbum:
+    module: storage
+    registryVersion: 1
+    # Injected parameters (registry injects): KmsKeyArn (kms, target "*"), CdnDistributionArn (cdn),
+    # AppOrigins (dns / cdn / load-balancer, "+" appended; first enable: computed by scripts/module).
+
+Parameters:
+  Env:
+    Type: String
+    Default: lab
+    AllowedPattern: '^[a-z][a-z0-9-]{1,15}$'
+  ModuleVersion:
+    Type: String
+    Default: '1'
+  AppOrigins:
+    Type: CommaDelimitedList
+    Description: CORS origins of the raw bucket (union of all entry origins, e.g. http://<EIP>,https://dxxx.cloudfront.net)
+  KmsKeyArn:
+    Type: String
+    Default: ''
+    Description: Injected by kms. Empty = SSE-S3.
+  CdnDistributionArn:
+    Type: String
+    Default: ''
+    Description: Injected by cdn. Non-empty = allow CloudFront (OAC) to read variants/* of the media bucket.
+
+Conditions:
+  HasKms: !Not [!Equals [!Ref KmsKeyArn, '']]
+  HasCdn: !Not [!Equals [!Ref CdnDistributionArn, '']]
+
+Resources:
+  RawBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      BucketName: !Sub 'cloudalbum-${Env}-storage-raw-${AWS::AccountId}-${AWS::Region}'
+      VersioningConfiguration: { Status: Enabled }
+      OwnershipControls:
+        Rules: [{ ObjectOwnership: BucketOwnerEnforced }]
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: !If [HasKms, 'aws:kms', AES256]
+              KMSMasterKeyID: !If [HasKms, !Ref KmsKeyArn, !Ref 'AWS::NoValue']
+            BucketKeyEnabled: !If [HasKms, true, false]
+      NotificationConfiguration:
+        EventBridgeConfiguration: { EventBridgeEnabled: true }   # the ONLY allowed notification configuration (MUTEX-004)
+      CorsConfiguration:
+        CorsRules:
+          - AllowedOrigins: !Ref AppOrigins
+            AllowedMethods: [PUT, GET, HEAD]
+            AllowedHeaders: ['content-type', 'x-amz-*']
+            ExposedHeaders: [ETag]
+            MaxAge: 3000
+      LifecycleConfiguration:
+        Rules:
+          - Id: abort-mpu
+            Status: Enabled
+            AbortIncompleteMultipartUpload: { DaysAfterInitiation: 7 }
+          - Id: to-ia
+            Status: Enabled
+            Prefix: raw/
+            Transitions: [{ StorageClass: STANDARD_IA, TransitionInDays: 30 }]
+          - Id: noncurrent
+            Status: Enabled
+            NoncurrentVersionExpiration: { NoncurrentDays: 30 }
+          - Id: lab
+            Status: Enabled
+            Prefix: lab/
+            ExpirationInDays: 1
+      Tags:
+        - { Key: Backup, Value: 'true' }
+        - { Key: DataClass, Value: user-content }
+
+  MediaBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      BucketName: !Sub 'cloudalbum-${Env}-storage-media-${AWS::AccountId}-${AWS::Region}'
+      OwnershipControls:
+        Rules: [{ ObjectOwnership: BucketOwnerEnforced }]
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: !If [HasKms, 'aws:kms', AES256]
+              KMSMasterKeyID: !If [HasKms, !Ref KmsKeyArn, !Ref 'AWS::NoValue']
+            BucketKeyEnabled: !If [HasKms, true, false]
+      LifecycleConfiguration:
+        Rules:
+          - Id: abort-mpu
+            Status: Enabled
+            AbortIncompleteMultipartUpload: { DaysAfterInitiation: 7 }
+          - Id: lab
+            Status: Enabled
+            Prefix: lab/
+            ExpirationInDays: 1
+      Tags:
+        - { Key: DataClass, Value: user-content }   # variants/ can be regenerated from raw/: no Backup=true
+
+  RawBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref RawBucket
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: DenyInsecureTransport
+            Effect: Deny
+            Principal: '*'
+            Action: 's3:*'
+            Resource: [!GetAtt RawBucket.Arn, !Sub '${RawBucket.Arn}/*']
+            Condition: { Bool: { 'aws:SecureTransport': 'false' } }
+
+  MediaBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref MediaBucket
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: DenyInsecureTransport
+            Effect: Deny
+            Principal: '*'
+            Action: 's3:*'
+            Resource: [!GetAtt MediaBucket.Arn, !Sub '${MediaBucket.Arn}/*']
+            Condition: { Bool: { 'aws:SecureTransport': 'false' } }
+          - !If
+            - HasCdn
+            - Sid: AllowCloudFrontOacVariantsOnly
+              Effect: Allow
+              Principal: { Service: cloudfront.amazonaws.com }
+              Action: s3:GetObject
+              Resource: !Sub '${MediaBucket.Arn}/variants/*'   # raw/ and reports/ are never exposed through the CDN
+              Condition: { StringEquals: { 'AWS:SourceArn': !Ref CdnDistributionArn } }
+            - !Ref 'AWS::NoValue'
+
+  AppPolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      ManagedPolicyName: !Sub 'cloudalbum-${Env}-storage'   # no Roles / Users: attached by scripts/module (D2)
+      Description: CloudAlbum storage module - application and probe permissions
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: Objects
+            Effect: Allow
+            Action: [s3:PutObject, s3:GetObject, s3:DeleteObject, s3:AbortMultipartUpload, s3:ListMultipartUploadParts]
+            Resource: [!Sub '${RawBucket.Arn}/*', !Sub '${MediaBucket.Arn}/*']
+          - Sid: BucketsListAndProbe
+            Effect: Allow
+            Action: [s3:ListBucket, s3:GetEncryptionConfiguration, s3:ListBucketMultipartUploads]
+            Resource: [!GetAtt RawBucket.Arn, !GetAtt MediaBucket.Arn]
+          - !If
+            - HasKms
+            - Sid: Kms
+              Effect: Allow
+              Action: [kms:GenerateDataKey, kms:Decrypt]
+              Resource: !Ref KmsKeyArn
+            - !Ref 'AWS::NoValue'
+
+Outputs:
+  ModuleId:
+    Value: storage
+  ModuleVersion:
+    Value: !Ref ModuleVersion
+  PolicyArn:
+    Value: !Ref AppPolicy
+  EnvStorageDriver:
+    Value: s3
+  EnvStorageS3RawBucket:
+    Value: !Ref RawBucket
+  EnvStorageS3MediaBucket:
+    Value: !Ref MediaBucket
+  InfoMediaBucketRegionalDomainName:
+    Description: Injected into the cdn stack as MediaBucketDomain
+    Value: !GetAtt MediaBucket.RegionalDomainName
+  InfoRawBucketArn:
+    Value: !GetAtt RawBucket.Arn
+  InfoMediaBucketArn:
+    Value: !GetAtt MediaBucket.Arn

@@ -1,0 +1,40 @@
+# /etc/systemd/system/cloudalbum-api.service — owned by ec2 (modular-design.md 2.6). Modules may only add drop-ins
+# (cloudalbum-api.service.d/50-<id>.conf, see run-hostsetup.sh); they never change ExecStart.
+[Unit]
+Description=CloudAlbum API (Express on :3000)
+After=network-online.target
+Wants=network-online.target
+RequiresMountsFor=/var/lib/cloudalbum
+
+[Service]
+Type=simple
+# uid/gid fixed to 2001 (D6): identical owner across instances, data-volume moves and EFS access points
+User=cloudalbum
+Group=cloudalbum
+# new files 640, directories 750: nginx (group cloudalbum) can read media, other users cannot
+UMask=0027
+WorkingDirectory=/opt/cloudalbum/backend
+Environment=NODE_ENV=production
+Environment=CLOUDALBUM_ROLE=api
+Environment=CLOUDALBUM_ENV_DIR=/etc/cloudalbum
+Environment=PORT=3000
+ExecStart=/usr/bin/node --enable-source-maps dist/server.js
+Restart=on-failure
+RestartSec=3
+# 78 = EX_CONFIG: configuration validation failed; restarting cannot help
+RestartPreventExitStatus=78
+TimeoutStopSec=20
+LimitNOFILE=65536
+# /run/cloudalbum: file locks (LockPort=file); shared by several units, so keep it when one of them stops
+RuntimeDirectory=cloudalbum
+RuntimeDirectoryPreserve=yes
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/cloudalbum
+# secrets and module configuration are read-only for the application (verification commands: 00-ec2-base.md 6.8)
+ReadOnlyPaths=/var/lib/cloudalbum/etc
+
+[Install]
+WantedBy=multi-user.target

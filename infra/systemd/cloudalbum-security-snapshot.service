@@ -1,0 +1,10 @@
+# /etc/systemd/system/cloudalbum-security-snapshot.service — owned by ec2. Root collects host facts for the ec2 detector,
+# shell-access, threat-detection, compliance and vuln-scan (security/snapshot.json, root:cloudalbum 0640).
+[Unit]
+Description=CloudAlbum root security snapshot
+RequiresMountsFor=/var/lib/cloudalbum
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/lib/cloudalbum/security-snapshot.sh
+Nice=10

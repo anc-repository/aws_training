@@ -1,0 +1,12 @@
+# /etc/systemd/system/cloudalbum-vuln-scan.service — installed by ec2; the script content belongs to vuln-scan (06#vuln-scan)
+[Unit]
+Description=CloudAlbum local vulnerability scan (dnf security advisories + npm audit)
+RequiresMountsFor=/var/lib/cloudalbum
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/lib/cloudalbum/vuln-scan.sh
+Nice=15
+IOSchedulingClass=idle
