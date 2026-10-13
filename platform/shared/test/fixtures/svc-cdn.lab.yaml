@@ -1,0 +1,223 @@
+# Copied from docs/platform/04-lab-format-checks-reports.md §11.1 (complete example card) — test fixture only.
+schema: atl.lab/v2
+id: svc-cdn
+kind: service
+version: 1.0.0
+status: beta
+service: Amazon CloudFront
+function: 内容分发与边缘缓存
+title: Amazon CloudFront：内容分发与边缘缓存
+subtitle: EC2 直出 → CloudFront 边缘缓存
+summary: 给 EC2 直出的相册加一层 CloudFront：命中缓存时不回源，源站流量与连接被卸载，用户拿到受信任的 HTTPS。
+story: |
+  L0 时每一张缩略图、每一个 JS 文件都由东京这台 EC2 的 Nginx 发出。
+  这张卡片让同样的内容从离用户最近的边缘节点返回，命中时根本不回源；源站只接受带密钥头、来自 CloudFront 网段的回源请求。
+objectives:
+  - { text: 用托管前缀列表加自定义头保护自定义源站, domain: secure, relatesTo: enable-cdn }
+  - { text: 用服务端证据区分“边缘命中”和“源站响应”, domain: performance, relatesTo: observe-edge-cache }
+  - { text: 说清缓存策略、源请求策略、响应头策略各管什么, domain: performance, relatesTo: observe-edge-cache }
+  - { text: 理解 CDN 降低源站出网流量与负载的原理, domain: cost, relatesTo: after }
+  - { text: 比较失效与版本化文件名, domain: performance, relatesTo: invalidation }
+difficulty: intermediate                   # 需要等待分配部署（05 的难度判定）
+estimatedMinutes: 75
+timeLimitMinutes: 120
+extensions: { maxCount: 2, minutesEach: 30 }
+retain: { allowed: true, maxHours: 24, reason: 分配的禁用与删除较慢，保留后可在下一张卡片（例如 svc-waf）中继续 }
+regions:
+  supported: [ap-northeast-1]
+  alsoUses: [global, us-east-1]           # CloudFront 控制面；全局服务的 CloudTrail 事件在 us-east-1
+services:
+  - { id: cloudfront, name: Amazon CloudFront, role: primary, module: cdn }
+  - { id: ec2, name: Amazon EC2（源站）, role: supporting, module: ec2 }
+  - { id: iam, name: AWS IAM（实例角色）, role: context, module: iam }
+  - { id: ssm-session-manager, name: AWS Systems Manager Session Manager（平台管理通道）, role: observed }
+modules: { target: [cdn], start: [iam], context: [], related: [waf, dns, tls, storage] }
+prerequisites:
+  cards: [ { id: svc-ec2, kind: soft } ]
+  knowledge: [HTTP 缓存头（Cache-Control、Age、ETag）, DNS 与 HTTPS 基础]
+
+startProfile:
+  provisions:
+    - { item: iam, kind: module, basis: credential, set: { IAM_CREDENTIALS: role },
+        reason: 平台约定除 svc-ec2、svc-iam 外起始状态都带实例角色；cdn 的失效按钮与 GetDistribution 控制面感知因此可用，启用后状态为 ok }
+    - { item: mgmt-channel, kind: platform, reason: 实验机挂只含 AmazonSSMManagedInstanceCore 的 CloudAlbumAppRole，是平台的管理通道，不是应用权限 }
+    - { item: workstation, kind: platform, reason: 每个会话一台工作台，用于运行 scripts/module、AWS CLI 与对比实验 }
+    - { item: preview-direct-https, kind: platform, reason: 预览用 Let's Encrypt IP 证书；本卡对比的是“EC2 直出”与“经 CloudFront”，不涉及 tls 模块，保持开启 }
+  platform: { preview: { directHttps: 'on' } }
+  reason: cdn 以 EC2 为源站时只要求实例关联弹性 IP（L0 已满足），没有其他硬依赖；平台只额外准备实例角色
+targetModules:
+  - id: cdn
+    driver: cloudfront
+    set: { CDN_ORIGIN_TYPE: ec2, CDN_MEDIA_ORIGIN: ec2, CDN_DIRECT_ACCESS: open }
+    wireStep: enable-cdn
+    adoptsExisting: true                  # 路线 M：先在控制台建分配，再用 scripts/module 接管
+expectedWarnings: []                      # 起始状态带 iam，cdn 不会因 CRED-004 降级；对照：svc-auth 写 [DEP-013]
+workstation: { required: true, tools: [aws-cli, node, k6, jq], savingsMode: degraded }   # CloudShell 下压测结果只供参考
+platform:
+  consoleLinks: [cloudfront.createDistribution, cloudfront.distributions]
+provision: { class: A, cleanupBudgetMinutes: 90 }   # 起始状态只有 L0 + iam；学员创建的分配要先禁用再删除，回收预算按 90 分钟
+
+variables:
+  distributionId:
+    label: 分配 ID
+    from: input
+    fillFrom: stack.cdn.EnvCdnDistributionId     # 路线 S 接入后自动取得；路线 M 由学员填写
+    pattern: '^E[A-Z0-9]{8,20}$'
+    example: E2QWRUHAPOMQZL
+    help: CloudFront 控制台“分配”列表中的 ID 列
+  cdnDomain:
+    label: 分配域名
+    from: derived
+    fillFrom: 'cap.cdn.public.baseUrl | host'
+
+cost:
+  currency: USD
+  tier: low
+  mainDrivers: [CloudFront 请求数, CloudFront 出网流量, 超出免费配额的失效路径]
+  basis:
+    - { ref: start-profile, note: 实验机 EC2、EBS（根卷与数据卷）、公网 IPv4 }
+    - { ref: workstation, note: 工作台 EC2、EBS、公网 IPv4 }
+    - { key: cf-requests, pricingKey: cloudfront.requests.https, billing: usage, quantity: 1, unit: requests,
+        assumedUsagePerHour: 5000, source: target, whenRetained: false }
+    - { key: cf-dto, pricingKey: cloudfront.dto, billing: usage, quantity: 1, unit: GB,
+        assumedUsagePerHour: 0.2, source: target, whenRetained: false }
+  assumptions:
+    - CloudFront 按量计费，按每小时约 5000 次请求、0.2 GB 出网估算（实验脚本 + 页面浏览）；学习流量通常在免费额度内，以官方定价为准
+    - 回源流量（EC2 → CloudFront）不计入出网费用，以官方定价为准
+
+steps:
+  - id: orient
+    type: observe
+    title: 起始状态：入口只有 EC2 的 Nginx
+    manual: manual/10-orient.md
+    panel: preview
+    estMinutes: 5
+    checks: [entry-direct-baseline, cdn-off]          # 两项都是 before 断言，定义中写了 drift: once
+
+  - id: baseline
+    type: experiment
+    title: 记录 before：EC2 直出时的源站负载
+    manual: manual/20-baseline.md
+    experiment: { module: cdn, id: media-load, label: before }
+    estMinutes: 10
+    checks: [exp-media-before]
+
+  - id: enable-cdn
+    type: script
+    wire: true
+    title: 启用 CloudFront 并接入应用（源站 = 实验机的 8080 源站监听器）
+    manual: manual/30-enable-cdn.md
+    from: 'guide:cdn#wire'
+    methods: [script, console]                      # 路线 S（一键脚本）/ 路线 M（控制台建分配后接管）
+    estMinutes: 20
+    startsBilling: { class: usage, pricingKeys: [cloudfront.requests.https, cloudfront.dto], note: 按量计费 }
+    wait: { typicalMinutes: 5, maxMinutes: 20, text: 分配状态会从“正在部署”变为“已启用” }
+    checks: [cap-cdn-healthy, entry-cloudfront, origin-direct-denied, distribution-deployed]
+
+  - id: observe-edge-cache
+    type: observe
+    title: 亲眼看到边缘命中：同一请求先 Miss 后 Hit，命中的那次没有回源
+    manual: manual/40-observe-edge-cache.md
+    requires: { steps: [enable-cdn] }
+    estMinutes: 10
+    checks: [edge-cache-observed, api-not-cached]
+
+  - id: after
+    type: experiment
+    title: 记录 after：经 CloudFront 时的源站负载
+    manual: manual/50-after.md
+    experiment: { module: cdn, id: media-load, label: after }
+    requires: { steps: [enable-cdn] }
+    estMinutes: 10
+    checks: [exp-media-pair]
+
+  - id: invalidation
+    type: cli
+    title: 覆盖同名对象后，用失效与版本化文件名两种方式更新
+    manual: manual/60-invalidation.md
+    requires: { steps: [enable-cdn] }
+    estMinutes: 15
+    checks: [invalidation-completed, invalidation-vs-versioning]
+
+  - id: compression
+    type: experiment
+    title: （选做）压缩与协议：br、HTTP/2 与 HTTP/3
+    manual: manual/70-compression.md
+    optional: { reason: 不影响完成 }
+    experiment: { module: cdn, id: compression, label: after }
+    estMinutes: 10
+    checks: [ { ref: exp-compression, required: false } ]
+
+finalChecks:
+  - no-world-ssh                                 # _shared/checks：安全组没有对 0.0.0.0/0 开放 22
+  - { ref: cap-cdn-healthy, as: final-cdn-healthy }
+
+experiments:
+  - module: cdn
+    id: media-load                               # 必需实验选 media-load 而不是 ttfb：工作台在东京，首字节时间差别很小，源站负载的变化更清楚
+    labels:
+      - { id: before, role: baseline, requires: { cdn: direct } }
+      - { id: after,  role: treatment, requires: { cdn: cloudfront } }
+    pairs: [[before, after]]
+    required: true
+    runner: workstation
+    allowSimulatedBaseline: true
+    corroboration: { minServerRatio: 0.9 }
+  - { module: cdn, id: ttfb, labels: [before, after], required: false }          # 远端视角需要多区域 CloudShell，选做
+  - { module: cdn, id: compression, labels: [after], required: false }           # 只有 treatment 一个变体，不成对
+
+quiz: { file: quiz.yaml, draw: 3 }
+badge: { title: 边缘缓存, icon: assets/badge.svg }
+tracks: [saa-main, performant, cost-optimized, quick-compare, networking]
+
+cleanup:
+  summary: 结束实验后，平台会删除本次会话的全部资源，包括你在控制台手动创建的分配与自定义策略。CloudFront 分配要先禁用、等部署完成后才能删除，回收需要一段时间。
+  autoReclaim: true
+  dataRisk: [没有业务数据；实验机与其上的照片随会话删除，报告中保留证据摘要]
+  learnerCreatedHints:
+    - { resourceType: 'AWS::CloudFront::Distribution', how: 先禁用，状态变为已部署后再删除 }
+    - { resourceType: 'AWS::CloudFront::CachePolicy', how: 分配删除后才能删除被引用的自定义缓存策略 }
+    - { resourceType: 'AWS::CloudFront::ResponseHeadersPolicy', how: 同上 }
+  verify:
+    - { ref: 'guide:cdn#cleanup/dist-gone', as: dist-gone }
+
+saa:
+  domains: [performance, cost, secure]
+  topics:
+    - { id: three-policies, title: 缓存策略、源请求策略、响应头策略的分工, domain: performance, relatesTo: observe-edge-cache }
+    - { id: custom-origin, title: 自定义源站只能是域名；前缀列表 + 自定义头保护源站, domain: secure, relatesTo: enable-cdn }
+    - { id: origin-egress, title: AWS 源站回源到 CloudFront 的流量不计出网费, domain: cost, relatesTo: after }
+    - { id: invalidation, title: 失效与版本化文件名, domain: performance, relatesTo: invalidation }
+  confusables:
+    - { ref: 'guide:cdn#exam/confusables/0' }   # 缓存失效 vs 版本化文件名
+    - { ref: 'guide:cdn#exam/confusables/1' }   # CloudFront vs Global Accelerator
+
+tags: [cdn, cloudfront, edge, caching, performance]
+
+permissions:
+  learner:
+    - cloudfront:CreateDistribution          # API CreateDistributionWithTags 也由它 + TagResource 授权（没有同名 IAM 动作）
+    - cloudfront:UpdateDistribution
+    - cloudfront:GetDistribution
+    - cloudfront:GetDistributionConfig
+    - cloudfront:ListDistributions
+    - cloudfront:CreateCachePolicy
+    - cloudfront:ListCachePolicies
+    - cloudfront:CreateResponseHeadersPolicy
+    - cloudfront:CreateInvalidation
+    - cloudfront:GetInvalidation
+    - cloudfront:TagResource
+    - ec2:DescribeManagedPrefixLists
+    - cloudformation:CreateChangeSet          # scripts/module（栈名限定为 cloudalbum-*，见 01 的权限边界）
+    - cloudformation:DescribeChangeSet
+    - cloudformation:ExecuteChangeSet
+    - cloudformation:DescribeStacks
+    - cloudformation:DescribeStackEvents
+    - cloudformation:GetTemplateSummary
+    - ec2:AuthorizeSecurityGroupIngress       # 模板经 CloudFormation 以调用者身份放行 8080（前缀列表）
+    - ec2:RevokeSecurityGroupIngress
+    - ssm:SendCommand                         # scripts/module 平台模式经 Run Command 投递
+  notes: 平台模式下 scripts/module 给栈打 atl:component=env、atl:session-id、atl:lab-id 标签（C4(d)，学员边界放行）；状态与锁在学员可访问的 cloudalbum-lab-state 桶与 cloudalbum-lab-locks 表中（01），不在任何 atl-* 资源上
+
+certificate: { enabled: false }
+owners: [cloudalbum-maintainers]

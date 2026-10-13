@@ -1,0 +1,50 @@
+{
+  "name": "@atl/api",
+  "version": "0.1.0",
+  "private": true,
+  "description": "ATL platform Lambda functions (atl-api, atl-public, atl-agent, atl-checks, atl-lifecycle, atl-timer, atl-reaper, atl-certs, atl-pricing, atl-custom-resources, atl-copy-artifacts, atl-tagger), AWS adapters behind the shared ports, and the ATL_DEV_MODE=1 dev runtime (DynamoDB Local, in-process orchestrator, local runner).",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -b",
+    "bundle": "node build.mjs",
+    "test": "vitest run",
+    "dev": "tsx src/dev/server.ts",
+    "dev:tables": "tsx src/dev/create-tables.ts"
+  },
+  "dependencies": {
+    "@atl/shared": "0.1.0",
+    "@aws-sdk/client-cloudformation": "3.1142.0",
+    "@aws-sdk/client-cloudtrail": "3.1142.0",
+    "@aws-sdk/client-codebuild": "3.1142.0",
+    "@aws-sdk/client-cognito-identity-provider": "3.1142.0",
+    "@aws-sdk/client-dynamodb": "3.1142.0",
+    "@aws-sdk/client-ec2": "3.1142.0",
+    "@aws-sdk/client-eventbridge": "3.1142.0",
+    "@aws-sdk/client-iam": "3.1142.0",
+    "@aws-sdk/client-kms": "3.1142.0",
+    "@aws-sdk/client-lambda": "3.1142.0",
+    "@aws-sdk/client-resource-groups-tagging-api": "3.1142.0",
+    "@aws-sdk/client-s3": "3.1142.0",
+    "@aws-sdk/client-scheduler": "3.1142.0",
+    "@aws-sdk/client-sfn": "3.1142.0",
+    "@aws-sdk/client-ssm": "3.1142.0",
+    "@aws-sdk/client-sts": "3.1142.0",
+    "@aws-sdk/lib-dynamodb": "3.1142.0",
+    "@aws-sdk/s3-request-presigner": "3.1142.0",
+    "aws-jwt-verify": "^5.0.0",
+    "zod": "^4.1.12"
+  },
+  "devDependencies": {
+    "@atl/workflows": "0.1.0",
+    "@types/aws-lambda": "^8.10.155",
+    "aws-sdk-client-mock": "^4.1.0"
+  }
+}

@@ -7,6 +7,17 @@ import reactHooks from 'eslint-plugin-react-hooks';
 import globals from 'globals';
 import tseslint from 'typescript-eslint';
 
+// ATL platform (platform/**): AWS-native, but pure layers stay SDK-free, and production code never imports the dev
+// runtime (platform/api/src/dev/**) or the in-process simulator (@atl/workflows) — docs/implementation-notes.md platform-scaffold.
+const atlSdkPattern = {
+  group: ['@aws-sdk/*'],
+  message: 'ATL: @aws-sdk/* is not allowed in platform/shared, platform/workflows/src, platform/web or platform/api/src/domain (pure layers).',
+};
+const atlDevPattern = {
+  group: ['**/dev/*', '**/dev/**', '@atl/workflows', '@atl/workflows/*'],
+  message: 'ATL: production code must not import the dev runtime (src/dev/**) or the simulator (@atl/workflows).',
+};
+
 const awsSdkRestriction = {
   patterns: [
     {
@@ -26,6 +37,9 @@ export default tseslint.config(
       '.cloudalbum/**',
       'experiments/_results/**',
       'experiments/_reports/**',
+      '.atl-dev/**',
+      'platform/api/dist-lambda/**',
+      'platform/infra/dist/**',
       'packages/contracts/src/generated/**',
       'docs/**',
     ],
@@ -55,6 +69,24 @@ export default tseslint.config(
       '**/*.test.ts',
     ],
     rules: { 'no-restricted-imports': 'off' },
+  },
+  // ---- ATL platform ----
+  {
+    files: ['platform/**', 'scripts/labs/**'],
+    rules: { 'no-restricted-imports': 'off' },
+  },
+  {
+    files: ['platform/api/src/**/*.ts'],
+    ignores: ['platform/api/src/dev/**'],
+    rules: { 'no-restricted-imports': ['error', { patterns: [atlDevPattern] }] },
+  },
+  {
+    files: ['platform/shared/src/**/*.ts', 'platform/workflows/src/**/*.ts', 'platform/web/src/**/*.{ts,tsx}'],
+    rules: { 'no-restricted-imports': ['error', { patterns: [atlSdkPattern] }] },
+  },
+  {
+    files: ['platform/api/src/domain/**/*.ts'],
+    rules: { 'no-restricted-imports': ['error', { patterns: [atlSdkPattern, atlDevPattern] }] },
   },
   {
     files: ['frontend/**/*.{ts,tsx}'],

@@ -1,0 +1,12 @@
+{
+  "Comment": "atl-module-op: placeholder written by platform-scaffold. The workflows implementer replaces it with the ASL of 01 §3.3, 04 §3, 9.6 (JSONPath; DefinitionSubstitutions as in src/asl/load.ts DEV_SUBSTITUTIONS).",
+  "QueryLanguage": "JSONPath",
+  "StartAt": "NotImplemented",
+  "States": {
+    "NotImplemented": {
+      "Type": "Fail",
+      "Error": "Atl.NotImplemented",
+      "Cause": "atl-module-op is not implemented yet"
+    }
+  }
+}

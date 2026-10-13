@@ -1,0 +1,16 @@
+{
+  "name": "@atl/platform-scripts",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Convenience scripts for `cd platform && npm run <x>` (01 §4.9, 07 V0-6/V5-1). Not a workspace root: the platform packages are workspaces of the repository root; install dependencies with `npm ci` at the repository root.",
+  "scripts": {
+    "build": "npm --prefix .. run platform:build",
+    "test": "npm --prefix .. run platform:test",
+    "validate": "npm --prefix .. run platform:validate",
+    "dev": "npm --prefix .. run platform:dev",
+    "db:up": "npm --prefix .. run platform:db:up",
+    "db:init": "npm --prefix .. run platform:db:init",
+    "db:down": "npm --prefix .. run platform:db:down",
+    "publish:s3": "node -e \"console.error('publish:s3 is not implemented yet (platform/infra/build/package.ts + manifest.ts, infra implementer)'); process.exit(2)\""
+  }
+}

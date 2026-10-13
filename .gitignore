@@ -34,3 +34,9 @@ experiments/_reports/
 lambdas/*/dist/
 lambdas/*/build/
 npm-debug.log*
+
+# --- ATL platform ---
+# dev runtime data (ATL_DEV_MODE=1: buckets, signing keys, runner runs, local L0 dirs, test temp files)
+.atl-dev/
+platform/api/dist-lambda/
+platform/infra/dist/

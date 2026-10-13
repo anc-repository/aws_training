@@ -1,0 +1,12 @@
+{
+  "Comment": "atl-reclaim-rescan: placeholder written by platform-scaffold. The workflows implementer replaces it with the ASL of 02 §7.11 (JSONPath; DefinitionSubstitutions as in src/asl/load.ts DEV_SUBSTITUTIONS).",
+  "QueryLanguage": "JSONPath",
+  "StartAt": "NotImplemented",
+  "States": {
+    "NotImplemented": {
+      "Type": "Fail",
+      "Error": "Atl.NotImplemented",
+      "Cause": "atl-reclaim-rescan is not implemented yet"
+    }
+  }
+}

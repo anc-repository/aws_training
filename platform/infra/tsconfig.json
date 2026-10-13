@@ -1,0 +1,9 @@
+{
+  "//": "Build scripts run with tsx; tsc only type-checks them (root `npm run build` runs `tsc -p platform/infra/tsconfig.json` after `tsc -b`, so @atl/shared resolves to its built dist).",
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "rootDir": "."
+  },
+  "include": ["build/**/*.ts"]
+}

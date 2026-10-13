@@ -1,0 +1,19 @@
+{
+  "name": "@atl/labs-tools",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Card content tools for labs/ (04 §2.5, §3.5): labs:schema, labs:lint, labs:derive, labs:build, labs:catalog, labs:policy.",
+  "type": "module",
+  "bin": {
+    "atl-labs": "./dist/cli.js"
+  },
+  "scripts": {
+    "build": "tsc -b",
+    "test": "vitest run",
+    "labs": "tsx src/cli.ts"
+  },
+  "dependencies": {
+    "@atl/shared": "0.1.0",
+    "yaml": "^2.8.1"
+  }
+}

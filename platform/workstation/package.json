@@ -1,0 +1,25 @@
+{
+  "name": "@atl/workstation",
+  "version": "0.1.0",
+  "private": true,
+  "description": "ATL workstation tools (03 §4.5–§4.6): session files from atl.agent-context/v1 (session.env, session.json), and the place for atl-workstation-setup.sh, atl-agent-call, atl-credentials, atl-lab-proxy and the workstation bootstrap bundle.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "bin": {
+    "atl-write-session-files": "./dist/cli/write-session-files.js"
+  },
+  "scripts": {
+    "build": "tsc -b",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@atl/shared": "0.1.0"
+  }
+}

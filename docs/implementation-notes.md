@@ -777,3 +777,187 @@ smoke:l0、smoke:selfhost、cfn-lint 1.57.2（10 个模板 0 发现）、amazonl
     旧的 `security/denylist.conf.last-good`（cloudalbum 可写）每次运行都会删除；校验失败时从 root 副本（再校验一次）恢复应用侧文件。新增 `--sync`
     （只更新副本、不 reload、永远退出 0），由 nginx.service drop-in 的 `ExecStartPre=-` 与 postattach（`nginx -t` 之前）调用；install-host-files.sh 播种空副本。
     文档 00-ec2-base.md 中 include 路径与 last-good 的描述需要按此回写（本轮不改 docs）。
+
+---
+
+## platform-scaffold
+
+ATL 平台（`docs/platform/01～08`）的脚手架：工作区、名称表代码化（`@atl/shared`）、端口与 dev 模式运行时、ASL 校验与进程内编排模拟器、
+DynamoDB Local 与建表脚本、第一批工具。其他平台实现者都从这里开始填充。权威仍是 01 的名称表（§14）；本节只记录目录约定与取舍。
+
+### 1. 目录约定
+
+```
+package.json              根 workspaces 增加 platform/shared、platform/api、platform/workflows、platform/infra、platform/workstation、
+                          platform/web（占位）、scripts/labs；新增脚本 platform:*、labs:*（见第 4、5 节）
+tsconfig.json             tsc -b 引用增加 platform/shared、workflows、api、workstation、scripts/labs；paths 增加 @atl/*（只给 tsx 用）
+vitest.config.ts          projects 增加 6 个平台项目（atl-shared、atl-api、atl-workflows、atl-infra、atl-workstation、atl-labs-tools）
+vitest.shared.ts          @atl/shared、@atl/shared/node、@atl/workflows 指向 TS 源码（测试无需先 build）
+eslint.config.js          平台规则：见第 2 节“生产与 dev 隔离”
+docker-compose.platform.yml  amazon/dynamodb-local:3.3.1（-inMemory，127.0.0.1:58000）；不改 docker-compose.test.yml
+platform/package.json     不是工作区根，只转发脚本（cd platform && npm run build|test|dev|validate|db:*）
+platform/VERSION          平台版本（0.1.0-dev），merge-template 写入模板 Metadata
+platform/shared/          @atl/shared：01 §14 名称表的代码形态（浏览器可用；Node 专用的在 @atl/shared/node）
+  src/ids.ts              sid（s + 12 位小写 Crockford）、ULID、envId、envName、卡片 ID、变体、档位名 atl/<card>/<variant>、证书 ID、runId
+  src/session-states.ts   11 个状态、T01～T21 转换表、canTransition、锁持有、endReason、agent 路由状态闸门、结束阶段
+  src/entities.ts         33 个实体名与废弃名、SessionResource 等枚举、LabSession / Environment / PlatformConfig 的跨文档字段
+  src/keys.ts             atl-main 的 PK/SK、GSI1、GSI2（稀疏）、TTL、查询前缀与 AP12 / AP13 分区（唯一的键构造处）
+  src/tables.ts           atl-main 与 cloudalbum-lab-locks 的 CreateTable 形态（建表脚本与模板共用）、envLockKey
+  src/routes.ts           01 §8.2 全部路由（id、方法、路径、鉴权列、函数、幂等、敏感操作）、matchRoute、08 §9.2 待登记路由
+  src/events.ts errors.ts 8.4 事件类型与 source、8.5 审计动作、8.6 错误码（含 agent 码与 03 的终端 / 控制台码）、02 §13.2 失败码、AtlError
+  src/runner.ts workflows.ts functions.ts scheduler.ts roles.ts tags.ts resources.ts
+                          ATL_OP、状态机与执行名、Lambda 与动作名、调度名与载荷、角色 / 策略 / 会话名、标签、桶 / 栈 / SSM / 安装参数等资源名
+  src/agent-context.ts    atl.agent-context/v1：zod schema、buildAgentContext（唯一组装处）、toSessionEnv、toSessionJson、renderEnvFile
+  src/lab/                lab.yaml v2：JSON Schema（04 §3.3 照录，lab-schema.generated.ts）、TS 类型、ajv 校验
+  src/ports/              端口接口：Clock、Orchestrator、Runner、RunCommand、Scheduler、Signer、TrailLookup、Auth、Invoker、EventPublisher、ObjectStore
+  src/encoding.ts jcs.ts  base64url、ATL_ARGS 编解码、DER → P1363、RFC 8785 JCS；node.ts：resourceKey、JWK 指纹
+platform/api/             @atl/api
+  src/functions/<fn>/     12 个函数；handler.ts = 工厂（接收 DepsProvider），index.ts = 生产入口（只接 aws/deps.ts）
+  src/aws/                生产端口实现（SDK v3，按需动态 import）与 prodDeps
+  src/runtime/            FunctionDeps（ports + DynamoDB 文档客户端 + env）、环境变量表 PLATFORM_ENV_VARS、{action} 分派器
+  src/http/ src/auth/     路由分派（按 @atl/shared 路由表）、problem+json、rbac、SigV4 调用方校验
+  src/data/keys.ts        01 §7.1 指定的键入口：从 @atl/shared 再导出
+  src/dev/                ATL_DEV_MODE=1 运行时（第 4 节）；生产代码不得引用
+  build.mjs               esbuild：nodejs22 ESM，dist-lambda/<fn>/index.mjs；@aws-sdk/* external；发现 dev 代码即失败
+  contracts/              01 §13 的 @atl/contracts（openapi 等）占位 README
+platform/workflows/       @atl/workflows
+  statemachines/*.asl.json  6 个状态机（本轮为合法的占位 Fail 定义）
+  src/asl/                结构校验（转移目标、可达性、终止、Retry/Catch、States.ALL、<<占位>>）+ asl-validator 包装、加载与 DEV_SUBSTITUTIONS
+  src/simulator/          进程内 Step Functions 模拟器（JSONPath、内置函数、Retry/Catch、超时、Parallel/Map、.sync、故障注入）、VirtualClock
+platform/infra/           @atl/infra：src/NN-*.yaml 片段（本轮只有 README）、build/merge-template.ts（含 CFN 短标签解析）、test/
+platform/workstation/     @atl/workstation：session.env / session.json 写出工具（atl-write-session-files）
+platform/web/             @atl/web 占位（下一轮）
+scripts/labs/             @atl/labs-tools：labs:schema、labs:lint（本轮实现 A1 / A2 / A5），derive / build / catalog / policy 为桩（退出码 2）
+.atl-dev/                 dev 运行时数据（桶目录、签名密钥、运行器产物、本地 L0、测试临时目录），已加入 .gitignore
+```
+
+### 2. 核心约定（平台实现者必读）
+
+- **名称只从 @atl/shared 取**：实体、键、路由 id、状态、事件、错误码、ATL_OP、调度名、执行名、角色会话名、标签、资源名都有常量或构造函数，
+  不要在代码里手拼。`platform/shared/test/name-table.test.ts` 把常量与 01 §14、§8.2、§8.4～§8.6 的表逐项比对（文档存在时），名称表改了测试会失败。
+- **键**：只经 `Keys` / `Gsi1` / `Gsi2` / `SkPrefix`（API 内从 `src/data/keys.ts` 导入）。GSI2 是稀疏索引：`Gsi2.*` 返回 `null` 时更新必须
+  REMOVE `GSI2PK` / `GSI2SK`。`resourceKey()` 在 `@atl/shared/node`。
+- **状态转换**：`canTransition(from, to)` 与 `TRANSITIONS` 是 02 §2.3 的代码形态；`atl-lifecycle.Transition` 只能接受其中的边。
+- **agent context**：`atl-agent` 用 `buildAgentContext()`，工作台用 `toSessionEnv()` / `toSessionJson()`（`@atl/workstation` 已封装写文件），
+  运行器 buildspec 用同一 builder 的 `toSessionEnv(ctx, { opsReport: 'internal' })`——01 §8.2“两处不得各自拼接”。
+- **函数结构**：`handler.ts` 导出工厂 `createXHandler(getDeps, table?)`。动作型函数在 `ACTIONS` 里按 `action`（atl-timer 按 `kind`）登记，
+  未登记的动作抛 `Atl.NotImplemented`；HTTP 函数在 `ROUTE_HANDLERS` 里按路由 id 登记，未登记的路由返回 501 `NOT_IMPLEMENTED`。
+- **HTTP 分派**（`src/http/router.ts`）已经做了：路由匹配（静态段优先）、按路由族鉴权（JWT 经 AuthPort；agent 只认
+  `ATLLearnerRole/atl-<sid>-ws` 且 sid 与路径一致，否则 `SESSION_MISMATCH`；internal 只认 `ATLProvisionerRole/atl-<sid>-prov-*` 且 sid
+  与路径或 runId 一致，否则 `CALLER_MISMATCH`）、rbac（路由表的鉴权列）、敏感路由的 `auth_time` ≤ 60 分钟、POST 与 `PUT …/result` 必须带
+  `Idempotency-Key`、`AtlError` → problem+json。**没有做**（API 实现者负责）：IdempotencyRecord 存取、agent 路由的会话状态闸门
+  （用 `AGENT_STATE_GATES`）、审计写入（`onDenied` 钩子已留）、限速。
+- **端口**：业务代码只用 `deps.ports.*` 与 `deps.db`，不自己 new SDK 客户端。需要新端口时：接口加到 `platform/shared/src/ports/`，生产实现加到
+  `src/aws/adapters.ts`，dev 实现加到 `src/dev/adapters/`，并在 `aws/deps.ts` 与 `dev/runtime.ts` 各接一次。
+- **生产与 dev 隔离**：生产入口只经 `src/aws/deps.ts` 取依赖；ESLint 在 `platform/api/src/**`（`src/dev/**` 除外）禁止导入 `**/dev/**` 与
+  `@atl/workflows`；`platform/api/test/prod-bundle.test.ts` 用 esbuild 打包 12 个入口并断言 metafile 中没有 dev 代码（`build.mjs` 发现即失败）。
+  `@aws-sdk/*` 在 `platform/shared`、`platform/workflows/src`、`platform/web`、`platform/api/src/domain` 中禁止使用。
+- **ASL**：状态机写在 `platform/workflows/statemachines/<name>.asl.json`（JSONPath）；02 骨架中的 `"<<LambdaRetry>>"` 等占位必须展开
+  （结构校验会报错）。`${Name}` 是 DefinitionSubstitutions，dev 取值在 `src/asl/load.ts` 的 `DEV_SUBSTITUTIONS`，新增占位要同时加在这里与模板中。
+  `npm run platform:validate` 与 `test/asl-files.test.ts` 对每个文件跑结构校验与 asl-validator。
+- **Lambda 环境变量**（模板必须设置，名称见 `src/runtime/env.ts` 的 `PLATFORM_ENV_VARS`）：`ATL_ACCOUNT_ID`、`ATL_TABLE`、`ATL_LOCKS_TABLE`、
+  `ATL_WEB_BUCKET`、`ATL_DATA_BUCKET`、`ATL_ARTIFACTS_BUCKET`、`ATL_LAB_STATE_BUCKET`、`ATL_USER_POOL_ID`、`ATL_WEB_CLIENT_ID`、`ATL_SIGNING_KEY_ID`、
+  `ATL_SCHEDULER_ROLE_ARN`、`ATL_TIMER_FUNCTION_ARN`、`ATL_TIMER_DLQ_ARN`、`ATL_PLATFORM_VERSION`；`ATL_DEV_MODE` 永不出现在模板中。
+
+### 3. 各实现者要填的文件
+
+- **API（atl-api / atl-agent / atl-public，01、03、04 的 API 部分）**：`platform/api/src/functions/{api,agent,public}/handler.ts` 的 `ROUTE_HANDLERS`；
+  仓储放 `src/data/repositories/`，纯领域逻辑放 `src/domain/`（不依赖 SDK）；`contracts/`（openapi、entities/*.schema.json 等）；
+  `atl-pricing`、`atl-certs`（JWS：`canonicalJson` + `SignerPort.sign` + `jwkThumbprint`）。
+- **生命周期与编排（02）**：`functions/{lifecycle,timer,reaper}/handler.ts` 的 `ACTIONS`；`platform/workflows/statemachines/*.asl.json`（替换占位）；
+  `platform/workflows/runner/buildspec.yml` 与 `runner/ops/*.sh`；`platform/workflows/reclaimer/`。dev 下用 `createDevRuntime()` 跑完整编排
+  （`platform/api/test/dev-runtime.test.ts` 是范例：VirtualClock + 注入失败）。
+- **检查、报告、证书（04）**：`functions/{checks,certs}/handler.ts`；检查包源码按 06 PM-04 放 `platform/infra/checks-bundle/`；
+  `scripts/labs/src/` 的其余 lint 规则（A3、A4、A6～A20、B21～B25）与 derive / build / catalog / policy。
+- **基础设施（01 §3～§6）**：`platform/infra/src/NN-*.yaml`、`policies/*.json.tmpl`、`build/{gen-policies,package,manifest}.ts`、`test/inventory.test.ts`；
+  `platform/package.json` 的 `publish:s3`；SSM 文档按 01 §13 放 `platform/workflows/ssm/`（04 §6.1 写的 `platform/infra/ssm/` 以 01 为准）；
+  表定义请直接用 `ATL_MAIN_SPEC` / `LAB_LOCKS_SPEC` 的键结构。
+- **工作台（03）**：`platform/workstation/`（`bin/`：atl-workstation-setup.sh、atl-agent-call、atl-credentials、atl-lab-proxy；`bootstrap/`：
+  user-data、profile.d），工作台栈模板 `platform/workflows/templates/atl-workstation.yaml`，SSM 文档 ATL-SessionShell(-Logged)、
+  ATL-PrepareInstance、ATL-WorkstationSetup。
+- **CloudAlbum 平台模式（06 P0）**：不在 platform/ 下；dev 模式需要它提供检查包的 Node 入口（设为 `ATL_DEV_CHECK_RUNNER`），以及
+  `scripts/module` 的平台模式子命令（dev 运行器 `dry-run` 档的命令表可用 `ATL_DEV_RUNNER_COMMANDS` 覆盖）。
+- **卡片内容**：`labs/<card-id>/`（04 §2.1）；`npm run labs:schema` 生成 `labs/_schema/lab.schema.json`，`npm run labs:lint` 校验。
+- **前端（下一轮）**：`platform/web/`；可直接用 `@atl/shared` 的路由表、状态、事件、错误码与 lab 类型。
+
+### 4. dev 模式（ATL_DEV_MODE=1）怎么启动
+
+```bash
+npm run build                    # 或 npm run platform:build（另外生成 Lambda 包与合并模板）
+npm run platform:db:up           # DynamoDB Local（docker，127.0.0.1:58000，内存模式）
+npm run platform:db:init         # 建 atl-main、cloudalbum-lab-locks，并写入 dev 用 PLATFORM/CONFIG（加 -- --reset 可重建）
+npm run platform:dev             # http://127.0.0.1:8787（脚本带 --dev-mode，等价于 ATL_DEV_MODE=1）
+
+curl -H "Authorization: Bearer dev.learner.u1" http://127.0.0.1:8787/api/v1/time
+curl -H "X-ATL-Dev-Caller: arn:aws:sts::000000000000:assumed-role/ATLLearnerRole/atl-s4k7m2q9x1abc-ws" \
+     http://127.0.0.1:8787/api/v1/agent/sessions/s4k7m2q9x1abc/context
+curl http://127.0.0.1:8787/__dev/state                       # 时钟、执行、调度、构建、事件
+curl -X POST http://127.0.0.1:8787/__dev/faults -d '{"state":"AcquireLock","error":"Atl.LockBusy"}'
+curl -X POST http://127.0.0.1:8787/__dev/trail/events -d @events.json
+curl -X POST http://127.0.0.1:8787/__dev/clock/skip -d '{"minutes":15}'
+curl -X POST http://127.0.0.1:8787/__dev/invoke/atl-timer -d '{"kind":"SWEEP"}'
+npm run platform:db:down
+```
+
+| 生产 | dev 实现（`platform/api/src/dev/adapters/`） | 相关变量 |
+|---|---|---|
+| DynamoDB | DynamoDB Local | `ATL_DEV_DDB_ENDPOINT`（默认 http://127.0.0.1:58000） |
+| Step Functions | `SimulatedOrchestrator`：同一份 ASL 在进程内解释执行；`lambda:invoke` → 进程内函数表；`.sync` 构建 → dev 运行器；`injectFault()` | — |
+| CodeBuild atl-runner | `LocalProcessRunner`：`noop`（默认，按平台时间睡眠后成功）/ `dry-run`（`scripts/module … --dry-run`，无需凭证）/ `local-l0`（`base-deploy` 起本地 CloudAlbum，`destroy` 停止）；写 `runs/<runId>/result.json`、`progress.jsonl` | `ATL_DEV_RUNNER_MODE`、`ATL_DEV_RUNNER_NOOP_SECONDS`、`ATL_DEV_RUNNER_COMMANDS` |
+| SSM Run Command | `LocalRunCommand`：ATL-RunCheck 先按 allowedPattern 校验，再以 `SSM_<参数>` 环境变量本地运行检查包入口，`ATL_DEV_APP_BASE_URL` 指向本环境的本地 CloudAlbum；ATL-WorkstationSetup 模拟成功 | `ATL_DEV_CHECK_RUNNER` |
+| EventBridge Scheduler | `InProcessScheduler`：一次性调度 = dev 时钟上的定时器，触发后删除；`atl-sweeper` 启用时每 5 分钟 | `ATL_DEV_TIME_SCALE`（如 60：1 秒 = 1 平台分钟） |
+| KMS | `LocalEcdsaSigner`：`.atl-dev/keys/<keyId>.pem`（P-256，首次使用时生成） | `ATL_DEV_SIGNING_KEY_ID` |
+| CloudTrail LookupEvents | `FakeTrailLookup`：注入的事件，可模拟投递延迟 | `ATL_DEV_TRAIL_FILE`、`ATL_DEV_TRAIL_DELAY_SECONDS` |
+| Cognito | `DevAuth`：`dev.<learner/assistant/observer>.<sub>[.<auth_time>]` | — |
+| Lambda / EventBridge / S3 | 进程内函数表 / 内存总线 / `.atl-dev/buckets/<bucket>/` | `ATL_DEV_DATA_DIR`、`ATL_DEV_PORT` |
+
+测试中用 `createDevRuntime(cfg, { clock: new VirtualClock(), db, definitions, faults })`；`VirtualClock` 在进程空闲时跳到最早的定时器，
+重试退避、超时、倒计时都能瞬时、确定地跑完。
+
+### 5. 测试
+
+```bash
+npm test                                       # 全部（含 CloudAlbum 原有测试）
+npm run platform:test                          # 只跑 6 个平台项目
+npm run platform:db:up && ATL_IT=1 npx vitest run --project atl-api   # 含 DynamoDB Local 集成测试 *.int.test.ts
+```
+
+### 6. 设计有歧义时的取舍（偏离或细化 01～08 之处）
+
+1. **工作区布局**：01 §13 / §4.9 把 platform/ 写成独立的 npm workspaces 根（`cd platform && npm ci`）；按本轮任务改为仓库根的工作区，
+   `platform/package.json` 只转发脚本。`npm ci` 必须在仓库根执行；07 V0-6、V5-1 的 `cd platform && npm run build` 仍可用。
+2. **@atl/shared**：01 §13 没有这个包，名称表常量、键构造与端口接口放在这里（web、工具共用）。01 §7.1 规定键构造只在
+   `platform/api/src/data/keys.ts`：该文件保留为 API 的唯一入口，实现再导出自 @atl/shared。
+3. **lab.yaml v2 schema 的来源**：04 §3.3 说源头是 `platform/api/src/content/lab.ts` 的 zod 定义；本轮把 04 的 YAML 块逐字转成
+   `platform/shared/src/lab/lab-schema.generated.ts`，测试逐项比对文档（04 §11.1 的 svc-cdn 示例必须通过）。卡片工具放 `scripts/labs`
+   （04 §2.5 写的是 `platform/api/src/content/`），根 package.json 提供 `labs:*` 脚本。
+4. **工作台工具位置**：01 §13 的 `platform/workflows/workstation/` 改为独立工作区 `platform/workstation/`（任务要求）；工作台栈模板仍在
+   `platform/workflows/templates/`。
+5. **Lambda 打包**：与 `lambdas/image-thumbnail` 一致，`@aws-sdk/*` 不打包（用 Lambda 运行时自带的 SDK v3）；新增 SDK 依赖锁定为 3.1142.0
+   （与仓库已有客户端同版本，避免重复的 @aws-sdk/core）。
+6. **runId 中的 op 缩写**：02 只出现 `base`、`ws`、`apply`、`xstk`、`destroy`；其余定为 `resume`、`wsdown`、`modop`、`suspend`、`repair`、`diag`
+   （`RUN_ID_OP_ABBREV`）。`reclaim-<envId>-<mode>-<n>` 中的 mode 用小写。
+7. **错误码**：03 §9.1 的终端 / 控制台码尚未登记到 01 §8.6，已按 03 §3.2 的状态码收录（`WORKSPACE_ERROR_CODES`）；03 未给状态码的
+   `CONSOLE_DESTINATION_NOT_ALLOWED` 取 422、`CONSOLE_FEDERATION_FAILED` 取 503。脚手架桩路由返回 501 `NOT_IMPLEMENTED`（不在 8.6 中，实现后消失）。
+   08 §9.2 #1 请求的 `TARGET_ALREADY_SATISFIED` 等只列在 `UI_REQUESTED_ERROR_CODES`。
+8. **GSI2 排序键**：`LabSession` 非终态时，倒计时中的 READY / RUNNING / EXPIRING 用 `deadlineAt`，其余用 `stateEnteredAt`；复扫窗口内
+   `FOLLOWUP#PENDING` 的排序键在 `revokedAt` 为空（从未发放访问）时用 `stateEnteredAt`。`Environment` 只有 `RELEASED` 不进 GSI2。
+9. **TTL**：01 只说 `CostQuote` 的 TTL“清理用”，取 24 小时；判定一律比较 `expiresAt`。
+10. **session.json 字段**：01 §8.2 与 03 §4.6 第 4 步不一致，以 01 为准（含 `envName` 与 `cloudalbum.adminPasswordParam`）。
+11. **testUsersParam**：01 规定“起始档位含种子 cognito-test-users 时非空”，但 atl-agent 不读内容包；`buildAgentContext` 由调用方传
+    `testUsersSeeded`（建议 02 在 `LabSession` 中记录，例如 `cardFacts` 增加一项，需 01 登记）。
+12. **envName 派生**：`e` + envId（小写 ULID）的后 7 位（随机部分）；碰撞时重新生成 envId。03 §4.6 示例中的 envId 含 `u`、`i`，不是 Crockford Base32。
+13. **08 §9.2 的新路由**（`/platform/preflight`、`runner-runs`、证据下载等）只列在 `UI_REQUESTED_ROUTES`，不在路由表中，01 登记后再实现。
+14. **dev 运行器**：默认 `noop`；`dry-run` 的默认命令表只调用现有子命令（bootstrap、base deploy、profile diff、status），06 的平台模式子命令
+    （`env destroy --fast`、`profile apply --platform` 等）实现后再改默认表。`local-l0` 复用 `scripts/smoke/lib.mjs`，需要先 `npm run build`。
+15. **模拟器的边界**：只支持 JSONPath；不支持 JSONata、变量（Assign）、`.waitForTaskToken`（ATL 不用）、分布式 Map；`startExecution.sync:2`
+    的子执行失败时抛 `States.TaskFailed`；被取消的 `.sync` 构建会调用 `stopBuild`（真实行为由 07 V1-12 验证）。一次性调度的 `at()` 已过时立即触发（07 V1-11 验证）。
+16. **asl-validator**（4.0.0，无类型声明，会改写输入）只在校验时以深拷贝调用，模拟器不依赖它。
+
+### 7. 需要其他文件配合的事项
+
+- 01：登记 03 的终端 / 控制台错误码与 08 §9.2 的路由、错误码、`session.phase_changed.phase` 取值；说明 `testUsersParam` 的数据来源；
+  §13 的目录树按本节第 1～4 条更新（或确认维持）。
+- 04：§6.1 的 SSM 文档源路径与 01 §13 不一致（本轮按 01）。
+- 06（CloudAlbum 平台模式）：检查包的 Node 入口路径（供 `ATL_DEV_CHECK_RUNNER`），以及 dev 运行器可调用的平台模式子命令。
+- infra：模板为每个函数设置第 2 节列出的环境变量；状态机的 DefinitionSubstitutions 键与 `DEV_SUBSTITUTIONS` 一致。

@@ -1,0 +1,16 @@
+{
+  "name": "@atl/infra",
+  "version": "0.1.0",
+  "private": true,
+  "description": "ATL platform single-stack CloudFormation template: YAML fragments (src/NN-*.yaml), policy templates (policies/), build scripts (build/: merge-template, gen-policies, package, manifest) and template tests.",
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json",
+    "template": "tsx build/merge-template.ts",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@atl/shared": "0.1.0",
+    "yaml": "^2.8.1"
+  }
+}

@@ -14,12 +14,19 @@
     "frontend",
     "lambdas/*",
     "experiments",
-    "scripts/module-cli"
+    "scripts/module-cli",
+    "platform/shared",
+    "platform/api",
+    "platform/workflows",
+    "platform/infra",
+    "platform/workstation",
+    "platform/web",
+    "scripts/labs"
   ],
   "scripts": {
     "gen:registry": "tsx scripts/registry/build.ts",
     "registry:check": "tsx scripts/registry/check.ts",
-    "build": "npm run gen:registry && tsc -b && tsc -p frontend/tsconfig.json --noEmit && tsc -p scripts/registry/tsconfig.json",
+    "build": "npm run gen:registry && tsc -b && tsc -p frontend/tsconfig.json --noEmit && tsc -p scripts/registry/tsconfig.json && tsc -p platform/infra/tsconfig.json",
     "build:frontend": "npm run build --workspace @cloudalbum/frontend",
     "build:lambdas": "npm run build --workspace @cloudalbum/lambda-image-thumbnail",
     "build:all": "npm run build && npm run build:frontend && npm run build:lambdas",
@@ -37,7 +44,20 @@
     "smoke:selfhost": "node scripts/smoke/selfhost.mjs",
     "smoke:localstack": "node scripts/smoke/localstack.mjs",
     "exp": "npm run exp -w @cloudalbum/experiments --",
-    "exp:report": "npm run exp:report -w @cloudalbum/experiments --"
+    "exp:report": "npm run exp:report -w @cloudalbum/experiments --",
+    "platform:build": "tsc -b platform/shared platform/workflows platform/api platform/workstation scripts/labs && tsc -p platform/infra/tsconfig.json && node platform/api/build.mjs && tsx platform/infra/build/merge-template.ts",
+    "platform:test": "vitest run --project atl-shared --project atl-api --project atl-workflows --project atl-infra --project atl-workstation --project atl-labs-tools",
+    "platform:validate": "tsx platform/workflows/src/cli/validate.ts",
+    "platform:db:up": "docker compose -f docker-compose.platform.yml up -d --wait",
+    "platform:db:down": "docker compose -f docker-compose.platform.yml down -v",
+    "platform:db:init": "tsx platform/api/src/dev/create-tables.ts --seed",
+    "platform:dev": "tsx platform/api/src/dev/server.ts --dev-mode",
+    "labs:schema": "tsx scripts/labs/src/cli.ts schema",
+    "labs:lint": "tsx scripts/labs/src/cli.ts lint",
+    "labs:derive": "tsx scripts/labs/src/cli.ts derive",
+    "labs:build": "tsx scripts/labs/src/cli.ts build",
+    "labs:catalog": "tsx scripts/labs/src/cli.ts catalog",
+    "labs:policy": "tsx scripts/labs/src/cli.ts policy"
   },
   "devDependencies": {
     "@eslint/js": "^9.37.0",

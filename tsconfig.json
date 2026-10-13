@@ -8,7 +8,10 @@
     "paths": {
       "@cloudalbum/contracts": ["./packages/contracts/src/index.ts"],
       "@cloudalbum/contracts/registry": ["./packages/contracts/src/generated/registry.ts"],
-      "@cloudalbum/image-core": ["./packages/image-core/src/index.ts"]
+      "@cloudalbum/image-core": ["./packages/image-core/src/index.ts"],
+      "@atl/shared": ["./platform/shared/src/index.ts"],
+      "@atl/shared/node": ["./platform/shared/src/node.ts"],
+      "@atl/workflows": ["./platform/workflows/src/index.ts"]
     }
   },
   "files": [],
@@ -18,6 +21,11 @@
     { "path": "backend" },
     { "path": "lambdas/image-thumbnail" },
     { "path": "experiments" },
-    { "path": "scripts/module-cli" }
+    { "path": "scripts/module-cli" },
+    { "path": "platform/shared" },
+    { "path": "platform/workflows" },
+    { "path": "platform/api" },
+    { "path": "platform/workstation" },
+    { "path": "scripts/labs" }
   ]
 }

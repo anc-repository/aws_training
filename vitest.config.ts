@@ -20,6 +20,12 @@ export default defineConfig({
       'lambdas/*',
       'experiments',
       'scripts/module-cli',
+      'platform/shared',
+      'platform/api',
+      'platform/workflows',
+      'platform/infra',
+      'platform/workstation',
+      'scripts/labs',
     ],
   },
 });

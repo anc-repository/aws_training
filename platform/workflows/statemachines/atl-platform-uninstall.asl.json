@@ -1,0 +1,12 @@
+{
+  "Comment": "atl-platform-uninstall: placeholder written by platform-scaffold. The workflows implementer replaces it with the ASL of 02 §10.5 (JSONPath; DefinitionSubstitutions as in src/asl/load.ts DEV_SUBSTITUTIONS).",
+  "QueryLanguage": "JSONPath",
+  "StartAt": "NotImplemented",
+  "States": {
+    "NotImplemented": {
+      "Type": "Fail",
+      "Error": "Atl.NotImplemented",
+      "Cause": "atl-platform-uninstall is not implemented yet"
+    }
+  }
+}
