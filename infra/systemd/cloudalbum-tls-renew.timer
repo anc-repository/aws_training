@@ -1,0 +1,13 @@
+# /etc/systemd/system/cloudalbum-tls-renew.timer — every 12 hours (06 PM-21); the certificate lives for days, not months,
+# and a retained or reused environment can outlive one session, so renewal has to be automatic.
+[Unit]
+Description=CloudAlbum preview certificate renewal every 12 hours
+
+[Timer]
+OnBootSec=10min
+OnUnitActiveSec=12h
+RandomizedDelaySec=15min
+Persistent=true
+
+[Install]
+WantedBy=timers.target

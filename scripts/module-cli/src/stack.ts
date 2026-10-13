@@ -61,6 +61,8 @@ export interface DeployRequest {
   region?: string;
   /** S3 bucket for templates larger than the TemplateBody limit (toolchain bucket) */
   templateBucket?: string;
+  /** first deployment in platform mode (06 PM-05): keep the failed stack for diagnosis */
+  disableRollback?: boolean;
 }
 
 export interface DeployResult {
@@ -73,9 +75,37 @@ export interface DeployResult {
 const TERMINAL_OK = new Set(['CREATE_COMPLETE', 'UPDATE_COMPLETE', 'IMPORT_COMPLETE']);
 const TEMPLATE_BODY_LIMIT = 51_200;
 
-export function stackTags(env: string, module: string, version: string | number, extra: Record<string, string> = {}): Record<string, string> {
-  return { Project: 'CloudAlbum', Env: env, Module: module, ModuleVersion: String(version), ManagedBy: 'scripts/module', ...extra };
+/**
+ * Platform mode stack tags (06 PM-29): environment-level tags (Project, atl:component=env, atl:env-id; from state.platform) and
+ * session-level tags (atl:session-id, atl:lab-id; from CLOUDALBUM_PLATFORM_TAGS). `cloudformation deploy --tags` replaces the
+ * stack tags and propagates them to resources, so an UPDATE keeps the session tags the stack was created with (02 §8.4 rule 4:
+ * a resource keeps the atl:session-id of its creation); only new stacks get the current session. atl:role is never set here.
+ */
+export const SESSION_TAG_KEYS = ['atl:session-id', 'atl:lab-id'] as const;
+let platformTags: { env: Record<string, string>; session: Record<string, string> } | null = null;
+
+export function configurePlatformTags(tags: { env: Record<string, string>; session: Record<string, string> } | null): void {
+  if (tags && Object.keys({ ...tags.env, ...tags.session }).some((k) => k === 'atl:role')) throw new Error('atl:role is only set by templates (01 ProtectRoleTag)');
+  platformTags = tags;
 }
+
+export function stackTags(env: string, module: string, version: string | number, extra: Record<string, string> = {}): Record<string, string> {
+  return {
+    Project: 'CloudAlbum', Env: env, Module: module, ModuleVersion: String(version), ManagedBy: 'scripts/module',
+    ...(platformTags ? { ...platformTags.env, 'atl:component': 'env', ...platformTags.session } : {}), ...extra,
+  };
+}
+
+/** update of an existing stack: keep its session-level tags (06 PM-29) */
+export function preserveSessionTags(tags: Record<string, string>, existing: Record<string, string> | undefined): Record<string, string> {
+  if (!platformTags || !existing) return tags;
+  const out = { ...tags };
+  for (const k of SESSION_TAG_KEYS) if (existing[k]) out[k] = existing[k];
+  return out;
+}
+
+/** CREATE_FAILED / UPDATE_FAILED events of the last failed deployment (06 PM-35 result cfnFailures) */
+export const cfnFailures: Array<{ stack: string; logicalId: string; status: string; reason: string }> = [];
 
 /** Placeholder outputs for dry-run plans: every output declared by the template becomes `<stack:Output>`. */
 export function placeholderOutputs(repoRoot: string, template: string, stackName: string, params: Readonly<Record<string, string>> = {}): Record<string, string> {
@@ -114,8 +144,11 @@ export async function deployStack(aws: AwsGateway, out: Printer, repoRoot: strin
     await aws.send({ service: 's3', op: 'PutObject', input: { Bucket: req.templateBucket, Key: key, Body: body }, display: { Bucket: req.templateBucket, Key: key, Body: `<${req.template}>` } });
     templateArg = { TemplateURL: `https://${req.templateBucket}.s3.amazonaws.com/${key}` };
   }
-  const tags = Object.entries(req.tags).map(([Key, Value]) => ({ Key, Value }));
-  const input = { StackName: req.stackName, ...templateArg, Parameters: parameters, Tags: tags, Capabilities: ['CAPABILITY_NAMED_IAM'] };
+  const tags = Object.entries(preserveSessionTags(req.tags, existing ? existing.tags : undefined)).map(([Key, Value]) => ({ Key, Value }));
+  const input = {
+    StackName: req.stackName, ...templateArg, Parameters: parameters, Tags: tags, Capabilities: ['CAPABILITY_NAMED_IAM'],
+    ...(create && req.disableRollback ? { DisableRollback: true } : {}),
+  };
   const display = { ...input, ...('TemplateBody' in templateArg ? { TemplateBody: `<${req.template}>` } : {}), Parameters: shown };
 
   if (aws.dryRun) {
@@ -135,7 +168,8 @@ export async function deployStack(aws: AwsGateway, out: Printer, repoRoot: strin
   const done = await waitForStack(aws, out, req.stackName, req.region);
   if (!TERMINAL_OK.has(done.status)) {
     await printFailureEvents(aws, out, req.stackName, req.region);
-    throw new CliError(`${req.stackName} ended in ${done.status} (CloudFormation rolled back)`, EXIT.stack);
+    throw new CliError(`${req.stackName} ended in ${done.status}${req.disableRollback ? ' (rollback disabled: the stack is kept for diagnosis)' : ' (CloudFormation rolled back)'}`,
+      EXIT.stack, 'STACK_FAILED', { stack: req.stackName, status: done.status });
   }
   return { outputs: done.outputs, status: done.status, changed: true, created: create };
 }
@@ -160,6 +194,7 @@ async function printFailureEvents(aws: AwsGateway, out: Printer, stackName: stri
   }).catch(() => undefined);
   for (const e of (r?.StackEvents ?? []).filter((x) => /FAILED/.test(x.ResourceStatus ?? '')).slice(0, 10)) {
     out.error(`      ${e.LogicalResourceId}: ${e.ResourceStatus} ${e.ResourceStatusReason ?? ''}`);
+    cfnFailures.push({ stack: stackName, logicalId: e.LogicalResourceId ?? '?', status: e.ResourceStatus ?? '?', reason: e.ResourceStatusReason ?? '' });
   }
 }
 

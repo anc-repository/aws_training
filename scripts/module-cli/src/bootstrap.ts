@@ -14,15 +14,25 @@ import { deleteStack, deployStack, describeStack, stackTags } from './stack.js';
 import { recordHistory } from './state.js';
 import type { ModuleId } from '@cloudalbum/contracts';
 import { RemoteScript } from './deliver.js';
+import { presignRelease, uploadRelease } from './platform/release.js';
+import { cfnFailures } from './stack.js';
+import { deleteStack as deleteStackFn } from './stack.js';
 
-export async function bootstrapCommand(ctx: Ctx): Promise<number> {
+export async function bootstrapCommand(ctx: Ctx, opts: { releaseFile?: string } = {}): Promise<number> {
+  if (opts.releaseFile && !ctx.platform) throw new CliError('--release-file is only used in platform mode (06 PM-30)', EXIT.rules, 'PLATFORM_ONLY');
   ctx.out.section(`bootstrap: toolchain stack ${stackName(ctx.env, 'toolchain')}${ctx.dryRun ? ' [dry-run]' : ''}`);
   const res = await deployStack(ctx.aws, ctx.out, ctx.repoRoot, {
     stackName: stackName(ctx.env, 'toolchain'), template: 'infra/modules/toolchain.yaml',
     params: { Env: ctx.env, ModuleVersion: '1' }, tags: stackTags(ctx.env, 'toolchain', 1),
   });
-  ctx.state.toolchain = { stackName: stackName(ctx.env, 'toolchain'), bucket: res.outputs.InfoArtifactBucket };
+  ctx.state.toolchain = { ...(ctx.state.toolchain ?? {}), stackName: stackName(ctx.env, 'toolchain'), bucket: res.outputs.InfoArtifactBucket };
   ctx.out.info(`  artifact bucket: ${res.outputs.InfoArtifactBucket}`);
+  if (opts.releaseFile) {
+    // platform mode: the release archive goes to the toolchain bucket (the runner gets it from cloudalbum-infra.zip)
+    const bucket = ctx.ph(res.outputs.InfoArtifactBucket, 'toolchain:InfoArtifactBucket');
+    ctx.state.toolchain.release = await uploadRelease(ctx, opts.releaseFile, bucket);
+    ctx.out.info(`  release: s3://${bucket}/${ctx.state.toolchain.release.key} (sha256 ${ctx.state.toolchain.release.sha256})`);
+  }
   recordHistory(ctx.state, { op: 'bootstrap', result: ctx.dryRun ? 'dry-run' : 'ok', exitCode: EXIT.ok });
   ctx.save();
   return EXIT.ok;
@@ -38,6 +48,10 @@ export interface BaseDeployOptions {
   appArchiveSha256?: string;
   subnetId?: string;
   param?: string[];
+  /** platform mode (06 PM-05, PM-32) */
+  instanceProfile?: string;
+  disableRollback?: boolean;
+  retryAz?: boolean;
 }
 
 async function myPublicIp(ctx: Ctx): Promise<string> {
@@ -49,6 +63,7 @@ async function myPublicIp(ctx: Ctx): Promise<string> {
 }
 
 export async function baseDeploy(ctx: Ctx, opts: BaseDeployOptions): Promise<number> {
+  if (ctx.platform) return baseDeployPlatform(ctx, opts);
   const arch = opts.arch ?? 'arm64';
   const instanceType = opts.instanceType ?? (arch === 'arm64' ? 't4g.small' : 't3.small');
   if (!opts.appArchiveUrl || !opts.appArchiveSha256) throw new CliError('--app-archive-url and --app-archive-sha256 are required (scripts/release prints them)', EXIT.rules);
@@ -120,6 +135,93 @@ export async function baseDeploy(ctx: Ctx, opts: BaseDeployOptions): Promise<num
   ctx.save();
   ctx.out.info(`  entry: http://${o.PublicIp}   initial admin password: /root/cloudalbum-admin.txt on the instance`);
   ctx.out.info('  next: L0 smoke test  ->  npm run exp -- ec2 --scenario smoke --label l0');
+  return EXIT.ok;
+}
+
+/**
+ * `base deploy --platform` (06 PM-05, 02 §4.3 base-deploy step 3): PlatformMode=on, InstanceProfileName=CloudAlbumAppRole from the
+ * first deployment (the management channel, P7), the session key pair created by the runner, no SSH ingress (the workstation
+ * gets it through PROFILE_BASE_PARAMS when a card asks), the release from the toolchain bucket as a presigned URL,
+ * --disable-rollback (the failed stack stays for diagnosis), --retry-az: on InsufficientInstanceCapacity delete the failed stack
+ * and retry once in another AZ of the default VPC. The administrator is created by the runner (admin:ensure --password-hash).
+ */
+async function baseDeployPlatform(ctx: Ctx, opts: BaseDeployOptions): Promise<number> {
+  const p = ctx.platform!;
+  const arch = opts.arch ?? ctx.state.toolchain?.release?.arch ?? 'arm64';
+  const instanceType = opts.instanceType ?? (arch === 'arm64' ? 't4g.small' : 't3.small');
+  const instanceProfile = opts.instanceProfile ?? 'CloudAlbumAppRole';
+  if (instanceProfile !== 'CloudAlbumAppRole') throw new CliError('ATL-IAM-001: platform mode needs --instance-profile CloudAlbumAppRole', EXIT.rules, 'ATL-IAM-001');
+  ctx.out.section(`base deploy --platform: ${stackName(ctx.env, 'ec2')}${ctx.dryRun ? ' [dry-run]' : ''}`);
+  p.reporter.progress('deploy-stack', 'started', 'ec2 base stack', { module: 'ec2' });
+  const vpcs = await ctx.aws.send<{ Vpcs?: Array<{ VpcId?: string }> }>({ service: 'ec2', op: 'DescribeVpcs', input: { Filters: [{ Name: 'is-default', Values: ['true'] }] } });
+  const vpcId = ctx.ph(vpcs?.Vpcs?.[0]?.VpcId, 'default-vpc');
+  const subnets = await ctx.aws.send<{ Subnets?: Array<{ SubnetId?: string; AvailabilityZone?: string; MapPublicIpOnLaunch?: boolean }> }>({
+    service: 'ec2', op: 'DescribeSubnets', input: { Filters: [{ Name: 'vpc-id', Values: [vpcId] }, { Name: 'default-for-az', Values: ['true'] }] },
+  });
+  const all = (subnets?.Subnets ?? []).filter((x) => x.MapPublicIpOnLaunch !== false).sort((a, b) => String(a.AvailabilityZone).localeCompare(String(b.AvailabilityZone)));
+  const keyName = opts.keyName ?? `cloudalbum-${ctx.env}-key`;
+  const keys = await ctx.aws.send<{ KeyPairs?: unknown[] }>({ service: 'ec2', op: 'DescribeKeyPairs', input: { Filters: [{ Name: 'key-name', Values: [keyName] }] } });
+  if (!ctx.dryRun && !keys?.KeyPairs?.length) throw new CliError(`key pair ${keyName} does not exist: the runner creates it before base deploy (01 §9.2)`, EXIT.rules, 'KEY_PAIR_MISSING');
+  const pub = `/aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-${arch}`;
+  const amiParam = `/cloudalbum/${ctx.env}/ec2/image-id`;
+  const ami = await ctx.aws.send<{ Parameter?: { Value?: string } }>({ service: 'ssm', op: 'GetParameter', input: { Name: pub } });
+  await ctx.aws.send({ service: 'ssm', op: 'PutParameter', input: { Name: amiParam, Type: 'String', DataType: 'aws:ec2:image', Value: ctx.ph(ami?.Parameter?.Value, 'ami-id'), Overwrite: true } });
+  let url = opts.appArchiveUrl;
+  let sha = opts.appArchiveSha256 ?? ctx.state.toolchain?.release?.sha256;
+  if (!url) {
+    const rel = ctx.state.toolchain?.release;
+    const bucket = ctx.state.toolchain?.bucket;
+    if ((!rel || !bucket) && !ctx.dryRun) throw new CliError('no release in the toolchain bucket: run `scripts/module bootstrap --platform --release-file <archive>` first', EXIT.rules, 'RELEASE_MISSING');
+    url = await presignRelease(ctx, bucket ?? '<toolchain-bucket>', rel?.key ?? 'releases/<ver>/<arch>.tgz');
+  }
+  sha ??= ctx.dryRun ? '<sha256>' : undefined;
+  if (!sha) throw new CliError('--app-archive-sha256 is required (or bootstrap --release-file)', EXIT.rules, 'RELEASE_MISSING');
+  const attempt = async (subnet: { SubnetId?: string; AvailabilityZone?: string } | undefined) => {
+    const params: Record<string, string> = {
+      Env: ctx.env, ModuleVersion: String(registryVersion('ec2')), Arch: arch, InstanceType: instanceType, ImageId: amiParam, KeyName: keyName,
+      VpcId: vpcId, SubnetId: ctx.ph(opts.subnetId ?? subnet?.SubnetId, 'default-subnet'), DataVolumeAz: ctx.ph(subnet?.AvailabilityZone, `${ctx.region}a`),
+      SshIngressCidr: '', AppArchiveUrl: url!, AppArchiveSha256: sha!, AdminEmail: '', PlatformMode: 'on', InstanceProfileName: instanceProfile,
+    };
+    for (const kv of opts.param ?? []) { const i = kv.indexOf('='); if (i > 0) params[kv.slice(0, i)] = kv.slice(i + 1); }
+    const res = await deployStack(ctx.aws, ctx.out, ctx.repoRoot, { stackName: stackName(ctx.env, 'ec2'), template: 'infra/modules/ec2.yaml', params,
+      secretParams: ['AppArchiveUrl'], tags: stackTags(ctx.env, 'ec2', registryVersion('ec2')), disableRollback: Boolean(opts.disableRollback) });
+    return { res, params };
+  };
+  const preferred = opts.subnetId ? all.find((x) => x.SubnetId === opts.subnetId) : (all.find((x) => x.AvailabilityZone === `${ctx.region}a`) ?? all[0]);
+  let out: Awaited<ReturnType<typeof attempt>>;
+  try {
+    out = await attempt(preferred);
+  } catch (e) {
+    const capacity = cfnFailures.some((f) => /InsufficientInstanceCapacity/.test(f.reason));
+    if (!opts.retryAz || !capacity || opts.subnetId) throw e;
+    const other = all.find((x) => x.AvailabilityZone !== preferred?.AvailabilityZone);
+    if (!other) throw e;
+    ctx.out.warn(`  InsufficientInstanceCapacity in ${preferred?.AvailabilityZone}: deleting the failed stack and retrying in ${other.AvailabilityZone}`);
+    await deleteStackFn(ctx.aws, ctx.out, stackName(ctx.env, 'ec2'));
+    cfnFailures.length = 0;
+    out = await attempt(other);
+  }
+  const o = out.res.outputs;
+  ctx.state.base = {
+    stackName: stackName(ctx.env, 'ec2'), instanceId: o.InstanceId, publicIp: o.PublicIp, publicDnsName: o.InfoPublicDnsName,
+    securityGroupId: o.InstanceSecurityGroupId, vpcId: o.VpcId, subnetId: o.SubnetId, availabilityZone: o.AvailabilityZone,
+    dataVolumeId: o.DataVolumeId, arch, defaultSubnetIds: all.map((x) => x.SubnetId!).filter(Boolean),
+    params: Object.fromEntries(Object.entries(out.params).filter(([k]) => k !== 'AppArchiveSha256' && k !== 'AppArchiveUrl')),
+  };
+  ctx.state.delivery = { channel: 'ssm', sshUser: 'ec2-user', ...(o.PublicIp ? { host: o.PublicIp } : {}) };
+  ctx.state.baseConfig = { AWS_REGION: ctx.region, CLOUDALBUM_ENV: ctx.env, APP_BASE_URL: `http://${ctx.ph(o.PublicIp, 'ec2:PublicIp')}`, DEPLOY_MODE: 'single' };
+  ctx.state.outOfBand.push({ module: 'ec2', kind: 'ec2-key-pair', id: keyName, at: new Date().toISOString() });
+  ctx.save();
+  p.reporter.progress('deploy-stack', 'succeeded', 'ec2 base stack', { module: 'ec2' });
+  // key fingerprint over SSM (no secret travels: only the fingerprint comes back)
+  const s = new RemoteScript('base deploy: key fingerprint');
+  s.cli('keys:fingerprint');
+  const fp = await ctx.deliverer().run(s, { capture: true, timeoutSec: 300 });
+  if (!ctx.dryRun && fp.code === 0 && ctx.state.base) ctx.state.base.keyFingerprint = fp.stdout.trim().split('\n').pop();
+  recordHistory(ctx.state, { op: 'base deploy', result: ctx.dryRun ? 'dry-run' : 'ok', exitCode: EXIT.ok, opId: p.opId,
+    ...(p.identity ? { actor: p.identity.sessionName } : {}), runId: p.env.runId ?? null });
+  ctx.save();
+  ctx.out.info(`  entry: http://${o.PublicIp ?? '<eip>'}   next (runner): platform:apply-env, probe-token --init, admin:ensure --password-hash`);
   return EXIT.ok;
 }
 

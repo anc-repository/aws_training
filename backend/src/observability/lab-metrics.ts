@@ -90,6 +90,14 @@ export interface RequestRecord {
   label?: string;
 }
 
+/** 状态码分类（`cloudalbum lab-metrics` 的 byStatus，06 PM-14） */
+export function statusClassOf(status: number): string {
+  if (status >= 500) return '5xx';
+  if (status >= 400) return '4xx';
+  if (status >= 300) return '3xx';
+  return '2xx';
+}
+
 export interface MetricRollup {
   /** 分钟起点（ISO，秒为 0） */
   minute: string;
@@ -104,6 +112,8 @@ export interface MetricRollup {
   op?: string;
   runId?: string;
   label?: string;
+  /** 路由汇总的状态码分类（2xx / 3xx / 4xx / 5xx） */
+  statusClass?: string;
   count: number;
   errors: number;
   sumMs: number;
@@ -222,7 +232,7 @@ export class LabMetricsStore implements CallObserver {
     this.totals.requests += 1;
     if (r.status >= 500) this.totals.errors5xx += 1;
     const key = { minute: minuteOf(new Date(r.ts)), kind: 'route' as const, route: r.route, method: r.method, pathSig: r.pathSig,
-      ...(r.runId ? { runId: r.runId } : {}), ...(r.label ? { label: r.label } : {}) };
+      ...(r.runId ? { runId: r.runId } : {}), ...(r.label ? { label: r.label } : {}), statusClass: statusClassOf(r.status) };
     this.accumulate(key, r.totalMs, r.status >= 500);
   }
 

@@ -7,7 +7,8 @@ import type { Server } from 'node:http';
 import { buildContainer, type Container } from './container.js';
 import { createApp } from './http/app.js';
 import { bindJobs, registerScheduledJobs, startJobConsumers } from './jobs/index.js';
-import { onShutdown, runMain } from './main.js';
+import { onPlatformReload, onShutdown, runMain } from './main.js';
+import { reloadPlatformDisplay } from './platform/mode.js';
 
 /**
  * api 进程内的后台工作：bind 全部任务 handler（sync 驱动入队即执行）；QUEUE_DRIVER=memory 时在本进程消费本进程入队的任务
@@ -34,6 +35,8 @@ await runMain('cloudalbum-api', async () => {
     const s = app.listen(PORT, HOST, () => resolve(s));
   });
   c.logger.info('cloudalbum-api listening', { host: HOST, port: PORT, entry: c.capabilities.snapshot().app.entry });
+  onPlatformReload(() => reloadPlatformDisplay(c.config.core.CLOUDALBUM_ENV_DIR, c.config.core.CLOUDALBUM_ENV),
+    (msg, fields) => c.logger.info(msg, fields));
 
   onShutdown(async (signal) => {
     c.logger.info('cloudalbum-api shutting down', { signal });

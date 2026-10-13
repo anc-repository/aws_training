@@ -52,11 +52,20 @@ export function quotaFor(p: Principal): number {
   return p.type === 'role' ? ROLE_QUOTA : USER_QUOTA;
 }
 
+/**
+ * Platform policies on CloudAlbumAppRole (06 PM-31): the management channel AmazonSSMManagedInstanceCore and the platform's
+ * atl-* policies (for example atl-terminal-recording). scripts/module never detaches, packs or counts them against the quota.
+ */
+export function isPlatformPolicy(arnOrName: string): boolean {
+  const name = arnOrName.slice(arnOrName.lastIndexOf('/') + 1);
+  return name === 'AmazonSSMManagedInstanceCore' || name.startsWith('atl-');
+}
+
 async function countAttached(aws: AwsGateway, p: Principal): Promise<number | undefined> {
-  const r = await aws.send<{ AttachedPolicies?: unknown[] }>(p.type === 'role'
+  const r = await aws.send<{ AttachedPolicies?: Array<{ PolicyArn?: string; PolicyName?: string }> }>(p.type === 'role'
     ? { service: 'iam', op: 'ListAttachedRolePolicies', input: { RoleName: p.name, MaxItems: 100 } }
     : { service: 'iam', op: 'ListAttachedUserPolicies', input: { UserName: p.name, MaxItems: 100 } });
-  return r?.AttachedPolicies?.length;
+  return r?.AttachedPolicies?.filter((x) => !isPlatformPolicy(x.PolicyArn ?? x.PolicyName ?? '')).length;
 }
 
 /** Converge attachments; mutates state.attachments. */
@@ -66,6 +75,7 @@ export async function syncAttachments(aws: AwsGateway, out: Printer, state: Clou
     if (desiredPolicies(state).length) out.info('      IAM_CREDENTIALS=none: PolicyArn not attached (credentials: optional modules run without control-plane features, CRED-004)');
   }
   for (const a of diff.detach) {
+    if (isPlatformPolicy(a.policyArn)) { state.attachments = state.attachments.filter((x) => x !== a); continue; }
     try {
       await aws.send(a.principal.type === 'role'
         ? { service: 'iam', op: 'DetachRolePolicy', input: { RoleName: a.principal.name, PolicyArn: a.policyArn } }

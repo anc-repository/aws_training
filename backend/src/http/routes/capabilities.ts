@@ -6,8 +6,10 @@
 // - 响应的路径头带 config=<driver>:v<N>（运行时配置的快照版本，02#config：用来观察热键的传播）。
 import { createHash } from 'node:crypto';
 import type { Express } from 'express';
+import { PLATFORM_HEADERS, ProjectionError, isModuleId, projectCapabilities } from '@cloudalbum/contracts';
 import type { Container } from '../../container.js';
 import { currentContext, markPath } from '../../observability/request-context.js';
+import { probeErrorBody, probeErrorOf, probeErrorStatus } from '../middleware/atl-probe.js';
 
 /** 运行时配置快照版本记入路径头（ConfigPort 不可用时不记） */
 export function markConfigVersion(c: Container): void {
@@ -27,12 +29,38 @@ function etagOf(body: unknown): string {
 export function register(app: Express, c: Container): void {
   app.get('/api/capabilities', async (req, res) => {
     const ctx = currentContext();
-    const admin = Boolean(ctx?.isAdmin);
-    if (admin && (req.query.deep === '1' || req.query.deep === 'true')) {
+    const deep = req.query.deep === '1' || req.query.deep === 'true';
+    // ATL 平台模式（06 PM-03、PM-10）：探测主体 atl-probe 可以取管理员视图（view=admin），但不能触发深度探针
+    const wantsAdmin = req.query.view === 'admin';
+    const probe = Boolean(ctx?.probePrincipal) && wantsAdmin && !ctx?.isAdmin;
+    if (wantsAdmin && !ctx?.isAdmin && !ctx?.probePrincipal && req.get(PLATFORM_HEADERS.probeToken)) {
+      const code = probeErrorOf(ctx);
+      res.status(probeErrorStatus(code)).set('Cache-Control', 'private, no-store').json(probeErrorBody(code));
+      return;
+    }
+    if (probe && deep) {
+      res.status(403).set('Cache-Control', 'private, no-store')
+        .json({ error: { code: 'PROBE_DEEP_FORBIDDEN', message: 'atl-probe 不能触发深度探针（deep=1）' } });
+      return;
+    }
+    const admin = Boolean(ctx?.isAdmin) || probe;
+    if (ctx?.isAdmin && deep) {
       await c.capabilities.probeAll({ deep: true, timeoutMs: 5000 });
     }
     markConfigVersion(c);
-    const body = c.capabilities.snapshot(admin ? 'admin' : 'public');
+    let body: object = c.capabilities.snapshot(admin ? 'admin' : 'public');
+    // ?fields= / ?modules= 投影（06 PM-03；两种模式都可用，不带参数时响应与原来逐字节一致）
+    const fields = typeof req.query.fields === 'string' ? req.query.fields : undefined;
+    const modules = typeof req.query.modules === 'string' ? req.query.modules : undefined;
+    if (fields !== undefined || modules !== undefined) {
+      try {
+        body = projectCapabilities(body, { ...(fields !== undefined ? { fields } : {}), ...(modules !== undefined ? { modules } : {}), isModuleId }).body;
+      } catch (e) {
+        if (!(e instanceof ProjectionError)) throw e;
+        res.status(400).set('Cache-Control', 'private, no-store').json({ error: { code: e.code, message: e.message } });
+        return;
+      }
+    }
     const etag = etagOf(body);
     res.set('Cache-Control', 'no-store').set('ETag', etag).set('Vary', 'Cookie, Authorization');
     if (req.get('if-none-match') === etag) {

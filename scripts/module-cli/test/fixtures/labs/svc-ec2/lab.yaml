@@ -1,0 +1,10 @@
+schema: atl.lab/v2
+id: svc-ec2
+kind: service
+startProfile:
+  provisions: []
+  platform: { preview: { directHttps: 'on' } }
+  reason: fixture
+targetModules: []
+workstation: { sshFromWorkstation: true }
+provision: { class: A }

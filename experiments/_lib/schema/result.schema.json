@@ -14,7 +14,22 @@
     "module": { "type": "string", "pattern": "^[a-z][a-z0-9-]{0,47}$" },
     "experiment": { "type": "string", "pattern": "^[a-z][a-z0-9-]{0,47}$" },
     "label": { "type": "string", "pattern": "^[a-z][a-z0-9-]{0,23}$" },
-    "variant": { "type": "string" },
+    "variant": {
+      "description": "06 PM-37: { label, role?, cardVariant? }; results written before the platform revision carry a string (= label)",
+      "oneOf": [
+        { "type": "string" },
+        {
+          "type": "object",
+          "required": ["label"],
+          "additionalProperties": false,
+          "properties": {
+            "label": { "type": "string", "pattern": "^[a-z][a-z0-9-]{0,23}(:[AB])?$" },
+            "role": { "enum": ["baseline", "treatment", "single"] },
+            "cardVariant": { "type": "string", "pattern": "^[a-z][a-z0-9-]{0,31}$" }
+          }
+        }
+      ]
+    },
     "forced": { "type": "boolean" },
     "startedAt": { "type": "string", "format": "date-time" },
     "finishedAt": { "type": "string", "format": "date-time" },

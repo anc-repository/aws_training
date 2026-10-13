@@ -79,6 +79,16 @@ done
 for s in cloudalbum-postattach cloudalbum-predetach cloudalbum-runtime; do
   install -m 0755 "$SRC/host/$s" "/usr/local/sbin/$s"
 done
+# the local CLI entry (06 PM-12): /opt/cloudalbum/bin/cloudalbum (inside the release directory) + /usr/local/bin/cloudalbum;
+# root subcommands are Bash scripts under infra/host/platform/ (Node never runs as root)
+install -d -m 0755 "$SRC/../bin"
+install -m 0755 "$SRC/host/cloudalbum" "$SRC/../bin/cloudalbum"
+ln -sfn /opt/cloudalbum/bin/cloudalbum /usr/local/bin/cloudalbum
+chmod 0755 "$SRC/host/platform/"*.sh "$SRC/host/install-atl-bundle.sh" 2>/dev/null || true
+# tls preview scheme B renew timer (06 PM-21): installed always, enabled only by `scripts/module tls-preview on`
+for u in cloudalbum-tls-renew.service cloudalbum-tls-renew.timer; do
+  [ -f "$SRC/systemd/$u" ] && install -m 0644 "$SRC/systemd/$u" "$SYSD/$u"
+done
 
 # ---------- sshd hardening (only kept when sshd accepts it) ----------
 if [ -d /etc/ssh/sshd_config.d ]; then

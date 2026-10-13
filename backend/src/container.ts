@@ -28,6 +28,7 @@ import { faults, type FaultRegistry } from './observability/faults.js';
 import { instrument, type CallObserver } from './observability/instrument.js';
 import { LabMetricsStore, type ProcessRole } from './observability/lab-metrics.js';
 import { setInstanceIdentity } from './observability/path-header.js';
+import { initPlatform } from './platform/mode.js';
 import type * as P from './ports/index.js';
 import type { ModuleId } from './ports/common.js';
 import { DEFAULT_RUNTIME_CONFIG } from './ports/config.js';
@@ -176,6 +177,9 @@ export async function buildContainer(role: ProcessRole, opts: BuildContainerOpti
   }
   const cfg = parsed.config;
   const env = parsed.effective;
+  // ATL 平台模式（06 PM-01）：第 1b 层 platform.env → 进程级平台状态（platformMode() 是唯一判定处）
+  initPlatform({ env: layers.merged, envDir: cfg.core.CLOUDALBUM_ENV_DIR, cloudalbumEnv: cfg.core.CLOUDALBUM_ENV,
+    present: Boolean(layers.platformEnv), ...(layers.platformEnv ? { fileKeys: layers.platformEnv.keys } : {}) });
   const quiet = cfg.core.NODE_ENV === 'test';
   const bootLog = consoleLogger({ role }, quiet ? 'error' : 'info');
 

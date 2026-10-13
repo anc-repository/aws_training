@@ -10,12 +10,23 @@ import type { AwsGateway } from './aws.js';
 import type { Printer } from './printer.js';
 import { CliError, EXIT } from './printer.js';
 
+/** marker line replaced at render time by the secrets.env upsert (inline heredoc, or the SSM parameter hand-off) */
+const HANDOFF_MARKER = '__CA_SECRETS_HANDOFF__';
+
 export class RemoteScript {
   private readonly lines: string[] = [];
   private readonly secrets: string[] = [];
+  /** secrets.env values (upsertSecrets): delivered inline over ssh, or through a SecureString parameter over SSM (platform mode) */
+  readonly handoff: Record<string, string> = {};
   constructor(readonly title: string) {}
 
   get containsSecrets(): boolean { return this.secrets.length > 0; }
+
+  /** secret values outside the secrets.env upsert: they can never be delivered over SSM */
+  get containsInlineSecrets(): boolean {
+    const handed = new Set(Object.values(this.handoff));
+    return this.secrets.some((v) => !handed.has(v));
+  }
 
   line(...l: string[]): this { this.lines.push(...l); return this; }
   comment(c: string): this { this.lines.push(`# ${c}`); return this; }
@@ -48,13 +59,11 @@ export class RemoteScript {
     const keys = Object.keys(values);
     if (!keys.length) return this;
     for (const v of Object.values(values)) this.secret(v);
-    const tag = `CA_EOF_${randomBytes(6).toString('hex')}`;
+    Object.assign(this.handoff, values);
     this.lines.push(
       'ca_sf=$(readlink -f /etc/cloudalbum/secrets.env); ca_tmp=$(mktemp "$(dirname "$ca_sf")/.secrets.XXXXXX")',
       `grep -v -E '^(${keys.join('|')})=' "$ca_sf" > "$ca_tmp" || true`,
-      `cat >> "$ca_tmp" <<'${tag}'`,
-      ...keys.map((k) => `${k}=${values[k]}`),
-      tag,
+      `${HANDOFF_MARKER} ${keys.join(',')}`,
       'chown root:cloudalbum "$ca_tmp"; chmod 0640 "$ca_tmp"; mv -f "$ca_tmp" "$ca_sf"',
     );
     return this;
@@ -76,8 +85,33 @@ export class RemoteScript {
     return this;
   }
 
-  render(): string {
-    return ['#!/bin/bash', `# scripts/module: ${this.title}`, 'set -euo pipefail', 'umask 027', ...this.lines, ''].join('\n');
+  /**
+   * inline (default): the secrets.env values are part of the script (ssh stdin only).
+   * hand-off: platform mode over SSM (06 §1.5 rule 3: secrets never travel in Run Command parameters) — the values were written to
+   *   a SecureString parameter beforehand; the instance reads it with its instance profile (AmazonSSMManagedInstanceCore allows
+   *   ssm:GetParameter) and scripts/module deletes the parameter afterwards (the same hand-off as the PM-31 keys mode).
+   */
+  render(handoff: { param: string; region: string } | null = null): string {
+    const out: string[] = [];
+    for (const l of this.lines) {
+      if (!l.startsWith(HANDOFF_MARKER)) { out.push(l); continue; }
+      const keys = l.slice(HANDOFF_MARKER.length + 1).split(',');
+      if (handoff) {
+        out.push(
+          `ca_ho=$(aws ssm get-parameter --region ${handoff.region} --name ${shq(handoff.param)} --with-decryption --query Parameter.Value --output text)`,
+          `printf '%s' "$ca_ho" | jq -r --arg keys ${shq(keys.join(','))} '($keys | split(",")) as $k | to_entries[] | select(.key as $x | $k | index($x)) | "\\(.key)=\\(.value)"' >> "$ca_tmp"`,
+          'unset ca_ho',
+        );
+      } else {
+        const tag = `CA_EOF_${randomBytes(6).toString('hex')}`;
+        out.push(`cat >> "$ca_tmp" <<'${tag}'`, ...keys.map((k) => `${k}=${this.handoff[k] ?? ''}`), tag);
+      }
+    }
+    return ['#!/bin/bash', `# scripts/module: ${this.title}`, 'set -euo pipefail', 'umask 027', ...out, ''].join('\n');
+  }
+
+  get hasHandoff(): boolean {
+    return Object.keys(this.handoff).length > 0;
   }
 
   display(): string {
@@ -128,24 +162,113 @@ export class SshDeliverer implements Deliverer {
   }
 }
 
+/** platform mode (06 PM-30): target discovery by tags, comment, secret hand-off parameter */
+export interface SsmPlatformOptions {
+  envName: string;
+  envId: string;
+  region: string;
+  /** `cloudalbum <command> <runId|opId>` */
+  commentSuffix: string;
+  /** SecureString parameter prefix of the secret hand-off: /cloudalbum/<envName>/handoff/<opId> */
+  handoffPrefix: string;
+  /** wait for PingStatus=Online (s); default 600 */
+  pingTimeoutSec?: number;
+}
+
+type Ec2Instance = { InstanceId?: string; Tags?: Array<{ Key?: string; Value?: string }> };
+
+/**
+ * Lab instances of the environment (06 PM-30, 01 §9.8): tag:atl:env-id + tag:atl:role=lab-app + running, then the AWS reserved
+ * tag aws:cloudformation:stack-name=cloudalbum-<envName>-ec2 (ASG instances: aws:autoscaling:groupName of this environment).
+ * Learner-created instances with copied tags and stopped L0 instances are excluded; instance IDs are never cached.
+ */
+export async function discoverLabInstances(aws: AwsGateway, envName: string, envId: string): Promise<string[]> {
+  const r = await aws.send<{ Reservations?: Array<{ Instances?: Ec2Instance[] }> }>({
+    service: 'ec2', op: 'DescribeInstances',
+    input: { Filters: [{ Name: 'tag:atl:env-id', Values: [envId] }, { Name: 'tag:atl:role', Values: ['lab-app'] }, { Name: 'instance-state-name', Values: ['running'] }] },
+  });
+  if (r === undefined) return ['<lab-instance-id>'];
+  const out: string[] = [];
+  for (const res of r.Reservations ?? []) {
+    for (const i of res.Instances ?? []) {
+      const tag = (k: string) => i.Tags?.find((t) => t.Key === k)?.Value;
+      const stack = tag('aws:cloudformation:stack-name');
+      const asg = tag('aws:autoscaling:groupName');
+      if (stack === `cloudalbum-${envName}-ec2` || (asg && asg.startsWith(`cloudalbum-${envName}-`))) {
+        if (i.InstanceId) out.push(i.InstanceId);
+      }
+    }
+  }
+  return out;
+}
+
 export class SsmDeliverer implements Deliverer {
   readonly channel = 'ssm';
   readonly dryRun: boolean;
-  constructor(private readonly aws: AwsGateway, private readonly instanceId: string | undefined, private readonly out: Printer) {
+  private counter = 0;
+  constructor(private readonly aws: AwsGateway, private readonly instanceId: string | undefined, private readonly out: Printer,
+    private readonly platform?: SsmPlatformOptions) {
     this.dryRun = aws.dryRun;
   }
 
-  async run(script: RemoteScript, opts: { capture?: boolean; timeoutSec?: number } = {}): Promise<RemoteResult> {
-    if (script.containsSecrets) {
-      throw new CliError(`"${script.title}" carries secret values: SSM Run Command keeps command parameters in its history, `
-        + 'so scripts/module only delivers secrets over ssh (or through the secrets module in a later round)', EXIT.rules);
+  private async targets(): Promise<string[]> {
+    if (!this.platform) return [this.instanceId ?? '<instance-id>'];
+    const ids = await discoverLabInstances(this.aws, this.platform.envName, this.platform.envId);
+    if (!ids.length) throw new CliError(`no running lab instance tagged atl:env-id=${this.platform.envId}, atl:role=lab-app`, EXIT.rules, 'LAB_INSTANCE_NOT_FOUND');
+    return ids;
+  }
+
+  /** new instances: wait for the management channel (PingStatus=Online, up to 10 minutes) before sending */
+  async waitOnline(ids: readonly string[], timeoutSec = this.platform?.pingTimeoutSec ?? 600): Promise<void> {
+    if (this.dryRun) return;
+    const deadline = Date.now() + timeoutSec * 1000;
+    for (;;) {
+      const r = await this.aws.send<{ InstanceInformationList?: Array<{ InstanceId?: string; PingStatus?: string }> }>({
+        service: 'ssm', op: 'DescribeInstanceInformation', input: { Filters: [{ Key: 'InstanceIds', Values: [...ids] }] },
+      });
+      const online = new Set((r?.InstanceInformationList ?? []).filter((x) => x.PingStatus === 'Online').map((x) => x.InstanceId));
+      if (ids.every((id) => online.has(id))) return;
+      if (Date.now() > deadline) {
+        throw new CliError(`the management channel did not come back within ${timeoutSec}s (PingStatus≠Online): check the NAT or the ssm / ssmmessages / ec2messages interface endpoints (ATL-NET-001)`, EXIT.health, 'MGMT_CHANNEL_OFFLINE');
+      }
+      await sleep(10_000);
     }
-    const instanceId = this.instanceId ?? '<instance-id>';
+  }
+
+  async run(script: RemoteScript, opts: { capture?: boolean; timeoutSec?: number } = {}): Promise<RemoteResult> {
+    if (this.platform ? script.containsInlineSecrets : script.containsSecrets) {
+      throw new CliError(`"${script.title}" carries secret values: SSM Run Command keeps command parameters in its history, `
+        + 'so scripts/module only delivers secrets over ssh (or, in platform mode, the secrets.env upsert through a SecureString hand-off parameter)', EXIT.rules);
+    }
+    const ids = await this.targets();
+    if (this.platform && !this.dryRun) await this.waitOnline(ids);
+    let handoff: { param: string; region: string } | null = null;
+    if (this.platform && script.hasHandoff) {
+      this.counter += 1;
+      handoff = { param: `${this.platform.handoffPrefix}-${this.counter}`, region: this.platform.region };
+      await this.aws.send({ service: 'ssm', op: 'PutParameter',
+        input: { Name: handoff.param, Type: 'SecureString', Value: JSON.stringify(script.handoff), Overwrite: true,
+          Description: `scripts/module secret hand-off (${script.title.slice(0, 60)}); deleted after delivery` },
+        display: { Name: handoff.param, Type: 'SecureString', Value: '***' } });
+    }
+    try {
+      const results: RemoteResult[] = [];
+      for (const instanceId of ids) results.push(await this.runOn(instanceId, script, handoff, opts));
+      const failed = results.find((r) => r.code !== 0);
+      return failed ?? results[0] ?? { code: 0, stdout: '', stderr: '' };
+    } finally {
+      if (handoff) await this.aws.send({ service: 'ssm', op: 'DeleteParameter', input: { Name: handoff.param } }).catch(() => undefined);
+    }
+  }
+
+  private async runOn(instanceId: string, script: RemoteScript, handoff: { param: string; region: string } | null,
+    opts: { capture?: boolean; timeoutSec?: number }): Promise<RemoteResult> {
+    const comment = this.platform ? `cloudalbum ${script.title} ${this.platform.commentSuffix}` : script.title;
     const sent = await this.aws.send<{ Command?: { CommandId?: string } }>({
       service: 'ssm', op: 'SendCommand',
-      input: { InstanceIds: [instanceId], DocumentName: 'AWS-RunShellScript', Comment: script.title.slice(0, 100),
-        Parameters: { commands: [script.render()], executionTimeout: [String(opts.timeoutSec ?? 900)] } },
-      display: { InstanceIds: [instanceId], DocumentName: 'AWS-RunShellScript', script: script.title },
+      input: { InstanceIds: [instanceId], DocumentName: 'AWS-RunShellScript', Comment: comment.replace(/[^\x20-\x7e]/g, '').slice(0, 100),
+        Parameters: { commands: [script.render(handoff)], executionTimeout: [String(opts.timeoutSec ?? 900)] } },
+      display: { InstanceIds: [instanceId], DocumentName: 'AWS-RunShellScript', script: script.title, ...(handoff ? { handoff: handoff.param } : {}) },
     });
     if (this.dryRun) {
       for (const l of script.display().split('\n')) this.out.dry(`  | ${l}`);
@@ -172,6 +295,21 @@ export class SsmDeliverer implements Deliverer {
       if (Date.now() > deadline) throw new CliError(`SSM command ${commandId} timed out`, EXIT.health);
     }
   }
+}
+
+/** the last JSON line of a remote command (Run Command output may be truncated: only the final line is relied on, PM-30) */
+export function lastJsonLine(stdout: string): Record<string, unknown> | null {
+  const lines = stdout.trim().split(/\r?\n/).reverse();
+  for (const l of lines) {
+    const t = l.trim();
+    if (!t.startsWith('{')) continue;
+    try {
+      return JSON.parse(t) as Record<string, unknown>;
+    } catch {
+      return null;
+    }
+  }
+  return null;
 }
 
 export function sleep(ms: number): Promise<void> {

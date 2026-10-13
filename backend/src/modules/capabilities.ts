@@ -15,7 +15,8 @@ import {
   type CapabilitiesResponse, type CapabilityCheck, type CapabilityTransitionEvent, type FeatureState, type HealthStatus,
   type ModuleCapability, type ModuleId, type ModuleStatus, type ProbeHistoryEntry, type ValidationFinding,
 } from '@cloudalbum/contracts';
-import { effectiveEntry, httpsState, type HttpsInfo } from '../config/base-url.js';
+import { effectiveEntry, hostKindOf, httpsState, type HttpsInfo } from '../config/base-url.js';
+import { platformInfo, platformMode } from '../platform/mode.js';
 import type { AppConfig } from '../config/schema.js';
 import { isAllowedInSecretsFile, isSecretLikeKey } from '../config/load-env.js';
 import { isNotImplemented } from '../errors.js';
@@ -419,6 +420,7 @@ export class CapabilityRegistry implements CallObserver {
     const h = createHash('sha256');
     for (const k of Object.keys(this.opts.env).sort()) {
       if (isSecretLikeKey(k) || isAllowedInSecretsFile(k)) continue;   // 机密不参与（也不泄露到）配置哈希
+      if (k.startsWith('ATL_')) continue;                              // 平台会话事实（platform.env）不是应用配置（06 PM-01）
       h.update(`${k}=${this.opts.env[k]}\n`);
     }
     return `sha256:${h.digest('hex').slice(0, 16)}`;
@@ -473,6 +475,14 @@ export class CapabilityRegistry implements CallObserver {
       runtime = DEFAULT_RUNTIME_CONFIG;
     }
     const enabledCount = MODULE_IDS.filter((m) => m !== 'ec2' && this.isEnabled(m)).length;
+    // ATL 平台模式（06 PM-03、PM-21）：app.platform、https.hostKind、ec2 也输出 localHealth；关闭时这些键都不出现
+    const platform = platformInfo(admin);
+    const entry = effectiveEntry(cfg);
+    const https = this.httpsOverride ?? httpsState(cfg);
+    if (platformMode()) {
+      const ec2 = modules.ec2;
+      if (ec2.localHealth === undefined) ec2.localHealth = ec2.status === 'off' ? 'ok' : (ec2.status as HealthStatus);
+    }
     return {
       schemaVersion: CAPABILITIES_SCHEMA_VERSION,
       generatedAt: this.now().toISOString(),
@@ -483,11 +493,12 @@ export class CapabilityRegistry implements CallObserver {
         deployMode: cfg.core.DEPLOY_MODE,
         region: cfg.core.AWS_REGION,
         instance: { ...this.instance, role: this.opts.role },
-        entry: effectiveEntry(cfg),
+        entry,
         configHash: this.configHash(),
         startedAt: this.startedAt,
+        ...(platform ? { platform } : {}),
       },
-      https: this.httpsOverride ?? httpsState(cfg),
+      https: platformMode() ? { ...https, hostKind: hostKindOf(entry.baseUrl) } : https,
       validation: {
         errors: this.verdict.errors.map((f) => toValidation(f, admin)),
         warnings: this.warnings().map((f) => toValidation(f, admin)),

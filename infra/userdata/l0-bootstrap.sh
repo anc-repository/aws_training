@@ -42,6 +42,28 @@ signal() {  # only the `all` phase reports to the CreationPolicy; cfn-signal nee
 on_exit() { local rc=$?; if [ "$rc" -ne 0 ]; then signal "$rc"; fi; exit "$rc"; }
 trap on_exit EXIT
 
+version_ge() { [ "$(printf '%s\n%s\n' "$2" "$1" | sort -V | head -1)" = "$2" ]; }   # $1 >= $2
+
+# PM-06: ATL-RunCheck / ATL-WorkstationSetup use interpolationType ENV_VAR, which needs a minimum SSM Agent version
+# (.release-manifest.json ssmAgentMinVersion, filled in after the 07 verification). A failed upgrade never stops the bootstrap;
+# platform-status reports meetsMinimum=false and the health gate fails with a repair hint.
+ssm_agent_check() {
+  local min='' ver ok=null
+  if [ -f /opt/cloudalbum/.release-manifest.json ]; then min=$(jq -r '.ssmAgentMinVersion // empty' /opt/cloudalbum/.release-manifest.json || true); fi
+  ver=$(rpm -q --qf '%{VERSION}' amazon-ssm-agent 2>/dev/null || true)
+  if [ -n "$min" ] && { [ -z "$ver" ] || ! version_ge "$ver" "$min"; }; then
+    echo "platform mode: amazon-ssm-agent ${ver:-missing} < $min, upgrading"
+    dnf -y upgrade amazon-ssm-agent || dnf -y install amazon-ssm-agent || echo "WARN: amazon-ssm-agent upgrade failed (see the official regional install guide)"
+    systemctl restart amazon-ssm-agent || true
+    ver=$(rpm -q --qf '%{VERSION}' amazon-ssm-agent 2>/dev/null || true)
+  fi
+  if [ -z "$ver" ]; then ok=false; elif [ -n "$min" ]; then if version_ge "$ver" "$min"; then ok=true; else ok=false; fi; fi
+  printf '{"version":%s,"minimum":%s,"meetsMinimum":%s,"checkedAt":"%s"}\n' \
+    "$( [ -n "$ver" ] && printf '"%s"' "$ver" || printf null)" "$( [ -n "$min" ] && printf '"%s"' "$min" || printf null)" \
+    "$ok" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > /opt/cloudalbum/.ssm-agent-check.json
+  echo "platform mode: amazon-ssm-agent ${ver:-missing} (minimum ${min:-unknown}, meetsMinimum=$ok)"
+}
+
 install_phase() {
   # 1. packages (D4: Node.js 22 LTS). Skipped when a golden AMI (ami module) already contains them.
   if [ ! -f /opt/cloudalbum/.image-manifest.json ]; then
@@ -90,11 +112,9 @@ install_phase() {
   #    00-entry, 00-acme-challenge, slots and vpc-cidr placeholders, systemd units and drop-in directories, nginx hardening
   #    drop-in, logrotate, journald limit, sshd hardening (sshd -t), fail2ban filter / action, helpers and cloudalbum-* commands
   bash /opt/cloudalbum/infra/install-host-files.sh
-  # platform mode (06 PM-04, both modes install the check bundle when the release ships it)
+  # platform mode (06 PM-04, both modes install the check bundle when the release ships it; golden AMIs re-verify it)
   if [ -f /opt/cloudalbum/infra/host/install-atl-bundle.sh ]; then bash /opt/cloudalbum/infra/host/install-atl-bundle.sh; fi
-  if [ "$PLATFORM_MODE" = on ]; then
-    echo "platform mode: amazon-ssm-agent $(rpm -q --qf '%{VERSION}' amazon-ssm-agent 2>/dev/null || echo missing)"
-  fi
+  if [ "$PLATFORM_MODE" = on ]; then ssm_agent_check; fi
   systemctl enable --now chronyd
   systemctl daemon-reload
 }
@@ -197,6 +217,8 @@ postattach_phase() {
   "$LIB/render-vpc-cidr.sh"           # /etc/nginx/cloudalbum-vpc-cidr.inc <- IMDS vpc-ipv4-cidr-blocks (updated after network moves)
   "$LIB/run-hostsetup.sh" --all       # E12: hostSetup apply for every enabled module in registry topological order
   "$LIB/render-fail2ban.sh"           # ban method depends on the entry (behind cdn / load-balancer or not)
+  # platform mode (06 PM-01/02/20): platform.env lives on the data volume, its Nginx slot on the root volume -> re-render it
+  if [ -f "$ETC/platform.env" ]; then bash /opt/cloudalbum/infra/host/platform/apply-env.sh --resync >/dev/null; fi
   cli check-config                    # configuration error -> exit 78, the script stops (D3)
   if [ "$DEPLOY_MODE" = single ]; then
     cli db:migrate

@@ -88,6 +88,9 @@ export interface RunRegistration {
 
 export async function registerRun(client: ExpClient, body: {
   runId: string; module: string; experiment: string; label: string; params?: Record<string, unknown>; forced?: boolean; notes?: string;
+  /** 06 PM-37：任意变体（平台模式下为登记响应的 variant） */
+  variant?: { label: string; role?: string; cardVariant?: string };
+  windowSec?: number;
 }): Promise<RunRegistration> {
   const res = await client.post('/api/lab/runs', { json: body, record: false, timeoutMs: 20_000 });
   if (res.ok) {

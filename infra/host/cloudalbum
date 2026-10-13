@@ -1,0 +1,53 @@
+#!/bin/bash
+# /opt/cloudalbum/bin/cloudalbum (symlink /usr/local/bin/cloudalbum) — the local CLI entry of the lab instance (06 PM-12).
+#   root subcommands (Bash, Node never runs as root): platform:apply-env, probe-token --init|--rotate, atl-bundle:install
+#   every other subcommand: runuser -u cloudalbum -- env CLOUDALBUM_ENV_DIR=/etc/cloudalbum CLOUDALBUM_ROLE=cli node cli.js <args>
+# stdout is one JSON object for the platform subcommands; exit codes 0 ok / 2 usage / 3 unavailable / 4 not found / 5 internal.
+# Arguments are passed as a fixed argv (no eval); the check bundle calls this file with execFile.
+set -u
+
+HOST_DIR=/opt/cloudalbum/infra/host
+CLI_JS=/opt/cloudalbum/backend/dist/cli.js
+NODE=/usr/bin/node
+
+json_error() {  # code message exit
+  printf '{"error":{"code":"%s","message":"%s"}}\n' "$1" "$2"
+  exit "$3"
+}
+
+need_root() {
+  [ "$(id -u)" = 0 ] || json_error ROOT_REQUIRED "cloudalbum $1 must run as root" 2
+}
+
+[ $# -ge 1 ] || json_error USAGE "usage: cloudalbum <subcommand> [args]" 2
+sub=$1
+[[ $sub =~ ^[a-z][a-z0-9:-]{0,40}$ ]] || json_error USAGE "invalid subcommand" 2
+
+case "$sub" in
+  platform:apply-env)
+    need_root "$sub"; shift
+    exec bash "$HOST_DIR/platform/apply-env.sh" "$@" ;;
+  atl-bundle:install)
+    need_root "$sub"; shift
+    exec bash "$HOST_DIR/install-atl-bundle.sh" "$@" ;;
+  iam:install-keys)
+    need_root "$sub"
+    json_error NOT_IMPLEMENTED "iam:install-keys (keys mode platform action, 06 PM-31 P1) is not implemented in this release" 2 ;;
+  probe-token|cloudalbum-probe-token)
+    for a in "$@"; do
+      if [ "$a" = --init ] || [ "$a" = --rotate ]; then
+        need_root "probe-token $a"; shift
+        exec bash "$HOST_DIR/platform/probe-secret.sh" "$@"
+      fi
+    done ;;
+esac
+
+# non-root subcommands run as the cloudalbum user
+if [ "$(id -u)" = 0 ]; then
+  exec runuser -u cloudalbum -- env CLOUDALBUM_ENV_DIR=/etc/cloudalbum CLOUDALBUM_ROLE=cli "$NODE" "$CLI_JS" "$@"
+elif [ "$(id -un)" = cloudalbum ]; then
+  exec env CLOUDALBUM_ENV_DIR=/etc/cloudalbum CLOUDALBUM_ROLE=cli "$NODE" "$CLI_JS" "$@"
+else
+  # other identities (labuser, ssm-user): read-only subcommands; the configuration is root:cloudalbum 0640, so most need sudo
+  exec env CLOUDALBUM_ENV_DIR=/etc/cloudalbum CLOUDALBUM_ROLE=cli "$NODE" "$CLI_JS" "$@"
+fi

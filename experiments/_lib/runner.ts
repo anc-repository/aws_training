@@ -27,7 +27,7 @@ import {
 } from './collect.js';
 import { defaultExecutor, FaultScheduler, type FaultExecutor } from './faults.js';
 import { AbState, BypassLimiter, closeSharedDispatcher, ExpClient, type ClientOptions } from './http.js';
-import { faultsFor, loadManifest, ManifestError, moduleDir, resolveParams, selectExperiment, validateLabel } from './manifest.js';
+import { faultsFor, loadManifest, ManifestError, moduleDir, resolveParams, selectExperiment, validateLabel, variantOf } from './manifest.js';
 import type { ParamValue, ScenarioContext, ScenarioModule } from './scenario.js';
 import { validateResult } from './schema.js';
 import { resolveAdminToken, resolveTarget } from './session.js';
@@ -329,7 +329,7 @@ export async function runExperiment(args: RunnerArgs, deps: RunnerDeps = {}): Pr
   let registered = false;
   if (!offline) {
     const reg = await registerRun(admin, {
-      runId, module: exp.module, experiment: exp.id, label: args.label, forced,
+      runId, module: exp.module, experiment: exp.id, label: args.label, variant: variantOf(exp, args.label), forced,
       params: { vus: vusList.length > 1 ? vusList : vusList[0], duration: durationStr, repeat: args.repeat, ab: args.ab, ...params },
     });
     registered = reg.registered;
@@ -487,7 +487,7 @@ export async function runExperiment(args: RunnerArgs, deps: RunnerDeps = {}): Pr
   if (scenarioError) warnings.push(`场景出错：${truncate(scenarioError.split('\n')[0] ?? scenarioError, 300)}`);
   const client = recorder.summary();
   const doc: ResultDoc = {
-    schemaVersion: 1, runId, module: exp.module, experiment: exp.id, label: args.label, variant: args.label, forced,
+    schemaVersion: 1, runId, module: exp.module, experiment: exp.id, label: args.label, variant: variantOf(exp, args.label), forced,
     startedAt: startedAt.toISOString(), finishedAt: finishedAt.toISOString(), target,
     params: {
       vus: vusList.length > 1 ? vusList : vusList[0]!, duration: durationStr, ...(warmupMs ? { warmup: warmupStr } : {}), repeat: args.repeat, ab: args.ab,

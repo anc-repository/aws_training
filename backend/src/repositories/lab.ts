@@ -11,7 +11,7 @@ export async function insertRollups(db: Knex, rows: readonly MetricRollup[]): Pr
     minute: r.minute, granularity: 'minute', instance_id: r.instanceId, role: r.role, kind: r.kind,
     route: r.route ?? null, method: r.method ?? null, path_sig: r.pathSig ?? null,
     module: r.module ?? null, driver: r.driver ?? null, op: r.op ?? null,
-    run_id: r.runId ?? null, label: r.label ?? null,
+    run_id: r.runId ?? null, label: r.label ?? null, status_class: r.statusClass ?? null,
     count: r.count, errors: r.errors, sum_ms: r.sumMs, max_ms: r.maxMs, hist: jsonOut(r.hist),
   }));
   // SQLite 单条语句的变量数有上限：分批插入
@@ -109,19 +109,36 @@ export interface LabRunRow {
   params: unknown;
   forced: boolean | number;
   notes: string | null;
+  /** 实验变体（06 PM-37、PM-40）：{ label, role?, cardVariant? } */
+  variant?: unknown;
+  /** 登记的时间窗（秒；平台登记响应的 window） */
+  window_sec?: number | null;
 }
+
+export interface LabRunVariant { label: string; role?: string; cardVariant?: string }
 
 export async function insertLabRun(db: Knex, input: {
   runId: string; module: string; experiment: string; label: string; startedAt?: string; createdBy?: string | null;
   params?: Record<string, unknown> | null; forced?: boolean; notes?: string | null;
+  variant?: LabRunVariant | null; windowSec?: number | null;
 }): Promise<LabRunRow> {
   const row = {
     run_id: input.runId, module: input.module, experiment: input.experiment, label: input.label,
     started_at: input.startedAt ?? new Date().toISOString(), finished_at: null, created_by: input.createdBy ?? null,
     params: jsonOut(input.params ?? null), forced: input.forced ?? false, notes: input.notes ?? null,
+    ...(input.variant ? { variant: jsonOut(input.variant) } : {}),
+    ...(input.windowSec ? { window_sec: input.windowSec } : {}),
   };
   await db('lab_runs').insert(row);
-  return { ...row, params: input.params ?? null };
+  return { ...row, params: input.params ?? null, variant: input.variant ?? null, window_sec: input.windowSec ?? null };
+}
+
+/** PM-40 的归属判定输入：已登记运行的标签与时间窗（不存在时 null） */
+export async function getRegisteredRun(db: Knex, runId: string): Promise<{ label: string; startedAt: string; windowSec: number | null; finishedAt: string | null } | null> {
+  const row = (await db('lab_runs').select('label', 'started_at', 'window_sec', 'finished_at').where({ run_id: runId }).first()) as
+    { label: string; started_at: string; window_sec: number | null; finished_at: string | null } | undefined;
+  if (!row) return null;
+  return { label: row.label, startedAt: row.started_at, windowSec: row.window_sec === null || row.window_sec === undefined ? null : Number(row.window_sec), finishedAt: row.finished_at };
 }
 
 export async function finishLabRun(db: Knex, runId: string, at: string = new Date().toISOString(), notes?: string): Promise<boolean> {
@@ -131,13 +148,13 @@ export async function finishLabRun(db: Knex, runId: string, at: string = new Dat
 
 export async function getLabRun(db: Knex, runId: string): Promise<LabRunRow | undefined> {
   const row = (await db('lab_runs').where({ run_id: runId }).first()) as LabRunRow | undefined;
-  return row ? { ...row, params: jsonIn(row.params, null) } : undefined;
+  return row ? { ...row, params: jsonIn(row.params, null), ...('variant' in row ? { variant: jsonIn(row.variant, null) } : {}) } : undefined;
 }
 
 export async function listLabRuns(db: Knex, f: { module?: string; limit?: number } = {}): Promise<LabRunRow[]> {
   const q = db('lab_runs').orderBy('started_at', 'desc').limit(Math.min(Math.max(f.limit ?? 50, 1), 500));
   if (f.module) q.where({ module: f.module });
-  return ((await q) as LabRunRow[]).map((r) => ({ ...r, params: jsonIn(r.params, null) }));
+  return ((await q) as LabRunRow[]).map((r) => ({ ...r, params: jsonIn(r.params, null), ...('variant' in r ? { variant: jsonIn(r.variant, null) } : {}) }));
 }
 
 export interface LabResultRow {
@@ -205,7 +222,7 @@ export async function listCapabilityEvents(db: Knex, f: { module?: string; since
 
 type RollupRow = Record<string, unknown>;
 
-const GROUP_COLS = ['instance_id', 'role', 'kind', 'route', 'method', 'path_sig', 'module', 'driver', 'op', 'run_id', 'label'] as const;
+const GROUP_COLS = ['instance_id', 'role', 'kind', 'route', 'method', 'path_sig', 'module', 'driver', 'op', 'run_id', 'label', 'status_class'] as const;
 
 function hourOf(minute: string): string {
   return `${minute.slice(0, 13)}:00:00.000Z`;

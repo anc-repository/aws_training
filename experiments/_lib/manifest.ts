@@ -5,7 +5,7 @@ import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import path from 'node:path';
 import type { ParamValue } from './scenario.js';
 import { validateExperimentManifest } from './schema.js';
-import type { ExperimentDef, ExperimentManifest } from './types.js';
+import type { ExperimentDef, ExperimentManifest, VariantInfo } from './types.js';
 import { experimentsRoot } from './util.js';
 
 export const LABEL_RE = /^[a-z][a-z0-9-]{0,23}$/;
@@ -80,6 +80,18 @@ export function validateLabel(exp: ExperimentDef, label: string): void {
   if (allowed.length && !allowed.includes(label)) {
     throw new ManifestError(`实验 ${exp.module}/${exp.id} 不支持标签 ${label}；可选：${allowed.join(', ')}`);
   }
+}
+
+/** 结果中的变体：label + experiment.json labels 中声明的角色（06 PM-37） */
+export function variantOf(exp: ExperimentDef, label: string, cardVariant?: string): VariantInfo {
+  const role = exp.labels?.[label]?.role;
+  return { label, ...(role ? { role } : {}), ...(cardVariant ? { cardVariant } : {}) };
+}
+
+/** 旧结果文件的 variant 是字符串；新结果是对象 */
+export function variantLabelOf(doc: { label: string; variant?: VariantInfo | string }): string {
+  if (!doc.variant) return doc.label;
+  return typeof doc.variant === 'string' ? doc.variant : doc.variant.label;
 }
 
 /** 合并参数：experiment.params 的默认值 + `--param k=v`（按声明的类型 / 范围校验；未声明的键拒绝）。 */

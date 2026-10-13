@@ -7,6 +7,8 @@
 // - GET /metrics：LabMetricsStore 的 Prometheus 文本格式，仅允许本机访问（Nginx 同样只放行 127.0.0.1）。
 import type { Express } from 'express';
 import type { Container } from '../../container.js';
+import { unregisteredRunHeaders } from '../../observability/bypass.js';
+import { probeCounters } from '../middleware/atl-probe.js';
 import { isLoopback } from '../../config/net.js';
 
 export function register(app: Express, c: Container): void {
@@ -29,6 +31,12 @@ export function register(app: Express, c: Container): void {
       res.status(403).json({ error: 'FORBIDDEN' });
       return;
     }
-    res.type('text/plain; version=0.0.4').send(c.labMetrics.toPrometheus());
+    // ATL 平台模式的计数器（06 PM-10、PM-40）：只在出现过时输出，独立模式下与原来逐字节一致
+    const extra = [...probeCounters.prometheus(c.role)];
+    if (unregisteredRunHeaders.total > 0) {
+      extra.push('# TYPE cloudalbum_lab_unregistered_run_header_total counter',
+        `cloudalbum_lab_unregistered_run_header_total{role="${c.role}"} ${unregisteredRunHeaders.total}`);
+    }
+    res.type('text/plain; version=0.0.4').send(`${c.labMetrics.toPrometheus()}${extra.length ? `${extra.join('\n')}\n` : ''}`);
   });
 }

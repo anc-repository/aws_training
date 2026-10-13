@@ -14,8 +14,12 @@ import { HttpError, isNotImplemented, NotImplementedError } from '../errors.js';
 import { bypassGuard } from '../observability/bypass.js';
 import { FaultInjectedError } from '../observability/faults.js';
 import { currentContext } from '../observability/request-context.js';
+import { platformMode } from '../platform/mode.js';
+import { getRegisteredRun } from '../repositories/lab.js';
+import { atlProbe } from './middleware/atl-probe.js';
 import { auditBypass } from './middleware/audit.js';
 import { authenticate } from './middleware/auth.js';
+import { frameAncestors } from './middleware/frame-ancestors.js';
 import { observability } from './middleware/observability.js';
 import { readOnlyGuard } from './middleware/readonly.js';
 import { requestContext } from './middleware/request-context.js';
@@ -27,6 +31,7 @@ import * as healthRoutes from './routes/health.js';
 import * as internalHookRoutes from './routes/internal-hooks.js';
 import * as jwksRoutes from './routes/jwks.js';
 import * as labModuleRoutes from './routes/lab-modules.js';
+import * as labProbeRoutes from './routes/lab-probe.js';
 import * as labRoutes from './routes/lab.js';
 import * as meRoutes from './routes/me.js';
 import * as mediaRoutes from './routes/media.js';
@@ -45,8 +50,21 @@ declare module 'express-serve-static-core' {
 /** 路由注册顺序：具体路径在前；internal-hooks 最后（它兜住其余 /internal/*）。 */
 export const ROUTE_MODULES = [
   healthRoutes, capabilityRoutes, jwksRoutes, authRoutes, meRoutes, albumRoutes, photoRoutes, uploadRoutes,
-  mediaRoutes, socialRoutes, notificationRoutes, adminRoutes, labModuleRoutes, labRoutes, internalHookRoutes,
+  mediaRoutes, socialRoutes, notificationRoutes, adminRoutes, labProbeRoutes, labModuleRoutes, labRoutes, internalHookRoutes,
 ] as const;
+
+/** PM-40：已登记运行的查找（平台模式），5 秒缓存（每个实验请求都要判定） */
+function cachedRunLookup(c: Container): (runId: string) => Promise<Awaited<ReturnType<typeof getRegisteredRun>>> {
+  const cache = new Map<string, { at: number; v: Awaited<ReturnType<typeof getRegisteredRun>> }>();
+  return async (runId) => {
+    const hit = cache.get(runId);
+    if (hit && Date.now() - hit.at < 5000) return hit.v;
+    const v = await getRegisteredRun(c.dbRead, runId);
+    if (cache.size > 1000) cache.clear();
+    cache.set(runId, { at: Date.now(), v });
+    return v;
+  };
+}
 
 export function createApp(c: Container): Express {
   const app = express();
@@ -60,12 +78,16 @@ export function createApp(c: Container): Express {
   }));
   app.use(cookieParser());
   app.use(requestContext());
+  app.use(atlProbe(c));                                             // ATL 平台模式：探测主体与探测流量标记（06 PM-09、PM-10）
   app.use(observability(c));
+  app.use(frameAncestors());                                        // 平台模式：HTML 响应的 CSP frame-ancestors（06 PM-20）
   app.use(authenticate(c));
+  const runLookup = cachedRunLookup(c);
   app.use(bypassGuard({
     runtime: () => c.runtimeConfig(),
     cache: () => c.cache,
     audit: auditBypass(c),                                          // 旁路请求写 audit_log（总纲 8.3 第 6 条）
+    experimentLookup: () => (platformMode() ? runLookup : undefined),   // 平台模式的运行归属（06 PM-40）
   }));
   app.use(readOnlyGuard(c));
   app.use((_req, _res, next) => {

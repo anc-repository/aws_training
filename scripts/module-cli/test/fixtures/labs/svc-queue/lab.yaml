@@ -1,0 +1,13 @@
+schema: atl.lab/v2
+id: svc-queue
+kind: service
+startProfile:
+  provisions:
+    - { item: iam, kind: module, basis: credential, set: { IAM_CREDENTIALS: role }, reason: C3 }
+    - { item: queue, kind: local, basis: precursor, set: { QUEUE_DRIVER: memory }, reason: in-process queue first }
+    - { item: cognito-test-users, kind: seed, reason: fixture seed }
+  platform: { preview: { directHttps: 'on' } }
+  reason: fixture
+targetModules:
+  - { id: queue, driver: sqs, fromDriver: memory, wireStep: wire-sqs }
+provision: { class: A }

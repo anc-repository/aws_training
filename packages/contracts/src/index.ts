@@ -10,3 +10,6 @@ export * from './path-header.js';
 export * from './server-timing.js';
 export * from './capabilities.js';
 export * from './registry-types.js';
+export * from './platform.js';
+export * from './capabilities-projection.js';
+export * from './canonical-json.js';

@@ -82,6 +82,13 @@ export interface RequestContext {
   userId?: string;
   isAdmin: boolean;
   experiment?: ExperimentTag;
+  /**
+   * ATL 平台探测流量（06 PM-10）：持有有效探测令牌（local / otp）或带 X-ATL-Probe-Nonce（nonce）。
+   * 探测流量不计入 LabMetricsStore 的汇总、path-seen、lab-metrics 与感知器窗口，只计入 cloudalbum_atl_probe_requests_total。
+   */
+  probe?: 'local' | 'otp' | 'nonce';
+  /** 持有有效探测令牌的只读主体 atl-probe（只在平台模式下存在） */
+  probePrincipal?: boolean;
   /** 本次请求被注入的故障 id（§8.4） */
   faults: string[];
   /** 其他中间件 / 服务的私有数据 */

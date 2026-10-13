@@ -67,8 +67,8 @@ export function observability(c: Container): RequestHandler {
     const ctx = currentContext();
     if (!ctx) return next();
 
-    // 被动感知：每个请求调用一次（只能做 O(1) 计数）
-    for (const det of c.detectors) {
+    // 被动感知：每个请求调用一次（只能做 O(1) 计数）；平台探测流量不计入感知器的观测窗口（06 PM-10）
+    for (const det of ctx.probe ? [] : c.detectors) {
       try {
         det.observe?.({ headers: req.headers, remoteAddr: req.socket.remoteAddress ?? '' });
       } catch {
@@ -81,7 +81,8 @@ export function observability(c: Container): RequestHandler {
     const apply = () => {
       if (applied) return;
       applied = true;
-      const visible = expose === 'all' || (expose === 'admin' && ctx.isAdmin);
+      // 探测主体 atl-probe：路径头与 Server-Timing 总是返回，不受 EXPOSE_PATH_HEADERS 影响（06 PM-10）
+      const visible = expose === 'all' || (expose === 'admin' && ctx.isAdmin) || Boolean(ctx.probePrincipal);
       if (visible && !res.headersSent) {
         res.setHeader(HEADERS.path, buildPathHeader(ctx));
         res.setHeader(HEADERS.serverTiming, buildServerTimingHeader(ctx));
@@ -94,6 +95,8 @@ export function observability(c: Container): RequestHandler {
     } as typeof res.writeHead;
 
     res.on('finish', () => {
+      // 平台探测流量：不计入分钟汇总、路由延迟分布、path-seen 与 lab-metrics（06 PM-10），只计入 atl_probe 计数器
+      if (ctx.probe) return;
       const totalMs = performance.now() - ctx.startedAt;
       const modules: Record<string, number> = {};
       for (const t of ctx.timing.entries()) modules[t.module] = Math.round(t.dur * 10) / 10;

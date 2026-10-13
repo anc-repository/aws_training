@@ -5,7 +5,8 @@ import type { Adapter } from './common.js';
 export type ScheduledJobName =
   | 'report.daily' | 'share.cleanup' | 'image.reconcile' | 'outbox.retention' | 'lab.compact'
   | 'lab.heartbeat'                  // 无副作用的对照任务，用于双触发时间线实验
-  | 'analytics.retention' | 'audit.retention';
+  | 'analytics.retention' | 'audit.retention'
+  | 'atl.probe-nonce-gc';            // ATL 平台模式（06 PM-09）：删除过期的一次性探测令牌 nonce；只在平台模式下注册
 export interface ScheduledJobDef {
   name: ScheduledJobName;
   cron: string;                      // 代码中的期望值；eventbridge 档由 CloudFormation 按同一表达式创建 Schedule

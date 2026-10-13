@@ -263,7 +263,7 @@ export const InfraOptions = z.object({
   SOCIAL_API_ID: optStr,
   TAGGER_INPUT: z.enum(['auto', 'bytes', 's3']).default('auto'),               // DEP-027
   NETWORK_NAT_MODE: z.enum(['none', 'instance', 'gateway']).default('none'),
-  NETWORK_INTERFACE_ENDPOINTS: z.enum(['none', 'ops', 'all']).default('none'),
+  NETWORK_INTERFACE_ENDPOINTS: z.enum(['none', 'ssm', 'ops', 'all']).default('none'),   // ssm：平台管理通道的三个终端节点（PM-M01）
   NETWORK_EIC_ENDPOINT: onOff.default('off'),
   CDN_ORIGIN_TYPE: z.enum(['ec2', 'alb', 'vpc-origin']).default('ec2'),          // DEP-014、038、039
   CDN_MEDIA_ORIGIN: z.enum(['ec2', 's3']).default('ec2'),                        // DEP-010、028
@@ -275,6 +275,10 @@ export const InfraOptions = z.object({
   CDN_ORIGIN_DIRECT_URL: optUrl,                                                  // 对比实验的直连地址
   DNS_TARGET_TYPE: z.enum(['eip', 'alb', 'cloudfront']).default('eip'),          // DEP-040、041
   TLS_FORCE_HTTPS: trueFalse.default('false'),                                    // DEP-015
+  // 平台预览方案 B（06 PM-21）：tls 本地档 letsencrypt 为实验机 EIP 申请的 IP 短期证书（tls-preview on 写入 tls.env）
+  TLS_LE_PROFILE: z.enum(['classic', 'shortlived']).optional(),
+  TLS_PUBLIC_IP: z.union([z.literal(''), z.ipv4()]).optional(),
+  TLS_PREVIEW: z.enum(['', 'letsencrypt-ip']).optional(),
   LB_HTTPS: trueFalse.default('false'),
   LB_ADMIN_AUTH: z.enum(['app', 'cognito']).default('app'),                      // DEP-011、017
   LB_ORIGIN_VERIFY: onOff.default('off'),                                         // DEP-042
@@ -400,12 +404,34 @@ export const Kms = z.object({
     ctx.addIssue({ code: 'custom', message: 'CRYPTO_LOCAL_PLAINTEXT=on 只能与 local 驱动（KMS_KEY_ID 为空）一起使用（CFG-001）' });
 });
 
+// ---------------------------------------------------------------------------------------------
+// ATL 平台模式（06 PM-01）：第 1b 层 platform.env。这里只做宽松的结构解析（ATL_PLATFORM_MODE 归一为 on / off / invalid），
+// 每个变量的格式与跨字段条件由规则 ATL-CFG-001（platform/env-schema.ts 的 validatePlatformEnv）给出——错误照样以 78 退出，
+// 报告里是规则 ID 而不是 zod 路径。应用内读取平台状态一律经 platform/mode.ts 的 platformMode()。
+// ---------------------------------------------------------------------------------------------
+export const Platform = z.object({
+  ATL_PLATFORM_MODE: z.string().default('off').transform((v) => {
+    const x = v.trim().toLowerCase();
+    if (x === '' || x === 'off' || x === '0' || x === 'false') return 'off' as const;
+    if (x === 'on' || x === '1' || x === 'true') return 'on' as const;
+    return 'invalid' as const;
+  }),
+  ATL_SESSION_ID: optStr,
+  ATL_ENV_ID: optStr,
+  ATL_ENV_NAME: optStr,
+  ATL_LAB_ID: optStr,
+  ATL_VARIANT: optStr,
+  ATL_PLATFORM_ORIGIN: optStr,
+  ATL_PROBE_TOKEN_FILE: optStr,
+  ATL_RELEASE: optStr,
+});
+
 export const SECTIONS = {
   core: Core, iam: Iam, storage: Storage, auth: Auth, db: Database, cache: Cache, queue: Queue, image: Image,
   tracing: Tracing, workflow: Workflow, identity: Identity, infra: InfraOptions,
   secrets: Secrets, config: RuntimeConfigSource, logging: Logging, monitoring: Monitoring,
   notification: Notification, email: Email, scheduler: Scheduler, social: Social, tagger: Tagger,
-  analytics: Analytics, kms: Kms,
+  analytics: Analytics, kms: Kms, platform: Platform,
 } as const;
 export type SectionName = keyof typeof SECTIONS;
 export type AppConfig = { [K in SectionName]: z.infer<(typeof SECTIONS)[K]> };

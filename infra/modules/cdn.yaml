@@ -147,6 +147,24 @@ Resources:
           HeadersConfig: { HeaderBehavior: none }
           QueryStringsConfig: { QueryStringBehavior: all }
 
+  # 06 PM-24 (both modes): the origin can only attribute experiment traffic by X-Experiment-Run, and CloudFront only forwards
+  # the headers an origin request policy lists. Cacheable behaviors with the EC2 / ALB origin use this policy; headers of an
+  # origin request policy are NOT part of the cache key, so hit ratios do not change. The behaviors had no origin request
+  # policy before (the cache policy alone decided what reaches the origin), so cookies / query strings stay "none" here and
+  # the cache-key query strings (exp, sig; /api/public/* all) are still forwarded by the cache policies.
+  # /api/* and /social/* keep AllViewer (already forwards the experiment headers and X-ATL-Probe-Token); S3 media does not.
+  ExperimentOriginRequestPolicy:
+    Type: AWS::CloudFront::OriginRequestPolicy
+    Properties:
+      OriginRequestPolicyConfig:
+        Name: !Sub 'cloudalbum-${Env}-cdn-experiment'
+        Comment: Forward the experiment attribution headers to the EC2 / ALB origin (not part of the cache key)
+        CookiesConfig: { CookieBehavior: none }
+        QueryStringsConfig: { QueryStringBehavior: none }
+        HeadersConfig:
+          HeaderBehavior: whitelist
+          Headers: [X-Experiment-Run, X-Experiment-Label, X-ATL-Probe-Nonce]
+
   LabResponseHeadersPolicy:
     Type: AWS::CloudFront::ResponseHeadersPolicy
     Properties:
@@ -238,6 +256,7 @@ Resources:
           CachedMethods: [GET, HEAD]
           Compress: true
           CachePolicyId: !FindInMap [ManagedPolicies, Cache, UseOriginCacheControlHeaders]
+          OriginRequestPolicyId: !Ref ExperimentOriginRequestPolicy
           ResponseHeadersPolicyId: !Ref LabResponseHeadersPolicy
         CacheBehaviors:
           - PathPattern: /assets/*
@@ -247,6 +266,7 @@ Resources:
             CachedMethods: [GET, HEAD]
             Compress: true
             CachePolicyId: !FindInMap [ManagedPolicies, Cache, CachingOptimized]
+            OriginRequestPolicyId: !Ref ExperimentOriginRequestPolicy
             ResponseHeadersPolicyId: !Ref LabResponseHeadersPolicy
           - PathPattern: /media/*
             TargetOriginId: !If [S3Media, s3-media, app-origin]
@@ -255,6 +275,7 @@ Resources:
             CachedMethods: [GET, HEAD]
             Compress: false
             CachePolicyId: !Ref MediaCachePolicy
+            OriginRequestPolicyId: !If [S3Media, !Ref 'AWS::NoValue', !Ref ExperimentOriginRequestPolicy]
             ResponseHeadersPolicyId: !Ref LabResponseHeadersPolicy
             FunctionAssociations: !If
               - S3Media
@@ -267,6 +288,7 @@ Resources:
             CachedMethods: [GET, HEAD]
             Compress: true
             CachePolicyId: !Ref ApiMicroCachePolicy
+            OriginRequestPolicyId: !Ref ExperimentOriginRequestPolicy
             ResponseHeadersPolicyId: !Ref LabResponseHeadersPolicy
           - PathPattern: /api/*
             TargetOriginId: app-origin
@@ -295,6 +317,7 @@ Resources:
             CachedMethods: [GET, HEAD]
             Compress: true
             CachePolicyId: !FindInMap [ManagedPolicies, Cache, UseOriginCacheControlHeaders]
+            OriginRequestPolicyId: !Ref ExperimentOriginRequestPolicy
         CustomErrorResponses:
           - { ErrorCode: 403, ErrorCachingMinTTL: 5 }
           - { ErrorCode: 404, ErrorCachingMinTTL: 5 }

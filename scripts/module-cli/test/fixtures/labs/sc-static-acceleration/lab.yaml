@@ -1,0 +1,15 @@
+schema: atl.lab/v2
+id: sc-static-acceleration
+kind: scenario
+startProfile:
+  provisions:
+    - { item: featureFlags.lab.faults, kind: runtime, value: true, reason: fault injection in the scenario }
+  platform: { preview: { directHttps: 'on' } }
+  reason: fixture
+targetModules:
+  - { id: storage, driver: s3, wireStep: s3 }
+  - { id: cdn, driver: cloudfront, set: { CDN_MEDIA_ORIGIN: s3 }, wireStep: cdn }
+extraStacks:
+  - { id: edge-cert, template: stacks/edge-cert.yaml, region: us-east-1, deploy: start, reclaim: { phase: after-modules } }
+  - { id: later, template: stacks/later.yaml, region: app, deploy: 'step:x', reclaim: { phase: after-modules } }
+provision: { class: B }

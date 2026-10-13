@@ -38,12 +38,13 @@ afterAll(async () => {
 });
 
 describe('定时任务注册表', () => {
-  it('8 个 ScheduledJobName；lab.heartbeat 只在 SCHEDULER_COMPARE_HEARTBEAT=on 时注册；时区 Asia/Tokyo', () => {
+  it('8 个 ScheduledJobName（+ 平台模式的 atl.probe-nonce-gc）；lab.heartbeat 只在 SCHEDULER_COMPARE_HEARTBEAT=on 时注册；时区 Asia/Tokyo', () => {
     expect(SCHEDULE.map((e) => e.name).sort()).toEqual([
-      'analytics.retention', 'audit.retention', 'image.reconcile', 'lab.compact', 'lab.heartbeat', 'outbox.retention', 'report.daily', 'share.cleanup',
+      'analytics.retention', 'atl.probe-nonce-gc', 'audit.retention', 'image.reconcile', 'lab.compact', 'lab.heartbeat', 'outbox.retention', 'report.daily', 'share.cleanup',
     ]);
     const defs = scheduledJobs(c);
-    expect(defs).toHaveLength(8);
+    expect(defs).toHaveLength(8);                                  // 平台模式关闭：atl.probe-nonce-gc 不注册（06 PM-09）
+    expect(defs.some((d) => d.name === 'atl.probe-nonce-gc')).toBe(false);
     expect(defs.every((d) => d.timezone === 'Asia/Tokyo')).toBe(true);
     expect(defs.find((d) => d.name === 'lab.heartbeat')?.singleton).toBe(false);
     expect(defs.find((d) => d.name === 'report.daily')).toMatchObject({ cron: '0 9 * * *', singleton: true });

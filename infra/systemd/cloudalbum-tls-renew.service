@@ -1,0 +1,9 @@
+# /etc/systemd/system/cloudalbum-tls-renew.service — platform preview scheme B (06 PM-21): renew the Let's Encrypt IP
+# certificate of the instance EIP. Enabled only by `scripts/module tls-preview on`; does nothing when scheme B is off.
+[Unit]
+Description=CloudAlbum preview certificate renewal (Let's Encrypt IP, scheme B)
+After=network-online.target nginx.service
+
+[Service]
+Type=oneshot
+ExecStart=/bin/bash /opt/cloudalbum/infra/host/platform/tls-preview.sh renew

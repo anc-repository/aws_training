@@ -2,6 +2,8 @@
 //
 // 顺序（后者覆盖前者）：
 //   1. <envDir>/cloudalbum.env          基础配置（User Data 写入）
+//   1b. <envDir>/platform.env           ATL 平台模式（06 PM-01）：只由 `cloudalbum platform:apply-env` 写入，只允许 ATL_ 前缀的键
+//                                       （其他键 → ATL-CFG-001，不参与合并）；ATL_ 键出现在其他层 → CFG-002（同样不参与合并）
 //   2. <envDir>/modules.d/*.env         按文件名排序；每个文件只能出现该模块 ownsEnv 中的键 + MODULE_<ID>(_VERSION) + 开关（CFG-002）；
 //                                       不得出现机密类键（CFG-002）；两个模块文件定义同一个键（CFG-003）
 //   3. <envDir>/secrets.env             只允许 SecretName 映射出的变量、SECRETS_ORIGIN、IAM_KEYS_*
@@ -15,7 +17,7 @@ import { isModuleId, moduleFlagKey, type ModuleId } from '@cloudalbum/contracts'
 import { SECRET_NAMES, secretEnvName } from '../ports/secrets.js';
 import { REGISTRY, isKeyAllowedForModule, ownerOfKey, type Registry } from '../modules/registry.js';
 
-export type LayerKind = 'base' | 'module' | 'secrets' | 'override' | 'process';
+export type LayerKind = 'base' | 'platform' | 'module' | 'secrets' | 'override' | 'process';
 
 export interface EnvLayer {
   kind: LayerKind;
@@ -26,7 +28,7 @@ export interface EnvLayer {
 }
 
 export interface LayerIssue {
-  code: 'CFG-002' | 'CFG-003';
+  code: 'CFG-002' | 'CFG-003' | 'ATL-CFG-001';
   file: string;
   key: string;
   module?: string;
@@ -55,7 +57,12 @@ export interface EnvLayers {
   localOverride: boolean;
   /** /etc/cloudalbum/cost-rates.yaml（CFG-010） */
   costRates: CostRatesFile | null;
+  /** 第 1b 层 platform.env：是否存在与文件中的全部键（含被丢弃的非 ATL_ 键，供 ATL-CFG-001 报告） */
+  platformEnv?: { file: string; keys: string[] };
 }
+
+/** ATL 平台模式的键前缀：只能出现在 platform.env（06 PM-01） */
+export const ATL_PREFIX = 'ATL_';
 
 /** 进程环境中允许进入配置的键（第 5 层）。 */
 export const PROCESS_ENV_WHITELIST = ['NODE_ENV', 'CLOUDALBUM_ROLE', 'CLOUDALBUM_ENV_DIR', 'PORT', 'HOST', 'NODE_OPTIONS'] as const;
@@ -162,7 +169,26 @@ export function loadEnvLayersSync(envDir: string, registryOrOpts?: Registry | Lo
   // 1. 基础配置
   const baseFile = path.join(dir, 'cloudalbum.env');
   const base = readEnvFile(baseFile);
-  if (base) layers.push({ kind: 'base', file: baseFile, values: base });
+  if (base) {
+    for (const key of Object.keys(base).filter((k) => k.startsWith(ATL_PREFIX))) {
+      issues.push({ code: 'CFG-002', file: baseFile, key, message: `cloudalbum.env 出现 ${key}：ATL_ 前缀的键只能写在 platform.env（cloudalbum platform:apply-env）` });
+    }
+    layers.push({ kind: 'base', file: baseFile, values: base });
+  }
+
+  // 1b. platform.env（06 PM-01）
+  const platformFile = path.join(dir, 'platform.env');
+  const platformRaw = readEnvFile(platformFile);
+  let platformEnv: EnvLayers['platformEnv'];
+  if (platformRaw) {
+    const values: Record<string, string> = {};
+    for (const [k, v] of Object.entries(platformRaw)) {
+      if (k.startsWith(ATL_PREFIX)) values[k] = v;
+      else issues.push({ code: 'ATL-CFG-001', file: platformFile, key: k, message: `platform.env 只允许 ATL_ 前缀的键，出现了 ${k}` });
+    }
+    platformEnv = { file: platformFile, keys: Object.keys(platformRaw) };
+    layers.push({ kind: 'platform', file: platformFile, values });
+  }
 
   // 2. modules.d/*.env（按文件名排序）
   const modDir = path.join(dir, 'modules.d');
@@ -216,7 +242,12 @@ export function loadEnvLayersSync(envDir: string, registryOrOpts?: Registry | Lo
   // 4. local.override.env（CFG-005）
   const overrideFile = path.join(dir, 'local.override.env');
   const override = readEnvFile(overrideFile);
-  if (override) layers.push({ kind: 'override', file: overrideFile, values: override });
+  if (override) {
+    for (const key of Object.keys(override).filter((k) => k.startsWith(ATL_PREFIX))) {
+      issues.push({ code: 'CFG-002', file: overrideFile, key, message: `local.override.env 出现 ${key}：ATL_ 前缀的键只能写在 platform.env` });
+    }
+    layers.push({ kind: 'override', file: overrideFile, values: override });
+  }
 
   // 5. 进程环境白名单
   const proc: Record<string, string> = {};
@@ -231,6 +262,7 @@ export function loadEnvLayersSync(envDir: string, registryOrOpts?: Registry | Lo
   const sources: Record<string, string> = {};
   for (const layer of layers) {
     for (const [k, v] of Object.entries(layer.values)) {
+      if (k.startsWith(ATL_PREFIX) && layer.kind !== 'platform') continue;   // 只认 platform.env 中的 ATL_ 键
       merged[k] = v;
       sources[k] = layer.file;
     }
@@ -251,7 +283,7 @@ export function loadEnvLayersSync(envDir: string, registryOrOpts?: Registry | Lo
 
   return {
     envDir: dir, exists, isSymlink, ...(realPath ? { realPath } : {}),
-    layers, merged, sources, issues, localOverride: Boolean(override), costRates,
+    layers, merged, sources, issues, localOverride: Boolean(override), costRates, ...(platformEnv ? { platformEnv } : {}),
   };
 }
 

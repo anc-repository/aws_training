@@ -9,6 +9,7 @@
 // | lab.heartbeat        | */5 * * * *   | 否 | 无副作用的对照任务，只写一行 job_runs；仅 SCHEDULER_COMPARE_HEARTBEAT=on 时注册 |
 // | analytics.retention  | 15 3 * * *    | 是 | 分批删除超过 ANALYTICS_RETENTION_DAYS 的 click_events（firehose 档立即返回） |
 // | audit.retention      | 45 3 * * *    | 是 | 删除超过 AUDIT_RETENTION_DAYS 的 audit_log 行 |
+// | atl.probe-nonce-gc   | */10 * * * *  | 是 | ATL 平台模式（06 PM-09）：删除 exp < now - 600 的一次性探测令牌 nonce；只在平台模式下注册 |
 //
 // eventbridge 档由 CloudFormation 按同一张表创建 Schedule（node dist/cli.js scheduler export 生成参数）。
 import path from 'node:path';
@@ -16,7 +17,9 @@ import { rm, readdir, unlink } from 'node:fs/promises';
 import type { Container } from '../container.js';
 import { asLocalMultipart } from '../adapters/storage/local.js';
 import type { ScheduledJobDef, ScheduledJobName } from '../ports/scheduler.js';
+import { purgeExpiredNonces } from '../repositories/atl-probe-nonces.js';
 import { purgeEventsBefore } from '../repositories/click-events.js';
+import { platformMode } from '../platform/mode.js';
 import { purgeBefore } from '../repositories/job-runs.js';
 import { deleteAuditBefore } from '../repositories/audit.js';
 import * as labRepo from '../repositories/lab.js';
@@ -35,6 +38,7 @@ export const SCHEDULE: readonly ScheduleEntry[] = [
   { name: 'lab.heartbeat', cron: '*/5 * * * *', singleton: false },
   { name: 'analytics.retention', cron: '15 3 * * *', singleton: true },
   { name: 'audit.retention', cron: '45 3 * * *', singleton: true },
+  { name: 'atl.probe-nonce-gc', cron: '*/10 * * * *', singleton: true },
 ];
 
 const DAY_MS = 86_400_000;
@@ -139,9 +143,11 @@ export function scheduledJobs(c: Container): ScheduledJobDef[] {
     'lab.heartbeat': async () => { /* 无副作用：job_runs 的一行就是结果 */ },
     'analytics.retention': async (r) => { await analyticsRetention(c, r.scheduledAt); },
     'audit.retention': async (r) => { await auditRetention(c, r.scheduledAt); },
+    'atl.probe-nonce-gc': async (r) => { await purgeExpiredNonces(c.db, Math.floor(r.scheduledAt.getTime() / 1000)); },
   };
   const heartbeat = c.config.scheduler.SCHEDULER_COMPARE_HEARTBEAT === 'on';
   return SCHEDULE
     .filter((e) => e.name !== 'lab.heartbeat' || heartbeat)
+    .filter((e) => e.name !== 'atl.probe-nonce-gc' || platformMode())
     .map((e) => ({ name: e.name, cron: e.cron, timezone: tz, singleton: e.singleton, handler: handlers[e.name] }));
 }

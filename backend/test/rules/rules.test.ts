@@ -166,7 +166,7 @@ describe('未实现的驱动（CFG-001，退出码 78）', () => {
     ['TRACING_DRIVER', 'local'],
     ['SECRETS_DRIVER', 'secretsmanager'],
     ['DEPLOY_MODE', 'asg'],
-    ['TLS_MODE', 'letsencrypt'],
+    ['TLS_MODE', 'acm'],                  // letsencrypt（本地档）由平台预览方案 B 实现（06 PM-21），acm 仍未实现
     ['NOTIFY_DRIVER', 'sns'],
   ])('%s=%s 被拒绝并给出明确提示', (key, value) => {
     const { parsed } = evaluate({ [key]: value }, { checkImplemented: true });
@@ -174,6 +174,11 @@ describe('未实现的驱动（CFG-001，退出码 78）', () => {
     const e = parsed.errors.find((x) => x.section === 'implementation');
     expect(e?.path).toBe(key);
     expect(e?.message).toContain('尚未实现');
+  });
+
+  it('TLS_MODE=letsencrypt（tls 本地档，平台预览方案 B 的 IP 证书）已实现', () => {
+    const { parsed } = evaluate({ TLS_MODE: 'letsencrypt', TLS_LE_PROFILE: 'shortlived', TLS_PUBLIC_IP: '203.0.113.10', TLS_PREVIEW: 'letsencrypt-ip' }, { checkImplemented: true });
+    expect(parsed.errors).toEqual([]);
   });
 
   it('IDENTITY_POOL_ID（参数型，cognito 驱动）被拒绝', () => {

@@ -41,12 +41,20 @@ import { notImplementedRoute } from './_stub.js';
 import { parseBody } from './auth.js';
 
 const slug = z.string().trim().min(1).max(64).regex(/^[A-Za-z0-9._:-]+$/, '只能含字母、数字、. _ : -');
+const variantLabel = z.string().regex(/^[a-z][a-z0-9-]{0,23}(:[AB])?$/, '变体标签 ^[a-z][a-z0-9-]{0,23}$（06 PM-37）');
 const RunBody = z.object({
   runId: z.string().trim().regex(/^[0-9A-HJKMNP-TV-Z]{26}$/i, 'runId 必须是 ULID').optional(),
   module: slug, experiment: slug, label: slug,
   params: z.record(z.string(), z.unknown()).optional(),
   forced: z.boolean().optional(),
   notes: z.string().max(2000).optional(),
+  // 06 PM-37、PM-38：任意变体（平台登记响应原样写回）与登记的时间窗（PM-40 的归属条件）
+  variant: z.object({
+    label: variantLabel,
+    role: z.enum(['baseline', 'treatment', 'single']).optional(),
+    cardVariant: z.string().regex(/^[a-z][a-z0-9-]{0,31}$/).optional(),
+  }).optional(),
+  windowSec: z.number().int().min(60).max(86_400).optional(),
 });
 const FinishBody = z.object({ notes: z.string().max(2000).optional() });
 const FaultBody = z.object({
@@ -85,6 +93,9 @@ export function register(app: Express, c: Container): void {
     const row = await insertLabRun(c.db, {
       runId, module: body.module, experiment: body.experiment, label: body.label, createdBy: currentContext()?.userId ?? null,
       params: body.params ?? null, forced: body.forced ?? false, notes: body.notes ?? null,
+      ...(body.variant ? { variant: { label: body.variant.label, ...(body.variant.role ? { role: body.variant.role } : {}),
+        ...(body.variant.cardVariant ? { cardVariant: body.variant.cardVariant } : {}) } } : {}),
+      ...(body.windowSec ? { windowSec: body.windowSec } : {}),
     });
     await audit(c, { action: 'lab.run.start', targetType: 'lab_run', targetId: runId, details: { module: body.module, experiment: body.experiment, label: body.label, forced: body.forced ?? false } });
     res.status(201).json({ runId, startedAt: row.started_at, headers: { 'X-Experiment-Run': runId, 'X-Experiment-Label': body.label } });

@@ -6,7 +6,7 @@
  */
 import type { Printer } from './printer.js';
 
-export type AwsService = 'cloudformation' | 'ec2' | 'iam' | 's3' | 'ssm' | 'sts';
+export type AwsService = 'cloudformation' | 'ec2' | 'iam' | 's3' | 'ssm' | 'sts' | 'dynamodb' | 'cognito-idp' | 'rds';
 
 const CLIENTS: Record<AwsService, { pkg: string; client: string }> = {
   cloudformation: { pkg: '@aws-sdk/client-cloudformation', client: 'CloudFormationClient' },
@@ -15,6 +15,10 @@ const CLIENTS: Record<AwsService, { pkg: string; client: string }> = {
   s3: { pkg: '@aws-sdk/client-s3', client: 'S3Client' },
   ssm: { pkg: '@aws-sdk/client-ssm', client: 'SSMClient' },
   sts: { pkg: '@aws-sdk/client-sts', client: 'STSClient' },
+  // platform mode (06 PM-28 lock table, PM-36 cognito-passwords hook)
+  dynamodb: { pkg: '@aws-sdk/client-dynamodb', client: 'DynamoDBClient' },
+  'cognito-idp': { pkg: '@aws-sdk/client-cognito-identity-provider', client: 'CognitoIdentityProviderClient' },
+  rds: { pkg: '@aws-sdk/client-rds', client: 'RDSClient' },   // env suspend / resume (02 §8.2)
 };
 
 export interface AwsCall {

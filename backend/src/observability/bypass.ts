@@ -40,8 +40,32 @@ export function parseBypassHeader(raw: string | string[] | undefined): string[] 
 
 export interface BypassAuditEntry { userId?: string; email?: string; keys: BypassKey[]; method: string; route: string; runId?: string }
 
+/** 已登记的实验运行（PM-40 的归属条件：时间窗与标签） */
+export interface RegisteredRun { label: string; startedAt: string; windowSec?: number | null; finishedAt?: string | null }
+
+/** 平台模式下忽略的未登记 / 过期 / 标签不符的 X-Experiment-Run（cloudalbum_lab_unregistered_run_header_total） */
+export const unregisteredRunHeaders = { total: 0 };
+
+/** 归属的宽限（秒）与未声明时间窗时的缺省窗口（秒） */
+export const RUN_GRACE_SEC = 120;
+export const DEFAULT_RUN_WINDOW_SEC = 3600;
+
+/** PM-40：当前时间是否在登记的时间窗内（加 120 秒宽限），且标签一致 */
+export function runAttributable(run: RegisteredRun, label: string, now = Date.now()): boolean {
+  if (!label || run.label !== label) return false;
+  const start = Date.parse(run.startedAt);
+  if (!Number.isFinite(start)) return false;
+  const end = run.windowSec ? start + run.windowSec * 1000 : run.finishedAt ? Date.parse(run.finishedAt) : start + DEFAULT_RUN_WINDOW_SEC * 1000;
+  return now >= start - RUN_GRACE_SEC * 1000 && now <= end + RUN_GRACE_SEC * 1000;
+}
+
 export interface BypassGuardOptions {
   runtime: () => RuntimeConfig;
+  /**
+   * ATL 平台模式（06 PM-40）：非管理员请求的 X-Experiment-Run 按“已登记、在时间窗内、标签一致”归属，不要求管理员身份；
+   * 不满足时忽略该头（按普通流量统计）。缺省（独立模式）时 X-Experiment-* 只对管理员有效（总纲 7.3、8.3）。
+   */
+  experimentLookup?: () => ((runId: string) => Promise<RegisteredRun | null>) | undefined;
   cache?: () => CachePort | undefined;
   audit?: (entry: BypassAuditEntry) => Promise<void> | void;
   perMinute?: number;
@@ -79,6 +103,17 @@ export function bypassGuard(opts: BypassGuardOptions): RequestHandler {
     if (!keys.length && !hasExperiment) return next();
 
     if (!ctx?.isAdmin) {
+      const lookup = !keys.length ? opts.experimentLookup?.() : undefined;
+      if (ctx && lookup) {
+        // 平台模式：X-Experiment-* 只影响指标分组、不授予任何权限（PM-40）
+        const runId = String(req.headers[HEADERS.experimentRun.toLowerCase()] ?? '').trim().toUpperCase();
+        const label = String(req.headers[HEADERS.experimentLabel.toLowerCase()] ?? '').trim();
+        let run: RegisteredRun | null = null;
+        if (/^[0-9A-HJKMNP-TV-Z]{26}$/.test(runId)) run = await lookup(runId).catch(() => null);
+        if (run && runAttributable(run, label)) ctx.experiment = { runId, label };
+        else unregisteredRunHeaders.total += 1;
+        return next();
+      }
       return reject(res, 403, keys.length ? 'BYPASS_FORBIDDEN' : 'EXPERIMENT_FORBIDDEN',
         'X-Compare-Bypass / X-Experiment-* 只对管理员有效');
     }

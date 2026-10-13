@@ -10,6 +10,7 @@
 import type {
   BypassKey, CredentialsRequirement, HealthStatus, ModuleId, ModuleStatus, ModuleType,
 } from './module-ids.js';
+import type { PlatformInfo } from './platform.js';
 
 export const CAPABILITIES_SCHEMA_VERSION = 2;
 
@@ -91,6 +92,8 @@ export interface CapabilitiesApp {
   entry: { baseUrl: string; source: 'dns' | 'cdn' | 'load-balancer' | 'base' };
   configHash: string;
   startedAt: string;
+  /** ATL 平台模式（06 PM-03）：平台模式开启时出现；公开视图只有 { mode: 'on' } */
+  platform?: PlatformInfo;
 }
 
 export interface CapabilitiesResponse {
@@ -100,11 +103,14 @@ export interface CapabilitiesResponse {
   view: 'public' | 'admin';
   app: CapabilitiesApp;
   /** “受信 HTTPS”的唯一判定（DEP-029、TLS_FORCE_HTTPS、ALB authenticate-cognito 都用它） */
-  https: { trusted: boolean; via: string };
+  https: { trusted: boolean; via: string; hostKind?: 'ip' | 'dns' };
   validation: CapabilitiesValidation;
   modules: Record<ModuleId, ModuleCapability>;
   features: Record<string, FeatureState>;
   lab: { bypassEnabled: boolean; bypassKeys: BypassKey[] };
+  /** `?fields=` 投影超过上限时按模块 id 字母序截断（06 PM-03） */
+  truncated?: boolean;
+  nextModules?: string[];
 }
 
 /** SSE `GET /api/capabilities/stream` 推送的状态变化事件（§6.3） */

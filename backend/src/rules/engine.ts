@@ -20,7 +20,7 @@ import {
 } from '../modules/registry.js';
 
 export type Severity = 'error' | 'warn';
-export type RuleCategory = 'CFG' | 'CRED' | 'DEP' | 'MUTEX' | 'ASG' | 'SEC';
+export type RuleCategory = 'CFG' | 'CRED' | 'DEP' | 'MUTEX' | 'ASG' | 'SEC' | 'ATL';
 export type RuleScope = 'startup' | 'deploy' | 'runtime';
 export type ProcessRole = 'api' | 'worker' | 'cli';
 
@@ -62,6 +62,10 @@ export interface Rule {
   fromRegistry?: boolean;
   /** 仅 DEPLOY_MODE=asg 时检查（ASG 类） */
   asgOnly?: boolean;
+  /** 只在 ATL 平台模式下求值（06 PM-48 的 ATL-* 规则） */
+  platformOnly?: boolean;
+  /** 平台模式下的修复提示（06 PM-48“既有规则的平台解释”，例如 ASG-014） */
+  platformFix?: string;
   /** 条件（启动期 / 运行期）：返回 true 或 RuleHit 表示违规 */
   check?: (ctx: RuleContext) => CheckResult;
   /** 部署范围、需要读取云端状态的检查（scripts/module 调用；进程启动时不运行） */
@@ -264,6 +268,8 @@ export function runRules(rules: readonly Rule[], input: RunInput, opts: RunOptio
   const exprs = registryExpressionsByRule(input.registry ?? REGISTRY);
   const allow = new Set(input.cfg.core.CLOUDALBUM_ALLOW_UNSAFE ?? []);
   const asg = (input.env.DEPLOY_MODE ?? 'single') === 'asg';
+  // 平台模式：platform.env 的 ATL_PLATFORM_MODE（Platform 分段归一为 on / off / invalid）；invalid 也求值，由 ATL-CFG-001 报告
+  const platformOn = (input.env.ATL_PLATFORM_MODE ?? 'off') !== 'off';
 
   for (const phase of phases) {
     const ctx = createContext(input, phase);
@@ -271,6 +277,7 @@ export function runRules(rules: readonly Rule[], input: RunInput, opts: RunOptio
       if (rule.abolished || rule.enforcedBy) continue;
       if (!scopesOf(rule).includes(phase)) continue;
       if (rule.asgOnly && !asg) continue;
+      if (rule.platformOnly && !platformOn) continue;
       const hits: RuleHit[] = [];
       if (rule.fromRegistry) {
         for (const e of exprs.get(rule.id) ?? []) {
@@ -282,6 +289,7 @@ export function runRules(rules: readonly Rule[], input: RunInput, opts: RunOptio
       if (!hits.length) continue;
 
       const base = rule.message(ctx);
+      const fix = platformOn && rule.platformFix ? rule.platformFix : rule.fix;
       for (const h of hits) {
         const severity: Severity = phase === 'runtime' ? 'warn' : (h.severity ?? rule.severity);
         const finding: Finding = {
@@ -290,7 +298,7 @@ export function runRules(rules: readonly Rule[], input: RunInput, opts: RunOptio
           severity,
           modules: [...new Set(h.modules ?? [...rule.modules])],
           message: h.message ? `${base}（${h.message}）` : base,
-          ...(rule.fix ? { fix: rule.fix } : {}),
+          ...(fix ? { fix } : {}),
         };
         if (severity === 'error' && rule.overridable && allow.has(rule.id)) {
           verdict.overridden.push({ ...finding, severity: 'warn' });

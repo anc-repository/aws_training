@@ -36,6 +36,9 @@ export function newToken(bytes = 32): string {
 /** Read keys of /etc/cloudalbum/secrets.env from the instance (ssh). Dry-run: placeholders. */
 export async function readRemoteSecrets(ctx: Ctx, keys: readonly string[]): Promise<Record<string, string | undefined>> {
   if (!keys.length) return {};
+  // platform mode: the delivery channel is SSM and Run Command output stays in the command history, so secrets are never
+  // read back (06 §1.5 rule 3): callers generate a new value and hand it off (SecureString parameter, deliver.ts)
+  if (ctx.platform) return {};
   if (ctx.dryRun) return Object.fromEntries(keys.map((k) => [k, `<secrets.env:${k}>`]));
   const s = new RemoteScript(`read ${keys.join(', ')} from secrets.env`);
   s.secret('__marker__');   // the output carries secret values: never over SSM (SsmDeliverer refuses)
@@ -66,6 +69,8 @@ export function baseContextParams(ctx: Ctx, id: ModuleId, templateParams: readon
     InstanceId: () => ctx.ph(b?.instanceId, 'ec2:InstanceId'),
     InstanceAz: () => ctx.ph(b?.availabilityZone, 'ec2:AvailabilityZone'),
     OriginBaseUrl: () => directUrl(ctx),
+    // platform mode (06 PM-29): every new IAM role / user carries the workload boundary; standalone passes nothing (template default '')
+    ...(ctx.platform ? { PermissionsBoundaryArn: () => ctx.platform!.env.boundaryArn } : {}),
   };
   const out: Record<string, string> = {};
   for (const p of templateParams) if (known[p]) out[p] = known[p]!();
@@ -78,8 +83,13 @@ export async function prepareModule(ctx: Ctx, target: ModuleTarget, opts: { mode
   switch (target.module) {
     case 'iam': {
       const keys = target.value === 'keys';
+      if (ctx.platform && keys) {
+        // learner boundary forbids IAM users and access keys: keys mode only through the platform action (06 PM-31)
+        throw new CliError('platform mode: iam keys mode is a platform action (card platformOps iam-keys-on / registry keysModeOn)', EXIT.rules, 'PLATFORM_ACTION_REQUIRED');
+      }
       p.params.CreateDemoUser = keys ? 'true' : 'false';
-      p.params.AppRoleMode = 'create';
+      // platform mode (06 PM-31, ATL-IAM-001): CloudAlbumAppRole and its instance profile belong to the platform stack
+      p.params.AppRoleMode = ctx.platform ? 'existing' : 'create';
       if (keys) p.notes.push('keys mode is the anti-pattern (CRED-002): a long-term access key lands in secrets.env');
       break;
     }
@@ -140,8 +150,12 @@ export async function prepareModule(ctx: Ctx, target: ModuleTarget, opts: { mode
     case 'image-processing': {
       if (target.tier !== 'aws') { p.settings.IMAGE_PROCESSOR = target.value; break; }
       if (!ctx.state.toolchain?.bucket && !ctx.dryRun) throw new CliError('prerequisite toolchain: run `scripts/module bootstrap` first', EXIT.rules);
-      const channel = target.settings.IMAGE_RESULT_CHANNEL
-        ?? (isEnabled(env, 'cdn') || ctx.state.modules.cdn ? 'queue' : 'callback');
+      // platform mode default: queue (no inbound traffic, no secret read-back; cards C-8 / 06 platform mode of image-processing)
+      const channel = target.settings.IMAGE_RESULT_CHANNEL ?? opts.params.ResultChannel
+        ?? (ctx.platform || isEnabled(env, 'cdn') || ctx.state.modules.cdn ? 'queue' : 'callback');
+      if (ctx.platform && channel === 'callback') {
+        throw new CliError('platform mode: IMAGE_RESULT_CHANNEL=callback needs CALLBACK_HMAC_KEY read back from the instance; use ResultChannel=queue', EXIT.rules, 'PLATFORM_UNSUPPORTED');
+      }
       if (!target.settings.IMAGE_RESULT_CHANNEL && channel === 'queue') {
         p.notes.push('IMAGE_RESULT_CHANNEL=queue chosen automatically: cdn is enabled, the callback must not go through CloudFront (DEP-020)');
       }

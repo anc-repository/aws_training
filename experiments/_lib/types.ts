@@ -75,6 +75,14 @@ export interface LabelSpec {
   role?: 'baseline' | 'treatment' | 'single';
 }
 
+/** 结果与运行登记中的变体（06 PM-37；平台模式下原样写回登记响应） */
+export interface VariantInfo {
+  label: string;
+  role?: 'baseline' | 'treatment' | 'single';
+  /** 卡片的起始变体（平台模式） */
+  cardVariant?: string;
+}
+
 export interface ExperimentDef {
   module: string;
   id: string;
@@ -240,8 +248,11 @@ export interface ResultDoc {
   module: string;
   experiment: string;
   label: string;
-  /** 平台模式的“任意变体标签”：与 label 相同（A/B 时子变体在 client.byVariant） */
-  variant: string;
+  /**
+   * 实验变体（06 PM-37）：{ label, role?, cardVariant? }；独立模式只有 label（role 取自 experiment.json labels）。
+   * 旧结果文件中是字符串（= label），读取时用 variantLabelOf() 兼容。A/B 时子变体在 client.byVariant。
+   */
+  variant: VariantInfo | string;
   forced: boolean;
   startedAt: string;
   finishedAt: string;

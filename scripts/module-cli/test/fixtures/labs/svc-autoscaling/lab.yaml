@@ -1,0 +1,10 @@
+schema: atl.lab/v2
+id: svc-autoscaling
+kind: service
+startProfile:
+  provisions: []
+  platform: { preview: { directHttps: 'off' } }
+  reason: fixture
+targetModules:
+  - { id: autoscaling, driver: asg, wireStep: wire }
+provision: { class: C }

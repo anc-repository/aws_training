@@ -10,7 +10,8 @@
 import { buildContainer, type Container } from './container.js';
 import { isNotImplemented } from './errors.js';
 import { bindJobs, registerScheduledJobs, startJobConsumers } from './jobs/index.js';
-import { onShutdown, runMain } from './main.js';
+import { onPlatformReload, onShutdown, runMain } from './main.js';
+import { reloadPlatformDisplay } from './platform/mode.js';
 import type { ImageFailure, ImageResult } from './ports/image-processor.js';
 import { handleImageOutcome, pipelineDeps } from './services/photo-pipeline.js';
 
@@ -64,6 +65,8 @@ if (!imported) {
     const heartbeat = setInterval(() => c.labMetrics.heartbeat('worker'), 10_000);
     await startWorkerLoops(c, abort.signal);
     c.logger.info('cloudalbum-worker started', { modules: c.capabilities.summary() });
+    onPlatformReload(() => reloadPlatformDisplay(c.config.core.CLOUDALBUM_ENV_DIR, c.config.core.CLOUDALBUM_ENV),
+      (msg, fields) => c.logger.info(msg, fields));
 
     onShutdown(async (signal) => {
       c.logger.info('cloudalbum-worker shutting down', { signal });

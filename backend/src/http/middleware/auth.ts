@@ -9,11 +9,13 @@
 // 4. 令牌无效（4xx）按匿名处理（requireAuth 再返回 401）；校验依赖故障（5xx，例如 Cognito JWKS 不可达）原样返回 503，
 //    不降级为匿名（权威端口，总纲 1.2）；/api/capabilities、/api/health 这类公开端点除外。
 // 另外把客户端 IP 与 User-Agent 放进 ctx.locals（审计记录使用；IP 已由 Nginx realip 解析，Express trust proxy=loopback）。
-import type { Request, RequestHandler } from 'express';
+import type { Request, RequestHandler, Response } from 'express';
 import type { Container } from '../../container.js';
 import { HttpError, isNotImplemented } from '../../errors.js';
 import { currentContext } from '../../observability/request-context.js';
 import { UserDirectory } from '../../services/user-directory.js';
+import { platformMode, readLocalProbeSecret } from '../../platform/mode.js';
+import { verifyLabToken } from '../../platform/probe-token.js';
 
 export const ACCESS_COOKIE = 'ca_at';
 export const REFRESH_COOKIE = 'ca_rt';
@@ -77,6 +79,46 @@ export function isAllowedForUnverified(path: string): boolean {
   return UNVERIFIED_ALLOWED.some((r) => r.test(path));
 }
 
+/** 实验主体令牌不能做的凭证类操作（06 PM-17：改密码、改 MFA、改邮箱、改角色）→ 403 LAB_TOKEN_SCOPE */
+const LAB_TOKEN_FORBIDDEN: ReadonlyArray<{ method: string; pattern: RegExp }> = [
+  { method: '*', pattern: /^\/api\/auth\/(mfa|reset|forgot|password)(\/|$)/ },
+  { method: 'PATCH', pattern: /^\/api\/me\/?$/ },
+  { method: '*', pattern: /^\/api\/me\/(password|email|mfa)(\/|$)/ },
+  { method: 'PATCH', pattern: /^\/api\/admin\/users\/[^/]+$/ },
+];
+
+/**
+ * `Authorization: CA-Lab <atllt1.…>`（06 PM-17）：只在平台模式下接受，来源不限；主体 = 最早创建的管理员，amr 记为 atl-lab；
+ * 与 auth 驱动无关（在 AuthPort 之前识别），请求头令牌认证不需要 CSRF。返回 true 表示已处理（成功或已拒绝）。
+ */
+async function labTokenPrincipal(c: Container, req: Request, res: Response): Promise<'ok' | 'rejected' | 'absent'> {
+  const h = req.get('authorization');
+  if (!h || !/^CA-Lab\s+/i.test(h)) return 'absent';
+  const ctx = currentContext()!;
+  if (!platformMode()) return 'absent';                                   // 独立模式：按普通（无效）凭证处理
+  const v = verifyLabToken(h.replace(/^CA-Lab\s+/i, '').trim(), readLocalProbeSecret());
+  if (!v.ok) {
+    res.status(401).json({ error: { code: v.code === 'PROBE_TOKEN_EXPIRED' ? 'LAB_TOKEN_EXPIRED' : 'LAB_TOKEN_INVALID', message: 'CA-Lab 令牌无效或已过期' } });
+    return 'rejected';
+  }
+  if (LAB_TOKEN_FORBIDDEN.some((r) => (r.method === '*' || r.method === req.method) && r.pattern.test(req.path))) {
+    res.status(403).json({ error: { code: 'LAB_TOKEN_SCOPE', message: 'atl-lab 不能修改凭证（密码、MFA、邮箱、角色）' } });
+    return 'rejected';
+  }
+  const admin = (await c.db('users').where({ role: 'admin' }).orderBy('created_at', 'asc').first()) as
+    { id: string; email: string; plan?: string } | undefined;
+  if (!admin) {
+    res.status(401).json({ error: { code: 'LAB_TOKEN_NO_ADMIN', message: '应用中还没有管理员账号' } });
+    return 'rejected';
+  }
+  ctx.principal = { provider: 'local', subject: admin.id, email: admin.email, emailVerified: true, groups: ['admin'], plan: admin.plan ?? 'free', expiresAt: v.exp };
+  ctx.userId = admin.id;
+  ctx.isAdmin = true;
+  ctx.locals.amr = ['atl-lab'];
+  ctx.locals.actor = 'atl-lab';
+  return 'ok';
+}
+
 export function authenticate(c: Container): RequestHandler {
   const directory = new UserDirectory(c.db);
   const allowedOrigins = new Set([c.config.core.APP_BASE_URL, c.config.core.CDN_BASE_URL].map((u) => (u ? originOf(u) : null))
@@ -86,6 +128,13 @@ export function authenticate(c: Container): RequestHandler {
     if (!ctx) return next();
     ctx.locals.clientIp = req.ip ?? req.socket.remoteAddress ?? null;
     ctx.locals.userAgent = req.get('user-agent') ?? null;
+    try {
+      const lab = await labTokenPrincipal(c, req, res);
+      if (lab === 'rejected') return;
+      if (lab === 'ok') return next();
+    } catch (e) {
+      return next(e);
+    }
     const found = extractAccessTokenWithSource(req.headers, req.cookies as Record<string, string> | undefined);
     if (!found) return next();
     if (found.source === 'cookie' && !SAFE_METHODS.has(req.method) && !isSameOriginRequest(req, allowedOrigins)) {

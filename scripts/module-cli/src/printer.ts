@@ -32,9 +32,21 @@ export class CapturePrinter implements Printer {
   text(): string { return this.lines.join('\n'); }
 }
 
-/** Exit codes of scripts/module (9.2). Application processes use 78 for configuration errors (separate scheme). */
-export const EXIT = { ok: 0, rules: 2, stack: 3, migration: 4, health: 5 } as const;
+/**
+ * Exit codes of scripts/module (9.2). Application processes use 78 for configuration errors (separate scheme).
+ * Platform mode adds (06 PM-35): 6 = some stacks not deleted (env destroy, recorded in the ledger), 7 = environment lock busy
+ * (ENV_LOCK_BUSY) or lease lost (ENV_LOCK_LOST), 8 = state conflict (STATE_CONFLICT: the S3 conditional write failed).
+ */
+export const EXIT = { ok: 0, rules: 2, stack: 3, migration: 4, health: 5, destroyPartial: 6, lock: 7, stateConflict: 8 } as const;
 
 export class CliError extends Error {
-  constructor(message: string, readonly exitCode: number = EXIT.rules) { super(message); }
+  /** machine-readable error code (platform mode: stdout / --result-json) */
+  code?: string;
+  /** extra fields of the {"error":{…}} object (for example the lock holder) */
+  details?: Record<string, unknown>;
+  constructor(message: string, readonly exitCode: number = EXIT.rules, code?: string, details?: Record<string, unknown>) {
+    super(message);
+    if (code) this.code = code;
+    if (details) this.details = details;
+  }
 }

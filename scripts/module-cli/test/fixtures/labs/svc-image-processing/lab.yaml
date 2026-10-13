@@ -1,0 +1,12 @@
+schema: atl.lab/v2
+id: svc-image-processing
+kind: service
+startProfile:
+  provisions:
+    - { item: iam, kind: module, basis: credential, set: { IAM_CREDENTIALS: role }, reason: C3 }
+    - { item: storage, kind: module, basis: closure, set: { STORAGE_DRIVER: s3 }, rule: DEP-003, reason: lambda reads the raw bucket }
+  platform: { preview: { directHttps: 'on' } }
+  reason: fixture
+targetModules:
+  - { id: image-processing, driver: lambda, fromDriver: inline, set: { IMAGE_RESULT_CHANNEL: queue }, wireStep: wire }
+provision: { class: A }

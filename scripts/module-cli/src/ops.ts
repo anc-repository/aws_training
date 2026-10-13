@@ -91,6 +91,11 @@ export async function applyBaseParams(ctx: Ctx, records: CloudAlbumState['module
   const current = { ...(ctx.state.base?.params ?? {}) };
   const plan = mergeBaseParams(records, current, originalsFor(ctx.state), { Env: ctx.env, ...(ctx.state.base?.arch ? { Arch: ctx.state.base.arch } : {}) });
   if (plan.conflicts.length) throw new CliError(`baseParams conflict:\n  ${plan.conflicts.join('\n  ')}`, EXIT.rules);
+  // platform mode (ATL-IAM-001, 06 PM-31): the management channel depends on the instance profile CloudAlbumAppRole
+  const ip = plan.changes.find((c) => c.param === 'InstanceProfileName');
+  if (ctx.platform && ip && ip.to !== 'CloudAlbumAppRole') {
+    throw new CliError(`ATL-IAM-001: InstanceProfileName would become "${ip.to || "''"}"; in platform mode it must stay CloudAlbumAppRole`, EXIT.rules, 'ATL-IAM-001');
+  }
   if (!plan.changes.length) { ctx.out.info('      baseParams: no change on the base stack'); return; }
   for (const c of plan.changes) ctx.out.info(`      baseParams ${c.param}: ${c.from || "''"} -> ${c.to || "''"} (${(plan.by[c.param] ?? []).join(', ') || 'restored'})`);
   await deployStack(ctx.aws, ctx.out, ctx.repoRoot, {

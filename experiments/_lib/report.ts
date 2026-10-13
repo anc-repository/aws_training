@@ -111,7 +111,7 @@ export function variantView(doc: ResultDoc, variant: 'A' | 'B'): ResultDoc {
   const { repeats: _repeats, ...rest } = doc;
   return {
     ...rest,
-    variant: key,
+    variant: { label: key },
     client: { ...slice },
     server: { ...doc.server, routes: Object.keys(routes).length ? routes : doc.server.routes },
   };

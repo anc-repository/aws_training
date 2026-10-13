@@ -14,6 +14,12 @@
 //   job run <name>          手动执行一次定时任务（trigger=manual；与 worker 同一份注册表与锁）
 //   lab:compact             把 2 天前的 lab_metric_rollups 压缩为小时级
 //   migrate-module          已登记，由后续实现者填充（scripts/migrate）
+// ATL 平台模式（docs/platform/06-cloudalbum-platform-mode.md PM-02～PM-17、§11；stdout 只有一个 JSON 对象，退出码 0/2/3/4/5）：
+//   platform:validate-env / platform:apply-env   平台配置（实验机上 apply-env 是根子命令 infra/host/platform/apply-env.sh）
+//   platform-status         平台模式自检            probe-token / lab-token   探测令牌与实验主体令牌
+//   lab-metrics             按 runId 的服务端佐证     capabilities / module-state   本机投影与模块摘要
+//   path-seen / app-stat    路径签名与业务统计        seed <id>                 测试数据种子的实验机部分
+//   admin:ensure --password-hash <PHC> [--reset]   管理员非交互初始化（PM-07）
 import { generateKeyPairSync, randomBytes } from 'node:crypto';
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
@@ -31,6 +37,18 @@ import type { ScheduledJobName } from './ports/scheduler.js';
 import { compactRollups } from './repositories/lab.js';
 import { countAdmins, findUserByEmail, insertUser } from './repositories/users.js';
 import { printConfigReport } from './rules/engine.js';
+import { isSeedId } from '@cloudalbum/contracts';
+import { ensureAdminWithHash } from './cli/admin.js';
+import { registerApplyEnv } from './cli/platform/apply-env.js';
+import { registerCapabilities } from './cli/platform/capabilities.js';
+import { action, CliExit, emit, platformFromDir, unavailable, usage, withDb } from './cli/platform/common.js';
+import { registerLabMetrics } from './cli/platform/lab-metrics.js';
+import { registerPathSeen } from './cli/platform/path-seen.js';
+import { registerProbeToken } from './cli/platform/probe-token.js';
+import { registerStatus } from './cli/platform/status.js';
+import { startJobConsumers } from './jobs/index.js';
+import { decodeSeedUsers, seedCognitoTestUsers } from './lab/seeds/cognito-test-users.js';
+import { seedGpsPhotos } from './lab/seeds/gps-sample-photos.js';
 
 function envDirOf(opts: { envDir?: string }): string {
   return opts.envDir ?? process.env.CLOUDALBUM_ENV_DIR ?? DEFAULT_ENV_DIR;
@@ -141,12 +159,28 @@ function buildProgram(): Command {
     .action((opts: { envDir?: string; email: string; password?: string; displayName?: string }) => createAdmin(opts));
 
   program.command('admin:ensure')
-    .description('没有任何管理员时才创建（l0-bootstrap.sh 使用）')
+    .description('没有任何管理员时才创建（l0-bootstrap.sh 使用）；--password-hash：平台模式的非交互初始化（06 PM-07）')
     .addOption(envDirOption())
     .requiredOption('--email <email>', '管理员邮箱')
-    .option('--print-password-if-created', '只在本次真的新建了管理员时打印初始密码')
-    .action((opts: { envDir?: string; email: string; printPasswordIfCreated?: boolean }) =>
-      createAdmin({ ...opts, onlyIfNone: true, printPassword: Boolean(opts.printPasswordIfCreated) }));
+    .option('--print-password-if-created', '只在本次真的新建了管理员时打印初始密码（平台模式下拒绝）')
+    .option('--password-hash <phc>', 'argon2id 的 PHC 字符串（只收哈希；明文只在平台的 SSM 参数中）')
+    .option('--reset', '与 --password-hash 一起：替换哈希并使已签发令牌失效')
+    .action(async (opts: { envDir?: string; email: string; printPasswordIfCreated?: boolean; passwordHash?: string; reset?: boolean }) => {
+      const envDir = envDirOf(opts);
+      if (opts.passwordHash !== undefined) {
+        await action(async () => {
+          if (opts.printPasswordIfCreated) throw usage('ARG_INVALID', '--print-password-if-created cannot be combined with --password-hash');
+          emit(await withDb(envDir, (db) => ensureAdminWithHash(db, { email: opts.email, passwordHash: opts.passwordHash!, ...(opts.reset ? { reset: true } : {}) })));
+        })();
+        return;
+      }
+      if (platformFromDir(envDir).mode === 'on' && opts.printPasswordIfCreated) {
+        emit({ error: { code: 'PLATFORM_MODE', message: 'platform mode: use admin:ensure --password-hash (06 PM-07)' } });
+        process.exitCode = 2;
+        return;
+      }
+      await createAdmin({ ...opts, onlyIfNone: true, printPassword: Boolean(opts.printPasswordIfCreated) });
+    });
 
   program.command('probe [module]')
     .description('运行一次探针并打印各模块状态（--deep 深度探针）')
@@ -327,6 +361,49 @@ function buildProgram(): Command {
         out(`lab:compact：${r.minuteRows} 行分钟级 → ${r.hourRows} 行小时级`);
       });
     });
+
+  // ---------------------------------------------------------------------------------------- ATL 平台模式（06）
+  registerApplyEnv(program, envDirOption);
+  registerStatus(program, envDirOption);
+  registerProbeToken(program, envDirOption);
+  registerLabMetrics(program, envDirOption);
+  registerCapabilities(program, envDirOption);
+  registerPathSeen(program, envDirOption);
+
+  program.command('seed <id>')
+    .description('测试数据种子的实验机部分（06 §11）：cognito-test-users | gps-sample-photos（幂等）')
+    .addOption(envDirOption())
+    .option('--users-b64 <b64url>', 'cognito-test-users：base64url([{username,email,passwordHash}])（只收哈希）')
+    .option('--owner <username>', 'gps-sample-photos：照片归属（缺省 atl-test-1，不存在时管理员）')
+    .option('--album <title>', 'gps-sample-photos：相册标题')
+    .option('--json', 'JSON 输出（默认）')
+    .action(action(async (id: string, opts: { envDir?: string; usersB64?: string; owner?: string; album?: string }) => {
+      if (!isSeedId(id)) throw usage('SEED_UNKNOWN', `unknown seed ${id} (cognito-test-users, gps-sample-photos)`);
+      if (opts.owner !== undefined && !/^[a-z0-9][a-z0-9._-]{0,63}$/.test(opts.owner)) throw usage('ARG_INVALID', '--owner must be a user name');
+      if (opts.album !== undefined && (opts.album.length > 120 || [...opts.album].some((ch) => ch.charCodeAt(0) < 0x20))) throw usage('ARG_INVALID', '--album is invalid');
+      try {
+        if (id === 'cognito-test-users') {
+          if (!opts.usersB64) throw usage('ARG_MISSING', '--users-b64 is required');
+          const users = decodeSeedUsers(opts.usersB64);
+          emit(await withDb(envDirOf(opts), (db) => seedCognitoTestUsers(db, users)));
+          return;
+        }
+        await withContainer(opts, async (c) => {
+          // 本进程内消费 memory 队列（worker 档的缩略图任务不能丢在 CLI 进程里）；sqs 由 worker 消费
+          const abort = new AbortController();
+          bindJobs(c);
+          startJobConsumers(c, abort.signal);
+          try {
+            emit(await seedGpsPhotos(c, { ...(opts.owner ? { owner: opts.owner } : {}), ...(opts.album ? { album: opts.album } : {}) }));
+          } finally {
+            abort.abort();
+          }
+        });
+      } catch (e) {
+        if (e instanceof CliExit) throw e;
+        throw unavailable('SEED_FAILED', (e as Error)?.message ?? String(e));   // 种子失败退出 3（PM-43）
+      }
+    }));
 
   return program;
 }

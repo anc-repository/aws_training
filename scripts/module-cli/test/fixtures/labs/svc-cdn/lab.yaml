@@ -1,0 +1,13 @@
+# fixture (06 PM-33 tests): the parts of docs/platform/04 §11.1 that plan --start-of reads
+schema: atl.lab/v2
+id: svc-cdn
+kind: service
+startProfile:
+  provisions:
+    - { item: iam, kind: module, basis: credential, set: { IAM_CREDENTIALS: role }, reason: C3 }
+    - { item: preview-direct-https, kind: platform, reason: scheme B }
+  platform: { preview: { directHttps: 'on' } }
+  reason: fixture
+targetModules:
+  - { id: cdn, driver: cloudfront, set: { CDN_ORIGIN_TYPE: ec2, CDN_MEDIA_ORIGIN: ec2, CDN_DIRECT_ACCESS: open }, wireStep: enable-cdn }
+provision: { class: A }

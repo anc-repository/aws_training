@@ -1,0 +1,18 @@
+schema: atl.lab/v2
+id: svc-auth
+kind: service
+startProfile:
+  provisions:
+    - { item: iam, kind: module, basis: credential, set: { IAM_CREDENTIALS: role }, reason: C3 }
+  platform: { preview: { directHttps: 'on' } }
+  variants:
+    - id: with-cdn
+      title: via CloudFront
+      select: learner
+      provisions: []
+      platform: { preview: { directHttps: 'on' } }
+      reason: managed login needs a DNS host
+  reason: fixture
+targetModules:
+  - { id: auth, driver: cognito, wireStep: wire }
+provision: { class: A }

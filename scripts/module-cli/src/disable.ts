@@ -21,7 +21,7 @@ import { CliError, EXIT } from './printer.js';
 import { REGISTRY, moduleOf, stackName } from './registry.js';
 import { deleteStack } from './stack.js';
 import { currentEnv, recordHistory } from './state.js';
-import { confirm, instanceStateUpdate } from './enable.js';
+import { confirm, instanceStateUpdate, operatorOf } from './enable.js';
 import { loadTemplate, mainTemplatePath } from './template.js';
 
 export interface DisableOptions { cascade?: boolean; abandonData?: boolean; migrate?: boolean; purge?: boolean; skipHealth?: boolean }
@@ -96,7 +96,7 @@ export async function disableCommand(ctx: Ctx, idArg: string, opts: DisableOptio
     'if ! runuser -u cloudalbum -- env CLOUDALBUM_ENV_DIR=/etc/cloudalbum CLOUDALBUM_ROLE=cli /usr/bin/node /opt/cloudalbum/backend/dist/cli.js check-config; then',
     '  mv -f "$ca_f.bak" "$ca_f"' + (hasHost ? `; /usr/local/lib/cloudalbum/run-hostsetup.sh ${id} apply || true` : ''), '  exit 2', 'fi',
     'systemctl restart cloudalbum-api cloudalbum-worker',
-    ...instanceStateUpdate(id, 'disabled'));
+    ...instanceStateUpdate(id, 'disabled', { ...operatorOf(ctx) }));
   const r = await ctx.deliverer().run(s, { timeoutSec: 600 });
   if (r.code !== 0) { ctx.out.error('the instance rejected the configuration without the module: restored'); return EXIT.rules; }
   if (!opts.skipHealth) {

@@ -30,7 +30,8 @@ export async function audit(c: AuditDeps, e: AuditEvent): Promise<void> {
     const row = await appendAudit(c.db, {
       actorType,
       actorId: e.actor?.id ?? ctx?.userId ?? null,
-      actorEmail: e.actor?.email ?? ctx?.principal?.email ?? null,
+      // atl-lab（06 PM-17）：实验主体以管理员身份操作，审计中的 actor 记为 atl-lab
+      actorEmail: e.actor?.email ?? (locals.actor === 'atl-lab' ? 'atl-lab' : ctx?.principal?.email ?? null),
       action: e.action,
       targetType: e.targetType ?? null,
       targetId: e.targetId ?? null,

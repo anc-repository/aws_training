@@ -11,6 +11,8 @@ import {
   REGISTRY, driverOf, isOwnedValue, isSelfHosted, moduleFlagKey, registryVersion, switchOf,
 } from '../modules/registry.js';
 import type { Rule, RuleContext, RuleHit } from './engine.js';
+import { validatePlatformEnv } from '../platform/env-schema.js';
+import { atlKeys, readLocalProbeSecret } from '../platform/mode.js';
 
 const list = (ids: readonly string[]) => ids.join('、');
 const asgOnly = { asgOnly: true } as const;
@@ -539,6 +541,7 @@ export const RULES: Rule[] = [
     check: (ctx) => env(ctx, 'TLS_MODE') === 'letsencrypt',
     message: () => 'DEPLOY_MODE=asg 时 TLS_MODE=letsencrypt：HTTP-01 验证请求会被 ALB 分到随机实例，各实例重复签发会触发 CA 频率限制',
     fix: 'TLS 在 ALB 或 CloudFront 终止：scripts/module enable tls（acm）',
+    platformFix: '当前 TLS_MODE=letsencrypt 来自平台预览方案 B：执行 scripts/module tls-preview off；卡片应在 lab.yaml 中关闭 preview.directHttps（06 PM-21）',
   },
   {
     id: 'ASG-016', category: 'ASG', severity: 'warn', overridable: false, scope: 'startup', modules: ['db-proxy', 'autoscaling'], ...asgOnly,
@@ -589,6 +592,45 @@ export const RULES: Rule[] = [
     fix: 'scripts/module enable tls',
   },
 ];
+
+// ATL 平台模式规则（06 PM-48）：只在平台模式下求值（ATL-CFG-001 另外在 platform.env 存在时求值）
+RULES.push(
+  {
+    id: 'ATL-CFG-001', category: 'ATL', severity: 'error', overridable: false, scope: 'startup', modules: [],
+    check: (ctx) => {
+      if (!ctx.layers.platformEnv && (ctx.env.ATL_PLATFORM_MODE ?? 'off') === 'off') return false;
+      const v = validatePlatformEnv(atlKeys(ctx.env), {
+        cloudalbumEnv: ctx.cfg.core.CLOUDALBUM_ENV, ...(ctx.layers.platformEnv ? { rawKeys: ctx.layers.platformEnv.keys } : {}),
+      });
+      return v.errors.map((message): RuleHit => ({ message }));
+    },
+    message: () => '平台配置 platform.env 损坏（只允许 ATL_ 键；平台模式开启时必填变量齐全且格式正确；ATL_ENV_NAME 等于 CLOUDALBUM_ENV）',
+    fix: '由平台执行“环境修复”（ATL_OP=repair 重新写入 platform.env：cloudalbum platform:apply-env）',
+  },
+  {
+    id: 'ATL-CFG-002', category: 'ATL', severity: 'warn', overridable: false, scope: 'startup', modules: [], platformOnly: true,
+    check: (ctx) => {
+      if ((ctx.env.ATL_PLATFORM_MODE ?? 'off') !== 'on') return false;
+      const secret = readLocalProbeSecret({ envDir: ctx.cfg.core.CLOUDALBUM_ENV_DIR, probeTokenFile: ctx.env.ATL_PROBE_TOKEN_FILE ?? '' });
+      return secret === null;
+    },
+    message: () => '平台模式开启，但本机探测密钥不存在或不可读：探测主体不可用，平台检测会失败',
+    fix: 'cloudalbum probe-token --init（root）',
+  },
+  {
+    id: 'ATL-NET-001', category: 'ATL', severity: 'error', overridable: false, scope: ['startup', 'deploy'], modules: ['network'], platformOnly: true,
+    check: (ctx) => env(ctx, 'NETWORK_PLACEMENT') === 'private' && env(ctx, 'NETWORK_NAT_MODE') === 'none'
+      && !['ssm', 'ops', 'all'].includes(env(ctx, 'NETWORK_INTERFACE_ENDPOINTS')),
+    message: () => 'NETWORK_PLACEMENT=private、NatMode=none，且没有 ssm / ssmmessages / ec2messages 接口终端节点：平台管理通道会断（P7）',
+    fix: '保留 NAT，或 InterfaceEndpoints=ssm / ops / all（平台模式下 ops 含 ec2messages，PM-M01）',
+  },
+  {
+    id: 'ATL-IAM-001', category: 'ATL', severity: 'error', overridable: false, scope: 'deploy', modules: ['iam', 'ec2'], platformOnly: true,
+    enforcedBy: 'scripts/module（06 PM-31：基础栈 InstanceProfileName 恒为 CloudAlbumAppRole，iam 栈 AppRoleMode=existing）',
+    message: () => '平台管理通道依赖实例配置文件 CloudAlbumAppRole：不得改为其他值或删除，iam 栈必须使用 AppRoleMode=existing',
+    fix: 'iam 的平台模式由 scripts/module --platform 自动处理；keys 模式经平台动作 iam-keys-on',
+  },
+);
 
 function isModuleIdSafe(id: string): id is ModuleId {
   return (MODULE_IDS as readonly string[]).includes(id);

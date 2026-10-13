@@ -32,3 +32,18 @@ export function onShutdown(handler: (signal: string) => Promise<void>): void {
   process.on('SIGTERM', () => run('SIGTERM'));
   process.on('SIGINT', () => run('SIGINT'));
 }
+
+/**
+ * SIGHUP（06 PM-02）：`cloudalbum platform:apply-env` 只改了 ATL_SESSION_ID / ATL_LAB_ID / ATL_VARIANT / ATL_RELEASE 时向
+ * api / worker 发 SIGHUP，进程只重新加载平台模式的展示字段（不重启、PID 不变）。
+ */
+export function onPlatformReload(reload: () => string[], log: (msg: string, fields: Record<string, unknown>) => void): void {
+  process.on('SIGHUP', () => {
+    try {
+      const changed = reload();
+      log('platform.env reloaded (SIGHUP)', { changed });
+    } catch (e) {
+      log('platform.env reload failed', { error: (e as Error)?.message ?? String(e) });
+    }
+  });
+}

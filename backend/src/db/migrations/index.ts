@@ -7,6 +7,7 @@ import * as m0001 from './20261013_0001_core.js';
 import * as m0002 from './20261013_0002_social_notify.js';
 import * as m0003 from './20261013_0003_jobs_audit.js';
 import * as m0004 from './20261013_0004_lab.js';
+import * as m0005 from './20261014_0005_atl_platform.js';
 
 export interface Migration {
   name: string;
@@ -19,6 +20,7 @@ export const MIGRATIONS: readonly Migration[] = [
   { name: '20261013_0002_social_notify', ...m0002 },
   { name: '20261013_0003_jobs_audit', ...m0003 },
   { name: '20261013_0004_lab', ...m0004 },
+  { name: '20261014_0005_atl_platform', ...m0005 },
 ];
 
 export const MIGRATION_SOURCE: Knex.MigrationSource<Migration> = {

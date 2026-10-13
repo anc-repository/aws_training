@@ -22,6 +22,8 @@ export const IMPLEMENTED_DRIVERS: Readonly<Partial<Record<ModuleId, readonly str
   'image-processing': ['inline', 'worker', 'lambda'],
   cache: ['none', 'memory', 'redis'],
   database: ['sqlite', 'postgres'],
+  // tls 本地档 letsencrypt：平台预览方案 B 的 Let's Encrypt IP 证书（06 PM-21；证书由 Nginx 使用，应用只读 TLS_* 计算有效入口）
+  tls: ['selfsigned', 'letsencrypt'],
 };
 
 export function implementedDriversOf(id: ModuleId): readonly string[] {

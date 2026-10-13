@@ -1419,3 +1419,60 @@ platform/api/test/lifecycle/                 状态机端到端（真实 ASL + �
 
 `npx vitest run --project atl-api platform/api/test/lifecycle/`（状态转换、补偿、CLEANUP_FAILED 与人工清单、延长上限、到期回收、复扫 T21、
 卸载守卫、模块操作、OwnershipLookup、契约、生产隔离）、`npx vitest run --project atl-workflows`（含运行器）、`npm run platform:validate`。
+
+## platform-cloudalbum-mode
+
+CloudAlbum 侧的平台模式（docs/platform/06 的 P0 项）。总开关只有一个判断点：后端 `platformMode()`（backend/src/platform/mode.ts），
+scripts/module 的 `isPlatform()`（`--platform` 或 `CLOUDALBUM_PLATFORM_MODE=1`）。平台模式关闭时行为与此前一致（smoke:l0 / smoke:selfhost 不变）。
+
+### 实现范围
+
+| 范围 | 位置 |
+|---|---|
+| `ATL_PLATFORM_MODE` 与 platform.env（配置层 1b，只接受 `ATL_` 键；非 ATL 键 ATL-CFG-001，其他层出现 ATL_ 键忽略并告警），SIGHUP 只重载展示字段 | backend/src/platform/{env-schema,mode}.ts、config/load-env.ts、config/schema.ts、rules/rules.ts（ATL-CFG-001/002、ATL-NET-001、ATL-IAM-001） |
+| `X-ATL-Probe-Token`（本机 atlpk1、OTP atlpt1 + nonce 表防重放、实验 atllt1）与 `/api/lab/probe/{now,echo,media-url,kms,auth}`；探测流量不进 lab 指标；capabilities `?fields=` / `?modules=` 投影 | backend/src/platform/probe-token.ts、http/middleware/atl-probe.ts、http/routes/lab-probe.ts、routes/capabilities.ts、packages/contracts/src/{platform,canonical-json,capabilities-projection}.ts |
+| CSP `frame-ancestors`（应用响应头 + Nginx slot 文件），平台模式去掉 X-Frame-Options | http/middleware/frame-ancestors.ts、platform/env-schema.ts `renderFrameAncestorsSlot` |
+| CLI：`atl-check`（=platform-status / capabilities / module-state / path-seen / app-stat）、`probe-token`、`lab-token`、`lab-metrics`、`platform:validate-env` / `platform:apply-env`、`admin:ensure --password-hash`、`seed <id>` | backend/src/cli/platform/*.ts、backend/src/cli.ts、infra/host/cloudalbum（root 子命令包装） |
+| 检查包随发行包：scripts/release 把 platform/checks 打进 `atl/`，写 `.release-manifest.json`（atlBundleDigest、ssmAgentMinVersion）；主机端 install-atl-bundle.sh 校验摘要并保留 3 份 | scripts/release、infra/host/install-atl-bundle.sh |
+| Nginx：日志 `run=` 只记 ULID、`probe=`，`X-CA-Server-Port` 透传；平台 apply-env 原子写 + `nginx -t` 失败回滚 | infra/nginx/**、infra/host/platform/apply-env.sh |
+| cdn 源请求策略转发 `X-Experiment-Run` / `X-Experiment-Label` / `X-ATL-Probe-Nonce`（default、/assets/*、/media/*、/api/public/*、jwks） | infra/modules/cdn.yaml |
+| scripts/module 平台模式：S3 状态桶（条件写，冲突退出码 8）、DynamoDB 租约锁（300s/续约 60s，退出码 7）、标签 `atl:component=env` / `atl:session-id` / `atl:lab-id` / `atl:env-id`、SSM-only 投递（标签发现实例，密钥走 SecureString 交接参数）、进度 jsonl / result json / 模块操作上报 | scripts/module-cli/src/platform/*.ts、context.ts、deliver.ts、stack.ts |
+| `plan --start-of <card> [--variant]`、`plan --profile atl/<card>/<variant>`（重新推导并比对摘要，RFC 8785 规范 JSON）、`profile gen-atl`、`PROFILE_EXTRA_STACKS`、`profile apply --mode fresh|additive --repair` | scripts/module-cli/src/{plan-start,platform-cmds,profile-cmd}.ts |
+| base-deploy 平台步骤：`bootstrap --release-file`、`base deploy --delivery ssm --instance-profile CloudAlbumAppRole --key-name … --disable-rollback --retry-az`、`env destroy --fast --ledger-out`（部分失败退出码 6）、`env suspend|resume`、`wait-stable`、`status --repair`（无 id 时修复全部模块）、`status --json`、`hooks run --pending`、`iam revoke-older-sessions|refresh-instance-credentials` | scripts/module-cli/src/{index,bootstrap,platform-cmds}.ts |
+| 测试数据种子：`cognito-test-users`（只接受 argon2id 哈希、保留域名、atl-test-N，幂等）、`gps-sample-photos`（运行时确定性生成带 GPS EXIF 的 JPEG，按 seed_id + digest 幂等） | backend/src/lab/seeds/*.ts、scripts/module-cli `seed` |
+| 实验标签为任意变体：结果 `variant` 记录 `{label, role?, cardVariant?}`（兼容旧字符串），lab_runs.variant / window_sec；PM-40 匿名 `X-Experiment-Run` 归因 | experiments/_lib/{types,manifest,runner,collect,report}.ts、schema/result.schema.json、backend/src/observability/bypass.ts |
+| L0 Let's Encrypt IP 证书预览开关：`TLS_LE_PROFILE` / `TLS_PUBLIC_IP` / `TLS_PREVIEW`，`tls-preview on --ip|off|renew|status`（失败不阻断，输出 `{"preview":"failed"}`），续期 timer | infra/host/platform/tls-preview.sh、infra/systemd/cloudalbum-tls-renew.*、backend/src/config/base-url.ts、scripts/module-cli/src/platform/tls-preview.ts |
+
+数据库迁移 20261014_0005_atl_platform：atl_probe_nonces；lab_runs.variant / window_sec；lab_metric_rollups.status_class；users.seed_id；photos.seed_id / seed_digest。
+
+### 有歧义处的取舍
+
+- 检查包来源目录用 `platform/checks`（脚手架实际位置），不是文档中的 `platform/infra/checks-bundle`。
+- GPS 样例照片在 `seed` 时用 sharp 确定性生成，没有在发行包里放 `seed/` 二进制资源。
+- `path-seen` 的模式用 JS 正则的安全子集（拒绝反向引用、环视、嵌套量词）代替 RE2，避免新增原生依赖。
+- 平台模式密钥交接：写 SecureString `/cloudalbum/<env>/handoff/<opId>-<n>`，远端脚本读后删除；脚本正文不含明文密钥（`containsInlineSecrets` 断言）。
+- 平台模式不从实例回读已有密钥（`readRemoteSecrets` 返回空），重新启用 cdn / database 会生成新密钥。
+- `iam:install-keys`（keys 模式）未实现，返回 NOT_IMPLEMENTED（退出码 2）；平台模式 `enable iam --mode keys` 拒绝（PLATFORM_ACTION_REQUIRED）。
+- `--delivery` 是全局选项：平台模式只接受 ssm（ssh 报 DELIVERY_SSH_FORBIDDEN）；非平台模式覆盖 state.json 中的通道。
+- `disable` / `iam …` 接受运行器传入的 `--param K=V`（卡片 platformOps args）但不使用；`enable` 的 `--param` 仍是栈参数。
+- scripts/release 不在原分工路径内，但检查包随发行包是 P0 必需，故修改并在此说明。
+
+### 需要其他部分配合
+
+- 01（平台 IAM）：学员 / 运行器角色需 `ssm:PutParameter` / `ssm:DeleteParameter` 于 `/cloudalbum/<env>/handoff/*`，实例角色读取用 AmazonSSMManagedInstanceCore + 对应 KMS 解密；状态桶与锁表的权限按 PM-26 的名字。
+- modules/registry.yaml（PM-34 扩展字段 `platformActions` / remedy 表）不在本标签路径，SINGLE_LOCAL_SETTINGS 仍在代码中。
+- experiments/ec2/smoke.ts 的 S02 / S28 / S29 不存在，未添加；PM-22 cookie/CSRF、PM-46 保留域名邮件（SES 驱动仍为桩）、identity-pool 探测、DEP-029 平台解释未做。
+
+### 依赖
+
+scripts/module-cli 动态导入 `@aws-sdk/client-dynamodb`、`@aws-sdk/client-cognito-identity-provider`、`@aws-sdk/client-rds`、`@aws-sdk/s3-request-presigner`、`@smithy/signature-v4`、`@node-rs/argon2`（当前在根 node_modules 中已提升可用，未写入 package.json，需集成阶段补到 scripts/module-cli/package.json）。cfn-lint 本机未安装，cdn.yaml 只做了模板单元测试。
+
+### 如何测试
+
+```
+npm run build
+npx vitest run --project backend backend/test/platform     # 平台 HTTP / 单元 / 种子
+npx vitest run --project module-cli                         # 含 platform、templates-platform、runner-argv
+npx vitest run --project experiments
+npm run smoke:l0 && npm run smoke:selfhost
+```

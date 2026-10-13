@@ -12,7 +12,7 @@ import { isParamSwitch, type ModuleId } from '@cloudalbum/contracts';
 import type { Ctx } from './context.js';
 import { ensureBase } from './context.js';
 import { planEnable, resolveTarget, type PlanStep } from './deps.js';
-import { RemoteScript } from './deliver.js';
+import { RemoteScript, shq } from './deliver.js';
 import { parseAssignments, renderEnvFile, type EnvMap } from './env-file.js';
 import { waitModule, waitReady } from './health.js';
 import { createDemoAccessKey, prepareModule } from './hooks.js';
@@ -26,6 +26,8 @@ import {
   IMPLEMENTED_MODULES, REGISTRY, isHourlyBilled, moduleOf, registryVersion, stackName,
 } from './registry.js';
 import { deployStack, stackTags } from './stack.js';
+import { registerHook } from './platform/hooks.js';
+import { previewOffBefore } from './platform/tls-preview.js';
 import { currentEnv, nowIso, recordHistory, type ModuleRecord } from './state.js';
 import { loadTemplate, mainTemplatePath, staticOutputValue } from './template.js';
 
@@ -50,6 +52,7 @@ export async function enableCommand(ctx: Ctx, idArg: string, opts: EnableOptions
   const driver = id === 'iam' ? (opts.mode ?? opts.driver ?? 'role') : opts.driver;
   const target = resolveTarget(id, { ...(driver ? { driver } : {}), ...(opts.selfHosted ? { selfHosted: true } : {}), settings });
   await ensureBase(ctx);
+  await previewOffBefore(ctx, id);
 
   ctx.out.section(`plan: enable ${id} (${target.tier}${target.value !== 'aws' ? ` ${moduleOf(id).switch?.var}=${target.value}` : ''})${ctx.dryRun ? ' [dry-run]' : ''}`);
   const plan = planEnable(currentEnv(ctx.state), target, { ...(opts.withDeps ? { withDeps: true } : {}) });
@@ -253,6 +256,10 @@ export async function enableStep(ctx: Ctx, step: PlanStep, opts: EnableOptions):
 
   // 11. state + next steps
   ctx.state.modules[id] = record;
+  // platform mode (06 PM-36): Cognito passwords of the admin / seeded users need the learner identity
+  if (ctx.platform && id === 'auth' && step.tier === 'aws') {
+    await registerHook(ctx, 'cognito-passwords', `auth=cognito enabled by ${ctx.platform.identity?.sessionName ?? '?'}`);
+  }
   recordHistory(ctx.state, { op: 'enable', module: id, result: ctx.dryRun ? 'dry-run' : 'ok', exitCode: EXIT.ok, detail: `${step.tier} ${step.value}` });
   ctx.save();
   ctx.out.step(11, `done: open /lab/m/${id}; compare with \`npm run exp -- ${id} --label after\``);
@@ -265,6 +272,8 @@ export function deliveryScript(ctx: Ctx, id: ModuleId, env: EnvMap, secrets: Rec
   const hasHost = Boolean(m.nginxFragments?.length || m.systemdDropIns?.length || (m.hostSetup && m.hostSetup !== 'infra/userdata/l0-bootstrap.sh'));
   const s = new RemoteScript(`enable ${id}`);
   const f = `/etc/cloudalbum/modules.d/${id}.env`;
+  const who = operatorOf(ctx);
+  s.line(...instanceStatePending(id, 'enable', who.opId));
   s.line('ca_rollback() {',
     `  ca_f=$(readlink -f ${f} 2>/dev/null || echo ${f})`,
     '  if [ -f "$ca_f.bak" ]; then mv -f "$ca_f.bak" "$ca_f"; else rm -f "$ca_f"; fi',
@@ -283,7 +292,11 @@ export function deliveryScript(ctx: Ctx, id: ModuleId, env: EnvMap, secrets: Rec
   s.line('ca_extra=$(systemctl list-units --plain --no-legend --state=active \'cloudalbum-api@*.service\' | awk \'{print $1}\')',
     '# shellcheck disable=SC2086',
     'systemctl restart cloudalbum-api cloudalbum-worker $ca_extra');
-  s.line(...instanceStateUpdate(id, 'enabled'));
+  const sw = REGISTRY[id].switch;
+  s.line(...instanceStateUpdate(id, 'enabled', {
+    driver: sw ? (env[sw.var] ?? (isParamSwitch(sw) ? 'aws' : '')) : '', version: registryVersion(id), ...who,
+    ...(ctx.state.profile ? { profile: ctx.state.profile } : {}),
+  }));
   return s;
 }
 
@@ -300,14 +313,57 @@ export function rollbackScript(id: ModuleId): RemoteScript {
   return s;
 }
 
-/** /etc/cloudalbum/modules.state.json (instance-side module state maintained by scripts/module). */
-export function instanceStateUpdate(id: ModuleId, status: 'enabled' | 'disabled'): string[] {
+export interface InstanceStateInfo {
+  driver?: string;
+  version?: number;
+  /** operation id (platform: the ULID of this invocation) */
+  opId?: string;
+  /** caller: platform role session name (atl-<sid>-ws / atl-<sid>-prov-<op>), standalone `scripts/module` */
+  operator?: string;
+  profile?: string;
+}
+
+/**
+ * /etc/cloudalbum/modules.state.json (instance-side module state maintained by scripts/module; format of 06 PM-15):
+ *   modules{id: {enabled, driver, version, enabledAt}}, history[{opId, op, module, at, operator, profile?}] (last 50),
+ *   pending{opId, module, op, startedAt} — written at the start of the delivery, cleared when it finishes.
+ * Read by `cloudalbum module-state` and the check bundle's module-state check.
+ */
+export function instanceStateUpdate(id: ModuleId, status: 'enabled' | 'disabled', info: InstanceStateInfo = {}): string[] {
+  const op = status === 'enabled' ? 'enable' : 'disable';
+  const args = [
+    `--arg id ${id}`, `--arg op ${op}`, `--arg driver ${shq(info.driver ?? '')}`, `--argjson ver ${Number.isInteger(info.version) ? String(info.version) : 'null'}`,
+    `--arg opid ${shq(info.opId ?? '')}`, `--arg operator ${shq(info.operator ?? 'scripts/module')}`, `--arg profile ${shq(info.profile ?? '')}`,
+    '--arg at "$(date -u +%Y-%m-%dT%H:%M:%SZ)"',
+  ].join(' ');
+  const filter = [
+    '.modules = (.modules // {}) | .history = (.history // [])',
+    '| .modules[$id] = {enabled: ($op == "enable"), driver: (if $driver == "" then null else $driver end), version: $ver,',
+    '  enabledAt: (if $op == "enable" then $at else (.modules[$id].enabledAt // null) end)}',
+    '| .history = ((.history + [{opId: $opid, op: $op, module: $id, at: $at, operator: $operator} + (if $profile == "" then {} else {profile: $profile} end)]) | .[-50:])',
+    '| .pending = null | .updatedAt = $at',
+  ].join(' ');
   return [
     'ca_ms=$(readlink -f /etc/cloudalbum)/modules.state.json',
-    '[ -s "$ca_ms" ] || echo \'{"modules":{}}\' > "$ca_ms"',
-    `ca_tmp=$(mktemp "$(dirname "$ca_ms")/.ms.XXXXXX"); jq --arg id ${id} --arg st ${status} --arg at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" '.updatedAt = $at | .modules[$id] = {status: $st, at: $at}' "$ca_ms" > "$ca_tmp"`,
+    '[ -s "$ca_ms" ] || echo \'{"modules":{},"history":[],"pending":null}\' > "$ca_ms"',
+    `ca_tmp=$(mktemp "$(dirname "$ca_ms")/.ms.XXXXXX"); jq ${args} '${filter}' "$ca_ms" > "$ca_tmp"`,
     'chown root:cloudalbum "$ca_tmp"; chmod 0640 "$ca_tmp"; mv -f "$ca_tmp" "$ca_ms"',
   ];
+}
+
+/** modules.state.json `pending` at the start of a delivery (06 PM-15) */
+export function instanceStatePending(id: ModuleId, op: 'enable' | 'disable', opId: string): string[] {
+  return [
+    'ca_ms=$(readlink -f /etc/cloudalbum)/modules.state.json',
+    '[ -s "$ca_ms" ] || echo \'{"modules":{},"history":[],"pending":null}\' > "$ca_ms"',
+    `ca_tmp=$(mktemp "$(dirname "$ca_ms")/.ms.XXXXXX"); jq --arg id ${id} --arg op ${op} --arg opid ${shq(opId)} --arg at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" '.pending = {opId: $opid, module: $id, op: $op, startedAt: $at}' "$ca_ms" > "$ca_tmp"`,
+    'chown root:cloudalbum "$ca_tmp"; chmod 0640 "$ca_tmp"; mv -f "$ca_tmp" "$ca_ms"',
+  ];
+}
+
+/** identity recorded on the instance and in state.json history */
+export function operatorOf(ctx: Ctx): { opId: string; operator: string } {
+  return { opId: ctx.platform?.opId ?? '', operator: ctx.platform?.identity?.sessionName ?? 'scripts/module' };
 }
 
 async function confirm(question: string): Promise<boolean> {
