@@ -1330,3 +1330,92 @@ WebCrypto、验证页核心、离线工具）、篡改、未知密钥、吊销�
   输出；`/api/lab/probe/media-url` 返回 `path` 或 `url`。
 - 01：登记第 1 节的新动作名、`PlatformConfig.checks`、`ATL_WEB_DISTRIBUTION_ID` 等变量、`LabAttempt` 的新增属性（`ownershipLookups`、`finalize`、
   `checksSummary`、`evidenceScore`、`missing`、`lastExpiringPrecheckAt`、`lastDriftPatrolAt`）、`InventorySnapshot` 字段、不公开的引用盐。
+
+## platform-lifecycle
+
+会话生命周期（02 全文，01 §3.3～§3.5、§6.3、§6.7）：六个状态机、atl-lifecycle（唯一状态写入者）、atl-timer（含 SWEEP）、atl-reaper（回收器与
+OwnershipLookup）、atl-runner（buildspec + 运行器）。名称一律取自 `@atl/shared`。
+
+### 1. 目录
+
+```
+platform/workflows/statemachines/*.asl.json  六个状态机按 02 §4.4、§6.6、§7.6～§7.7、§10.5 展开（全部 DefinitionSubstitutions 见 DEV_SUBSTITUTIONS）
+platform/workflows/src/asl/load.ts           DEV_SUBSTITUTIONS 增加 6 个 *StateMachineArn；definitionPlaceholders()
+platform/workflows/src/simulator/engine.ts   addListener()（dev 用它模拟 atl-sfn-failed 规则）
+platform/workflows/src/runner/               运行器：context（ATL_* + atl-main 三条记录 → buildAgentContext/toSessionEnv）、plan（ATL_OP → 步骤）、
+                                             policy（会话策略）、execute（执行与 result.json）、sigv4、secrets（argon2id PHC）、main（pre|build|post|credentials）
+platform/workflows/runner/buildspec.yml      01 §3.4 的 buildspec；runner/build.mjs 打包到 runner/dist/atl-runner.mjs（发布包内）
+platform/api/src/functions/lifecycle/        handler（动作表）、start / end / requests / module-op / uninstall / ops、rules（预算、分类、延长）、
+                                             timers、store/*（atl-main 访问）、cloud/port.ts（本目录专用端口）、cloud/aws.ts（生产实现）、cloud/sdk.ts
+platform/api/src/functions/timer/            kinds（一次性调度）、sweeper（SWEEP）
+platform/api/src/functions/reaper/           handler + reclaimer/（discovery、actions、ledger、rules、extractors、identity、derived、rate、arn、aws.ts）
+platform/api/src/functions/{rescan,ownership}/  ConcludeRescan / FinishFollowUp；OwnershipLookup（atl-reaper 的动作）
+platform/api/src/orchestrator-dev/           dev 实现（DevLifecycleCloud、DevReclaimCloud）、installLifecycleDev(rt)、server.ts
+platform/api/test/lifecycle/                 状态机端到端（真实 ASL + 模拟器 + 虚拟时钟 + 内存表，ATL_IT=1 可改用 DynamoDB Local）与纯规则测试
+```
+
+### 2. 接线与隔离
+
+- 生产：`functions/{lifecycle,timer,reaper}/index.ts` 调 `setProductionClouds(awsClouds)`；`test/lifecycle/prod-isolation.test.ts` 断言三个
+  bundle 不含 `src/orchestrator-dev`、`src/dev`、模拟器与测试代码。生产代码不 import dev 代码；dev 只经 `provideClouds(deps, …)` 注入。
+- dev：集成阶段在 `src/dev/runtime.ts` 建好运行时后调用 `installLifecycleDev(rt)`（结构化类型，不依赖 dev 内部类型）；它注入两个 dev 云、
+  在 atl-checks / atl-custom-resources 返回 `Atl.NotImplemented` 时提供 Preflight / RunHealthGate / FinalizeAttempt / UninstallRoleCleanup 的
+  兜底，并用 `sim.addListener` 模拟 EventBridge 规则 `atl-sfn-failed` → `HandleExecutionFailure`。独立入口：
+  `npx tsx platform/api/src/orchestrator-dev/server.ts --dev-mode`。
+- 故障注入：模拟器的 `faults`（按状态 / 状态机 / 次数），ScriptedRunner 的 `fail(op|runId 前缀, {exitCode, cfnFailures, status, noResult})`，
+  DevReclaimCloud 的资源行为 `ok | pending | retry | denied | protected`，FakeTrailLookup 的投递延迟。
+
+### 3. 动作契约（atl-lifecycle，载荷 `{ action, … }`，错误 `name = Atl.*`，映射见 errors.ts 的 LIFECYCLE_ERROR_CODES）
+
+- API：`CreateSession`（扁平形式或 lifecycle-client 的 `{sessionId, sub, labId, variant, quoteId, reuseEnvId, session}`；返回
+  `{sessionId, state, ver, executionArn}`，同时启动 `start-<sid>`，API 再启动时得到 ExecutionAlreadyExists）、`Transition`（RUNNING / EXPIRING /
+  REQUESTED→ENDED 返回会话项；PROVISIONING、CLEANING 只给状态机用）、`Heartbeat`、`Extend`、`RequestEnd`、`KeepExtend`（别名 `ExtendKeep`，
+  `expectedKeepVersion` 不符 → `Atl.PreconditionFailed`）、`ReleaseKept`、`RetryCleanup`（`expectedRetryCount` 防并发）、`ResolveCleanup`、
+  `Open/CloseOutageWindow`、`BudgetAlert`（SNS 事件亦可）、`HandleExecutionFailure`（EventBridge 事件亦可）。
+- atl-checks（04）：`Preflight {sessionId, envId, fresh, labId, variant, startProfile, preflightVariants, regions, …}` → `{result: PASS|WARN|FAIL,
+  items, warnings, variant}`；`RunHealthGate {sessionId, envId, profile, gates, expectedWarnings, targetModules}` → `{status: PASS|FAIL|NOT_READY,
+  report}`；`FinalizeAttempt {sessionId}`（600 s，失败只记阶段）。
+- 状态机内部动作见 handler.ts 的 ACTIONS（ValidateQuote … FinishUninstall）；atl-reaper：CaptureLedger、PlanDiscovery、DiscoverPage、
+  RecordDiscoverGap、BuildDeletionPlan、DeleteItem、PollItem、MarkManual、Verify、OwnershipLookup、ResolveItem、PurgeEnvState。
+
+### 4. 有歧义处的取舍（选最简单且符合文档的）
+
+1. **运行 ID**：`<sid>-<缩写>-<n>[-<m>]`；工作台删除 `{sid}-wsdown-{endSeq}`、拆除 `{sid}-destroy-{endSeq}-{attempt}`、步骤部署的卡片自带栈
+   `{sid}-xstk-{100+n}`；结束阶段 endSeq：首次 1、释放 2、第 k 次重试 2+k。回收执行名 `reclaim-<envId>-<mode>-<endSeq>`；清扫器补做的复扫
+   `reclaim-<envId>-rescan-<10+k>`；卸载的即时复扫 `reclaim-<envId>-uninstall-1`。
+2. **节省模式**：02 的 SuspendEnvironment Lambda 改为运行器 `suspend` 的 `.sync` 构建（lifecycle 角色没有 StartBuild 权限）。
+3. **atl-checks 动作名** 用 `Preflight` / `RunHealthGate` / `FinalizeAttempt`（04 已按此实现，见 platform-checks 节）。
+4. **回收器规则表与提取器** 放在 `platform/api/src/functions/reaper/`（01 §13 写 `platform/workflows/reclaimer/`）：生产 bundle 不得包含
+   platform/workflows（build.mjs 的守卫）。
+5. **CloudTrail 扫描** 只用 `ReadOnly=false` 查询，客户端按事件名过滤；`LookupEvents` 令牌桶 2/s，同一调用内最多等待 3 s，否则
+   `THROTTLED` / `Atl.Throttled`（ASL 重试）。
+6. **时间** 一律存 ISO 字符串；阶段名取 08 §9.2 第 8 条。**T19 保留 endReason**；**清扫器** 单次即关闭过期的中断窗口。
+7. **ATLRevokedSessions** 不保存撤销时间；修剪按 `LabSession.revokedAt` 与 CredentialGrant 到期时间。
+8. **回收删除的会话策略**（02 §7.6）：按条目 ARN 生成；栈与 Cloud Control 额外允许 `aws:CalledVia=cloudformation`；无法用 ARN 收窄的删除进入
+   人工清单（REVIEW），条目 `meta.learnerConfirmed=true` 后才以 `Resource:*` 放行。没有专用处理程序的类型走 Cloud Control API。
+9. **S6 复位**：持有（或空闲）环境锁时摘除 CloudAlbumAppRole 上全部 `cloudalbum-*` 策略与 `cloudalbum-*` 内联策略，否则只摘台账登记的附加。
+10. **运行器凭证**：01 §3.4 的 `role_arn + credential_source` 配置文件无法携带会话策略（01 §6.7 第 6 条），改用 `credential_process`
+    （`atl-runner.mjs credentials` 以容器凭证 AssumeRole，CLI/SDK 自动续期）。**会话策略超长**：01 的示例超过 AssumeRole 内联会话策略的
+    2 048 字符上限，与会话无关的语句（只读、SSM 文档、internal 路由、CalledVia、registry 带外操作）放入托管策略
+    `ATLProvisionerPolicy-RunnerSession`（`staticRunnerStatements()`，以 `--policy-arns` 传入），内联部分只含环境范围语句；CloudFormation 写操作
+    收窄到 `stack/cloudalbum-<envName>-*` 与 `stack/atl-ws-<sid>`（extra-stack 只到 `-x-*`）。
+11. **环境锁与 state.json** 由 `scripts/module` 自己处理（06 PM-27/28，运行器传 `--lock-wait 900`）；运行器不重复实现。`module-op`：
+    `op: enable|disable` → `scripts/module <op> <module>`，其他 → `scripts/module <module> <op>`，卡片 `platformOps[].args` 转为 `--param K=V`。
+    卡片自带栈的输出写入 `result.json` 的 `variables`（会话变量的持久化待 04/API 约定）。工作台模板路径取 `platform/workflows/workstation/workstation.yaml`。
+12. **result.json** 增加 `schema: atl.runner-result/v1`、`step`、`warnings`、`variables`、`steps[]`；分类所需字段与 02 §4.3 一致。
+
+### 5. 需要其他部分配合
+
+- infra：创建托管策略 `ATLProvisionerPolicy-RunnerSession`（语句 = `staticRunnerStatements({region, accountId, apiId})`）；
+  `ATLRunnerServiceRole` 需要 `dynamodb:GetItem` 于 `atl-main`（读三条记录）与对 `atl-web` `content/*/manifest.json`、`labs/*`、`stacks/*`、
+  `profiles/*` 的读取；CodeBuild 源包需包含 `SHA256SUMS`、`runner/dist/atl-runner.mjs`、`cloudalbum-<ver>-<arch>.tgz`；
+  DefinitionSubstitutions 取 DEV_SUBSTITUTIONS 的全部键。ReaperFunctionRole 还需 Cloud Control 读、`sts:AssumeRole`（已有）。
+- API：会话视图读取 `cleanup`、`reclaim.followUp`、`phases`；动作契约见第 3 节（已适配 lifecycle-client 的 CreateSession / ExtendKeep /
+  Transition 返回值）。
+- 集成：`installLifecycleDev(rt)` 接入 `src/dev/runtime.ts`；`test/dev-runtime.test.ts` 的 NotImplemented 断言已改用未知的 timer kind。
+- 06：确认 `scripts/module` 平台动作参数的写法（本实现用 `--param K=V`）与 `bootstrap --release-file` 的包名。
+
+### 6. 测试
+
+`npx vitest run --project atl-api platform/api/test/lifecycle/`（状态转换、补偿、CLEANUP_FAILED 与人工清单、延长上限、到期回收、复扫 T21、
+卸载守卫、模块操作、OwnershipLookup、契约、生产隔离）、`npx vitest run --project atl-workflows`（含运行器）、`npm run platform:validate`。

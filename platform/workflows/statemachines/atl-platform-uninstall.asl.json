@@ -1,12 +1,109 @@
 {
-  "Comment": "atl-platform-uninstall: placeholder written by platform-scaffold. The workflows implementer replaces it with the ASL of 02 §10.5 (JSONPath; DefinitionSubstitutions as in src/asl/load.ts DEV_SUBSTITUTIONS).",
+  "Comment": "atl-platform-uninstall (02 §10.5, 01 §4.8): reclaim everything before the platform stack goes away. Input { trigger: prepare | guard, cfn?: { responseUrl, requestId, stackId, logicalResourceId, physicalResourceId }, requestedBy? }, execution name uninstall-<n>. Started by POST /platform/uninstall/prepare or by UninstallGuard (Delete); only the guard run ends with UninstallRoleCleanup, which cleans the roles and answers CloudFormation.",
   "QueryLanguage": "JSONPath",
-  "StartAt": "NotImplemented",
+  "TimeoutSeconds": 86400,
+  "StartAt": "BeginUninstall",
   "States": {
-    "NotImplemented": {
-      "Type": "Fail",
-      "Error": "Atl.NotImplemented",
-      "Cause": "atl-platform-uninstall is not implemented yet"
-    }
+    "BeginUninstall": {
+      "Type": "Task",
+      "Comment": "PlatformConfig.mode = UNINSTALLING (the API refuses new sessions, extensions and keeps); remembers the CloudFormation callback; the guard run gets a deadline before the 3600 s custom-resource limit",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": { "FunctionName": "${LifecycleFn}", "Payload": { "action": "BeginUninstall", "input.$": "$", "executionName.$": "$$.Execution.Name" } },
+      "ResultSelector": { "guard.$": "$.Payload.guard", "deadlineAt.$": "$.Payload.deadlineAt", "cfn.$": "$.Payload.cfn" },
+      "ResultPath": "$.u",
+      "Retry": [
+        { "ErrorEquals": ["Lambda.ServiceException", "Lambda.AWSLambdaException", "Lambda.SdkClientException", "Lambda.TooManyRequestsException", "Atl.Retryable"], "IntervalSeconds": 2, "MaxAttempts": 5, "BackoffRate": 2, "JitterStrategy": "FULL" }
+      ],
+      "Next": "EndAllSessions"
+    },
+    "EndAllSessions": {
+      "Type": "Task",
+      "Comment": "every non-terminal session ends with PLATFORM_UNINSTALL (no keep; a reserving start fails first), every KEPT environment is released, every CLEANUP_FAILED session is retried once, and every environment inside its rescan window gets one immediate RESCAN pass",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": { "FunctionName": "${LifecycleFn}", "Payload": { "action": "UninstallEndSessions", "executionName.$": "$$.Execution.Name" } },
+      "ResultSelector": { "started.$": "$.Payload.started" },
+      "ResultPath": "$.drive",
+      "Retry": [
+        { "ErrorEquals": ["Lambda.ServiceException", "Lambda.AWSLambdaException", "Lambda.SdkClientException", "Lambda.TooManyRequestsException", "Atl.Retryable"], "IntervalSeconds": 2, "MaxAttempts": 5, "BackoffRate": 2, "JitterStrategy": "FULL" }
+      ],
+      "Catch": [{ "ErrorEquals": ["States.ALL"], "ResultPath": "$.error", "Next": "WaitProgress" }],
+      "Next": "WaitProgress"
+    },
+    "WaitProgress": { "Type": "Wait", "Seconds": 60, "Next": "CheckProgress" },
+    "CheckProgress": {
+      "Type": "Task",
+      "Comment": "re-drives idempotently and summarises: all sessions settled? BLOCKING residue? close to the guard deadline?",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": { "FunctionName": "${LifecycleFn}", "Payload": { "action": "UninstallStatus", "executionName.$": "$$.Execution.Name", "deadlineAt.$": "$.u.deadlineAt" } },
+      "ResultSelector": { "settled.$": "$.Payload.settled", "blocking.$": "$.Payload.blocking", "giveUp.$": "$.Payload.giveUp", "reason.$": "$.Payload.reason" },
+      "ResultPath": "$.status",
+      "Retry": [
+        { "ErrorEquals": ["Lambda.ServiceException", "Lambda.AWSLambdaException", "Lambda.SdkClientException", "Lambda.TooManyRequestsException", "Atl.Retryable"], "IntervalSeconds": 2, "MaxAttempts": 5, "BackoffRate": 2, "JitterStrategy": "FULL" }
+      ],
+      "Catch": [{ "ErrorEquals": ["States.ALL"], "ResultPath": "$.error", "Next": "WaitProgress" }],
+      "Next": "ProgressChoice"
+    },
+    "ProgressChoice": {
+      "Type": "Choice",
+      "Choices": [
+        { "Variable": "$.status.settled", "BooleanEquals": true, "Next": "BlockingChoice" },
+        { "Variable": "$.status.giveUp", "BooleanEquals": true, "Next": "OutcomeFailed" }
+      ],
+      "Default": "WaitProgress"
+    },
+    "BlockingChoice": {
+      "Type": "Choice",
+      "Choices": [{ "Variable": "$.status.blocking", "NumericGreaterThan": 0, "Next": "OutcomeFailed" }],
+      "Default": "OutcomeSucceeded"
+    },
+    "OutcomeSucceeded": {
+      "Type": "Pass",
+      "Parameters": { "outcome": "SUCCESS", "reason": "all sessions reclaimed" },
+      "ResultPath": "$.result",
+      "Next": "GuardChoice"
+    },
+    "OutcomeFailed": {
+      "Type": "Pass",
+      "Parameters": { "outcome": "FAILED", "reason.$": "$.status.reason" },
+      "ResultPath": "$.result",
+      "Next": "GuardChoice"
+    },
+    "GuardChoice": {
+      "Type": "Choice",
+      "Comment": "only a run started by UninstallGuard cleans the roles and answers CloudFormation",
+      "Choices": [{ "Variable": "$.u.guard", "BooleanEquals": true, "Next": "RoleCleanup" }],
+      "Default": "FinishUninstall"
+    },
+    "RoleCleanup": {
+      "Type": "Task",
+      "Comment": "atl-custom-resources UninstallRoleCleanup (01 §4.8 option a): SUCCESS → removes run-time inline policies and foreign attachments of ATLLearnerRole / ATLWorkstationRole / CloudAlbumAppRole, then calls back; FAILED → calls back only",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": { "FunctionName": "${CustomResourcesFn}", "Payload": { "action": "UninstallRoleCleanup", "cfn.$": "$.u.cfn", "outcome.$": "$.result.outcome", "reason.$": "$.result.reason" } },
+      "ResultPath": "$.cleanup",
+      "Retry": [
+        { "ErrorEquals": ["Lambda.ServiceException", "Lambda.AWSLambdaException", "Lambda.SdkClientException", "Lambda.TooManyRequestsException", "Atl.Retryable"], "IntervalSeconds": 2, "MaxAttempts": 5, "BackoffRate": 2, "JitterStrategy": "FULL" }
+      ],
+      "Catch": [{ "ErrorEquals": ["States.ALL"], "ResultPath": "$.cleanupError", "Next": "FinishUninstall" }],
+      "Next": "FinishUninstall"
+    },
+    "FinishUninstall": {
+      "Type": "Task",
+      "Comment": "records the outcome on PlatformConfig.uninstall (shown by GET /platform/uninstall/status)",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": { "FunctionName": "${LifecycleFn}", "Payload": { "action": "FinishUninstall", "executionName.$": "$$.Execution.Name", "result.$": "$.result" } },
+      "ResultSelector": { "outcome.$": "$.Payload.outcome" },
+      "ResultPath": "$.finish",
+      "Retry": [
+        { "ErrorEquals": ["Lambda.ServiceException", "Lambda.AWSLambdaException", "Lambda.SdkClientException", "Lambda.TooManyRequestsException", "Atl.Retryable"], "IntervalSeconds": 2, "MaxAttempts": 5, "BackoffRate": 2, "JitterStrategy": "FULL" }
+      ],
+      "Next": "ResultChoice"
+    },
+    "ResultChoice": {
+      "Type": "Choice",
+      "Choices": [{ "Variable": "$.finish.outcome", "StringEquals": "SUCCESS", "Next": "Done" }],
+      "Default": "UninstallBlocked"
+    },
+    "Done": { "Type": "Succeed" },
+    "UninstallBlocked": { "Type": "Fail", "Error": "Atl.UninstallBlocked", "CausePath": "$.result.reason" }
   }
 }

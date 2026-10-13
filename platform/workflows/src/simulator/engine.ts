@@ -120,6 +120,7 @@ export class StepFunctionsSimulator {
   private readonly executions = new Map<string, ExecRecord>();
   private readonly defs = new Map<string, AslDefinition>();
   private readonly faults: (FaultSpec & { remaining: number })[];
+  private readonly listeners = new Set<(e: HistoryEvent) => void>();
   readonly history: HistoryEvent[] = [];
   private readonly region: string;
   private readonly accountId: string;
@@ -131,6 +132,15 @@ export class StepFunctionsSimulator {
       if (def) this.defs.set(name, substitute(def, opts.substitutions ?? {}) as AslDefinition);
     }
     this.faults = (opts.faults ?? []).map((f) => ({ ...f, remaining: f.times ?? 1 }));
+  }
+
+  /**
+   * Subscribe to history events (dev: emulates the EventBridge rule `atl-sfn-failed` on execution status changes,
+   * 01 §3.3). Returns an unsubscribe function. Listener errors are ignored.
+   */
+  addListener(fn: (e: HistoryEvent) => void): () => void {
+    this.listeners.add(fn);
+    return () => this.listeners.delete(fn);
   }
 
   /** Add a fault at run time (dev server / tests). */
@@ -230,6 +240,13 @@ export class StepFunctionsSimulator {
     const ev = { ...e, at: this.opts.clock.nowMs() };
     this.history.push(ev);
     this.opts.onEvent?.(ev);
+    for (const l of this.listeners) {
+      try {
+        l(ev);
+      } catch {
+        // a dev listener must not break the execution
+      }
+    }
   }
 
   private async runExecution(rec: ExecRecord, def: AslDefinition): Promise<void> {

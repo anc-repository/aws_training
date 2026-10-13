@@ -1,12 +1,176 @@
 {
-  "Comment": "atl-reclaim: placeholder written by platform-scaffold. The workflows implementer replaces it with the ASL of 02 §7.11 (JSONPath; DefinitionSubstitutions as in src/asl/load.ts DEV_SUBSTITUTIONS).",
+  "Comment": "atl-reclaim (02 §7.11): one reclaim pass. Input { envId, sessionId, mode: PRIMARY | RETRY | RESCAN | UNINSTALL }, output { summary }. Discovery from the six sources, eligibility (7.2), staged deletion S0–S6 (7.5), verification and severity (7.8).",
   "QueryLanguage": "JSONPath",
-  "StartAt": "NotImplemented",
+  "TimeoutSeconds": 21600,
+  "StartAt": "PlanDiscovery",
   "States": {
-    "NotImplemented": {
-      "Type": "Fail",
-      "Error": "Atl.NotImplemented",
-      "Cause": "atl-reclaim is not implemented yet"
+    "PlanDiscovery": {
+      "Type": "Task",
+      "Comment": "creates ReclaimPass and the discovery tasks: LEDGER, OUT_OF_BAND, STACK, TAG×region, CLOUDTRAIL×identity×region, INVENTORY×region (RESCAN / UNINSTALL: CLOUDTRAIL, TAG only; DERIVED runs in BuildDeletionPlan)",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": { "FunctionName": "${ReaperFn}", "Payload": { "action": "PlanDiscovery", "input.$": "$", "executionName.$": "$$.Execution.Name" } },
+      "ResultSelector": { "tasks.$": "$.Payload.tasks", "passNo.$": "$.Payload.passNo" },
+      "ResultPath": "$.plan",
+      "Retry": [
+        { "ErrorEquals": ["Lambda.ServiceException", "Lambda.AWSLambdaException", "Lambda.SdkClientException", "Lambda.TooManyRequestsException", "Atl.Retryable"], "IntervalSeconds": 2, "MaxAttempts": 5, "BackoffRate": 2, "JitterStrategy": "FULL" }
+      ],
+      "Next": "Discover"
+    },
+    "Discover": {
+      "Type": "Map",
+      "ItemsPath": "$.plan.tasks",
+      "ItemSelector": { "task.$": "$$.Map.Item.Value", "envId.$": "$.envId", "sessionId.$": "$.sessionId", "passNo.$": "$.plan.passNo", "mode.$": "$.mode" },
+      "MaxConcurrency": 4,
+      "ItemProcessor": {
+        "ProcessorConfig": { "Mode": "INLINE" },
+        "StartAt": "DiscoverPage",
+        "States": {
+          "DiscoverPage": {
+            "Type": "Task",
+            "Comment": "one page of one discovery task; CLOUDTRAIL pages share the per-region LookupEvents token bucket with OwnershipLookup and the checks",
+            "Resource": "arn:aws:states:::lambda:invoke",
+            "Parameters": { "FunctionName": "${ReaperFn}", "Payload": { "action": "DiscoverPage", "item.$": "$" } },
+            "ResultSelector": { "task.$": "$.Payload.task", "envId.$": "$.Payload.envId", "sessionId.$": "$.Payload.sessionId", "passNo.$": "$.Payload.passNo", "mode.$": "$.Payload.mode", "more.$": "$.Payload.more" },
+            "Retry": [
+              { "ErrorEquals": ["Atl.Throttled"], "IntervalSeconds": 3, "MaxAttempts": 8, "BackoffRate": 2, "JitterStrategy": "FULL" },
+              { "ErrorEquals": ["Lambda.ServiceException", "Lambda.AWSLambdaException", "Lambda.SdkClientException", "Lambda.TooManyRequestsException"], "IntervalSeconds": 2, "MaxAttempts": 5, "BackoffRate": 2, "JitterStrategy": "FULL" }
+            ],
+            "Catch": [{ "ErrorEquals": ["States.ALL"], "ResultPath": "$.discoverError", "Next": "RecordDiscoverGap" }],
+            "Next": "MorePages"
+          },
+          "MorePages": {
+            "Type": "Choice",
+            "Choices": [{ "Variable": "$.more", "BooleanEquals": true, "Next": "DiscoverPage" }],
+            "Default": "PageDone"
+          },
+          "RecordDiscoverGap": {
+            "Type": "Task",
+            "Comment": "the discovery task failed: one REVIEW item “scan incomplete”; the rescans repeat it",
+            "Resource": "arn:aws:states:::lambda:invoke",
+            "Parameters": { "FunctionName": "${ReaperFn}", "Payload": { "action": "RecordDiscoverGap", "item.$": "$" } },
+            "ResultPath": null,
+            "Retry": [
+              { "ErrorEquals": ["Lambda.ServiceException", "Lambda.AWSLambdaException", "Lambda.SdkClientException", "Lambda.TooManyRequestsException", "Atl.Retryable"], "IntervalSeconds": 2, "MaxAttempts": 5, "BackoffRate": 2, "JitterStrategy": "FULL" }
+            ],
+            "Next": "PageDone"
+          },
+          "PageDone": { "Type": "Succeed" }
+        }
+      },
+      "ResultPath": null,
+      "Next": "BuildDeletionPlan"
+    },
+    "BuildDeletionPlan": {
+      "Type": "Task",
+      "Comment": "derived resources (7.4), deletion eligibility (7.2), stages S0–S6 (7.5); returns [{ stage, resourceKeys[] }]",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": { "FunctionName": "${ReaperFn}", "Payload": { "action": "BuildDeletionPlan", "envId.$": "$.envId", "sessionId.$": "$.sessionId", "passNo.$": "$.plan.passNo", "mode.$": "$.mode" } },
+      "ResultSelector": { "stages.$": "$.Payload.stages" },
+      "ResultPath": "$.deletion",
+      "Retry": [
+        { "ErrorEquals": ["Lambda.ServiceException", "Lambda.AWSLambdaException", "Lambda.SdkClientException", "Lambda.TooManyRequestsException", "Atl.Retryable"], "IntervalSeconds": 2, "MaxAttempts": 5, "BackoffRate": 2, "JitterStrategy": "FULL" }
+      ],
+      "Next": "DeleteStages"
+    },
+    "DeleteStages": {
+      "Type": "Map",
+      "Comment": "stages run one after the other",
+      "ItemsPath": "$.deletion.stages",
+      "ItemSelector": { "stage.$": "$$.Map.Item.Value.stage", "resourceKeys.$": "$$.Map.Item.Value.resourceKeys", "envId.$": "$.envId", "sessionId.$": "$.sessionId", "passNo.$": "$.plan.passNo" },
+      "MaxConcurrency": 1,
+      "ItemProcessor": {
+        "ProcessorConfig": { "Mode": "INLINE" },
+        "StartAt": "DeleteItems",
+        "States": {
+          "DeleteItems": {
+            "Type": "Map",
+            "Comment": "the resources of one stage in parallel (default 5)",
+            "ItemsPath": "$.resourceKeys",
+            "ItemSelector": { "resourceKey.$": "$$.Map.Item.Value", "envId.$": "$.envId", "sessionId.$": "$.sessionId", "passNo.$": "$.passNo", "stage.$": "$.stage" },
+            "MaxConcurrency": 5,
+            "ItemProcessor": {
+              "ProcessorConfig": { "Mode": "INLINE" },
+              "StartAt": "DeleteItem",
+              "States": {
+                "DeleteItem": {
+                  "Type": "Task",
+                  "Resource": "arn:aws:states:::lambda:invoke",
+                  "Parameters": { "FunctionName": "${ReaperFn}", "Payload": { "action": "DeleteItem", "item.$": "$" } },
+                  "ResultSelector": { "resourceKey.$": "$.Payload.resourceKey", "status.$": "$.Payload.status", "waitSeconds.$": "$.Payload.waitSeconds" },
+                  "ResultPath": "$.result",
+                  "Retry": [
+                    { "ErrorEquals": ["Lambda.ServiceException", "Lambda.AWSLambdaException", "Lambda.SdkClientException", "Lambda.TooManyRequestsException", "Atl.Retryable"], "IntervalSeconds": 2, "MaxAttempts": 5, "BackoffRate": 2, "JitterStrategy": "FULL" }
+                  ],
+                  "Catch": [{ "ErrorEquals": ["States.ALL"], "ResultPath": "$.err", "Next": "MarkManual" }],
+                  "Next": "ItemChoice"
+                },
+                "ItemChoice": {
+                  "Type": "Choice",
+                  "Choices": [
+                    { "Or": [{ "Variable": "$.result.status", "StringEquals": "DONE" }, { "Variable": "$.result.status", "StringEquals": "MANUAL" }], "Next": "ItemDone" },
+                    { "Variable": "$.result.status", "StringEquals": "PENDING", "Next": "WaitPending" }
+                  ],
+                  "Default": "WaitRetry"
+                },
+                "WaitPending": { "Type": "Wait", "SecondsPath": "$.result.waitSeconds", "Next": "PollItem" },
+                "PollItem": {
+                  "Type": "Task",
+                  "Comment": "the Lambda applies the per-item deadline: past it the item becomes MANUAL",
+                  "Resource": "arn:aws:states:::lambda:invoke",
+                  "Parameters": { "FunctionName": "${ReaperFn}", "Payload": { "action": "PollItem", "item.$": "$" } },
+                  "ResultSelector": { "resourceKey.$": "$.Payload.resourceKey", "status.$": "$.Payload.status", "waitSeconds.$": "$.Payload.waitSeconds" },
+                  "ResultPath": "$.result",
+                  "Retry": [
+                    { "ErrorEquals": ["Lambda.ServiceException", "Lambda.AWSLambdaException", "Lambda.SdkClientException", "Lambda.TooManyRequestsException", "Atl.Retryable"], "IntervalSeconds": 2, "MaxAttempts": 5, "BackoffRate": 2, "JitterStrategy": "FULL" }
+                  ],
+                  "Catch": [{ "ErrorEquals": ["States.ALL"], "ResultPath": "$.err", "Next": "MarkManual" }],
+                  "Next": "ItemChoice"
+                },
+                "WaitRetry": { "Type": "Wait", "SecondsPath": "$.result.waitSeconds", "Next": "RetryItem" },
+                "RetryItem": {
+                  "Type": "Task",
+                  "Comment": "the attempt count is kept on the ledger item; past the limit the Lambda returns MANUAL (no endless loop)",
+                  "Resource": "arn:aws:states:::lambda:invoke",
+                  "Parameters": { "FunctionName": "${ReaperFn}", "Payload": { "action": "DeleteItem", "item.$": "$" } },
+                  "ResultSelector": { "resourceKey.$": "$.Payload.resourceKey", "status.$": "$.Payload.status", "waitSeconds.$": "$.Payload.waitSeconds" },
+                  "ResultPath": "$.result",
+                  "Retry": [
+                    { "ErrorEquals": ["Lambda.ServiceException", "Lambda.AWSLambdaException", "Lambda.SdkClientException", "Lambda.TooManyRequestsException", "Atl.Retryable"], "IntervalSeconds": 2, "MaxAttempts": 5, "BackoffRate": 2, "JitterStrategy": "FULL" }
+                  ],
+                  "Catch": [{ "ErrorEquals": ["States.ALL"], "ResultPath": "$.err", "Next": "MarkManual" }],
+                  "Next": "ItemChoice"
+                },
+                "MarkManual": {
+                  "Type": "Task",
+                  "Resource": "arn:aws:states:::lambda:invoke",
+                  "Parameters": { "FunctionName": "${ReaperFn}", "Payload": { "action": "MarkManual", "item.$": "$", "error.$": "$.err" } },
+                  "ResultPath": null,
+                  "Retry": [
+                    { "ErrorEquals": ["Lambda.ServiceException", "Lambda.AWSLambdaException", "Lambda.SdkClientException", "Lambda.TooManyRequestsException", "Atl.Retryable"], "IntervalSeconds": 2, "MaxAttempts": 5, "BackoffRate": 2, "JitterStrategy": "FULL" }
+                  ],
+                  "Next": "ItemDone"
+                },
+                "ItemDone": { "Type": "Succeed" }
+              }
+            },
+            "ResultPath": null,
+            "End": true
+          }
+        }
+      },
+      "ResultPath": null,
+      "Next": "Verify"
+    },
+    "Verify": {
+      "Type": "Task",
+      "Comment": "exists() for every non-KEEP item, a final tag scan, environment stacks gone; severity summary (7.8); closes the ReclaimPass",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": { "FunctionName": "${ReaperFn}", "Payload": { "action": "Verify", "envId.$": "$.envId", "sessionId.$": "$.sessionId", "mode.$": "$.mode", "passNo.$": "$.plan.passNo" } },
+      "ResultSelector": { "summary.$": "$.Payload.summary" },
+      "Retry": [
+        { "ErrorEquals": ["Lambda.ServiceException", "Lambda.AWSLambdaException", "Lambda.SdkClientException", "Lambda.TooManyRequestsException", "Atl.Retryable"], "IntervalSeconds": 2, "MaxAttempts": 5, "BackoffRate": 2, "JitterStrategy": "FULL" }
+      ],
+      "End": true
     }
   }
 }

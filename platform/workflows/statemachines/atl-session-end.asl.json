@@ -1,12 +1,945 @@
 {
-  "Comment": "atl-session-end: placeholder written by platform-scaffold. The workflows implementer replaces it with the ASL of 02 §6.6 (JSONPath; DefinitionSubstitutions as in src/asl/load.ts DEV_SUBSTITUTIONS).",
+  "Comment": "atl-session-end (02 §6.6): input { sessionId, reason, disposition, failure?, actor? }. Execution names per end phase: end-<sid>-1, end-<sid>-rel, end-<sid>-retry-<k> (02 §2.7). Compensation and normal end share this one reclaim path.",
   "QueryLanguage": "JSONPath",
-  "StartAt": "NotImplemented",
+  "TimeoutSeconds": 21600,
+  "StartAt": "BeginEnd",
   "States": {
-    "NotImplemented": {
+    "BeginEnd": {
+      "Type": "Task",
+      "Comment": "by reason and current state: T10 → ENDING, or T06 / T14 / T19 → CLEANING; replay-safe (an end already in progress returns its context). Every field of the context is always present (02 §4.4 constraint 1)",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "${LifecycleFn}",
+        "Payload": {
+          "action": "BeginEnd",
+          "input.$": "$",
+          "executionId.$": "$$.Execution.Id",
+          "executionName.$": "$$.Execution.Name"
+        }
+      },
+      "ResultSelector": {
+        "ctx.$": "$.Payload"
+      },
+      "ResultPath": "$.end",
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Atl.ReservationActive"
+          ],
+          "IntervalSeconds": 60,
+          "MaxAttempts": 7,
+          "BackoffRate": 1
+        },
+        {
+          "ErrorEquals": [
+            "Lambda.ServiceException",
+            "Lambda.AWSLambdaException",
+            "Lambda.SdkClientException",
+            "Lambda.TooManyRequestsException",
+            "Atl.Retryable"
+          ],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 5,
+          "BackoffRate": 2,
+          "JitterStrategy": "FULL"
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "Atl.AlreadyTerminal",
+            "Atl.Superseded"
+          ],
+          "ResultPath": null,
+          "Next": "AlreadyDone"
+        },
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "ResultPath": "$.error",
+          "Next": "EmergencyConclude"
+        }
+      ],
+      "Next": "StartStillRunning"
+    },
+    "StartStillRunning": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Variable": "$.end.ctx.startExecutionRunning",
+          "BooleanEquals": true,
+          "Next": "StopStart"
+        }
+      ],
+      "Default": "DisarmTimers"
+    },
+    "StopStart": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::aws-sdk:sfn:stopExecution",
+      "Parameters": {
+        "ExecutionArn.$": "$.end.ctx.startExecutionArn",
+        "Error": "Atl.Superseded",
+        "Cause.$": "$.end.ctx.reason"
+      },
+      "ResultPath": null,
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 3,
+          "BackoffRate": 2
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "ResultPath": null,
+          "Next": "StopActiveBuilds"
+        }
+      ],
+      "Next": "StopActiveBuilds"
+    },
+    "StopActiveBuilds": {
+      "Type": "Task",
+      "Comment": "stops the runner builds of this environment that the stopped start workflow may have left running (4.6)",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "${LifecycleFn}",
+        "Payload": {
+          "action": "StopActiveBuilds",
+          "sessionId.$": "$.sessionId",
+          "envId.$": "$.end.ctx.envId"
+        }
+      },
+      "ResultPath": null,
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Lambda.ServiceException",
+            "Lambda.AWSLambdaException",
+            "Lambda.SdkClientException",
+            "Lambda.TooManyRequestsException",
+            "Atl.Retryable"
+          ],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 5,
+          "BackoffRate": 2,
+          "JitterStrategy": "FULL"
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "ResultPath": null,
+          "Next": "DisarmTimers"
+        }
+      ],
+      "Next": "DisarmTimers"
+    },
+    "DisarmTimers": {
+      "Type": "Task",
+      "Comment": "deletes every one-time schedule of the session (current and older versions, keep timers); ResourceNotFound counts as success",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "${LifecycleFn}",
+        "Payload": {
+          "action": "DisarmTimers",
+          "sessionId.$": "$.sessionId"
+        }
+      },
+      "ResultPath": null,
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Lambda.ServiceException",
+            "Lambda.AWSLambdaException",
+            "Lambda.SdkClientException",
+            "Lambda.TooManyRequestsException",
+            "Atl.Retryable"
+          ],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 5,
+          "BackoffRate": 2,
+          "JitterStrategy": "FULL"
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "ResultPath": "$.error",
+          "Next": "EmergencyConclude"
+        }
+      ],
+      "Next": "SkipChoice"
+    },
+    "SkipChoice": {
+      "Type": "Choice",
+      "Comment": "CLEANUP_RETRY and the release of a kept environment: access was revoked and the workstation deleted long ago; go straight to cleaning (02 §6.6 notes)",
+      "Choices": [
+        {
+          "Variable": "$.end.ctx.skipToCleaning",
+          "BooleanEquals": true,
+          "Next": "EnterCleaning"
+        }
+      ],
+      "Default": "CloseLearnerAccess"
+    },
+    "CloseLearnerAccess": {
+      "Type": "Task",
+      "Comment": "6.3 part one: untag ATLWorkstationRole, aws:userid deny with the upload exemption for this session, revokedAt, terminate SSM sessions, void platform-side grants",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "${LifecycleFn}",
+        "Payload": {
+          "action": "CloseLearnerAccess",
+          "sessionId.$": "$.sessionId"
+        }
+      },
+      "ResultPath": null,
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Lambda.ServiceException",
+            "Lambda.AWSLambdaException",
+            "Lambda.SdkClientException",
+            "Lambda.TooManyRequestsException",
+            "Atl.Retryable"
+          ],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 5,
+          "BackoffRate": 2,
+          "JitterStrategy": "FULL"
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "ResultPath": "$.error",
+          "Next": "EmergencyConclude"
+        }
+      ],
+      "Next": "NeedFinalize"
+    },
+    "NeedFinalize": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Variable": "$.end.ctx.needFinalize",
+          "BooleanEquals": true,
+          "Next": "FinalizeAttempt"
+        }
+      ],
+      "Default": "SealRevocation"
+    },
+    "FinalizeAttempt": {
+      "Type": "Task",
+      "Comment": "04 §8.5 (atl-checks); a failure or timeout never blocks the release (cleanup first)",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "${ChecksFn}",
+        "Payload": {
+          "action": "FinalizeAttempt",
+          "sessionId.$": "$.sessionId",
+          "endReason.$": "$.end.ctx.reason"
+        }
+      },
+      "TimeoutSeconds": 600,
+      "ResultPath": null,
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "ResultPath": "$.finalizeError",
+          "Next": "RecordFinalizeError"
+        }
+      ],
+      "Next": "SealRevocation"
+    },
+    "RecordFinalizeError": {
+      "Type": "Task",
+      "Comment": "records finalizeError on the session (phase end.finalize = FAILED) and continues",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "${LifecycleFn}",
+        "Payload": {
+          "action": "MarkPhase",
+          "sessionId.$": "$.sessionId",
+          "marks": [
+            {
+              "phase": "end.finalize",
+              "status": "FAILED"
+            }
+          ],
+          "finalizeError.$": "$.finalizeError"
+        }
+      },
+      "ResultPath": null,
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Lambda.ServiceException",
+            "Lambda.AWSLambdaException",
+            "Lambda.SdkClientException",
+            "Lambda.TooManyRequestsException",
+            "Atl.Retryable"
+          ],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 5,
+          "BackoffRate": 2,
+          "JitterStrategy": "FULL"
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "ResultPath": null,
+          "Next": "SealRevocation"
+        }
+      ],
+      "Next": "SealRevocation"
+    },
+    "SealRevocation": {
+      "Type": "Task",
+      "Comment": "6.3 part two: drop the upload exemption, the session is fully revoked",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "${LifecycleFn}",
+        "Payload": {
+          "action": "SealRevocation",
+          "sessionId.$": "$.sessionId"
+        }
+      },
+      "ResultPath": null,
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Lambda.ServiceException",
+            "Lambda.AWSLambdaException",
+            "Lambda.SdkClientException",
+            "Lambda.TooManyRequestsException",
+            "Atl.Retryable"
+          ],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 5,
+          "BackoffRate": 2,
+          "JitterStrategy": "FULL"
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "ResultPath": "$.error",
+          "Next": "EmergencyConclude"
+        }
+      ],
+      "Next": "WorkstationDownChoice"
+    },
+    "WorkstationDownChoice": {
+      "Type": "Choice",
+      "Comment": "no workstation stack for workstation=cloudshell or when no environment was created",
+      "Choices": [
+        {
+          "Variable": "$.end.ctx.skipWorkstationDown",
+          "BooleanEquals": true,
+          "Next": "Disposition"
+        }
+      ],
+      "Default": "DeleteWorkstation"
+    },
+    "DeleteWorkstation": {
+      "Type": "Task",
+      "Comment": "the workstation is stateless: deleted also when keeping the environment; runner workstation-down waits for DELETE_COMPLETE",
+      "Resource": "arn:aws:states:::codebuild:startBuild.sync",
+      "Parameters": {
+        "ProjectName": "${RunnerProject}",
+        "EnvironmentVariablesOverride": [
+          {
+            "Name": "ATL_OP",
+            "Type": "PLAINTEXT",
+            "Value": "workstation-down"
+          },
+          {
+            "Name": "ATL_RUN_ID",
+            "Type": "PLAINTEXT",
+            "Value.$": "States.Format('{}-wsdown-{}', $.sessionId, $.end.ctx.endSeq)"
+          },
+          {
+            "Name": "ATL_SESSION_ID",
+            "Type": "PLAINTEXT",
+            "Value.$": "$.sessionId"
+          },
+          {
+            "Name": "ATL_ENV_ID",
+            "Type": "PLAINTEXT",
+            "Value.$": "$.end.ctx.envId"
+          },
+          {
+            "Name": "ATL_LAB_ID",
+            "Type": "PLAINTEXT",
+            "Value.$": "$.end.ctx.labId"
+          }
+        ],
+        "TimeoutInMinutesOverride": 20
+      },
+      "TimeoutSeconds": 1500,
+      "ResultPath": null,
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "ResultPath": "$.wsDownError",
+          "Next": "Disposition"
+        }
+      ],
+      "Next": "Disposition"
+    },
+    "Disposition": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Variable": "$.end.ctx.disposition",
+          "StringEquals": "keep",
+          "Next": "SuspendChoice"
+        }
+      ],
+      "Default": "EnterCleaning"
+    },
+    "SuspendChoice": {
+      "Type": "Choice",
+      "Comment": "8.2 save mode (default on): runner suspend stops the lab instance and stoppable RDS",
+      "Choices": [
+        {
+          "Variable": "$.end.ctx.keep.saveMode",
+          "BooleanEquals": true,
+          "Next": "SuspendBuild"
+        }
+      ],
+      "Default": "NoSuspend"
+    },
+    "NoSuspend": {
+      "Type": "Pass",
+      "Result": {
+        "status": "SKIPPED"
+      },
+      "ResultPath": "$.suspend",
+      "Next": "EnterKept"
+    },
+    "SuspendBuild": {
+      "Type": "Task",
+      "Comment": "runner suspend (scripts/module env suspend --platform); a failure keeps the environment running and is shown in the UI. A failed workstation-down ($.wsDownError) does not prevent keeping: the leftover stack is in the ledger and released with the environment",
+      "Resource": "arn:aws:states:::codebuild:startBuild.sync",
+      "Parameters": {
+        "ProjectName": "${RunnerProject}",
+        "EnvironmentVariablesOverride": [
+          {
+            "Name": "ATL_OP",
+            "Type": "PLAINTEXT",
+            "Value": "suspend"
+          },
+          {
+            "Name": "ATL_RUN_ID",
+            "Type": "PLAINTEXT",
+            "Value.$": "States.Format('{}-suspend-{}', $.sessionId, $.end.ctx.endSeq)"
+          },
+          {
+            "Name": "ATL_SESSION_ID",
+            "Type": "PLAINTEXT",
+            "Value.$": "$.sessionId"
+          },
+          {
+            "Name": "ATL_ENV_ID",
+            "Type": "PLAINTEXT",
+            "Value.$": "$.end.ctx.envId"
+          },
+          {
+            "Name": "ATL_LAB_ID",
+            "Type": "PLAINTEXT",
+            "Value.$": "$.end.ctx.labId"
+          }
+        ],
+        "TimeoutInMinutesOverride": 30
+      },
+      "TimeoutSeconds": 2100,
+      "ResultSelector": {
+        "status.$": "$.Build.BuildStatus"
+      },
+      "ResultPath": "$.suspend",
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "ResultPath": "$.suspend",
+          "Next": "EnterKept"
+        }
+      ],
+      "Next": "EnterKept"
+    },
+    "EnterKept": {
+      "Type": "Task",
+      "Comment": "T11: ENDING → KEPT; keep.until and the keep timers. If the limits no longer allow keeping, release instead (cost first) and tell the learner",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "${LifecycleFn}",
+        "Payload": {
+          "action": "EnterKept",
+          "sessionId.$": "$.sessionId",
+          "suspend.$": "$.suspend"
+        }
+      },
+      "ResultPath": null,
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Lambda.ServiceException",
+            "Lambda.AWSLambdaException",
+            "Lambda.SdkClientException",
+            "Lambda.TooManyRequestsException",
+            "Atl.Retryable"
+          ],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 5,
+          "BackoffRate": 2,
+          "JitterStrategy": "FULL"
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "ResultPath": "$.error",
+          "Next": "EnterCleaning"
+        }
+      ],
+      "End": true
+    },
+    "EnterCleaning": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "${LifecycleFn}",
+        "Payload": {
+          "action": "Transition",
+          "sessionId.$": "$.sessionId",
+          "from": [
+            "ENDING",
+            "PROVISIONING",
+            "KEPT",
+            "CLEANUP_FAILED",
+            "CLEANING"
+          ],
+          "to": "CLEANING",
+          "reason.$": "$.end.ctx.reason",
+          "executionId.$": "$$.Execution.Id"
+        }
+      },
+      "ResultPath": null,
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Lambda.ServiceException",
+            "Lambda.AWSLambdaException",
+            "Lambda.SdkClientException",
+            "Lambda.TooManyRequestsException",
+            "Atl.Retryable"
+          ],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 5,
+          "BackoffRate": 2,
+          "JitterStrategy": "FULL"
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "ResultPath": "$.error",
+          "Next": "EmergencyConclude"
+        }
+      ],
+      "Next": "HasEnvironment"
+    },
+    "HasEnvironment": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Variable": "$.end.ctx.hasEnvironment",
+          "BooleanEquals": true,
+          "Next": "InitDestroyAttempt"
+        }
+      ],
+      "Default": "NoReclaim"
+    },
+    "NoReclaim": {
+      "Type": "Pass",
+      "Comment": "no environment was ever created (nothing to tear down or reclaim)",
+      "Result": {
+        "summary": {
+          "passNo": 0,
+          "mode": "PRIMARY",
+          "found": 0,
+          "deleted": 0,
+          "manual": 0,
+          "blocking": 0,
+          "review": 0,
+          "info": 0,
+          "hourlyBlocking": 0,
+          "pending": 0
+        }
+      },
+      "ResultPath": "$.reclaim",
+      "Next": "Conclude"
+    },
+    "InitDestroyAttempt": {
+      "Type": "Pass",
+      "Result": {
+        "attempt": 1
+      },
+      "ResultPath": "$.destroy",
+      "Next": "DestroyEnvironment"
+    },
+    "DestroyEnvironment": {
+      "Type": "Task",
+      "Comment": "6.5: archive state.json, before-modules card stacks, scripts/module env destroy --fast --ledger-out (stack-level teardown + ledger)",
+      "Resource": "arn:aws:states:::codebuild:startBuild.sync",
+      "Parameters": {
+        "ProjectName": "${RunnerProject}",
+        "EnvironmentVariablesOverride": [
+          {
+            "Name": "ATL_OP",
+            "Type": "PLAINTEXT",
+            "Value": "destroy"
+          },
+          {
+            "Name": "ATL_RUN_ID",
+            "Type": "PLAINTEXT",
+            "Value.$": "States.Format('{}-destroy-{}-{}', $.sessionId, $.end.ctx.endSeq, $.destroy.attempt)"
+          },
+          {
+            "Name": "ATL_SESSION_ID",
+            "Type": "PLAINTEXT",
+            "Value.$": "$.sessionId"
+          },
+          {
+            "Name": "ATL_ENV_ID",
+            "Type": "PLAINTEXT",
+            "Value.$": "$.end.ctx.envId"
+          },
+          {
+            "Name": "ATL_LAB_ID",
+            "Type": "PLAINTEXT",
+            "Value.$": "$.end.ctx.labId"
+          }
+        ],
+        "TimeoutInMinutesOverride.$": "$.end.ctx.budget.destroyBuildMinutes"
+      },
+      "TimeoutSecondsPath": "$.end.ctx.budget.destroyTaskSeconds",
+      "ResultPath": null,
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "ResultPath": "$.error",
+          "Next": "ClassifyDestroy"
+        }
+      ],
+      "Next": "MarkReclaim"
+    },
+    "ClassifyDestroy": {
+      "Type": "Task",
+      "Comment": "exit code 6 (partial, ledger written) is not a failure: go to the reclaimer; other failures retry at most twice",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "${LifecycleFn}",
+        "Payload": {
+          "action": "ClassifyRunnerFailure",
+          "sessionId.$": "$.sessionId",
+          "runId.$": "States.Format('{}-destroy-{}-{}', $.sessionId, $.end.ctx.endSeq, $.destroy.attempt)",
+          "op": "destroy",
+          "error.$": "$.error",
+          "attempt.$": "$.destroy.attempt",
+          "maxAttempts": 3
+        }
+      },
+      "ResultSelector": {
+        "retry.$": "$.Payload.retry",
+        "code.$": "$.Payload.code"
+      },
+      "ResultPath": "$.classify",
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Lambda.ServiceException",
+            "Lambda.AWSLambdaException",
+            "Lambda.SdkClientException",
+            "Lambda.TooManyRequestsException",
+            "Atl.Retryable"
+          ],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 5,
+          "BackoffRate": 2,
+          "JitterStrategy": "FULL"
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "ResultPath": null,
+          "Next": "MarkReclaim"
+        }
+      ],
+      "Next": "RetryDestroyChoice"
+    },
+    "RetryDestroyChoice": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Variable": "$.classify.retry",
+          "BooleanEquals": true,
+          "Next": "BumpDestroyAttempt"
+        }
+      ],
+      "Default": "MarkReclaim"
+    },
+    "BumpDestroyAttempt": {
+      "Type": "Pass",
+      "Parameters": {
+        "attempt.$": "States.MathAdd($.destroy.attempt, 1)"
+      },
+      "ResultPath": "$.destroy",
+      "Next": "DestroyEnvironment"
+    },
+    "MarkReclaim": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "${LifecycleFn}",
+        "Payload": {
+          "action": "MarkPhase",
+          "sessionId.$": "$.sessionId",
+          "marks": [
+            {
+              "phase": "clean.destroy",
+              "status": "DONE"
+            },
+            {
+              "phase": "clean.reclaim",
+              "status": "RUNNING"
+            }
+          ]
+        }
+      },
+      "ResultPath": null,
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Lambda.ServiceException",
+            "Lambda.AWSLambdaException",
+            "Lambda.SdkClientException",
+            "Lambda.TooManyRequestsException",
+            "Atl.Retryable"
+          ],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 5,
+          "BackoffRate": 2,
+          "JitterStrategy": "FULL"
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "ResultPath": null,
+          "Next": "Reclaim"
+        }
+      ],
+      "Next": "Reclaim"
+    },
+    "Reclaim": {
+      "Type": "Task",
+      "Comment": "section 7: one reclaim pass (discover → staged deletion → verify), waited for synchronously",
+      "Resource": "arn:aws:states:::states:startExecution.sync:2",
+      "Parameters": {
+        "StateMachineArn": "${ReclaimStateMachineArn}",
+        "Name.$": "$.end.ctx.reclaimName",
+        "Input": {
+          "envId.$": "$.end.ctx.envId",
+          "sessionId.$": "$.sessionId",
+          "mode.$": "$.end.ctx.reclaimMode"
+        }
+      },
+      "ResultSelector": {
+        "summary.$": "$.Output.summary"
+      },
+      "ResultPath": "$.reclaim",
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "ResultPath": "$.error",
+          "Next": "EmergencyConclude"
+        }
+      ],
+      "Next": "Conclude"
+    },
+    "Conclude": {
+      "Type": "Task",
+      "Comment": "6.7 / 7.8: ENDED, FAILED or CLEANUP_FAILED by severity; releases the lock; Environment RELEASED or RELEASE_FAILED; alerts; rescan times from revokedAt",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "${LifecycleFn}",
+        "Payload": {
+          "action": "Conclude",
+          "sessionId.$": "$.sessionId",
+          "summary.$": "$.reclaim.summary"
+        }
+      },
+      "ResultSelector": {
+        "finalState.$": "$.Payload.finalState",
+        "rescanAt.$": "$.Payload.rescanAt",
+        "startRescan.$": "$.Payload.startRescan"
+      },
+      "ResultPath": "$.conclude",
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Lambda.ServiceException",
+            "Lambda.AWSLambdaException",
+            "Lambda.SdkClientException",
+            "Lambda.TooManyRequestsException",
+            "Atl.Retryable"
+          ],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 5,
+          "BackoffRate": 2,
+          "JitterStrategy": "FULL"
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "ResultPath": "$.error",
+          "Next": "EmergencyConclude"
+        }
+      ],
+      "Next": "RescanChoice"
+    },
+    "RescanChoice": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Variable": "$.conclude.startRescan",
+          "BooleanEquals": true,
+          "Next": "StartRescans"
+        }
+      ],
+      "Default": "Done"
+    },
+    "StartRescans": {
+      "Type": "Task",
+      "Comment": "7.7: rescans at revokedAt + 20 min, + 60 min, + 6 h; a failed start is not silent (reclaim.followUp stays PENDING, the sweeper alerts and redoes a pass)",
+      "Resource": "arn:aws:states:::states:startExecution",
+      "Parameters": {
+        "StateMachineArn": "${RescanStateMachineArn}",
+        "Name.$": "States.Format('rescan-{}', $.end.ctx.envId)",
+        "Input": {
+          "envId.$": "$.end.ctx.envId",
+          "sessionId.$": "$.sessionId",
+          "rescanAt.$": "$.conclude.rescanAt"
+        }
+      },
+      "ResultPath": null,
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "StepFunctions.ThrottlingException",
+            "StepFunctions.SdkClientException"
+          ],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 3,
+          "BackoffRate": 2,
+          "JitterStrategy": "FULL"
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "StepFunctions.ExecutionAlreadyExistsException"
+          ],
+          "ResultPath": null,
+          "Next": "Done"
+        },
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "ResultPath": "$.rescanStartError",
+          "Next": "Done"
+        }
+      ],
+      "Next": "Done"
+    },
+    "Done": {
+      "Type": "Succeed"
+    },
+    "AlreadyDone": {
+      "Type": "Succeed"
+    },
+    "EmergencyConclude": {
+      "Type": "Task",
+      "Comment": "workflow error: the session becomes CLEANUP_FAILED (WORKFLOW_ERROR) with one BLOCKING item “environment state unknown”, lock released, alert",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "${LifecycleFn}",
+        "Payload": {
+          "action": "EmergencyConclude",
+          "sessionId.$": "$.sessionId",
+          "error.$": "$.error"
+        }
+      },
+      "ResultPath": null,
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "IntervalSeconds": 5,
+          "MaxAttempts": 10,
+          "BackoffRate": 2
+        }
+      ],
+      "Next": "EndFailed"
+    },
+    "EndFailed": {
       "Type": "Fail",
-      "Error": "Atl.NotImplemented",
-      "Cause": "atl-session-end is not implemented yet"
+      "Error": "Atl.EndWorkflowError",
+      "Cause": "the end workflow failed; the session is CLEANUP_FAILED (WORKFLOW_ERROR)"
     }
   }
 }

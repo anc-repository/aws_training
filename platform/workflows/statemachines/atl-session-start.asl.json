@@ -1,12 +1,539 @@
 {
-  "Comment": "atl-session-start: placeholder written by platform-scaffold. The workflows implementer replaces it with the ASL of 02 §4.4 (JSONPath; DefinitionSubstitutions as in src/asl/load.ts DEV_SUBSTITUTIONS).",
+  "Comment": "atl-session-start (02 §4.4): REQUESTED → PROVISIONING → READY. Input { sessionId }. Every failure after PROVISIONING starts atl-session-end (end-<sid>-1) as compensation; failures before it go to FailBeforeProvision (T03, no resources).",
   "QueryLanguage": "JSONPath",
-  "StartAt": "NotImplemented",
+  "TimeoutSeconds": 10800,
+  "StartAt": "ValidateQuote",
   "States": {
-    "NotImplemented": {
-      "Type": "Fail",
-      "Error": "Atl.NotImplemented",
-      "Cause": "atl-session-start is not implemented yet"
-    }
+    "ValidateQuote": {
+      "Type": "Task",
+      "Comment": "① cost confirmation: quote exists, belongs to the learner, not expired; card version and start-profile digest unchanged; costAcknowledged recorded",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": { "FunctionName": "${LifecycleFn}", "Payload": { "action": "ValidateQuote", "sessionId.$": "$.sessionId" } },
+      "ResultSelector": { "lab.$": "$.Payload.lab", "quote.$": "$.Payload.quote", "reuseEnvId.$": "$.Payload.reuseEnvId" },
+      "ResultPath": "$.ctx",
+      "Retry": [
+        { "ErrorEquals": ["Lambda.ServiceException", "Lambda.AWSLambdaException", "Lambda.SdkClientException", "Lambda.TooManyRequestsException", "Atl.Retryable"], "IntervalSeconds": 2, "MaxAttempts": 5, "BackoffRate": 2, "JitterStrategy": "FULL" }
+      ],
+      "Catch": [
+        { "ErrorEquals": ["Atl.TransitionRejected"], "ResultPath": "$.error", "Next": "Superseded" },
+        { "ErrorEquals": ["States.ALL"], "ResultPath": "$.error", "Next": "FailBeforeProvision" }
+      ],
+      "Next": "AcquireLock"
+    },
+    "AcquireLock": {
+      "Type": "Task",
+      "Comment": "② concurrency check: conditional write of ActiveEnvironmentLock; reuse only reserves (pendingSessionId), the hand-over happens in EnterProvisioning (02 §3.4)",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": { "FunctionName": "${LifecycleFn}", "Payload": { "action": "AcquireLock", "sessionId.$": "$.sessionId", "reuseEnvId.$": "$.ctx.reuseEnvId" } },
+      "ResultSelector": { "envId.$": "$.Payload.envId", "fresh.$": "$.Payload.fresh" },
+      "ResultPath": "$.lock",
+      "Retry": [
+        { "ErrorEquals": ["Lambda.ServiceException", "Lambda.AWSLambdaException", "Lambda.SdkClientException", "Lambda.TooManyRequestsException", "Atl.Retryable"], "IntervalSeconds": 2, "MaxAttempts": 5, "BackoffRate": 2, "JitterStrategy": "FULL" }
+      ],
+      "Catch": [
+        { "ErrorEquals": ["Atl.TransitionRejected"], "ResultPath": "$.error", "Next": "Superseded" },
+        { "ErrorEquals": ["States.ALL"], "ResultPath": "$.error", "Next": "FailBeforeProvision" }
+      ],
+      "Next": "Preflight"
+    },
+    "Preflight": {
+      "Type": "Task",
+      "Comment": "③ account preflight + baseline inventory + preflight-selected variant (read-only; atl-checks as ATLVerifierRole, 02 §3.5, §3.6)",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": { "FunctionName": "${LifecycleFn}", "Payload": { "action": "Preflight", "sessionId.$": "$.sessionId", "envId.$": "$.lock.envId", "fresh.$": "$.lock.fresh" } },
+      "ResultSelector": { "warnings.$": "$.Payload.warnings", "startProfileResolved.$": "$.Payload.startProfileResolved" },
+      "ResultPath": "$.preflight",
+      "TimeoutSeconds": 300,
+      "Retry": [
+        { "ErrorEquals": ["Lambda.ServiceException", "Lambda.AWSLambdaException", "Lambda.SdkClientException", "Lambda.TooManyRequestsException", "Atl.Retryable"], "IntervalSeconds": 2, "MaxAttempts": 5, "BackoffRate": 2, "JitterStrategy": "FULL" }
+      ],
+      "Catch": [
+        { "ErrorEquals": ["Atl.TransitionRejected"], "ResultPath": "$.error", "Next": "Superseded" },
+        { "ErrorEquals": ["States.ALL"], "ResultPath": "$.error", "Next": "FailBeforeProvision" }
+      ],
+      "Next": "EnterProvisioning"
+    },
+    "EnterProvisioning": {
+      "Type": "Task",
+      "Comment": "T02: REQUESTED → PROVISIONING; creates or binds the Environment (envName, state prefix, lock item, 9.5); for reuse T15 in the same transaction; tags ATLWorkstationRole with atl:active-session-id; returns the environment context of 02 §4.2",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": { "FunctionName": "${LifecycleFn}", "Payload": { "action": "Transition", "sessionId.$": "$.sessionId", "from": ["REQUESTED"], "to": "PROVISIONING", "reason": "LOCK_ACQUIRED", "executionId.$": "$$.Execution.Id" } },
+      "ResultSelector": {
+        "envId.$": "$.Payload.env.envId",
+        "envName.$": "$.Payload.env.envName",
+        "labId.$": "$.Payload.env.labId",
+        "fresh.$": "$.Payload.env.fresh",
+        "applyMode.$": "$.Payload.env.applyMode",
+        "baseOp.$": "$.Payload.env.baseOp",
+        "baseRunAbbrev.$": "$.Payload.env.baseRunAbbrev",
+        "workstation.$": "$.Payload.env.workstation",
+        "startProfile.$": "$.Payload.env.startProfile",
+        "extraStacks.$": "$.Payload.env.extraStacks",
+        "cfnTags.$": "$.Payload.env.cfnTags",
+        "budget.$": "$.Payload.env.budget"
+      },
+      "ResultPath": "$.env",
+      "Retry": [
+        { "ErrorEquals": ["Lambda.ServiceException", "Lambda.AWSLambdaException", "Lambda.SdkClientException", "Lambda.TooManyRequestsException", "Atl.Retryable"], "IntervalSeconds": 2, "MaxAttempts": 5, "BackoffRate": 2, "JitterStrategy": "FULL" }
+      ],
+      "Catch": [
+        { "ErrorEquals": ["Atl.TransitionRejected"], "ResultPath": "$.error", "Next": "Superseded" },
+        { "ErrorEquals": ["Atl.ReservationLost"], "ResultPath": "$.error", "Next": "FailBeforeProvision" },
+        { "ErrorEquals": ["States.ALL"], "ResultPath": "$.error", "Next": "ProvisionFailed" }
+      ],
+      "Next": "InitAttempts"
+    },
+    "InitAttempts": {
+      "Type": "Pass",
+      "Result": { "base": 1, "apply": 1, "repair": 0 },
+      "ResultPath": "$.attempt",
+      "Next": "InitApplyBudget"
+    },
+    "InitApplyBudget": {
+      "Type": "Pass",
+      "Comment": "Remaining deploy budget for profile-apply / extra-stack builds (02 §2.5: the budget is a total, retries and repair share it); ClassifyApply and RepairDecision overwrite it",
+      "Parameters": { "retry": false, "code": null, "buildMinutes.$": "$.env.budget.applyBuildMinutes", "taskSeconds.$": "$.env.budget.applyTaskSeconds" },
+      "ResultPath": "$.applyBudget",
+      "Next": "Provision"
+    },
+    "Provision": {
+      "Type": "Parallel",
+      "Comment": "④ base stack (runner: base-deploy, or resume for a reused environment) and workstation stack (runner: workstation-up; skipped for workstation=cloudshell) in parallel; a failed branch stops the other one",
+      "Branches": [
+        {
+          "StartAt": "BaseDeploy",
+          "States": {
+            "BaseDeploy": {
+              "Type": "Task",
+              "Resource": "arn:aws:states:::codebuild:startBuild.sync",
+              "Parameters": {
+                "ProjectName": "${RunnerProject}",
+                "EnvironmentVariablesOverride": [
+                  { "Name": "ATL_OP", "Type": "PLAINTEXT", "Value.$": "$.env.baseOp" },
+                  { "Name": "ATL_RUN_ID", "Type": "PLAINTEXT", "Value.$": "States.Format('{}-{}-{}', $.sessionId, $.env.baseRunAbbrev, $.attempt.base)" },
+                  { "Name": "ATL_SESSION_ID", "Type": "PLAINTEXT", "Value.$": "$.sessionId" },
+                  { "Name": "ATL_ENV_ID", "Type": "PLAINTEXT", "Value.$": "$.env.envId" },
+                  { "Name": "ATL_LAB_ID", "Type": "PLAINTEXT", "Value.$": "$.env.labId" }
+                ],
+                "TimeoutInMinutesOverride.$": "$.env.budget.baseBuildMinutes"
+              },
+              "TimeoutSecondsPath": "$.env.budget.baseTaskSeconds",
+              "ResultSelector": { "buildId.$": "$.Build.Id", "status.$": "$.Build.BuildStatus" },
+              "ResultPath": "$.runs.base",
+              "Catch": [{ "ErrorEquals": ["States.ALL"], "ResultPath": "$.error", "Next": "ClassifyBase" }],
+              "End": true
+            },
+            "ClassifyBase": {
+              "Type": "Task",
+              "Comment": "reads runs/<runId>/result.json and classifies by 02 §4.3",
+              "Resource": "arn:aws:states:::lambda:invoke",
+              "Parameters": {
+                "FunctionName": "${LifecycleFn}",
+                "Payload": {
+                  "action": "ClassifyRunnerFailure",
+                  "sessionId.$": "$.sessionId",
+                  "runId.$": "States.Format('{}-{}-{}', $.sessionId, $.env.baseRunAbbrev, $.attempt.base)",
+                  "op.$": "$.env.baseOp",
+                  "error.$": "$.error",
+                  "attempt.$": "$.attempt.base",
+                  "maxAttempts": 2
+                }
+              },
+              "ResultSelector": { "retry.$": "$.Payload.retry", "code.$": "$.Payload.code" },
+              "ResultPath": "$.classify",
+              "Retry": [
+                { "ErrorEquals": ["Lambda.ServiceException", "Lambda.AWSLambdaException", "Lambda.SdkClientException", "Lambda.TooManyRequestsException", "Atl.Retryable"], "IntervalSeconds": 2, "MaxAttempts": 5, "BackoffRate": 2, "JitterStrategy": "FULL" }
+              ],
+              "Next": "RetryBaseChoice"
+            },
+            "RetryBaseChoice": {
+              "Type": "Choice",
+              "Choices": [{ "Variable": "$.classify.retry", "BooleanEquals": true, "Next": "BumpBaseAttempt" }],
+              "Default": "BaseFailed"
+            },
+            "BumpBaseAttempt": {
+              "Type": "Pass",
+              "Parameters": { "base.$": "States.MathAdd($.attempt.base, 1)", "apply.$": "$.attempt.apply", "repair.$": "$.attempt.repair" },
+              "ResultPath": "$.attempt",
+              "Next": "BaseDeploy"
+            },
+            "BaseFailed": { "Type": "Fail", "Error": "Atl.BaseDeployFailed", "CausePath": "$.classify.code" }
+          }
+        },
+        {
+          "StartAt": "WorkstationChoice",
+          "States": {
+            "WorkstationChoice": {
+              "Type": "Choice",
+              "Comment": "workstation=cloudshell: no workstation stack (02 §3.3)",
+              "Choices": [{ "Variable": "$.env.workstation", "StringEquals": "cloudshell", "Next": "WorkstationSkipped" }],
+              "Default": "WorkstationUp"
+            },
+            "WorkstationSkipped": { "Type": "Succeed" },
+            "WorkstationUp": {
+              "Type": "Task",
+              "Comment": "runner workstation-up creates stack atl-ws-<sid> (01, 03); no retry (the whole start is compensated)",
+              "Resource": "arn:aws:states:::codebuild:startBuild.sync",
+              "Parameters": {
+                "ProjectName": "${RunnerProject}",
+                "EnvironmentVariablesOverride": [
+                  { "Name": "ATL_OP", "Type": "PLAINTEXT", "Value": "workstation-up" },
+                  { "Name": "ATL_RUN_ID", "Type": "PLAINTEXT", "Value.$": "States.Format('{}-ws-1', $.sessionId)" },
+                  { "Name": "ATL_SESSION_ID", "Type": "PLAINTEXT", "Value.$": "$.sessionId" },
+                  { "Name": "ATL_ENV_ID", "Type": "PLAINTEXT", "Value.$": "$.env.envId" },
+                  { "Name": "ATL_LAB_ID", "Type": "PLAINTEXT", "Value.$": "$.env.labId" }
+                ],
+                "TimeoutInMinutesOverride": 20
+              },
+              "TimeoutSeconds": 1500,
+              "ResultPath": null,
+              "Catch": [{ "ErrorEquals": ["States.ALL"], "ResultPath": "$.error", "Next": "WorkstationFailed" }],
+              "End": true
+            },
+            "WorkstationFailed": { "Type": "Fail", "Error": "Atl.WorkstationFailed", "Cause": "WORKSTATION_FAILED" }
+          }
+        }
+      ],
+      "ResultPath": null,
+      "Catch": [{ "ErrorEquals": ["States.ALL"], "ResultPath": "$.error", "Next": "ProvisionFailed" }],
+      "Next": "MarkProfile"
+    },
+    "MarkProfile": {
+      "Type": "Task",
+      "Comment": "phase marks for the progress panel (02 §11.3; names proposed by 08 §9.2 #8)",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "${LifecycleFn}",
+        "Payload": { "action": "MarkPhase", "sessionId.$": "$.sessionId", "marks": [{ "phase": "provision.profile", "status": "RUNNING" }], "attempt.$": "$.attempt" }
+      },
+      "ResultPath": null,
+      "Retry": [
+        { "ErrorEquals": ["Lambda.ServiceException", "Lambda.AWSLambdaException", "Lambda.SdkClientException", "Lambda.TooManyRequestsException", "Atl.Retryable"], "IntervalSeconds": 2, "MaxAttempts": 5, "BackoffRate": 2, "JitterStrategy": "FULL" }
+      ],
+      "Catch": [{ "ErrorEquals": ["States.ALL"], "ResultPath": null, "Next": "ProfileApply" }],
+      "Next": "ProfileApply"
+    },
+    "ProfileApply": {
+      "Type": "Task",
+      "Comment": "⑤ runner profile-apply: scripts/module profile apply <startProfile> + test-data seeds (also for l0-ec2 cards: SSH wiring and the L0 smoke subset)",
+      "Resource": "arn:aws:states:::codebuild:startBuild.sync",
+      "Parameters": {
+        "ProjectName": "${RunnerProject}",
+        "EnvironmentVariablesOverride": [
+          { "Name": "ATL_OP", "Type": "PLAINTEXT", "Value": "profile-apply" },
+          { "Name": "ATL_RUN_ID", "Type": "PLAINTEXT", "Value.$": "States.Format('{}-apply-{}-{}', $.sessionId, $.attempt.apply, $.attempt.repair)" },
+          { "Name": "ATL_SESSION_ID", "Type": "PLAINTEXT", "Value.$": "$.sessionId" },
+          { "Name": "ATL_ENV_ID", "Type": "PLAINTEXT", "Value.$": "$.env.envId" },
+          { "Name": "ATL_LAB_ID", "Type": "PLAINTEXT", "Value.$": "$.env.labId" },
+          { "Name": "ATL_PROFILE", "Type": "PLAINTEXT", "Value.$": "$.env.startProfile" },
+          { "Name": "ATL_APPLY_MODE", "Type": "PLAINTEXT", "Value.$": "$.env.applyMode" },
+          { "Name": "ATL_REPAIR", "Type": "PLAINTEXT", "Value.$": "States.Format('{}', $.attempt.repair)" }
+        ],
+        "TimeoutInMinutesOverride.$": "$.applyBudget.buildMinutes"
+      },
+      "TimeoutSecondsPath": "$.applyBudget.taskSeconds",
+      "ResultSelector": { "buildId.$": "$.Build.Id", "status.$": "$.Build.BuildStatus" },
+      "ResultPath": "$.runs.apply",
+      "Catch": [{ "ErrorEquals": ["States.ALL"], "ResultPath": "$.error", "Next": "ClassifyApply" }],
+      "Next": "ExtraStacksChoice"
+    },
+    "ClassifyApply": {
+      "Type": "Task",
+      "Comment": "classification + remaining deploy budget: not retryable when the rest of the budget cannot fit another build (02 §2.5)",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "${LifecycleFn}",
+        "Payload": {
+          "action": "ClassifyRunnerFailure",
+          "sessionId.$": "$.sessionId",
+          "runId.$": "States.Format('{}-apply-{}-{}', $.sessionId, $.attempt.apply, $.attempt.repair)",
+          "op": "profile-apply",
+          "error.$": "$.error",
+          "attempt.$": "$.attempt.apply",
+          "maxAttempts": 2
+        }
+      },
+      "ResultSelector": { "retry.$": "$.Payload.retry", "code.$": "$.Payload.code", "buildMinutes.$": "$.Payload.budget.buildMinutes", "taskSeconds.$": "$.Payload.budget.taskSeconds" },
+      "ResultPath": "$.applyBudget",
+      "Retry": [
+        { "ErrorEquals": ["Lambda.ServiceException", "Lambda.AWSLambdaException", "Lambda.SdkClientException", "Lambda.TooManyRequestsException", "Atl.Retryable"], "IntervalSeconds": 2, "MaxAttempts": 5, "BackoffRate": 2, "JitterStrategy": "FULL" }
+      ],
+      "Catch": [{ "ErrorEquals": ["States.ALL"], "ResultPath": "$.error", "Next": "ProvisionFailed" }],
+      "Next": "RetryApplyChoice"
+    },
+    "RetryApplyChoice": {
+      "Type": "Choice",
+      "Choices": [{ "Variable": "$.applyBudget.retry", "BooleanEquals": true, "Next": "BumpApplyAttempt" }],
+      "Default": "ApplyFailed"
+    },
+    "BumpApplyAttempt": {
+      "Type": "Pass",
+      "Parameters": { "base.$": "$.attempt.base", "apply.$": "States.MathAdd($.attempt.apply, 1)", "repair.$": "$.attempt.repair" },
+      "ResultPath": "$.attempt",
+      "Next": "MarkProfile"
+    },
+    "ApplyFailed": {
+      "Type": "Pass",
+      "Parameters": { "Error": "Atl.ProfileApplyFailed", "Cause.$": "$.applyBudget.code" },
+      "ResultPath": "$.error",
+      "Next": "ProvisionFailed"
+    },
+    "ExtraStacksChoice": {
+      "Type": "Choice",
+      "Comment": "card-owned stacks with deploy: start (02 §4.2 env.extraStacks); after a repair the extra-stack run is idempotent",
+      "Choices": [{ "Variable": "$.env.extraStacks.atStart", "BooleanEquals": true, "Next": "MarkExtraStacks" }],
+      "Default": "RefreshEnvFacts"
+    },
+    "MarkExtraStacks": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "${LifecycleFn}",
+        "Payload": { "action": "MarkPhase", "sessionId.$": "$.sessionId", "marks": [{ "phase": "provision.profile", "status": "DONE" }, { "phase": "provision.extra-stack", "status": "RUNNING" }], "attempt.$": "$.attempt" }
+      },
+      "ResultPath": null,
+      "Retry": [
+        { "ErrorEquals": ["Lambda.ServiceException", "Lambda.AWSLambdaException", "Lambda.SdkClientException", "Lambda.TooManyRequestsException", "Atl.Retryable"], "IntervalSeconds": 2, "MaxAttempts": 5, "BackoffRate": 2, "JitterStrategy": "FULL" }
+      ],
+      "Catch": [{ "ErrorEquals": ["States.ALL"], "ResultPath": null, "Next": "ExtraStacksDeploy" }],
+      "Next": "ExtraStacksDeploy"
+    },
+    "ExtraStacksDeploy": {
+      "Type": "Task",
+      "Comment": "runner extra-stack (action=deploy): stacks cloudalbum-<envName>-x-<stackId>; retryable errors are retried once inside the runner",
+      "Resource": "arn:aws:states:::codebuild:startBuild.sync",
+      "Parameters": {
+        "ProjectName": "${RunnerProject}",
+        "EnvironmentVariablesOverride": [
+          { "Name": "ATL_OP", "Type": "PLAINTEXT", "Value": "extra-stack" },
+          { "Name": "ATL_RUN_ID", "Type": "PLAINTEXT", "Value.$": "States.Format('{}-xstk-{}-{}', $.sessionId, $.attempt.apply, $.attempt.repair)" },
+          { "Name": "ATL_SESSION_ID", "Type": "PLAINTEXT", "Value.$": "$.sessionId" },
+          { "Name": "ATL_ENV_ID", "Type": "PLAINTEXT", "Value.$": "$.env.envId" },
+          { "Name": "ATL_LAB_ID", "Type": "PLAINTEXT", "Value.$": "$.env.labId" },
+          { "Name": "ATL_ARGS", "Type": "PLAINTEXT", "Value.$": "$.env.extraStacks.argsB64" }
+        ],
+        "TimeoutInMinutesOverride.$": "$.applyBudget.buildMinutes"
+      },
+      "TimeoutSecondsPath": "$.applyBudget.taskSeconds",
+      "ResultPath": null,
+      "Catch": [{ "ErrorEquals": ["States.ALL"], "ResultPath": "$.error", "Next": "ClassifyExtraStacks" }],
+      "Next": "RefreshEnvFacts"
+    },
+    "ClassifyExtraStacks": {
+      "Type": "Task",
+      "Comment": "never retried here (the runner retries once internally); the classification only picks the failure code (EXTRA_STACK_FAILED unless e.g. ACCOUNT_QUOTA)",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "${LifecycleFn}",
+        "Payload": {
+          "action": "ClassifyRunnerFailure",
+          "sessionId.$": "$.sessionId",
+          "runId.$": "States.Format('{}-xstk-{}-{}', $.sessionId, $.attempt.apply, $.attempt.repair)",
+          "op": "extra-stack",
+          "error.$": "$.error",
+          "attempt": 1,
+          "maxAttempts": 1
+        }
+      },
+      "ResultSelector": { "Error": "Atl.ExtraStackFailed", "Cause.$": "$.Payload.code" },
+      "ResultPath": "$.error",
+      "Retry": [
+        { "ErrorEquals": ["Lambda.ServiceException", "Lambda.AWSLambdaException", "Lambda.SdkClientException", "Lambda.TooManyRequestsException", "Atl.Retryable"], "IntervalSeconds": 2, "MaxAttempts": 5, "BackoffRate": 2, "JitterStrategy": "FULL" }
+      ],
+      "Catch": [{ "ErrorEquals": ["States.ALL"], "ResultPath": "$.error", "Next": "ProvisionFailed" }],
+      "Next": "ProvisionFailed"
+    },
+    "RefreshEnvFacts": {
+      "Type": "Task",
+      "Comment": "reads the current lab-instance id (network / ami may have replaced it), the workstation instance id and the app entry from state.json and stack outputs; writes them to Environment; starts the SSM wait clock of this apply round (02 §2.5)",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": { "FunctionName": "${LifecycleFn}", "Payload": { "action": "RefreshEnvFacts", "sessionId.$": "$.sessionId", "envId.$": "$.env.envId", "attempt.$": "$.attempt" } },
+      "ResultSelector": { "instanceIds.$": "$.Payload.instanceIds" },
+      "ResultPath": "$.facts",
+      "Retry": [
+        { "ErrorEquals": ["Lambda.ServiceException", "Lambda.AWSLambdaException", "Lambda.SdkClientException", "Lambda.TooManyRequestsException", "Atl.Retryable"], "IntervalSeconds": 2, "MaxAttempts": 5, "BackoffRate": 2, "JitterStrategy": "FULL" }
+      ],
+      "Catch": [{ "ErrorEquals": ["States.ALL"], "ResultPath": "$.error", "Next": "ProvisionFailed" }],
+      "Next": "CheckSsm"
+    },
+    "CheckSsm": {
+      "Type": "Task",
+      "Comment": "⑥ DescribeInstanceInformation: every instance PingStatus=Online? returns the seconds waited in this apply round and whether the one-time remediation ran",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": { "FunctionName": "${LifecycleFn}", "Payload": { "action": "CheckSsmOnline", "sessionId.$": "$.sessionId", "envId.$": "$.env.envId", "instanceIds.$": "$.facts.instanceIds", "attempt.$": "$.attempt" } },
+      "ResultSelector": { "allOnline.$": "$.Payload.allOnline", "elapsedSec.$": "$.Payload.elapsedSec", "remediated.$": "$.Payload.remediated" },
+      "ResultPath": "$.ssm",
+      "Retry": [
+        { "ErrorEquals": ["Lambda.ServiceException", "Lambda.AWSLambdaException", "Lambda.SdkClientException", "Lambda.TooManyRequestsException", "Atl.Retryable"], "IntervalSeconds": 2, "MaxAttempts": 5, "BackoffRate": 2, "JitterStrategy": "FULL" }
+      ],
+      "Catch": [{ "ErrorEquals": ["States.ALL"], "ResultPath": "$.error", "Next": "ProvisionFailed" }],
+      "Next": "SsmChoice"
+    },
+    "SsmChoice": {
+      "Type": "Choice",
+      "Choices": [
+        { "Variable": "$.ssm.allOnline", "BooleanEquals": true, "Next": "WireChoice" },
+        { "Variable": "$.ssm.elapsedSec", "NumericGreaterThanEqualsPath": "$.env.budget.ssmTimeoutSec", "Next": "SsmTimeout" },
+        {
+          "And": [
+            { "Variable": "$.ssm.elapsedSec", "NumericGreaterThanEqualsPath": "$.env.budget.ssmRemediateAfterSec" },
+            { "Variable": "$.ssm.remediated", "BooleanEquals": false }
+          ],
+          "Next": "RemediateSsm"
+        }
+      ],
+      "Default": "WaitSsm"
+    },
+    "WaitSsm": { "Type": "Wait", "Seconds": 20, "Next": "CheckSsm" },
+    "RemediateSsm": {
+      "Type": "Task",
+      "Comment": "one remediation: collect console output → reboot unregistered lab instances; an unregistered workstation is left to 03's replacement",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": { "FunctionName": "${LifecycleFn}", "Payload": { "action": "RemediateSsm", "sessionId.$": "$.sessionId", "envId.$": "$.env.envId", "instanceIds.$": "$.facts.instanceIds", "attempt.$": "$.attempt" } },
+      "ResultPath": null,
+      "Retry": [
+        { "ErrorEquals": ["Lambda.ServiceException", "Lambda.AWSLambdaException", "Lambda.SdkClientException", "Lambda.TooManyRequestsException", "Atl.Retryable"], "IntervalSeconds": 2, "MaxAttempts": 5, "BackoffRate": 2, "JitterStrategy": "FULL" }
+      ],
+      "Catch": [{ "ErrorEquals": ["States.ALL"], "ResultPath": null, "Next": "WaitSsm" }],
+      "Next": "WaitSsm"
+    },
+    "SsmTimeout": {
+      "Type": "Pass",
+      "Parameters": { "Error": "Atl.SsmNotRegistered", "Cause": "SSM_NOT_REGISTERED" },
+      "ResultPath": "$.error",
+      "Next": "ProvisionFailed"
+    },
+    "WireChoice": {
+      "Type": "Choice",
+      "Choices": [{ "Variable": "$.env.workstation", "StringEquals": "cloudshell", "Next": "HealthGate" }],
+      "Default": "WireWorkstation"
+    },
+    "WireWorkstation": {
+      "Type": "Task",
+      "Comment": "SSM Run Command ATL-WorkstationSetup (03): the script calls GET /api/v1/agent/sessions/{sid}/context as atl-<sid>-ws (allowed in PROVISIONING, 4.6); registers CredentialGrant(channel=ws)",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": { "FunctionName": "${LifecycleFn}", "Payload": { "action": "WireWorkstation", "sessionId.$": "$.sessionId", "envId.$": "$.env.envId" } },
+      "ResultPath": null,
+      "TimeoutSeconds": 240,
+      "Retry": [
+        { "ErrorEquals": ["Atl.Retryable", "Lambda.ServiceException", "Lambda.TooManyRequestsException"], "IntervalSeconds": 10, "MaxAttempts": 2, "BackoffRate": 2 }
+      ],
+      "Catch": [{ "ErrorEquals": ["States.ALL"], "ResultPath": "$.error", "Next": "WireFailed" }],
+      "Next": "HealthGate"
+    },
+    "WireFailed": {
+      "Type": "Pass",
+      "Parameters": { "Error": "Atl.WorkstationFailed", "Cause": "WORKSTATION_FAILED" },
+      "ResultPath": "$.error",
+      "Next": "ProvisionFailed"
+    },
+    "HealthGate": {
+      "Type": "Task",
+      "Comment": "⑦ ATL-RunCheck via atl-checks (ATLVerifierRole, atl-<sid>-verify): base.ready, caps.profile (degraded only from the card's expectedWarnings passes, 3.6), ws.ready",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": { "FunctionName": "${LifecycleFn}", "Payload": { "action": "RunHealthGate", "sessionId.$": "$.sessionId", "envId.$": "$.env.envId", "profile.$": "$.env.startProfile" } },
+      "ResultSelector": { "report.$": "$.Payload.report" },
+      "ResultPath": "$.health",
+      "TimeoutSeconds": 90,
+      "Retry": [
+        { "ErrorEquals": ["Atl.HealthNotReady"], "IntervalSeconds": 30, "MaxAttempts": 6, "BackoffRate": 1 },
+        { "ErrorEquals": ["Lambda.ServiceException", "Lambda.TooManyRequestsException"], "IntervalSeconds": 2, "MaxAttempts": 3, "BackoffRate": 2 }
+      ],
+      "Catch": [{ "ErrorEquals": ["States.ALL"], "ResultPath": "$.error", "Next": "RepairDecision" }],
+      "Next": "CaptureLedger"
+    },
+    "RepairDecision": {
+      "Type": "Task",
+      "Comment": "repair once (02 §2.5): only when no repair ran yet and the remaining deploy budget fits another profile-apply build",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": { "FunctionName": "${LifecycleFn}", "Payload": { "action": "RepairDecision", "sessionId.$": "$.sessionId", "attempt.$": "$.attempt", "error.$": "$.error" } },
+      "ResultSelector": { "retry.$": "$.Payload.retry", "code.$": "$.Payload.code", "buildMinutes.$": "$.Payload.budget.buildMinutes", "taskSeconds.$": "$.Payload.budget.taskSeconds" },
+      "ResultPath": "$.applyBudget",
+      "Retry": [
+        { "ErrorEquals": ["Lambda.ServiceException", "Lambda.AWSLambdaException", "Lambda.SdkClientException", "Lambda.TooManyRequestsException", "Atl.Retryable"], "IntervalSeconds": 2, "MaxAttempts": 5, "BackoffRate": 2, "JitterStrategy": "FULL" }
+      ],
+      "Catch": [{ "ErrorEquals": ["States.ALL"], "ResultPath": "$.error", "Next": "ProvisionFailed" }],
+      "Next": "RepairChoice"
+    },
+    "RepairChoice": {
+      "Type": "Choice",
+      "Choices": [{ "Variable": "$.applyBudget.retry", "BooleanEquals": true, "Next": "BumpRepair" }],
+      "Default": "HealthFailed"
+    },
+    "BumpRepair": {
+      "Type": "Pass",
+      "Parameters": { "base.$": "$.attempt.base", "apply.$": "$.attempt.apply", "repair.$": "States.MathAdd($.attempt.repair, 1)" },
+      "ResultPath": "$.attempt",
+      "Next": "MarkProfile"
+    },
+    "HealthFailed": {
+      "Type": "Pass",
+      "Parameters": { "Error": "Atl.HealthFailed", "Cause.$": "$.applyBudget.code" },
+      "ResultPath": "$.error",
+      "Next": "ProvisionFailed"
+    },
+    "CaptureLedger": {
+      "Type": "Task",
+      "Comment": "runs/*/ledger.json and ListStackResources of every environment stack → SessionResource (source STACK)",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": { "FunctionName": "${ReaperFn}", "Payload": { "action": "CaptureLedger", "envId.$": "$.env.envId", "sessionId.$": "$.sessionId" } },
+      "ResultPath": null,
+      "Retry": [
+        { "ErrorEquals": ["Lambda.ServiceException", "Lambda.AWSLambdaException", "Lambda.SdkClientException", "Lambda.TooManyRequestsException", "Atl.Retryable"], "IntervalSeconds": 2, "MaxAttempts": 5, "BackoffRate": 2, "JitterStrategy": "FULL" }
+      ],
+      "Catch": [{ "ErrorEquals": ["States.ALL"], "ResultPath": "$.error", "Next": "ProvisionFailed" }],
+      "Next": "ArmTimersAndReady"
+    },
+    "ArmTimersAndReady": {
+      "Type": "Task",
+      "Comment": "T05: deadlineAt = ceilToMinute(now + timeLimitMinutes); one-time schedules w15/w5/exp/idle (5.2, whole minutes); PROVISIONING → READY; notification (the sweeper was enabled at T01)",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": { "FunctionName": "${LifecycleFn}", "Payload": { "action": "ArmTimersAndReady", "sessionId.$": "$.sessionId" } },
+      "ResultPath": null,
+      "Retry": [
+        { "ErrorEquals": ["Lambda.ServiceException", "Lambda.AWSLambdaException", "Lambda.SdkClientException", "Lambda.TooManyRequestsException", "Atl.Retryable"], "IntervalSeconds": 2, "MaxAttempts": 5, "BackoffRate": 2, "JitterStrategy": "FULL" }
+      ],
+      "Catch": [
+        { "ErrorEquals": ["Atl.TransitionRejected"], "ResultPath": "$.error", "Next": "Superseded" },
+        { "ErrorEquals": ["States.ALL"], "ResultPath": "$.error", "Next": "ProvisionFailed" }
+      ],
+      "End": true
+    },
+    "Superseded": {
+      "Type": "Succeed",
+      "Comment": "the session was cancelled or taken over by atl-session-end (e.g. a cancel at the last moment); this execution exits quietly"
+    },
+    "ProvisionFailed": {
+      "Type": "Task",
+      "Comment": "compensation: start atl-session-end with the fixed name end-<sid>-1 and do not wait; ExecutionAlreadyExists means the end workflow is already running",
+      "Resource": "arn:aws:states:::states:startExecution",
+      "Parameters": {
+        "StateMachineArn": "${EndStateMachineArn}",
+        "Name.$": "States.Format('end-{}-1', $.sessionId)",
+        "Input": { "sessionId.$": "$.sessionId", "reason": "PROVISION_FAILED", "disposition": "destroy", "failure.$": "$.error", "actor": "system" }
+      },
+      "ResultPath": null,
+      "Retry": [
+        { "ErrorEquals": ["StepFunctions.ThrottlingException", "StepFunctions.SdkClientException"], "IntervalSeconds": 2, "MaxAttempts": 3, "BackoffRate": 2, "JitterStrategy": "FULL" }
+      ],
+      "Catch": [
+        { "ErrorEquals": ["StepFunctions.ExecutionAlreadyExistsException"], "ResultPath": null, "Next": "FailProvision" },
+        { "ErrorEquals": ["States.ALL"], "ResultPath": null, "Next": "FailProvision" }
+      ],
+      "Next": "FailProvision"
+    },
+    "FailProvision": { "Type": "Fail", "Error": "Atl.ProvisionFailed", "CausePath": "$.error.Cause" },
+    "FailBeforeProvision": {
+      "Type": "Task",
+      "Comment": "T03: REQUESTED → FAILED; a fresh environment releases the lock, a reuse only clears the reservation (the kept environment stays KEPT); no resource exists yet. Quiet when the session was cancelled meanwhile",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": { "FunctionName": "${LifecycleFn}", "Payload": { "action": "FailBeforeProvision", "sessionId.$": "$.sessionId", "error.$": "$.error" } },
+      "ResultPath": null,
+      "Retry": [
+        { "ErrorEquals": ["Lambda.ServiceException", "Lambda.AWSLambdaException", "Lambda.SdkClientException", "Lambda.TooManyRequestsException", "Atl.Retryable"], "IntervalSeconds": 2, "MaxAttempts": 5, "BackoffRate": 2, "JitterStrategy": "FULL" }
+      ],
+      "Next": "FailEarly"
+    },
+    "FailEarly": { "Type": "Fail", "Error": "Atl.StartRejected", "CausePath": "$.error.Cause" }
   }
 }

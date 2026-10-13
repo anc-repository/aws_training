@@ -1,12 +1,91 @@
 {
-  "Comment": "atl-module-op: placeholder written by platform-scaffold. The workflows implementer replaces it with the ASL of 01 §3.3, 04 §3, 9.6 (JSONPath; DefinitionSubstitutions as in src/asl/load.ts DEV_SUBSTITUTIONS).",
+  "Comment": "atl-module-op (01 §3.3, 02 §4.3, §5.8): one platform action of a session. Input { sessionId, actionId, n, requestedBy? }, execution name modop-<sid>-<n>. Serialised per session, only in READY / RUNNING / EXPIRING, shares the environment operation lock with the learner (inside scripts/module). Actions xstk-<stackId> run ATL_OP=extra-stack, all others ATL_OP=module-op.",
   "QueryLanguage": "JSONPath",
-  "StartAt": "NotImplemented",
+  "TimeoutSeconds": 7200,
+  "StartAt": "BeginModuleOp",
   "States": {
-    "NotImplemented": {
-      "Type": "Fail",
-      "Error": "Atl.NotImplemented",
-      "Cause": "atl-module-op is not implemented yet"
-    }
+    "BeginModuleOp": {
+      "Type": "Task",
+      "Comment": "state gate, allow-list (LabSession.cardFacts.platformActions), per-session serialisation, ModuleOp record, module_op.started; opens the expected-outage window when the action interrupts the management channel",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": { "FunctionName": "${LifecycleFn}", "Payload": { "action": "BeginModuleOp", "input.$": "$", "executionName.$": "$$.Execution.Name" } },
+      "ResultSelector": { "op.$": "$.Payload.op", "runId.$": "$.Payload.runId", "envId.$": "$.Payload.envId", "labId.$": "$.Payload.labId", "argsB64.$": "$.Payload.argsB64", "timeoutMinutes.$": "$.Payload.timeoutMinutes", "opId.$": "$.Payload.opId" },
+      "ResultPath": "$.mod",
+      "Retry": [
+        { "ErrorEquals": ["Atl.ModuleOpBusy"], "IntervalSeconds": 15, "MaxAttempts": 20, "BackoffRate": 1 },
+        { "ErrorEquals": ["Lambda.ServiceException", "Lambda.AWSLambdaException", "Lambda.SdkClientException", "Lambda.TooManyRequestsException", "Atl.Retryable"], "IntervalSeconds": 2, "MaxAttempts": 5, "BackoffRate": 2, "JitterStrategy": "FULL" }
+      ],
+      "Catch": [{ "ErrorEquals": ["States.ALL"], "ResultPath": "$.error", "Next": "Rejected" }],
+      "Next": "RunOp"
+    },
+    "RunOp": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::codebuild:startBuild.sync",
+      "Parameters": {
+        "ProjectName": "${RunnerProject}",
+        "EnvironmentVariablesOverride": [
+          { "Name": "ATL_OP", "Type": "PLAINTEXT", "Value.$": "$.mod.op" },
+          { "Name": "ATL_RUN_ID", "Type": "PLAINTEXT", "Value.$": "$.mod.runId" },
+          { "Name": "ATL_SESSION_ID", "Type": "PLAINTEXT", "Value.$": "$.sessionId" },
+          { "Name": "ATL_ENV_ID", "Type": "PLAINTEXT", "Value.$": "$.mod.envId" },
+          { "Name": "ATL_LAB_ID", "Type": "PLAINTEXT", "Value.$": "$.mod.labId" },
+          { "Name": "ATL_ARGS", "Type": "PLAINTEXT", "Value.$": "$.mod.argsB64" }
+        ],
+        "TimeoutInMinutesOverride.$": "$.mod.timeoutMinutes"
+      },
+      "ResultSelector": { "buildId.$": "$.Build.Id", "status.$": "$.Build.BuildStatus" },
+      "ResultPath": "$.build",
+      "Catch": [{ "ErrorEquals": ["States.ALL"], "ResultPath": "$.error", "Next": "ClassifyOp" }],
+      "Next": "FinishSucceeded"
+    },
+    "ClassifyOp": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "${LifecycleFn}",
+        "Payload": { "action": "ClassifyRunnerFailure", "sessionId.$": "$.sessionId", "runId.$": "$.mod.runId", "op.$": "$.mod.op", "error.$": "$.error", "attempt": 1, "maxAttempts": 1 }
+      },
+      "ResultSelector": { "retry.$": "$.Payload.retry", "code.$": "$.Payload.code" },
+      "ResultPath": "$.classify",
+      "Retry": [
+        { "ErrorEquals": ["Lambda.ServiceException", "Lambda.AWSLambdaException", "Lambda.SdkClientException", "Lambda.TooManyRequestsException", "Atl.Retryable"], "IntervalSeconds": 2, "MaxAttempts": 5, "BackoffRate": 2, "JitterStrategy": "FULL" }
+      ],
+      "Catch": [{ "ErrorEquals": ["States.ALL"], "ResultPath": null, "Next": "FinishFailed" }],
+      "Next": "FinishFailed"
+    },
+    "FinishSucceeded": {
+      "Type": "Task",
+      "Comment": "ModuleOp finished, module_op.succeeded, outage window closed, serialisation marker released",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": { "FunctionName": "${LifecycleFn}", "Payload": { "action": "FinishModuleOp", "sessionId.$": "$.sessionId", "opId.$": "$.mod.opId", "runId.$": "$.mod.runId", "executionName.$": "$$.Execution.Name", "status": "SUCCEEDED" } },
+      "ResultPath": null,
+      "Retry": [
+        { "ErrorEquals": ["Lambda.ServiceException", "Lambda.AWSLambdaException", "Lambda.SdkClientException", "Lambda.TooManyRequestsException", "Atl.Retryable"], "IntervalSeconds": 2, "MaxAttempts": 5, "BackoffRate": 2, "JitterStrategy": "FULL" }
+      ],
+      "End": true
+    },
+    "FinishFailed": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": { "FunctionName": "${LifecycleFn}", "Payload": { "action": "FinishModuleOp", "sessionId.$": "$.sessionId", "opId.$": "$.mod.opId", "runId.$": "$.mod.runId", "executionName.$": "$$.Execution.Name", "status": "FAILED", "error.$": "$.error" } },
+      "ResultPath": null,
+      "Retry": [
+        { "ErrorEquals": ["Lambda.ServiceException", "Lambda.AWSLambdaException", "Lambda.SdkClientException", "Lambda.TooManyRequestsException", "Atl.Retryable"], "IntervalSeconds": 2, "MaxAttempts": 5, "BackoffRate": 2, "JitterStrategy": "FULL" }
+      ],
+      "Next": "OpFailed"
+    },
+    "OpFailed": { "Type": "Fail", "Error": "Atl.ModuleOpFailed", "CausePath": "$.error.Cause" },
+    "Rejected": {
+      "Type": "Task",
+      "Comment": "the action was refused before any build (state gate, allow-list, serialisation timeout): ModuleOp failed and the marker released",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": { "FunctionName": "${LifecycleFn}", "Payload": { "action": "FinishModuleOp", "sessionId.$": "$.sessionId", "opId": null, "runId": null, "executionName.$": "$$.Execution.Name", "status": "REJECTED", "error.$": "$.error" } },
+      "ResultPath": null,
+      "Retry": [
+        { "ErrorEquals": ["Lambda.ServiceException", "Lambda.AWSLambdaException", "Lambda.SdkClientException", "Lambda.TooManyRequestsException", "Atl.Retryable"], "IntervalSeconds": 2, "MaxAttempts": 5, "BackoffRate": 2, "JitterStrategy": "FULL" }
+      ],
+      "Next": "RejectedFail"
+    },
+    "RejectedFail": { "Type": "Fail", "Error": "Atl.ModuleOpRejected", "CausePath": "$.error.Cause" }
   }
 }

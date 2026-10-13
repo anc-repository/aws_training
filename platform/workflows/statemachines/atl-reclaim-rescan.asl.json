@@ -1,12 +1,65 @@
 {
-  "Comment": "atl-reclaim-rescan: placeholder written by platform-scaffold. The workflows implementer replaces it with the ASL of 02 §7.11 (JSONPath; DefinitionSubstitutions as in src/asl/load.ts DEV_SUBSTITUTIONS).",
+  "Comment": "atl-reclaim-rescan (02 §7.7, §7.11): input { envId, sessionId, rescanAt: [ISO time, …] } (revokedAt + 20 min, + 60 min, + 6 h). Waits for each time point, runs one RESCAN pass (CLOUDTRAIL, TAG, DERIVED), T21 on BLOCKING; finally reclaim.followUp = DONE and the state prefix / lock item are deleted.",
   "QueryLanguage": "JSONPath",
-  "StartAt": "NotImplemented",
+  "TimeoutSeconds": 43200,
+  "StartAt": "Init",
   "States": {
-    "NotImplemented": {
-      "Type": "Fail",
-      "Error": "Atl.NotImplemented",
-      "Cause": "atl-reclaim-rescan is not implemented yet"
+    "Init": {
+      "Type": "Pass",
+      "Parameters": { "envId.$": "$.envId", "sessionId.$": "$.sessionId", "rescanAt.$": "$.rescanAt", "i": 0, "n.$": "States.ArrayLength($.rescanAt)" },
+      "Next": "HasNext"
+    },
+    "HasNext": {
+      "Type": "Choice",
+      "Choices": [{ "Variable": "$.i", "NumericLessThanPath": "$.n", "Next": "PickTime" }],
+      "Default": "FinishFollowUp"
+    },
+    "PickTime": {
+      "Type": "Pass",
+      "Parameters": { "at.$": "States.ArrayGetItem($.rescanAt, $.i)" },
+      "ResultPath": "$.cur",
+      "Next": "WaitUntil"
+    },
+    "WaitUntil": { "Type": "Wait", "TimestampPath": "$.cur.at", "Next": "Rescan" },
+    "Rescan": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::states:startExecution.sync:2",
+      "Parameters": {
+        "StateMachineArn": "${ReclaimStateMachineArn}",
+        "Name.$": "States.Format('reclaim-{}-rescan-{}', $.envId, $.i)",
+        "Input": { "envId.$": "$.envId", "sessionId.$": "$.sessionId", "mode": "RESCAN" }
+      },
+      "ResultSelector": { "summary.$": "$.Output.summary" },
+      "ResultPath": "$.last",
+      "Catch": [{ "ErrorEquals": ["States.ALL"], "ResultPath": "$.last", "Next": "AfterRescan" }],
+      "Next": "AfterRescan"
+    },
+    "AfterRescan": {
+      "Type": "Task",
+      "Comment": "BLOCKING → T21 (ENDED / FAILED → CLEANUP_FAILED) and an alert; a failed pass is recorded and alerted, the next time point repeats the scan",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": { "FunctionName": "${LifecycleFn}", "Payload": { "action": "ConcludeRescan", "sessionId.$": "$.sessionId", "envId.$": "$.envId", "index.$": "$.i", "result.$": "$.last" } },
+      "ResultPath": null,
+      "Retry": [
+        { "ErrorEquals": ["Lambda.ServiceException", "Lambda.AWSLambdaException", "Lambda.SdkClientException", "Lambda.TooManyRequestsException", "Atl.Retryable"], "IntervalSeconds": 2, "MaxAttempts": 5, "BackoffRate": 2, "JitterStrategy": "FULL" }
+      ],
+      "Next": "Bump"
+    },
+    "Bump": {
+      "Type": "Pass",
+      "Parameters": { "envId.$": "$.envId", "sessionId.$": "$.sessionId", "rescanAt.$": "$.rescanAt", "n.$": "$.n", "i.$": "States.MathAdd($.i, 1)" },
+      "Next": "HasNext"
+    },
+    "FinishFollowUp": {
+      "Type": "Task",
+      "Comment": "end of the rescan window: reclaim.followUp = DONE; unless the session is CLEANUP_FAILED, atl-reaper deletes the <envName>/ prefix of the state bucket and the lock item (9.5)",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": { "FunctionName": "${LifecycleFn}", "Payload": { "action": "FinishFollowUp", "sessionId.$": "$.sessionId", "envId.$": "$.envId" } },
+      "ResultPath": null,
+      "Retry": [
+        { "ErrorEquals": ["Lambda.ServiceException", "Lambda.AWSLambdaException", "Lambda.SdkClientException", "Lambda.TooManyRequestsException", "Atl.Retryable"], "IntervalSeconds": 2, "MaxAttempts": 5, "BackoffRate": 2, "JitterStrategy": "FULL" }
+      ],
+      "End": true
     }
   }
 }

@@ -101,7 +101,7 @@ describe('ATL_DEV_MODE runtime', () => {
   });
 
   it('functions without an implemented action fail with Atl.NotImplemented', async () => {
-    await expect(rt.invoker.invoke('atl-timer', { kind: 'SWEEP' })).rejects.toMatchObject({ name: 'Atl.NotImplemented' });
+    await expect(rt.invoker.invoke('atl-timer', { kind: 'NO_SUCH_KIND' })).rejects.toMatchObject({ name: 'Atl.NotImplemented' });
     const d = await rt.orchestrator.sim.run('atl-session-end', ExecutionNames.endFirst(SID), { sessionId: SID });
     expect(d.error).toBe('Atl.NotImplemented');
   });

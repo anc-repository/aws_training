@@ -1,0 +1,33 @@
+# atl-runner (01 §3.4, 02 §4.3). Source: atl-artifacts releases/<ver>/cloudalbum-infra.zip — this file and the bundled
+# runner (platform/workflows/runner/dist/atl-runner.mjs) ship inside that package; nothing is read from a learner-writable
+# location. Every phase delegates to the runner; the build ends with the scripts/module exit code (post_build).
+version: 0.2
+
+env:
+  shell: bash
+  variables:
+    ATL_RUNNER: platform/workflows/runner/dist/atl-runner.mjs
+    AWS_SDK_LOAD_CONFIG: "1"
+    AWS_PAGER: ""
+
+phases:
+  install:
+    runtime-versions:
+      nodejs: 22
+    commands:
+      # 1. integrity of the release package (SHA256SUMS of the release, 01 §4.5)
+      - cd "$CODEBUILD_SRC_DIR" && sha256sum --check --strict --quiet SHA256SUMS
+  pre_build:
+    commands:
+      # 2. ATL_* checks, LabSession / Environment / PlatformConfig from atl-main, session policy, CLI profile atl-prov
+      #    (credential_process: atl-<sid>-prov-<op>, renewed automatically). Never fails the phase (post_build reports).
+      - node "$CODEBUILD_SRC_DIR/$ATL_RUNNER" pre
+  build:
+    commands:
+      # 3. scripts/module --platform … for ATL_OP (state.json and the environment lock are handled by scripts/module,
+      #    06 PM-27 / PM-28, with --lock-wait 900); progress forwarded to /api/v1/internal/runs/{runId}/events
+      - node "$CODEBUILD_SRC_DIR/$ATL_RUNNER" build
+  post_build:
+    commands:
+      # 4. result.json / ledger.json / progress.jsonl → atl-data/runs/<runId>/ (service role); exit code of the op
+      - node "$CODEBUILD_SRC_DIR/$ATL_RUNNER" post

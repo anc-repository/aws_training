@@ -45,4 +45,23 @@ export const DEV_SUBSTITUTIONS: Readonly<Record<string, string>> = {
   ReclaimRescanArn: 'arn:aws:states:ap-northeast-1:000000000000:stateMachine:atl-reclaim-rescan',
   ModuleOpArn: 'arn:aws:states:ap-northeast-1:000000000000:stateMachine:atl-module-op',
   PlatformUninstallArn: 'arn:aws:states:ap-northeast-1:000000000000:stateMachine:atl-platform-uninstall',
+  // the names used by the 02 skeletons (atl-session-start → end, atl-session-end → reclaim / rescan, atl-reclaim-rescan → reclaim)
+  StartStateMachineArn: 'arn:aws:states:ap-northeast-1:000000000000:stateMachine:atl-session-start',
+  EndStateMachineArn: 'arn:aws:states:ap-northeast-1:000000000000:stateMachine:atl-session-end',
+  ReclaimStateMachineArn: 'arn:aws:states:ap-northeast-1:000000000000:stateMachine:atl-reclaim',
+  RescanStateMachineArn: 'arn:aws:states:ap-northeast-1:000000000000:stateMachine:atl-reclaim-rescan',
+  ModuleOpStateMachineArn: 'arn:aws:states:ap-northeast-1:000000000000:stateMachine:atl-module-op',
+  UninstallStateMachineArn: 'arn:aws:states:ap-northeast-1:000000000000:stateMachine:atl-platform-uninstall',
 };
+
+/** `${Name}` placeholders used by each deployed definition (the infra template must pass exactly these). */
+export function definitionPlaceholders(def: unknown): string[] {
+  const found = new Set<string>();
+  const walk = (v: unknown): void => {
+    if (typeof v === 'string') for (const m of v.matchAll(/\$\{([A-Za-z0-9_]+)\}/g)) found.add(m[1]!);
+    else if (Array.isArray(v)) v.forEach(walk);
+    else if (v && typeof v === 'object') Object.values(v as Record<string, unknown>).forEach(walk);
+  };
+  walk(def);
+  return [...found].sort();
+}
