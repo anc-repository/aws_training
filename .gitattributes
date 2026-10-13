@@ -1,0 +1,12 @@
+* text=auto eol=lf
+*.sh text eol=lf
+*.bash text eol=lf
+scripts/module text eol=lf
+scripts/teardown text eol=lf
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.webp binary
+*.gif binary
+*.ico binary
+*.woff2 binary

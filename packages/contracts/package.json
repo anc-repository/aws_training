@@ -1,0 +1,24 @@
+{
+  "name": "@cloudalbum/contracts",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Shared front/back contracts: ModuleId, capabilities types, X-CloudAlbum-Path and Server-Timing formatters/parsers, registry data.",
+  "type": "module",
+  "sideEffects": false,
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./registry": {
+      "types": "./dist/generated/registry.d.ts",
+      "default": "./dist/generated/registry.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -b",
+    "test": "vitest run"
+  }
+}

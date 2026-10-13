@@ -1,0 +1,1486 @@
+# modules/registry.yaml —— CloudAlbum 模块注册表：模块元数据的单一事实来源（modular-design.md §3.4）
+#
+# - 字段定义见 modules/registry.schema.json（总纲 §3.5）。npm run registry:check 校验 schema、规则交叉引用、
+#   doc 锚点与 ownsEnv 前缀归属；npm run gen:registry 把本文件内联为 packages/contracts/src/generated/registry.ts。
+# - 各条目摘自 docs/modules/0N-<group>.md 第 0 节（ec2 为 00-ec2-base.md 第 1 节）。本轮 MVP 模块（iam、storage、cdn、
+#   auth、queue、image-processing、cache、database）与 ec2 补齐了 version 与 lab 卡片文案（summary / keyMetrics / diagram / badges）。
+# - 依赖只用 requires / conflicts 表达式书写（§5.1）；规则的级别、消息与修复命令在 backend/src/rules/rules.ts。
+version: 2
+modules:
+
+  ec2:
+    group: base
+    function: 运行整个应用
+    awsService: Amazon EC2
+    auxServices: [Amazon EBS, Elastic IP, Default VPC]
+    type: base                                  # 没有 switch、ownsEnv、requires、port
+    credentials: none
+    version: 1                                  # 写入栈 Outputs.ModuleVersion（CFG-006）
+    stacks: [{ name: main, template: infra/modules/ec2.yaml }]
+    hostSetup: infra/userdata/l0-bootstrap.sh   # root 执行；install / postattach 两阶段；幂等（第 6.5 节）
+    nginxFragments:                             # ec2 自己的 include 点（模块不得改写，见 6.7）
+      - infra/nginx/cloudalbum.d/00-entry.conf
+      - infra/nginx/cloudalbum.server.d/00-acme-challenge.conf
+    preflight:                                  # scripts/module 更新基础栈前的检查（第 6.4 节）
+      - ec2-ami-pin                             # 解析出的 AMI 与运行中实例不同 → 必须走 rebuild-instance
+      - ec2-replacement-staged                  # 会替换实例的参数变化 → 必须走分阶段流程
+      - ec2-volume-immutable                    # DataVolumeAz / DataVolumeKmsKeyId 在卷存在后不得修改
+      - ec2-public-ipv4-at-boot                 # AssociateEip=true 时子网必须自动分配公网 IPv4（引导期出网）
+      - ec2-ssh-cidr                            # SshIngressCidr 不是 /32 或为 0.0.0.0/0 时要求显式确认
+    detector: detectors/ec2.ts
+    probe: { kind: local, intervalSec: 30 }     # 只读 IMDS、/proc、statfs、security/snapshot.json
+    billing:                                    # cost 本地估算的输入；不写单价（D11、D14）
+      - { resource: "EC2 实例（按需）", dimension: hour, hourly: true }
+      - { resource: "公网 IPv4（弹性 IP，未关联时同样计费）", dimension: hour, hourly: true }
+      - { resource: "EBS gp3 根卷与数据卷", dimension: usage }
+      - { resource: "EBS 快照（分阶段替换、备份演练）", dimension: usage }
+      - { resource: "EC2 详细监控（DetailedMonitoring=true 时）", dimension: usage }
+      - { resource: "互联网方向数据传出", dimension: usage }
+    lab:
+      summary:
+        local: "单台 EC2：Nginx + api + worker + SQLite + 本地文件；数据、机密与本地配置在独立 EBS 数据卷上"
+        aws: "—（基础模块。其他模块启用后应用仍运行在这台实例上；DEPLOY_MODE=asg 时由 autoscaling 的启动模板复制）"
+      compare: functional
+      keyMetrics:                               # /lab 卡片的检查项，对应第 7 节 checks[].id
+        - imdsv2
+        - data-volume
+        - key-fingerprint
+        - nginx
+        - processes
+        - disk
+        - time-sync
+        - memory
+        - timers
+        - security-snapshot
+      hourlyBilled: true
+      diagram:
+        before: "flowchart LR; U[浏览器]-->EIP-->NG[Nginx]-->API[api]; API-->V[(数据卷)]"
+        after:  "flowchart LR; U[浏览器]-->EIP-->NG[Nginx]-->API[api]; API-->V[(数据卷)]"
+      experiments: [smoke, single-point-of-failure, imds-probe, cpu-credits, rebuild-drill]
+      badges:
+        footer: "运行在 EC2 · {instanceId} · {instanceType} · {az} · {deployMode}"
+        card: "单点：停止实例 = 全站不可用；本地备份与数据在同一块卷上（见 backup）"
+    doc: docs/modules/00-ec2-base.md#ec2
+
+  network:
+    group: A
+    function: 网络隔离
+    awsService: Amazon VPC
+    auxServices: [NAT Gateway, VPC Endpoint, VPC Flow Logs, EC2 Instance Connect Endpoint]
+    type: infra
+    detector: detectors/network.ts
+    switch: { var: NETWORK_PLACEMENT, values: [default, public, private], ownedValues: [public, private], localTiers: [] }
+    ownsEnv: [NETWORK_]
+    credentials: optional                  # 无凭证时感知器只能按 CIDR 推断（inferred）
+    prerequisites: []                      # private + NatMode=none 时另需 toolchain（发布包镜像，DEP-009 的 deployCheck 检查）
+    requires:
+      - { rule: DEP-009, when: { NETWORK_PLACEMENT: private },
+          need: ["load-balancer | CDN_ORIGIN_TYPE=vpc-origin",                     # 入口
+                 "NETWORK_NAT_MODE!=none | NETWORK_INTERFACE_ENDPOINTS!=none",     # 出网；NatMode=none 时 deployCheck() 另查：端点含 cloudformation 与各模块所需端点、IAM_CREDENTIALS=role、工具链栈的发布包镜像
+                 "shell-access | NETWORK_EIC_ENDPOINT=on"] }                        # 运维通道
+      - { rule: DEP-016, need: [] }        # 无启动期条件；deployCheck()：本次启用 / 禁用 / 更新会改变 VpcId，且仍有已部署的 VPC 绑定模块
+    soft: [shell-access, load-balancer, logging]
+    conflicts: []
+    orderBefore: [load-balancer, database, cache, shared-fs, autoscaling, db-proxy]   # DEP-016：先迁入再建 VPC 绑定资源
+    authoritative: false
+    bypass: []
+    stacks: [{ name: main, template: infra/modules/network.yaml }]   # 栈参数 Placement=public|private 由 --placement 给出
+    baseParams:                            # 定义见 00-ec2-base.md 6.2；只在“替换实例的流程”中由 replaceInstance() 分阶段下发（00 第 8 节）
+      VpcId: "${Out.EnvNetworkVpcId}"
+      SubnetId: "${Out.InfoInstanceSubnetId}"            # public：public 第一个子网；private：app 第一个子网（与数据卷同 AZ）
+      AssociateEip: "${Out.InfoAssociateEip}"            # public = true，private = false
+      PublicHttpIngress: "${Out.InfoPublicHttpIngress}"  # private = closed；public = open（与其他声明方取最严格）
+      # DataVolumeAttach、DataVolumeId 不是 network 的长期取值：replaceInstance() 在分阶段流程中临时写入（跨 AZ 时传快照建的新卷）
+    injects:                               # D2：跨模块参数只由提供方声明；network 未启用时这些参数由 scripts/module 取默认 VPC 的值（基础上下文）
+      - { target: load-balancer, params: { VpcId: "${Out.EnvNetworkVpcId}", SubnetIds: "${Out.EnvNetworkPublicSubnetIds}" } }   # internet-facing ALB 在 public 子网
+      - { target: autoscaling,   params: { SubnetIds: "${Out.InfoAsgSubnetIds}" } }                                         # private：app 子网；public：public 子网
+      - { target: database,      params: { VpcId: "${Out.EnvNetworkVpcId}", SubnetIds: "${Out.EnvNetworkDataSubnetIds}" } }
+      - { target: cache,         params: { VpcId: "${Out.EnvNetworkVpcId}", SubnetIds: "${Out.EnvNetworkDataSubnetIds}" } }
+      - { target: shared-fs,     params: { VpcId: "${Out.EnvNetworkVpcId}", SubnetIds: "${Out.EnvNetworkDataSubnetIds}" } }
+      - { target: db-proxy,      params: { VpcId: "${Out.EnvNetworkVpcId}", SubnetIds: "${Out.EnvNetworkDataSubnetIds}" } }
+      - { target: cdn,           params: { VpcId: "${Out.EnvNetworkVpcId}" } }        # 只影响 cdn 源站安全组
+      - { target: dns,           params: { VpcId: "${Out.EnvNetworkVpcId}" } }        # 只影响健康检查器安全组
+      - { target: ami,           params: { VpcId: "${Out.EnvNetworkVpcId}", SubnetId: "${Out.InfoBuildSubnetId}" } }   # Image Builder 构建实例：public 子网，或 NatMode≠none 时 app 子网
+    secretParams: []
+    migration: instance-move               # 分阶段替换实例 + 数据卷改挂，见第 6 节
+    probe: { kind: detector, intervalSec: 60 }
+    lab: { compare: before-after, hourlyBilled: true, experiments: [surface-scan, egress-path, scan-count, endpoint-only, cost-inventory] }   # 文案见第 11 节
+    doc: docs/modules/01-edge-network-scaling.md#network
+
+  cdn:
+    group: A
+    function: 内容分发与边缘缓存
+    awsService: Amazon CloudFront
+    auxServices: [CloudFront Functions, 响应头策略（Server-Timing）]
+    type: param                            # A·P：参数型，另有管理用小端口 CdnPort
+    port: CdnPort                          # adapters/cdn/{direct,cloudfront}.ts，非权威
+    switch: { var: CDN_BASE_URL, kind: param }   # 空 = direct 驱动 = 本地实现；非空 = cloudfront 驱动
+    ownsEnv: [CDN_]
+    credentials: optional                  # 失效按钮与 GetDistribution 探针需要；没有时 degraded
+    version: 1                                 # 写入栈 Outputs.ModuleVersion（CFG-006）
+    prerequisites: []
+    requires:
+      - { rule: DEP-010, when: { CDN_MEDIA_ORIGIN: s3 }, need: ["STORAGE_DRIVER=s3"] }
+      - { rule: DEP-028, when: { CDN_MEDIA_ORIGIN: ec2 }, need: ["STORAGE_DRIVER!=s3"], severity: warn }
+      - { rule: DEP-038, when: { CDN_ORIGIN_TYPE: alb }, need: ["load-balancer"] }
+      - { rule: DEP-039, when: { CDN_ORIGIN_TYPE: vpc-origin }, need: ["NETWORK_PLACEMENT=private"] }
+      - { rule: DEP-014, when: { CDN_ORIGIN_TYPE: ec2 }, need: [] }   # 条件只在 rules.ts 的 deployCheck()：基础栈 AssociateEip=true 且实例有公网 DNS 名
+    soft: [tls, dns, waf, storage, kms, secrets]
+    conflicts: []
+    authoritative: false
+    multiInstanceSafe: { direct: true, cloudfront: true }   # 多实例时源站必须是 ALB（autoscaling 的规则负责）
+    bypass: [cdn]
+    stacks: [{ name: main, template: infra/modules/cdn.yaml }]   # 分配是全局资源，栈在 ap-northeast-1
+    baseParams:                            # 定义见 00-ec2-base.md 6.2
+      ExtraSecurityGroupIds: "+${Out.InfoOriginSecurityGroupId}"   # 源站安全组（8080 只放行 CloudFront 前缀列表），追加
+      PublicHttpIngress: "${CDN_DIRECT_ACCESS}"                     # open | admin-ip | closed，与其他声明方取最严格
+      AdminIngressCidr: "${CDN_ADMIN_CIDR}"                         # 仅 CDN_DIRECT_ACCESS=admin-ip 时
+    injects:
+      - { target: storage,       params: { CdnDistributionArn: "${Out.InfoDistributionArn}" } }          # OAC 桶策略的 AWS:SourceArn
+      - { target: kms,           params: { CloudFrontDistributionArn: "${Out.InfoDistributionArn}" } }   # 媒体桶 SSE-KMS 时允许 CloudFront 解密
+      - { target: dns,           params: { TargetDnsName: "${Out.InfoDistributionDomainName}" }, when: { DNS_TARGET_TYPE: cloudfront } }
+      - { target: auth,          params: { AppOrigins: "+${Out.EnvCdnBaseUrl}" } }   # 回调与登出地址（约定 9：AppOrigins 由各入口追加，取并集）
+      - { target: identity-pool, params: { AppOrigins: "+${Out.EnvCdnBaseUrl}" } }   # 暂存桶 CORS
+      - { target: storage,       params: { AppOrigins: "+${Out.EnvCdnBaseUrl}" } }   # 原图桶 CORS
+    secretParams: [origin-verify, cloudfront-signing-key]   # 逻辑名；值只在 secrets.env 或 Secrets Manager；后者仅 CDN_SIGNED_MEDIA=on
+    nginxFragments: [infra/modules/cdn/nginx/cdn-origin.conf.tpl]   # 只含 8080 server 块，不定义任何 map
+    hostSetup: infra/modules/cdn/host-setup.sh   # 渲染槽位 slot-origin-verify.inc 与 cdn-realip-ranges.inc，安装 cloudalbum-cdn-cf-ranges.timer
+    migration: none                        # 数据库只存键，URL 在读取时计算
+    probe: { kind: active, method: "GET ${CDN_BASE_URL}/api/health/live + cloudfront:GetDistribution", intervalSec: 60 }
+    lab:
+      summary:
+        local: "Nginx 直出静态资源与媒体（Cache-Control），所有请求都到达 EC2"
+        aws: "CloudFront 分配缓存 /assets 与 /media，回源经 8080 监听器 + X-Origin-Verify；/api 不缓存"
+      compare: runtime-ab
+      sideBySide: true
+      keyMetrics: ["缩略图 TTFB（边缘 vs 源站）", "cdn-cache-hit 比例", "源站请求数与 EC2 出站字节", "X-Origin-Verify 不匹配计数"]
+      hourlyBilled: false
+      diagram:
+        before: "flowchart LR; B[浏览器]-->EIP-->NG[Nginx]-->V[(数据卷)]"
+        after:  "flowchart LR; B[浏览器]-->CF[CloudFront 边缘]-.MISS.->NG[Nginx :8080]-->V[(数据卷)]"
+      experiments: [ttfb, media-load, origin-requests, invalidation, api-nocache, compression]
+      badges: { local: "图片由 EC2 Nginx 直出", aws: "图片由 CloudFront 提供", awsWithCache: "图片由 CloudFront 提供 · {cacheState}", unknown: "由 CloudFront 提供 · 状态未知", degraded: "CDN 降级", error: "CDN 故障" }
+    doc: docs/modules/01-edge-network-scaling.md#cdn
+
+  dns:
+    group: A
+    function: 域名解析
+    awsService: Amazon Route 53
+    auxServices: [Route 53 健康检查]
+    type: infra
+    detector: detectors/dns.ts
+    switch: { var: DNS_PROVIDER, values: [none, external, route53], ownedValues: [route53], localTiers: [external] }
+    ownsEnv: [APP_BASE_URL, DNS_]          # 只有 dns 拥有 APP_BASE_URL（约定 5）
+    credentials: optional                  # 健康检查状态等控制面感知需要
+    prerequisites: [domain]                # 冒烟矩阵中标为“需人工”
+    requires:
+      - { rule: DEP-040, when: { DNS_TARGET_TYPE: alb }, need: ["load-balancer"] }
+      - { rule: DEP-041, when: { DNS_TARGET_TYPE: cloudfront }, need: ["cdn", "tls"] }   # 备用域名需要 us-east-1 证书
+    soft: [cdn, load-balancer, tls, email, auth]
+    conflicts: []
+    authoritative: false
+    bypass: []
+    stacks: [{ name: main, template: infra/modules/dns.yaml }]
+    baseParams:
+      ExtraSecurityGroupIds: "+${Out.InfoHealthCheckSecurityGroupId}"   # 仅放行 Route 53 健康检查器前缀列表时（输出为空则不追加）
+    injects:
+      - { target: auth,          params: { AppOrigins: "+${Out.EnvAppBaseUrl}" } }      # 回调与登出地址
+      - { target: identity-pool, params: { AppOrigins: "+${Out.EnvAppBaseUrl}" } }      # 暂存桶 CORS
+      - { target: storage,       params: { AppOrigins: "+${Out.EnvAppBaseUrl}" } }      # 原图桶 CORS
+      - { target: email,         params: { HostedZoneId: "${Out.EnvDnsHostedZoneId}" } } # SES DKIM / MAIL FROM 记录
+      - { target: tls,           params: { HostedZoneId: "${Out.EnvDnsHostedZoneId}" } } # 证书与 ACME 域验证的 CNAME
+    # 本栈接收的注入：TargetDnsName（cdn，DNS_TARGET_TYPE=cloudfront）；TargetDnsName、TargetHostedZoneId（load-balancer，DNS_TARGET_TYPE=alb）；VpcId（network）
+    nginxFragments: [infra/modules/dns/nginx/dns-canonical.conf.tpl]   # 投放到 cloudalbum.server.d/，仅 DNS_CANONICAL_REDIRECT=on
+    hostSetup: infra/modules/dns/host-setup.sh
+    migration: none
+    probe: { kind: detector, intervalSec: 60 }
+    lab: { compare: before-after, sideBySide: true, hourlyBilled: false, experiments: [ip-change-drill, failover-drill, weighted-sample] }
+    doc: docs/modules/01-edge-network-scaling.md#dns
+
+  tls:
+    group: A
+    function: HTTPS 证书
+    awsService: AWS Certificate Manager
+    auxServices: [ACM ACME 端点]
+    type: infra
+    detector: detectors/tls.ts
+    switch: { var: TLS_MODE, values: [selfsigned, letsencrypt, acm], ownedValues: [acm], localTiers: [letsencrypt] }
+    ownsEnv: [TLS_, ACM_CERT_]
+    credentials: optional                  # 只用于 DescribeCertificate 等感知；签发由部署者身份与 ACME 客户端完成
+    prerequisites: [domain]
+    preflight: [acme-endpoint]             # 探测结果由 scripts/module 写成 tls.env 的 TLS_ACME=on|off（--no-acme 时直接 off）
+    requires:
+      - { rule: DEP-005, when: { TLS_MODE: acm }, need: ["TLS_DOMAIN!="] }                                  # ①
+      - { rule: DEP-005, when: { TLS_MODE: acm, TLS_ACME: "off" },                                          # ③ 回退分支（启动时即可求值）
+          need: ["dns | DNS_PROVIDER=external", "cdn | load-balancer"] }
+      # ② 集成证书的挂载条件（cdn / load-balancer / social-api 绑定了自定义域名却缺证书）属部署范围，由 DEP-005 的 deployCheck() 检查
+      - { rule: DEP-015, when: { TLS_FORCE_HTTPS: "true" }, need: ["TLS_MODE!=selfsigned"] }
+    soft: [dns, cdn, load-balancer, social-api]
+    conflicts: []
+    authoritative: false
+    bypass: []
+    stacks:
+      - { name: main,     template: infra/modules/tls.yaml, when: { TLS_ACME: "on" } }                    # ACME 端点、域验证、签发角色
+      - { name: edge,     template: infra/modules/tls.yaml, region: us-east-1, when: cdn }      # CloudFront 集成证书
+      - { name: regional, template: infra/modules/tls.yaml, when: "load-balancer | social-api" }
+    injects:
+      - { target: cdn,           params: { AcmCertificateArn: "${Out.EnvAcmCertArnEdge}", Aliases: "${TLS_DOMAIN}" } }
+      - { target: load-balancer, params: { CertificateArn: "${Out.EnvAcmCertArnRegional}", DomainName: "${TLS_DOMAIN}" } }
+      - { target: social-api,    params: { CertificateArn: "${Out.EnvAcmCertArnRegional}" } }
+    # 本栈接收的注入：HostedZoneId（dns，自动建验证 CNAME）
+    hostSetup: infra/modules/tls/host-setup.sh   # /opt/certbot 虚拟环境、/etc/cloudalbum/tls/server.* 符号链接、cloudalbum-tls-renew.timer
+    migration: none
+    probe: { kind: detector, intervalSec: 300 }
+    lab: { compare: before-after, sideBySide: true, hourlyBilled: false, experiments: [inspect, handshake, cipher-scan, renew-drill] }
+    doc: docs/modules/01-edge-network-scaling.md#tls
+
+  waf:
+    group: A
+    function: Web 应用防护
+    awsService: AWS WAF
+    auxServices: [WAF IP 集合, 托管规则组]
+    type: infra
+    detector: detectors/waf.ts
+    port: BlocklistPort                    # 管理用小端口，adapters/waf/{nginx,aws}.ts，非权威
+    switch: { var: WAF_MODE, values: [nginx, aws], ownedValues: [aws], localTiers: [] }
+    ownsEnv: [WAF_]
+    credentials: optional                  # 写 IP 集合、读拦截计数需要；没有时封禁按钮只读，状态 degraded
+    prerequisites: []
+    requires:
+      - { rule: DEP-006, when: { WAF_MODE: aws }, need: ["cdn | load-balancer"] }
+      - { rule: DEP-018, when: { WAF_MODE: aws }, need: [], severity: warn }   # 运行范围：入口未锁定（CDN_DIRECT_ACCESS=open / PublicHttpIngress=open）时由感知器触发，条件在 rules.ts
+    soft: [threat-detection, logging, monitoring]
+    conflicts: []
+    authoritative: false
+    multiInstanceSafe: { nginx: false, aws: true }   # nginx 限速按实例计数（ASG-013，warn）
+    bypass: []                             # 刻意不提供按请求绕过 WAF 的旁路
+    stacks:
+      - { name: edge,     template: infra/modules/waf.yaml, region: us-east-1, when: cdn }        # CLOUDFRONT 范围；CRED-003 例外
+      - { name: regional, template: infra/modules/waf.yaml, when: load-balancer }   # REGIONAL 范围；已有 edge 时默认不部署（纵深防御需 --also-regional）
+    injects:
+      - { target: cdn, params: { WebAclArn: "${Out.EnvWafWebAclArn}" }, when: { WAF_SCOPE: CLOUDFRONT } }   # CloudFront 只能用分配自身的 WebACLId 关联
+    # 本栈接收的注入：AlbArn（load-balancer，REGIONAL 范围的 WebACLAssociation）
+    hostSetup: infra/modules/waf/host-setup.sh   # 只渲染 WAF_LAB_ALLOW_CIDR 的 Nginx 白名单片段；denylist 的 path 单元归 ec2，与 threat-detection 共用
+    migration: scripts/waf/sync-denylist   # denylist.conf ↔ IP 集合
+    probe: { kind: detector, intervalSec: 60 }
+    lab: { compare: runtime-ab, sideBySide: true, hourlyBilled: false, experiments: [flood, payloads, false-positive, bypass] }
+    doc: docs/modules/01-edge-network-scaling.md#waf
+
+  load-balancer:
+    group: A
+    function: 负载均衡
+    awsService: Elastic Load Balancing（Application Load Balancer）
+    auxServices: [目标组, ALB vended logs]
+    type: infra
+    detector: detectors/load-balancer.ts
+    switch: { var: LB_MODE, values: [nginx, alb], ownedValues: [alb], localTiers: [] }   # 本地档 LB_LOCAL_WORKERS=1|2 是子选项，不写 MODULE_LOAD_BALANCER
+    ownsEnv: [LB_]
+    credentials: optional                  # DescribeTargetHealth 等感知需要
+    prerequisites: []
+    requires:
+      - { rule: DEP-017, when: { LB_ADMIN_AUTH: cognito }, need: ["AUTH_DRIVER=cognito", "LB_HTTPS=true"] }
+      - { rule: DEP-011, when: { LB_MODE: alb }, need: ["AUTH_DRIVER=cognito", "LB_HTTPS=true"], severity: warn }   # 只关闭 F12 的 ALB 认证子功能
+      - { rule: DEP-042, when: { LB_ORIGIN_VERIFY: "on" }, need: ["CDN_ORIGIN_TYPE=alb"] }
+    soft: [tls, dns, cdn, auth, waf, network]
+    conflicts: []
+    authoritative: false
+    multiInstanceSafe: { nginx: true, alb: true }
+    bypass: []
+    stacks: [{ name: main, template: infra/modules/load-balancer.yaml }]
+    baseParams:                            # 定义见 00-ec2-base.md 6.2
+      AlbSecurityGroupId: "${Out.EnvLbSgId}"
+      PublicHttpIngress: "${Out.InfoPublicHttpIngress}"   # LB_LOCK_ORIGIN=on → admin-ip；off → open（与其他声明方取最严格）
+    injects:
+      - { target: autoscaling,      params: { TargetGroupArn: "${Out.EnvLbTgArn}" } }
+      - { target: cdn,              params: { AlbOriginDomainName: "${Out.EnvLbDnsName}" }, when: { CDN_ORIGIN_TYPE: alb } }
+      - { target: dns,              params: { TargetDnsName: "${Out.EnvLbDnsName}", TargetHostedZoneId: "${Out.EnvLbCanonicalHostedZoneId}" }, when: { DNS_TARGET_TYPE: alb } }
+      - { target: auth,             params: { AppOrigins: "+${Out.InfoEntryOrigin}" } }       # http(s)://<ALB DNS>
+      - { target: auth,             params: { AlbCallbackUrls: "${Out.InfoAlbCallbackUrl}" }, when: { LB_ADMIN_AUTH: cognito } }   # https://<域名>/oauth2/idpresponse
+      - { target: identity-pool,    params: { AppOrigins: "+${Out.InfoEntryOrigin}" } }
+      - { target: storage,          params: { AppOrigins: "+${Out.InfoEntryOrigin}" } }
+      - { target: image-processing, params: { OriginBaseUrl: "${Out.InfoEntryOrigin}" } }      # 回调地址的主机（DEP-019）
+      - { target: social-api,       params: { OriginBaseUrl: "${Out.InfoEntryOrigin}" } }      # proxy 集成的回源地址
+      - { target: monitoring,       params: { AlbFullName: "${Out.InfoAlbFullName}", TargetGroupFullName: "${Out.InfoTargetGroupFullName}" } }   # 告警维度
+      - { target: waf, stack: regional, params: { AlbArn: "${Out.EnvLbArn}" } }                 # REGIONAL 范围的 WebACLAssociation
+    # 本栈接收的注入：VpcId、SubnetIds（network）；CertificateArn、DomainName（tls）；CognitoUserPoolArn、CognitoAlbClientId、CognitoDomain（auth）；InstanceId（autoscaling 置空）
+    secretParams: [origin-verify]          # 仅 LB_ORIGIN_VERIFY=on
+    nginxFragments: [infra/modules/load-balancer/nginx/load-balancer-realip.conf.tpl]   # cloudalbum.d/load-balancer-realip.conf：set_real_ip_from <VPC CIDR>
+    hostSetup: infra/modules/load-balancer/host-setup.sh   # 写槽位 slot-alb-hops.inc；LB_LOCAL_WORKERS=2 时改写 cloudalbum_upstream.conf 并启用 cloudalbum-api@3001
+    migration: none
+    probe: { kind: detector, intervalSec: 30 }
+    lab: { compare: runtime-ab, sideBySide: true, hourlyBilled: true, experiments: [rolling-restart, health-fail, latency] }
+    doc: docs/modules/01-edge-network-scaling.md#load-balancer
+
+  autoscaling:
+    group: A
+    function: 弹性伸缩
+    awsService: Amazon EC2 Auto Scaling
+    auxServices: [启动模板, SSM Parameter Store（SecureString 引导配置包）]   # 发布包镜像在工具链栈制品桶的 releases/ 前缀（可选）
+    type: param                            # A·P：DEPLOY_MODE，另有 InstanceLifecyclePort
+    port: InstanceLifecyclePort            # adapters/autoscaling/{single,asg}.ts，非权威
+    switch: { var: DEPLOY_MODE, values: [single, asg], ownedValues: [asg], localTiers: [] }
+    ownsEnv: [DEPLOY_MODE, ASG_]
+    credentials: required                  # 必须是 role（DEP-007）；gen-single 自动并入 iam(role)
+    prerequisites: []
+    requires:
+      - { rule: DEP-007, when: { DEPLOY_MODE: asg }, need: ["IAM_CREDENTIALS=role", "load-balancer"] }
+      # 共享数据库（ASG-002/003：postgres 且 DB_HOST 不在本机）、共享存储（ASG-001：storage(s3) 或 shared-fs(efs)）
+      # 与其余多实例规则 ASG-004～016 不是模块间依赖，条件只写在 rules.ts（总纲 5.1），这里不重复
+    soft: [ami, database, storage, shared-fs, cache, queue, scheduler, secrets, logging, monitoring, shell-access]
+    conflicts: []
+    authoritative: false
+    multiInstanceSafe: { single: true, asg: true }
+    bypass: []
+    stacks: [{ name: main, template: infra/modules/autoscaling.yaml }]
+    baseParams: {}                         # 不改基础栈；L0 实例保留用于回滚
+    injects:
+      - { target: load-balancer, params: { InstanceId: "" } }              # 置空：L0 实例从目标组注销（第 6 节第 6 步）
+      - { target: monitoring,    params: { AsgName: "${Out.EnvAsgName}" } } # 告警与仪表板维度
+    # 本栈接收的注入：SubnetIds（network）；TargetGroupArn（load-balancer）；InstanceProfileName（iam，role 模式）；
+    #   ImageParamArm64、ImageParamX8664（ami，AMI_SOURCE=golden；为空时启动模板引用固定参数 /cloudalbum/<env>/ec2/image-id）；
+    #   KmsKeyArn（kms：scripts/module 写引导配置包 SecureString 时用）
+    secretParams: []                       # 共享密钥随引导配置包分发，不作为栈参数
+    migration: fleet-switch                # 见第 6 节；数据迁移由前置模块完成
+    probe: { kind: active, method: "IMDS target-lifecycle-state + autoscaling:DescribeAutoScalingInstances", intervalSec: 30 }
+    lab: { compare: before-after, hourlyBilled: true, experiments: [stateless-check, scale-out, max-toggle, terminate-drill, refresh] }
+    doc: docs/modules/01-edge-network-scaling.md#autoscaling
+
+  iam:
+    group: B
+    function: 访问 AWS 的凭证
+    awsService: AWS IAM
+    auxServices: [AWS STS]
+    type: adapter
+    port: AwsCredentialsPort                    # ports/aws-credentials.ts；adapters/iam/{none,role,keys}.ts
+    switch: { var: IAM_CREDENTIALS, values: [none, role, keys], ownedValues: [role, keys], localTiers: [] }
+    ownsEnv: [IAM_]
+    credentials: none                           # 本模块就是凭证的提供方
+    version: 1                                 # 写入栈 Outputs.ModuleVersion（CFG-006）
+    requires: []                                # role 模式要求 IMDS 可用（不是模块依赖）
+    authoritative: false                        # 凭证故障由各调用方模块按自己的分类处理
+    multiInstanceSafe: { none: true, role: true, keys: false }   # asg 只允许 role（DEP-007）
+    bypass: []
+    stacks: [{ name: main, template: infra/modules/iam.yaml }]
+    baseParams:
+      InstanceProfileName: "${Out.InfoInstanceProfileName}"   # ec2 栈给实例挂实例配置文件（00-ec2-base.md 6.2）；keys / none 模式下为空
+    injects:
+      - { target: autoscaling, params: { InstanceProfileName: "${Out.InfoInstanceProfileName}" }, when: { IAM_CREDENTIALS: role } }   # 启动模板的实例配置文件
+    secretParams: []
+    migration: null                             # 无业务数据
+    probe: { kind: active, method: "sts:GetCallerIdentity + iam:GetRole(self)", intervalSec: 30 }
+    lab:
+      summary:
+        local: "IAM_CREDENTIALS=none：应用不访问任何 AWS API，进程内不加载 AWS SDK"
+        aws: "role：实例配置文件提供 IMDSv2 临时凭证（ASIA…，自动轮换）；keys：长期访问密钥写在 secrets.env（AKIA…，反面教材，CRED-002）"
+      compare: before-after
+      keyMetrics: ["凭证来源（IMDS 角色 / secrets.env 长期密钥）", "访问密钥前缀 ASIA / AKIA", "凭证剩余有效期", "GetCallerIdentity 返回的主体 ARN"]
+      hourlyBilled: false
+      diagram:
+        before: "flowchart LR; API[api]-.不调用.-xAWS[(AWS API)]"
+        after:  "flowchart LR; API[api]-->IMDS[IMDSv2 角色凭证]-->AWS[(AWS API)]"
+      experiments: [whoami, leak-scan, imds-ssrf, revoke, long-run]
+      badges: { local: "不访问 AWS（无凭证）", aws: "实例角色临时凭证（ASIA…）", keys: "长期访问密钥（AKIA…，反面教材）", degraded: "凭证即将过期或授权检查失败", error: "无法获取 AWS 凭证" }
+    doc: docs/modules/02-identity-security.md#iam
+
+  auth:
+    group: B
+    function: 用户注册登录
+    awsService: Amazon Cognito User Pool
+    auxServices: [AWS Lambda]                   # 触发器，Code.ZipFile 内联，nodejs22.x arm64
+    type: adapter
+    port: AuthPort                              # ports/auth.ts；adapters/auth/{local,cognito}.ts
+    switch: { var: AUTH_DRIVER, values: [local, cognito], ownedValues: [cognito], localTiers: [] }
+    ownsEnv: [AUTH_, COGNITO_]
+    credentials: required                       # Admin* API、DescribeUserPool 探针、bulk 迁移
+    version: 1                                 # 写入栈 Outputs.ModuleVersion（CFG-006）
+    requires:
+      - { rule: DEP-029, when: { COGNITO_LOGIN_MODE: managed }, need: ["cdn | tls | TLS_MODE=letsencrypt"] }   # 受信 HTTPS（cdn 默认证书、ACM 或 Let's Encrypt）
+      - { rule: DEP-031, when: { AUTH_MIGRATION: lazy }, need: ["COGNITO_TRIGGERS=on"] }                        # 迁移 Lambda 是否在 VPC 内由 deployCheck() 检查
+      - { rule: DEP-013, when: { AUTH_DRIVER: cognito }, need: ["EMAIL_DRIVER!=outbox"], severity: warn }      # 提示：Cognito 自己发验证码，outbox 看不到
+    soft: [email, tls, dns, kms]                # email=ses 时改用 SES 发信；自定义域名需 tls(us-east-1) + dns
+    authoritative: true
+    multiInstanceSafe: { local: false, cognito: true }   # local 需共享密钥与共享数据库（ASG-007、ASG-002/003）
+    bypass: []
+    stacks: [{ name: main, template: infra/modules/auth.yaml }]
+    injects:
+      - { target: identity-pool, params: { UserPoolId: "${Out.InfoUserPoolId}", UserPoolClientId: "${Out.EnvCognitoClientId}" } }
+      - { target: load-balancer, params: { CognitoUserPoolArn: "${Out.InfoUserPoolArn}", CognitoAlbClientId: "${Out.InfoAlbClientId}", CognitoDomain: "${Out.EnvCognitoDomain}" } }
+      - { target: social-api,    params: { UserPoolId: "${Out.InfoUserPoolId}", UserPoolClientId: "${Out.EnvCognitoClientId}" } }   # jwt 授权器 / Lambda 授权器的 cognito 分支
+    # 本栈接收的注入：AppOrigins（dns / cdn / load-balancer，"+" 追加）、AlbCallbackUrls（load-balancer）、SesIdentityArn（email）、KmsKeyArn（kms）
+    internalEndpoints:
+      - { path: /internal/legacy-auth, exposure: vpc-hmac, secret: internal-hmac-key, when: { AUTH_MIGRATION: lazy } }
+    secretParams: []                            # client secret 不经参数，由脚本读出后交给 SecretsPort
+    migration: scripts/migrate/auth             # 默认 bulk
+    probe: { kind: active, method: "cognito-idp:DescribeUserPool + JWKS 新鲜度", intervalSec: 30 }
+    lab:
+      summary:
+        local: "本地账号：argon2id 哈希存 users 表，ES256 JWT + JWKS，验证邮件写入本地 outbox"
+        aws: "Cognito User Pool：EC2 不再保存密码哈希；托管登录、MFA；令牌由 User Pool 签发（aws-jwt-verify 校验）"
+      compare: before-after
+      keyMetrics: ["本地库中的密码哈希数量", "登录跳转次数", "auth 段耗时（首次拉取 JWKS vs 缓存）", "前端包体积（Amplify 动态加载）"]
+      hourlyBilled: false
+      diagram:
+        before: "flowchart LR; B[浏览器]-->API[api 本地账号]-->DB[(users 表 argon2id)]"
+        after:  "flowchart LR; B[浏览器]-->COG[Cognito User Pool]; B-->API[api]; API-.JWKS.->COG"
+      experiments: [feature-matrix, cloc, login-storm, brute-force, revoke, cross-instance, token-claims]
+      badges: { local: "本地账号（EC2）", aws: "登录由 Amazon Cognito 提供", degraded: "认证降级", error: "认证不可用" }
+    doc: docs/modules/02-identity-security.md#auth
+
+  identity-pool:
+    group: B
+    function: 终端用户凭临时凭证直传（F14）
+    awsService: Amazon Cognito Identity Pool
+    auxServices: [AWS IAM（Uploader 角色）, Amazon S3（模块自带暂存桶）]
+    type: param                                 # 参数型开关，但带端口
+    port: DirectUploadPort                      # ports/direct-upload.ts；adapters/identity-pool/{none,cognito}.ts
+    switch: { var: IDENTITY_POOL_ID, kind: param }   # 空 = none 驱动（应用自签的前缀令牌，L0）；非空 = cognito 驱动
+    ownsEnv: [IDENTITY_]
+    credentials: required
+    requires:
+      # 省略 when = 本模块启用（IDENTITY_POOL_ID 非空，MODULE_IDENTITY_POOL=on）时生效（总纲 5.1）
+      - { rule: DEP-002, need: ["STORAGE_DRIVER=s3"] }                                              # 原图位置必须在 S3
+      - { rule: DEP-002, when: { IDENTITY_DEV_PROVIDER: "" }, need: ["AUTH_DRIVER=cognito"] }        # 没有开发者认证身份时需要 auth=cognito
+      - { rule: DEP-030, need: [], severity: warn }   # 条件（APP_BASE_URL 以 http:// 开头）写在 rules.ts 的 check()
+    soft: [kms]                                 # 暂存桶 SSE-KMS
+    authoritative: false                        # 故障时退回 none 驱动的前缀令牌，路径头 identity-pool=cognito:error-fallback
+    multiInstanceSafe: { none: true, cognito: true }   # 前缀令牌用共享的 upload-hmac-key（ASG-008 约束其来源）
+    bypass: [identity-pool]                     # 仅 POST /api/uploads/session
+    # 本栈接收的注入：UserPoolId、UserPoolClientId（auth）；AppOrigins（dns / cdn / load-balancer，暂存桶 CORS）；KmsKeyArn（kms）
+    stacks: [{ name: main, template: infra/modules/identity-pool.yaml }]
+    secretParams: []
+    migration: null                             # 无数据迁移；users.identity_id 保留
+    probe: { kind: active, method: "cognito-identity:DescribeIdentityPool + s3:HeadBucket(staging)", intervalSec: 30 }
+    lab:
+      compare: runtime-ab                       # X-Compare-Bypass: identity-pool
+      experiments: [cross-prefix, upload-bench, resume, policy-sim]
+      hourlyBilled: false
+    doc: docs/modules/02-identity-security.md#identity-pool
+
+  secrets:
+    group: B
+    function: 密码与密钥管理
+    awsService: AWS Secrets Manager
+    auxServices: [AWS Lambda]                   # 仅 SECRETS_ROTATION=on；Code.ZipFile 内联，nodejs22.x arm64
+    type: adapter
+    port: SecretsPort                           # ports/secrets.ts；adapters/secrets/{env,secretsmanager}.ts
+    switch: { var: SECRETS_DRIVER, values: [env, secretsmanager], ownedValues: [secretsmanager], localTiers: [] }
+    ownsEnv: [SECRETS_]
+    credentials: required
+    requires: []                                # SECRETS_ROTATION=on 只能配 secretsmanager，由 zod 判别联合（CFG-001）保证
+    soft: [kms, database]                       # CMK 加密；轮换自建 PG 密码
+    authoritative: true
+    multiInstanceSafe: { env: false, secretsmanager: true }   # env 下的来源为 instance，ASG-007/008 约束
+    bypass: []
+    stacks: [{ name: main, template: infra/modules/secrets.yaml }]
+    secretParams: []
+    migration: scripts/migrate/secrets          # secrets.env 中每个值 → 一个 secret；SECRETS_ORIGIN=aws
+    probe: { kind: active, method: "secretsmanager:DescribeSecret（不取值）+ 缓存年龄", intervalSec: 30 }
+    lab:
+      compare: before-after
+      experiments: [leak-scan, rotate-under-load, audit, cache-ttl]
+      hourlyBilled: false
+    doc: docs/modules/02-identity-security.md#secrets
+
+  config:
+    group: B
+    function: 运行时配置与远程开关
+    awsService: AWS Systems Manager Parameter Store
+    auxServices: []
+    type: adapter
+    port: ConfigPort                            # ports/config.ts；adapters/config/{file,ssm}.ts
+    switch: { var: CONFIG_DRIVER, values: [file, ssm], ownedValues: [ssm], localTiers: [] }
+    ownsEnv: [CONFIG_]
+    credentials: required
+    requires: []
+    authoritative: false                        # 读取失败沿用最后一次成功的快照，状态 degraded
+    multiInstanceSafe: { file: false, ssm: true }   # file 只是警告（ASG-012）
+    bypass: []
+    stacks: [{ name: main, template: infra/modules/config.yaml }]
+    secretParams: []
+    migration: scripts/migrate/config           # runtime.json ↔ /cloudalbum/<env>/runtime/*
+    probe: { kind: active, method: "ssm:GetParametersByPath 计数 + 最后刷新时间", intervalSec: 30 }
+    lab:
+      compare: before-after
+      experiments: [propagation, history-rollback, audit, reject-invalid, layers]
+      hourlyBilled: false
+    doc: docs/modules/02-identity-security.md#config
+
+  kms:
+    group: B
+    function: 数据加密密钥
+    awsService: AWS KMS
+    auxServices: []
+    type: adapter
+    port: CryptoPort                            # ports/crypto.ts；adapters/kms/{local,kms}.ts
+    switch: { var: KMS_KEY_ID, kind: param }   # 空 = local 驱动（LOCAL_MASTER_KEY 信封加密，L0 默认）；非空 = kms 驱动
+    ownsEnv: [KMS_, CRYPTO_]
+    credentials: required
+    requires: []                                # 注入目标未启用时没有可注入的栈，不构成依赖
+    orderBefore: [storage, database, shared-fs, secrets]   # RDS、EFS 只能在创建时加密
+    authoritative: true
+    multiInstanceSafe: { local: false, kms: true }   # local 的主密钥来源为 instance 时受 ASG-008 约束
+    bypass: [kms]                               # 跳过数据密钥缓存，仅照片详情
+    stacks: [{ name: main, template: infra/modules/kms.yaml }]
+    injects:
+      - { target: "*", params: { KmsKeyArn: "${Out.InfoKeyArn}" } }   # 所有模板中声明了 KmsKeyArn 参数的已启用模块栈（总纲 3.4）
+    baseParams:                                 # 只在 --apply-to ebs 换卷时，由 replaceInstance() 在分阶段流程中写入（00-ec2-base.md 第 8 节）
+      DataVolumeId: "${Param.NewDataVolumeId}"  # scripts/module 用 CMK 复制快照后建的新卷；不是长期取值
+    # 本栈接收的注入：CloudFrontDistributionArn（cdn，密钥策略允许 CloudFront 经 OAC 解密）
+    secretParams: []
+    migration: scripts/migrate/kms              # 按 EncryptedBlob.keyRef 分批重新加密，可续传
+    probe: { kind: active, method: "kms:DescribeKey（KeyState）", intervalSec: 30 }
+    lab:
+      compare: before-after                     # 数据密钥缓存可用 X-Compare-Bypass: kms 做运行时对比
+      experiments: [disable-demo, decrypt-count, field-read, ciphertext-view, key-file-risk]
+      hourlyBilled: false
+    doc: docs/modules/02-identity-security.md#kms
+
+  storage:
+    group: C
+    function: 照片对象存储
+    awsService: Amazon S3
+    auxServices: [Amazon EventBridge（桶级事件投递）]
+    type: adapter
+    port: StoragePort                      # adapters/storage/{local,s3}.ts；权威端口
+    switch: { var: STORAGE_DRIVER, values: [local, s3, efs], ownedValues: [s3], localTiers: [] }   # efs 归 shared-fs
+    ownsEnv: [STORAGE_S3_]
+    credentials: required
+    version: 1                                 # 写入栈 Outputs.ModuleVersion（CFG-006）
+    prerequisites: []
+    requires: []                           # 依赖 storage(s3) 的规则（DEP-002/003/010/027/034）写在依赖方条目里
+    soft: [kms, cdn]
+    conflicts:
+      - { module: shared-fs, rule: MUTEX-001 }
+      - { rule: MUTEX-004, need: [] }      # 部署范围：原图桶 / 媒体桶的 NotificationConfiguration 只允许 EventBridgeConfiguration（deployCheck() 检查模板）
+    authoritative: true
+    multiInstanceSafe: { local: false, s3: true }
+    bypass: []                             # 权威数据，不做运行时 A/B；另有 lab 命名空间侧路对比
+    stacks: [{ name: main, template: infra/modules/storage.yaml }]
+    injects:                               # D2：本模块作为提供方
+      - { target: cdn,              params: { MediaBucketDomain: "${Out.InfoMediaBucketRegionalDomainName}" } }
+      - { target: image-processing, params: { RawBucketName: "${Out.EnvStorageS3RawBucket}", MediaBucketName: "${Out.EnvStorageS3MediaBucket}" } }
+      - { target: workflow,         params: { RawBucketName: "${Out.EnvStorageS3RawBucket}", MediaBucketName: "${Out.EnvStorageS3MediaBucket}" } }
+      - { target: tagging,          params: { RawBucketName: "${Out.EnvStorageS3RawBucket}" } }
+      - { target: audit,            params: { DataEventBuckets: "${Out.EnvStorageS3RawBucket},${Out.EnvStorageS3MediaBucket}" } }   # trail 的 S3 写数据事件
+    # 本栈接收的注入：KmsKeyArn（kms，target "*"）、CdnDistributionArn（cdn）、AppOrigins（dns / cdn / load-balancer，"+" 追加）
+    migration: scripts/migrate/storage
+    probe: { kind: active, method: "s3:HeadBucket ×2", intervalSec: 30 }
+    billing: [{ resource: "S3 存储、请求与流出流量", dimension: usage }]
+    lab:
+      summary:
+        local: "照片写入 EC2 数据卷 /var/lib/cloudalbum/uploads；上传走 HMAC 签名 URL，Node 流式写盘，Nginx X-Accel-Redirect 发送"
+        aws: "浏览器用预签名 URL 直传 S3 原图桶；缩略图与日报在媒体桶；读取用预签名 GET（或 CloudFront）"
+      compare: before-after
+      sideBySide: true
+      keyMetrics: ["EC2 网卡入站字节（上传）", "数据卷占用增长", "storage 段耗时（写盘 vs 签名）", "POST /api/photos 的 p95"]
+      hourlyBilled: false
+      diagram:
+        before: "flowchart LR; B[浏览器]--PUT-->NG[Nginx]-->API[api]-->EBS[(数据卷 uploads/)]"
+        after:  "flowchart LR; B[浏览器]--预签名 PUT-->S3[(S3 原图桶)]; API[api]-.签名.->B"
+      experiments: [upload-burst, upload-sidebyside, ebs-growth]
+      badges: { local: "存储于 EC2 本地磁盘（EBS）", aws: "存储于 Amazon S3", uploadLocal: "上传到 EC2（签名 URL）", uploadAws: "直传 Amazon S3（预签名 URL）", degraded: "存储降级", error: "存储不可用" }
+    doc: docs/modules/03-data-storage.md#storage
+
+  shared-fs:
+    group: C
+    function: 多实例共享文件系统
+    awsService: Amazon EFS
+    auxServices: []
+    type: adapter
+    port: StoragePort                      # 复用 adapters/storage/local.ts（工厂 shared-fs:efs）；权威端口
+    switch: { var: STORAGE_DRIVER, values: [local, s3, efs], ownedValues: [efs], localTiers: [] }
+    ownsEnv: [EFS_, STORAGE_LOCAL_ROOT]
+    credentials: optional                  # 应用不调用 EFS API；只有 IamAuth=true 的挂载与深度探针需要实例角色
+    prerequisites: []
+    requires: []
+    soft: [kms, iam]
+    conflicts: [{ module: storage, rule: MUTEX-001 }]
+    authoritative: true
+    multiInstanceSafe: { efs: true }
+    bypass: []
+    stacks: [{ name: main, template: infra/modules/shared-fs.yaml }]
+    hostSetup: infra/modules/shared-fs/host-setup.sh
+    systemdDropIns: [infra/modules/shared-fs/systemd/50-shared-fs.conf]
+    # 本栈接收的注入：VpcId、SubnetIds（network，data 子网）、KmsKeyArn（kms，target "*"，必须在创建前，故 kms orderBefore shared-fs）
+    # VPC 绑定模块：network 改变 VpcId 时受 DEP-016 约束
+    migration: scripts/migrate/shared-fs
+    probe: { kind: active, method: "mountinfo(nfs4) + 写-读-删", intervalSec: 30 }
+    billing: [{ resource: "EFS 存储与 Elastic 吞吐读写量", dimension: usage }]
+    lab: { compare: before-after, hourlyBilled: false, experiments: [fs-bench, cross-instance] }
+    doc: docs/modules/03-data-storage.md#shared-fs
+
+  database:
+    group: C
+    function: 关系数据库
+    awsService: Amazon RDS for PostgreSQL
+    auxServices: []
+    type: adapter                          # Knex 方言特例，不设端口（总纲 4.3）；探针在 modules/database-probe.ts
+    switch: { var: DB_DRIVER, values: [sqlite, postgres], ownedValues: [postgres], localTiers: [] }
+    ownsEnv: [DB_]                         # DB_PROXY_ 按最长前缀归 db-proxy（总纲 3.5）
+    credentials: optional                  # 应用用密码连库；只有深度探针 rds:DescribeDBInstances 需要凭证
+    version: 1                                 # 写入栈 Outputs.ModuleVersion（CFG-006）
+    prerequisites: []
+    requires: []
+    soft: [kms, secrets, db-proxy]
+    conflicts: [{ rule: MUTEX-002 }]       # RDS 与 EC2 自建 PostgreSQL 二选一
+    selfHosted:                            # EC2 自建 PostgreSQL（本地档）：命中 match 时不要求 MODULE_DATABASE=on（CFG-004 豁免，C26）
+      driver: postgres
+      installer: scripts/selfhost/postgres.sh
+      match: { DB_HOST: loopback }
+    authoritative: true
+    multiInstanceSafe: { sqlite: false, postgres: true }   # postgres 指向本机时由 ASG-003 拦截
+    bypass: [replica]                      # 仅 GET /api/feed、GET /api/albums/*
+    secretParams: [db-password]            # 仅 secrets 未启用时：RDS 主密码写入 secrets.env 的 DB_PASSWORD；启用后改用 RDS 托管主密码
+    stacks: [{ name: main, template: infra/modules/database.yaml }]
+    injects:                               # D2：本模块作为提供方（参数名以 06 db-proxy 为准）
+      - { target: db-proxy,   params: { DbInstanceIdentifier: "${Out.InfoDbInstanceId}", DbSecretArn: "${Out.EnvDbPasswordSecretArn}" } }
+      - { target: monitoring, params: { DbInstanceId: "${Out.InfoDbInstanceId}" } }   # 告警与仪表板维度
+    # 本栈接收的注入：VpcId、SubnetIds（network，data 子网）；KmsKeyArn（kms，target "*"，必须在创建实例前）；
+    #                 ClientSecurityGroupIds、IamDatabaseAuthentication（db-proxy；后者仅 DB_PROXY_AUTH=iam）
+    # VPC 绑定模块：network 改变 VpcId 时受 DEP-016 约束
+    migration: scripts/migrate/database
+    probe: { kind: active, method: "select 1", intervalSec: 30 }
+    billing:
+      - { resource: "RDS 实例（Multi-AZ 备库与只读副本各按一个实例计）", dimension: hour, hourly: true }
+      - { resource: "RDS 存储与超出部分的备份存储", dimension: usage }
+    lab:
+      summary:
+        local: "SQLite 文件（WAL）在 EC2 数据卷上；本地档：EC2 自建 PostgreSQL"
+        aws: "Amazon RDS for PostgreSQL：托管备份与时间点恢复、可选 Multi-AZ 与只读副本"
+      compare: before-after
+      keyMetrics: ["单查询延迟（select 1）", "并发写评论的 p95", "事件循环延迟 P99", "故障转移期间的中断时长"]
+      hourlyBilled: true
+      diagram:
+        before: "flowchart LR; API[api]-->SQ[(SQLite 文件 · 数据卷)]"
+        after:  "flowchart LR; API[api]-->RDS[(RDS PostgreSQL)]"
+      experiments: [mixed-rw, failover, pitr, conn-storm, replica-read, replica-lag]
+      badges: { local: "SQLite（EBS 文件）", selfHosted: "PostgreSQL（EC2 自建）", aws: "Amazon RDS for PostgreSQL · Multi-AZ {multiAz}", degraded: "数据库降级", error: "数据库不可用" }
+    doc: docs/modules/03-data-storage.md#database
+
+  cache:
+    group: C
+    function: 缓存
+    awsService: Amazon ElastiCache（Valkey / Redis OSS）
+    auxServices: []
+    type: adapter
+    port: CachePort                        # adapters/cache/{none,memory,redis}.ts；非权威端口
+    switch: { var: CACHE_DRIVER, values: [none, memory, redis], ownedValues: [redis], localTiers: [memory] }
+    ownsEnv: [REDIS_, CACHE_MEMORY_]
+    credentials: optional                  # 数据面不需要 IAM；只有深度探针 Describe* 需要凭证
+    version: 1                                 # 写入栈 Outputs.ModuleVersion（CFG-006）
+    prerequisites: []
+    requires: []
+    soft: [secrets, kms]
+    conflicts: [{ rule: MUTEX-003 }]       # ElastiCache 与 EC2 自建 Valkey 二选一
+    selfHosted:                            # EC2 自建 Valkey（本地档）：命中 match 时不要求 MODULE_CACHE=on（CFG-004 豁免，C26）
+      driver: redis
+      installer: scripts/selfhost/valkey.sh
+      match: { REDIS_URL: loopback }
+    authoritative: false                   # 故障时按未命中处理（fail-open），标记 degraded
+    multiInstanceSafe: { none: true, memory: false, redis: true }   # redis 指向本机时同样由 ASG-004 拦截（回环分支）
+    bypass: [cache]
+    secretParams: [redis-auth-token]       # 仅 nodes 模式且 AuthToken=on
+    stacks: [{ name: main, template: infra/modules/cache.yaml }]
+    injects:
+      - { target: monitoring, params: { CacheReplicationGroupId: "${Out.InfoReplicationGroupId}" } }   # 告警与仪表板维度
+    # 本栈接收的注入：VpcId、SubnetIds（network，data 子网）；KmsKeyArn（kms，target "*"；节点静态加密只能在创建时指定）
+    # VPC 绑定模块：network 改变 VpcId 时受 DEP-016 约束
+    probe: { kind: active, method: "PING + INFO replication", intervalSec: 15 }
+    billing:
+      - { resource: "ElastiCache 节点（nodes 模式，副本另计）", dimension: hour, hourly: true }
+      - { resource: "ElastiCache Serverless 存储（有最低计费量）与 ECPU", dimension: usage, hourly: true }
+    lab:
+      summary:
+        local: "无缓存：每次时间线请求都查库（本地档 memory：进程内 LRU；EC2 自建 Valkey）"
+        aws: "ElastiCache cache-aside，TTL 由运行时配置 feedCacheTtlSec 决定；故障时按未命中处理（fail-open）"
+      compare: runtime-ab
+      keyMetrics: ["GET /api/feed 的 p50 / p95", "每请求 database 调用次数", "缓存命中率", "error-bypass 次数"]
+      hourlyBilled: true
+      diagram:
+        before: "flowchart LR; API[api]-->DB[(SQLite/RDS)]"
+        after:  "flowchart LR; API[api]-->C[(ElastiCache)]; API-.miss.->DB[(SQLite/RDS)]"
+      experiments: [feed-read, cache-stampede, ttl-sweep, stale-read, fail-open]
+      badges: { none: "时间线 · 未缓存", local: "时间线 · 进程内缓存 · {outcome}", aws: "时间线 · ElastiCache {outcome}", degraded: "缓存降级（按未命中处理）", error: "缓存不可用" }
+    doc: docs/modules/03-data-storage.md#cache
+
+  social-store:
+    group: C
+    function: 点赞、评论与分享链接存储
+    awsService: Amazon DynamoDB
+    auxServices: []
+    type: adapter
+    port: SocialStorePort                  # adapters/social-store/{db,dynamodb}.ts；权威端口
+    switch: { var: SOCIAL_DRIVER, values: [db, dynamodb], ownedValues: [dynamodb], localTiers: [] }
+    ownsEnv: [SOCIAL_DDB_]
+    credentials: required
+    prerequisites: []
+    requires: []                           # social-api 的 DEP-022（lambda 集成需要 dynamodb）写在 social-api 条目里
+    soft: [kms]
+    conflicts: []
+    authoritative: true
+    multiInstanceSafe: { db: true, dynamodb: true }   # db 驱动的多实例安全性取决于 database（ASG-002）
+    bypass: []                             # 权威数据，不做运行时 A/B；另有 lab 命名空间侧路对比
+    stacks: [{ name: main, template: infra/modules/social-store.yaml }]
+    injects:
+      - { target: social-api, params: { SocialTableName: "${Out.EnvSocialDdbTable}" } }   # lambda 集成的后端与授权器
+    # 本栈接收的注入：KmsKeyArn（kms，target "*"）
+    migration: scripts/migrate/social-store
+    probe: { kind: active, method: "dynamodb:DescribeTable + DescribeTimeToLive", intervalSec: 30 }
+    billing: [{ resource: "DynamoDB 读写请求（按需）、存储、PITR", dimension: request }]
+    lab: { compare: before-after, sideBySide: true, hourlyBilled: false, experiments: [like-storm, like-storm-sbs, naive-counter, share-ttl, throttle] }
+    doc: docs/modules/03-data-storage.md#social-store
+
+  backup:
+    group: C
+    function: 备份
+    awsService: AWS Backup
+    auxServices: []
+    type: infra
+    detector: detectors/backup.ts
+    switch: { var: BACKUP_MODE, values: [local, aws], ownedValues: [aws], localTiers: [] }   # 声明型开关（C1）
+    ownsEnv: [BACKUP_]
+    credentials: optional                  # 感知器读取恢复点；无凭证时置信度 inferred（CRED-004）
+    prerequisites: [region-opt-in]         # 区域资源类型 opt-in（含 DynamoDB 高级功能），由 preflight 自动执行
+    preflight: [backup-region-settings]
+    requires: []
+    soft: [kms, monitoring]
+    conflicts: []
+    authoritative: false
+    bypass: []
+    stacks:
+      - { name: dr,   template: infra/modules/backup-dr.yaml, region: param:DrRegion }   # 灾备区域（CRED-003 例外清单由此生成）
+      - { name: main, template: infra/modules/backup.yaml }
+    baseParams:                            # 仅整机恢复变体：实例本身也带 Backup=true（00-ec2-base.md 6.2）
+      InstanceBackupTag: { value: "true", when: { BACKUP_WHOLE_INSTANCE: "on" } }
+    # 本栈接收的注入：AlarmTopicArn（monitoring）；KmsKeyArn（kms，target "*"：备份库加密）
+    migration: none                        # 没有应用数据迁移
+    probe: { kind: detector, intervalSec: 300 }
+    billing: [{ resource: "备份存储、跨区域复制传输与灾备区域存储", dimension: usage }]
+    lab: { compare: before-after, hourlyBilled: false, experiments: [drill] }
+    doc: docs/modules/03-data-storage.md#backup
+
+  analytics:
+    group: C
+    function: 点击流采集与投递
+    awsService: Amazon Data Firehose
+    auxServices: [Amazon S3（模块自带事件桶）, Amazon Athena（报表查询）, AWS Glue Data Catalog（表结构与分区投影）]
+    type: adapter
+    port: AnalyticsPort                    # adapters/analytics/{db,firehose}.ts；非权威端口
+    switch: { var: ANALYTICS_DRIVER, values: [db, firehose], ownedValues: [firehose], localTiers: [] }
+    ownsEnv: [ANALYTICS_FIREHOSE_, ANALYTICS_S3_, ANALYTICS_ATHENA_]
+    credentials: required
+    prerequisites: []
+    requires: []                           # 事件桶由本栈自建，不依赖 storage
+    soft: [kms]
+    conflicts: []
+    authoritative: false                   # 失败丢弃并计数，状态 degraded，不阻塞请求
+    multiInstanceSafe: { db: true, firehose: true }   # db 驱动的多实例安全性取决于 database
+    bypass: [analytics]                    # 本次请求不上报，测量采集开销
+    stacks: [{ name: main, template: infra/modules/analytics.yaml }]
+    # 本栈接收的注入：KmsKeyArn（kms，target "*"：事件桶与 Firehose 的 SSE-KMS）
+    migration: scripts/migrate/analytics   # 可选 --backfill，默认不迁移
+    probe: { kind: active, method: "firehose:DescribeDeliveryStream", intervalSec: 30 }
+    billing:
+      - { resource: "Firehose 摄入量（每条记录按计费单位向上取整）与格式转换", dimension: usage }
+      - { resource: "Athena 扫描量", dimension: request }
+      - { resource: "事件桶存储与请求", dimension: usage }
+    lab: { compare: before-after, sideBySide: true, hourlyBilled: false, experiments: [clickstream-load, report-scale, freshness, partition-scan, dedupe] }
+    doc: docs/modules/03-data-storage.md#analytics
+
+  image-processing:
+    group: D
+    function: 图片处理（缩略图）
+    awsService: AWS Lambda
+    auxServices: [Amazon EventBridge（规则）, Amazon SQS（模块自带：失败、结果、缓冲）]
+    type: adapter
+    port: ImageProcessorPort                    # ports/image-processor.ts；adapters/image-processing/{inline,worker,lambda}.ts
+    switch: { var: IMAGE_PROCESSOR, values: [inline, worker, lambda], ownedValues: [lambda], localTiers: [worker] }
+    ownsEnv: [IMAGE_]
+    credentials: required                       # 只对 lambda 档生效；inline / worker 不调用 AWS
+    version: 1                                 # 写入栈 Outputs.ModuleVersion（CFG-006）
+    prerequisites: [toolchain]                  # lambda 档的部署包放在工具链栈的制品桶
+    requires:
+      - { rule: DEP-003, when: { IMAGE_PROCESSOR: lambda }, need: ["STORAGE_DRIVER=s3"] }
+      - { rule: DEP-004, when: { IMAGE_PROCESSOR: worker }, need: ["QUEUE_DRIVER!=sync"] }
+      - { rule: DEP-019, when: { IMAGE_PROCESSOR: lambda, IMAGE_RESULT_CHANNEL: callback, DEPLOY_MODE: asg }, need: ["load-balancer"] }
+      - { rule: DEP-020, when: { IMAGE_PROCESSOR: lambda, IMAGE_RESULT_CHANNEL: callback }, need: ["CDN_BASE_URL="], severity: warn }
+      - { rule: DEP-021, when: { IMAGE_PROCESSOR: lambda, IMAGE_RESULT_CHANNEL: callback }, need: [], severity: warn }
+    conflicts:
+      - { rule: MUTEX-005, when: { IMAGE_PROCESSOR: lambda }, need: ["WORKFLOW_DRIVER!=stepfunctions"] }
+    soft: [queue, tagging, kms, tracing, monitoring]
+    authoritative: true                         # lambda 档故障时 complete 返回 503，不偷偷改用 inline
+    multiInstanceSafe: { inline: true, worker: true, lambda: true }   # worker 档在 ASG 下另受 ASG-005（必须 sqs）约束
+    bypass: [image]
+    internalEndpoints:
+      - { path: /internal/hooks/image-processed, exposure: public-hmac, secret: callback-hmac-key, when: { IMAGE_RESULT_CHANNEL: callback } }
+    auxQueues:
+      - { name: image-failed,  purpose: "Lambda 异步调用失败目标 / 规则目标 DLQ / 缓冲队列 redrive" }
+      - { name: image-results, purpose: "IMAGE_RESULT_CHANNEL=queue 的结果回写" }
+      - { name: image-buffer,  purpose: "IMAGE_TRIGGER=buffer-queue 时的缓冲队列（Lambda ESM 消费）" }
+    secretParams: [callback-hmac-key]           # 值已在 secrets.env；secrets=secretsmanager 时只传 ARN
+    injects:
+      - { target: monitoring, params: { ThumbFunctionName: "${Out.InfoFunctionName}" } }
+    # 本栈接收的注入：RawBucketName、MediaBucketName（storage）；OriginBaseUrl（load-balancer）；Tracing（tracing）；KmsKeyArn（kms）
+    systemdDropIns: [infra/modules/image-processing/systemd/50-image-processing.conf]   # worker 的 CPUWeight / Nice / MemoryMax
+    stacks: [{ name: main, template: infra/modules/image-processing.yaml }]
+    migration: scripts/migrate/image-processing # 无数据，只有可选的 --backfill
+    probe: { kind: active, method: "lambda:GetFunctionConfiguration + events:DescribeRule + sqs:GetQueueAttributes", intervalSec: 30 }
+    billing:
+      - { resource: "Lambda 请求与 GB-秒（含 INIT 阶段）", dimension: request }
+      - { resource: "模块自带 SQS 队列的请求", dimension: request }
+    lab:
+      summary:
+        local: "inline：上传完成的请求内由 sharp 生成；本地档 worker：入队后台生成"
+        aws: "S3 → EventBridge → Lambda 生成缩略图，结果经 HMAC 回调或结果队列写回"
+      compare: before-after                     # inline ↔ 当前驱动另有运行时 A/B（bypass=image）
+      keyMetrics: ["POST /api/photos/:id/complete 的 p50 / p95", "EC2 CPU 峰值", "缩略图就绪时间 p95", "冷启动次数"]
+      hourlyBilled: false
+      experiments: [upload-burst, neighbor, cold-start, throttle, failures, cost]
+      badges: { local: "缩略图由 EC2 生成", aws: "缩略图由 AWS Lambda 生成", degraded: "缩略图处理降级", error: "缩略图处理故障" }
+    doc: docs/modules/04-compute-async.md#image-processing
+
+  queue:
+    group: D
+    function: 异步任务队列
+    awsService: Amazon SQS
+    auxServices: []                             # DLQ 属于主服务本身
+    type: adapter
+    port: QueuePort                             # ports/queue.ts；adapters/queue/{sync,memory,sqs}.ts
+    switch: { var: QUEUE_DRIVER, values: [sync, memory, sqs], ownedValues: [sqs], localTiers: [memory] }
+    ownsEnv: [QUEUE_, SQS_]
+    credentials: required
+    version: 1                                 # 写入栈 Outputs.ModuleVersion（CFG-006）
+    requires: []                                # 只需凭证前置与 SQS 端点可达（私有子网由 DEP-009 检查）
+    soft: [kms, monitoring, tracing]
+    authoritative: true                         # sqs 档故障时入队返回 503，不偷偷改成 sync / memory
+    multiInstanceSafe: { sync: true, memory: false, sqs: true }   # memory 在 ASG 下命中 ASG-005
+    bypass: [queue]
+    injects:
+      - { target: monitoring, params: { QueueName: "${Out.InfoQueueName}", DlqName: "${Out.InfoDlqName}" } }
+      - { target: social-api, params: { JobsQueueUrl: "${Out.InfoQueueUrl}" }, when: { SOCIAL_API_INTEGRATION: lambda } }
+    stacks: [{ name: main, template: infra/modules/queue.yaml }]
+    migration: scripts/migrate/queue            # 不迁移消息：切换前 drain()
+    probe: { kind: active, method: "sqs:GetQueueAttributes（主队列 + DLQ）", intervalSec: 30 }
+    billing: [{ resource: "SQS 请求", dimension: request }]
+    lab:
+      summary:
+        local: "sync：任务在请求内当场执行；本地档 memory：api 进程内的 p-queue，重启即丢"
+        aws: "SQS 标准队列 + DLQ，由 cloudalbum-worker 长轮询消费，至少一次投递"
+      compare: before-after                     # sync ↔ sqs 另有运行时 A/B（bypass=queue）
+      keyMetrics: ["POST /api/photos/:id/complete 的 p95", "排空时间", "biz.jobs_lost", "DLQ 深度"]
+      hourlyBilled: false
+      experiments: [upload-burst, poison, dlq-replay]
+      badges: { local: "任务在本机执行", aws: "任务经 Amazon SQS 排队", degraded: "队列有积压或死信", error: "队列不可用" }
+    doc: docs/modules/04-compute-async.md#queue
+
+  notification:
+    group: D
+    function: 通知扇出
+    awsService: Amazon SNS
+    auxServices: [Amazon SQS（模块自带收件队列与订阅级 DLQ）]
+    type: adapter
+    port: NotifierPort                          # ports/notifier.ts；adapters/notification/{db,sns}.ts
+    switch: { var: NOTIFY_DRIVER, values: [db, sns], ownedValues: [sns], localTiers: [] }
+    ownsEnv: [NOTIFY_]
+    credentials: required
+    prerequisites: [confirm-email]              # 管理员与用户都要点击 AWS 的确认订阅邮件
+    requires: []
+    soft: [email, queue, kms, monitoring]
+    authoritative: false                        # 站内信始终由核心写库；SNS 故障只影响站外扇出（degraded）
+    multiInstanceSafe: { db: true, sns: true }
+    bypass: []                                  # 全局状态，不做运行时 A/B；功能对照见 /api/lab/notification/compare
+    auxQueues:
+      - { name: notification-inbox, purpose: "SNS → SQS 扇出的收件队列（原始消息传递）" }
+      - { name: notification-dlq,   purpose: "订阅级 DLQ" }
+    injects:
+      - { target: social-api, params: { NotifyTopicArn: "${Out.InfoTopicArn}" }, when: { SOCIAL_API_INTEGRATION: lambda } }
+    stacks: [{ name: main, template: infra/modules/notification.yaml }]
+    migration: scripts/migrate/notification     # up：为已开通邮件通知的用户创建订阅；down：删除订阅
+    probe: { kind: active, method: "sns:GetTopicAttributes", intervalSec: 30 }
+    billing: [{ resource: "SNS 发布与投递（按协议）", dimension: request }, { resource: "收件队列的 SQS 请求", dimension: request }]
+    lab:
+      summary:
+        local: "站内信 + 逐个调用 EmailPort 发邮件"
+        aws: "一次 Publish，SNS 按 userId / audience 过滤策略扇出到邮件订阅与模块自带的 SQS 收件队列"
+      compare: functional                       # 业务流量切换前 / 切换后；另有功能对照端点
+      keyMetrics: ["一次事件的扇出耗时与接收人数的关系", "EC2 发出的请求数", "被过滤掉的消息数"]
+      hourlyBilled: false
+      experiments: [fanout, filter, compare, worker-stop]
+      badges: { local: "站内通知 + 本地 outbox 邮件", aws: "通知经 Amazon SNS 扇出", degraded: "通知扇出降级", error: "通知主题不可用" }
+    doc: docs/modules/04-compute-async.md#notification
+
+  email:
+    group: D
+    function: 邮件发送
+    awsService: Amazon SES
+    auxServices: [Amazon SNS（模块自带事件主题）, Amazon SQS（模块自带反馈队列）]
+    type: adapter
+    port: EmailPort                             # ports/email.ts；adapters/email/{outbox,ses}.ts
+    switch: { var: EMAIL_DRIVER, values: [outbox, ses], ownedValues: [ses], localTiers: [] }
+    ownsEnv: [EMAIL_, SES_]
+    credentials: required
+    prerequisites: [ses-identity]               # 已验证的发件身份；沙盒期收件人也须验证
+    requires: []
+    soft: [dns, kms, queue, monitoring]
+    authoritative: false                        # SES 故障时邮件记为 failed，不改写 outbox 冒充“已发送”
+    multiInstanceSafe: { outbox: true, ses: true }   # outbox 在 ASG 下 .eml 分散（ASG-011，warn）
+    bypass: []                                  # 对外副作用，不做运行时 A/B；功能对照见 /api/lab/email/compare
+    auxQueues:
+      - { name: email-feedback, purpose: "SES 投递 / 退信 / 投诉事件经 SNS 回流（带 DLQ）" }
+    injects:
+      - { target: auth, params: { SesIdentityArn: "${Out.InfoIdentityArn}" }, when: { EMAIL_FOR_COGNITO: "on" } }
+    stacks: [{ name: main, template: infra/modules/email.yaml }]
+    migration: null                             # 无数据迁移，outbox_emails 原地保留
+    probe: { kind: active, method: "ses:GetAccount + ses:GetEmailIdentity", intervalSec: 30 }
+    billing: [{ resource: "SES 发送封数", dimension: request }, { resource: "反馈通道的 SNS / SQS 请求", dimension: request }]
+    lab:
+      summary:
+        local: "邮件只写进本机 outbox（.eml + outbox_emails），管理员在 /admin/outbox、本人在 /me/outbox 查看"
+        aws: "同一份 MIME 经 SES API 真正发出，退信与投诉经 SNS → SQS 回流"
+      compare: functional
+      keyMetrics: ["是否送达收件箱", "SPF / DKIM / DMARC 结果", "退信回流延迟", "沙盒拒信比例"]
+      hourlyBilled: false
+      experiments: [send-matrix, compare, sandbox, register-latency]
+      badges: { local: "邮件未真正发出（本地 outbox）", aws: "已通过 Amazon SES 发送", degraded: "SES 沙盒 / 发送受限", error: "邮件发送不可用" }
+    doc: docs/modules/04-compute-async.md#email
+
+  scheduler:
+    group: D
+    function: 定时任务
+    awsService: Amazon EventBridge Scheduler
+    auxServices: [Amazon SQS（模块自带 tick 队列与 DLQ）]
+    type: adapter
+    port: SchedulerPort                         # ports/scheduler.ts；adapters/scheduler/{cron,eventbridge}.ts
+    switch: { var: SCHEDULER_DRIVER, values: [cron, eventbridge], ownedValues: [eventbridge], localTiers: [] }
+    ownsEnv: [SCHEDULER_]
+    credentials: required
+    requires:
+      - { rule: DEP-026, when: { SCHEDULER_TARGET: ssm }, need: ["IAM_CREDENTIALS=role"] }   # 托管节点状态由 deployCheck() 查询
+    soft: [database, cache, shell-access, kms, monitoring]   # database / cache 决定 LockPort 范围
+    authoritative: false                        # 调度失败只影响定时任务（degraded），不影响请求路径
+    multiInstanceSafe: { cron: false, eventbridge: true }    # cron 在 ASG 下由 ASG-006 按 LockPort 范围判断
+    bypass: []                                  # lab.heartbeat 双触发即运行时对照
+    auxQueues:
+      - { name: scheduler-tick,     purpose: "EventBridge Scheduler 的目标（模板化目标 SQS SendMessage）" }
+      - { name: scheduler-tick-dlq, purpose: "tick 消息处理失败的 redrive 目标" }
+      - { name: scheduler-dlq,      purpose: "Scheduler 重试用尽后的 DLQ" }
+    stacks: [{ name: main, template: infra/modules/scheduler.yaml }]
+    migration: null                             # job_runs 原地保留
+    probe: { kind: active, method: "scheduler:GetSchedule ×8 + sqs:GetQueueAttributes", intervalSec: 30 }
+    billing: [{ resource: "Scheduler 调用次数", dimension: request }, { resource: "tick 队列的 SQS 请求", dimension: request }]
+    lab:
+      summary:
+        local: "worker 内的 node-cron：worker 不在线就漏跑，多实例时重复执行"
+        aws: "EventBridge Scheduler 把 tick 投进模块自带的 SQS 队列：宕机后补跑，每个计划时刻只执行一次"
+      compare: runtime-ab                       # 仅 lab.heartbeat 双触发；业务任务切换前 / 切换后
+      keyMetrics: ["每个计划时刻的执行次数", "漏跑次数", "触发延迟分布", "skipped-duplicate 数"]
+      hourlyBilled: false
+      experiments: [heartbeat, missed-run, second-worker, dlq-fault]
+      badges: { local: "定时任务由 EC2 上的 node-cron 触发", aws: "定时任务由 EventBridge Scheduler 触发", degraded: "调度漂移或积压", error: "调度不可用" }
+    doc: docs/modules/04-compute-async.md#scheduler
+
+  tagging:
+    group: D
+    function: 图片识别与审核
+    awsService: Amazon Rekognition
+    auxServices: []
+    type: adapter
+    port: TaggerPort                            # ports/tagger.ts；adapters/tagging/{none,rekognition}.ts
+    switch: { var: TAGGER_DRIVER, values: [none, rekognition], ownedValues: [rekognition], localTiers: [] }
+    ownsEnv: [TAGGER_]
+    credentials: required
+    requires:
+      - { rule: DEP-027, when: { TAGGER_INPUT: s3 }, need: ["STORAGE_DRIVER=s3"] }
+    soft: [storage, queue, kms, notification, cdn]
+    authoritative: false                        # 故障时退回基础标签（rekognition:error-basic），状态 degraded
+    multiInstanceSafe: { none: true, rekognition: true }
+    bypass: [tagger]                            # 只在 POST /api/lab/tagger/analyze 上有效
+    injects:
+      - { target: workflow, params: { EnableRekognition: "true" } }   # workflow 状态机打开 Rekognition SDK 集成（06）
+    stacks: [{ name: main, template: infra/modules/tagging.yaml }]     # 只有一条策略
+    migration: scripts/migrate/tagging          # 无数据，只有可选的 --backfill（按调用计费，先 --dry-run）
+    probe: { kind: passive, method: "最近 5 分钟真实调用的成功率与延迟；启动时对 128×128 JPEG 调用一次 DetectLabels", intervalSec: 30 }
+    billing: [{ resource: "Rekognition 图像分析（每张照片 2 次调用）", dimension: request }]
+    lab:
+      summary:
+        local: "只有元数据算出的基础属性标签，审核恒为通过"
+        aws: "DetectLabels + DetectModerationLabels：内容标签可搜索，疑似违规自动复核或拦截"
+      compare: runtime-ab                       # 仅实验端点（bypass=tagger）；业务流程切换前 / 切换后
+      keyMetrics: ["标签命中率", "按标签搜索的召回", "审核拦截与误判数", "每张耗时"]
+      hourlyBilled: false
+      experiments: [eval, upload-and-search, throttle, moderation]
+      badges: { local: "基础属性标签（本地）", aws: "标签来自 Amazon Rekognition", degraded: "标签服务降级（已退回基础标签）", error: "标签服务不可用" }
+    doc: docs/modules/04-compute-async.md#tagging
+
+  social-api:
+    group: D
+    function: API 托管（点赞、评论、分享）
+    awsService: Amazon API Gateway（HTTP API）
+    auxServices: [AWS Lambda（lambda 集成与 Lambda 授权器）]
+    type: param
+    port: null                                  # 参数型：没有端口；感知器 modules/detectors/social-api.ts
+    switch: { var: SOCIAL_API_BASE_URL, kind: param }   # 空 = EC2 上的 Express /social（capabilities 驱动名 express）；非空 = apigw
+    ownsEnv: [SOCIAL_API_]
+    credentials: optional                       # EC2 侧只有控制面探针 apigateway:GET；缺凭证时 CRED-004
+    prerequisites: [toolchain]                  # 仅 lambda 集成或 Lambda 授权器需要部署包
+    requires:
+      - { rule: DEP-022, when: { SOCIAL_API_INTEGRATION: lambda }, need: ["social-store"] }
+      - { rule: DEP-023, when: { SOCIAL_API_AUTHORIZER: jwt }, need: ["auth"] }
+      - { rule: DEP-024, when: { SOCIAL_API_INTEGRATION: lambda }, need: ["SOCIAL_API_AUTHORIZER!=none"] }
+      - { rule: DEP-025, when: { SOCIAL_API_INTEGRATION: lambda }, need: ["notification | queue"], severity: warn }
+    soft: [auth, social-store, notification, queue, tls, cdn, load-balancer, monitoring]
+    authoritative: false                        # 参数型入口；社交数据的权威性在 social-store
+    multiInstanceSafe: { express: true, apigw: true }   # proxy 回源必须指向 ALB（多实例时）
+    bypass: []                                  # 按 URL 的 A/B：Express /social 一直在线
+    secretParams: [origin-verify]               # 与 cdn 共用；值在 secrets.env，没有才生成
+    injects:
+      - { target: monitoring, params: { SocialApiId: "${Out.InfoApiId}" } }
+    # 本栈接收的注入：OriginBaseUrl（load-balancer）；CertificateArn（tls）；UserPoolId、UserPoolClientId（auth）；SocialTableName（social-store）；
+    #   NotifyTopicArn（notification）、JobsQueueUrl（queue）；KmsKeyArn（kms）
+    stacks: [{ name: main, template: infra/modules/social-api.yaml }]
+    migration: null                             # 本模块没有数据；社交数据迁移归 social-store
+    detector: detectors/social-api.ts           # 统计带 X-CloudAlbum-Via: apigw 的请求占比
+    probe: { kind: active, method: "GET {SOCIAL_API_BASE_URL}/social/health（经网关）+ apigateway:GET", intervalSec: 30 }
+    billing: [{ resource: "HTTP API 请求", dimension: request }, { resource: "Lambda 集成 / 授权器的请求与 GB-秒", dimension: request }]
+    lab:
+      summary:
+        local: "Express /social 路由，同源访问，限流与 401 都发生在 EC2"
+        aws: "API Gateway HTTP API：网关层限流、授权、访问日志；lambda 集成时请求不经过 EC2"
+      compare: before-after                     # 另有按 URL 的 A/B（两个入口同时在线）
+      sideBySide: false
+      keyMetrics: ["端到端 p50 / p95", "Latency − IntegrationLatency", "限流时 EC2 实际收到的请求数", "EC2 停机时社交功能是否可用"]
+      hourlyBilled: false
+      experiments: [mixed, compare, throttle, unauth, cold-start, ec2-down]
+      badges: { local: "评论经 Express（EC2）", aws: "评论经 Amazon API Gateway", degraded: "API 网关降级", error: "API 网关不可用" }
+    doc: docs/modules/04-compute-async.md#social-api
+
+  shell-access:
+    group: E
+    function: 运维登录
+    awsService: AWS Systems Manager Session Manager
+    auxServices: []                        # 会话日志组是本模块自建资源；Run Command 只作为 scripts/module 的投递通道
+    type: infra                            # 无端口，只有感知器
+    detector: detectors/shell-access.ts
+    switch: { var: SHELL_ACCESS_MODE, values: [ssh, ssm], ownedValues: [ssm], localTiers: [] }
+    ownsEnv: [SHELL_ACCESS_, SSM_SESSION_]
+    credentials: required                  # 且必须是 role：SSM Agent 不读取 keys 模式的 IAM_KEYS_*
+    prerequisites: []                      # AL2023 官方 AMI 预装 SSM Agent；自制 AMI 需自行安装（ami 模块的配方已包含）
+    requires:
+      - { rule: DEP-001, when: { SHELL_ACCESS_MODE: ssm }, need: ["IAM_CREDENTIALS=role"] }
+    soft: [logging, kms]                   # logging：会话日志可与应用日志联合查询；kms：会话数据与日志组加密
+    conflicts: []
+    authoritative: false
+    bypass: []
+    baseParams: { SshIngressCidr: '' }     # 关闭 22 端口；SHELL_ACCESS_KEEP_SSH=true（过渡期）时 scripts/module 不下发，SEC-003 为预期内 warn
+    hostSetup: infra/modules/shell-access/host-setup.sh   # apply：创建 cloudalbum-ops 与受限 sudoers；revert：删除（00 的 6.9）
+    preflight: [ssm-session-preferences, policy-quota]    # 备份区域级单例文档 SSM-SessionManagerRunShell；托管策略配额
+    stacks: [{ name: main, template: infra/modules/shell-access.yaml }]
+    # 本栈接收的注入：KmsKeyArn（kms，target "*"）。本模块不向其他栈注入
+    probe: { kind: detector, intervalSec: 60 }
+    billing:
+      - { resource: "会话日志（CloudWatch Logs 摄取与存储）", dimension: usage }
+    lab: { compare: before-after, hourlyBilled: false, experiments: [probe-port, ssh-noise, session-audit, private-subnet] }   # 文案见第 11 节
+    doc: docs/modules/05-ops-observability.md#shell-access
+
+  logging:
+    group: E
+    function: 日志
+    awsService: Amazon CloudWatch Logs
+    auxServices: []
+    type: adapter
+    port: LoggerPort                       # adapters/logging/{file,cloudwatch}.ts；只读侧 LogReader 在同一文件；非权威端口
+    switch: { var: LOG_DRIVER, values: [file, cloudwatch], ownedValues: [cloudwatch], localTiers: [] }
+    ownsEnv: [LOG_CW_]
+    credentials: required
+    prerequisites: []
+    requires: []
+    soft: [kms, monitoring]                # kms：日志组加密；monitoring：指标过滤器生成的指标可接告警
+    conflicts: []
+    authoritative: false
+    multiInstanceSafe: { file: false, cloudwatch: true }    # file 只产生 ASG-009 警告
+    bypass: []                             # 不做请求级 A/B；同一查询可在 store=local|cloudwatch 两侧并排执行
+    stacks: [{ name: main, template: infra/modules/logging.yaml }]
+    cwAgentFragment: infra/modules/logging/cwagent.json     # 仅 LOG_CW_SHIPPER=agent 时投递；keys 模式下拒绝（约定 2）
+    hostSetup: infra/modules/logging/host-setup.sh          # 只在 agent 方式下安装 Agent 并 append-config
+    injects:                               # D2：本模块作为提供方
+      - { target: monitoring, params: { LogErrorsNamespace: "${Out.InfoMetricNamespace}" } }   # CloudAlbum/Logs
+    # 本栈接收的注入：KmsKeyArn（kms，target "*"）
+    probe: { kind: active, method: "发送器状态 + logs:DescribeLogStreams", intervalSec: 30 }
+    billing:
+      - { resource: "CloudWatch Logs 摄取、存储与 Logs Insights 扫描", dimension: usage }
+    lab: { compare: before-after, hourlyBilled: false, experiments: [ingest-lag, query-compare, instance-loss, overhead, debug-volume] }   # 文案见第 11 节
+    doc: docs/modules/05-ops-observability.md#logging
+
+  monitoring:
+    group: E
+    function: 指标、告警与仪表板
+    awsService: Amazon CloudWatch
+    auxServices: [Amazon SNS（模块自带告警主题）, CloudWatch Agent]
+    type: adapter
+    port: MetricsPort                      # adapters/monitoring/{local,cloudwatch}.ts；只读侧 MetricsReader；非权威端口
+    switch: { var: METRICS_DRIVER, values: [local, cloudwatch], ownedValues: [cloudwatch], localTiers: [] }
+    ownsEnv: [METRICS_CW_]
+    credentials: required
+    prerequisites: [confirm-email]         # 告警邮件订阅需要收件人确认；单模块冒烟矩阵中标为“需人工”
+    requires: []
+    soft: [logging, kms]
+    conflicts: []
+    authoritative: false
+    multiInstanceSafe: { local: false, cloudwatch: true }   # local 只产生 ASG-010 警告
+    bypass: []                             # 不做请求级 A/B；本地与 CloudWatch 双写，可并排比较
+    stacks: [{ name: main, template: infra/modules/monitoring.yaml }]
+    baseParams: { DetailedMonitoring: "${Param.DetailedMonitoring}" }   # 栈参数，默认 'false'；写入规则见 00 的 6.3
+    cwAgentFragment: infra/modules/monitoring/cwagent.json  # 内存、磁盘（EMF 方式另加 emf 段）；keys 模式下拒绝投放
+    hostSetup: infra/modules/monitoring/host-setup.sh        # 安装 Agent、append-config / remove-config
+    injects:                               # D2：本模块作为提供方
+      - { target: audit,  params: { AlarmTopicArn: "${Out.EnvMetricsCwAlarmTopicArn}" } }   # CloudTrail 指标过滤器告警发到 ops-alarms
+      - { target: backup, params: { AlarmTopicArn: "${Out.EnvMetricsCwAlarmTopicArn}" } }   # 备份 / 复制作业失败通知
+    # 本栈接收的注入（都可选，默认 ''）：KmsKeyArn（kms）；LogErrorsNamespace（logging）；
+    #   AlbFullName、TargetGroupFullName（load-balancer）、AsgName（autoscaling）、DbInstanceId（database）、
+    #   CacheReplicationGroupId（cache）、QueueName、DlqName（queue）、ThumbFunctionName（image-processing）、SocialApiId（social-api）、
+    #   StateMachineArn（workflow，失败执行数告警）
+    probe: { kind: active, method: "最近一次 PutMetricData 成功时间；深度 DescribeAlarms", intervalSec: 30 }
+    billing:
+      - { resource: "CloudWatch 自定义指标、告警、仪表板与 API 调用", dimension: usage }
+    lab: { compare: fault, hourlyBilled: false, experiments: [time-to-alert, kill-test, mem-visibility, resolution, notify-path] }   # 文案见第 11 节
+    doc: docs/modules/05-ops-observability.md#monitoring
+
+  tracing:
+    group: E
+    function: 分布式链路追踪
+    awsService: AWS X-Ray
+    auxServices: [CloudWatch Agent（traces 段）或 ADOT Collector]
+    type: adapter
+    port: TracerPort                       # adapters/tracing/{none,local,xray}.ts；只读侧 TraceReader；非权威端口
+    switch: { var: TRACING_DRIVER, values: [none, local, xray], ownedValues: [xray], localTiers: [local] }
+    ownsEnv: [TRACING_]
+    credentials: required                  # 仅 xray 档调用 AWS（由本机 Collector 用实例角色写 X-Ray；/lab 读 GetTraceSummaries）；none / local 不需要
+    prerequisites: []
+    requires: []
+    soft: [queue, image-processing, workflow, logging]   # 有它们时才看得到跨进程、跨服务的链路
+    conflicts: []
+    authoritative: false
+    multiInstanceSafe: { none: true, local: false, xray: true }   # local：span 文件按实例分散（没有对应的 ASG 规则，只在 /lab 标注）
+    bypass: [tracing]                      # X-Compare-Bypass: tracing → 本次请求不导出 span（总纲 8.3）
+    stacks: [{ name: main, template: infra/modules/tracing.yaml }]   # 只在 xray 档部署；local 是本地档，scripts/module 跳过部署、注入与授权（总纲 9.2 第 1 步）
+    systemdDropIns:                        # local 与 xray 档都投放；none 档不投放，进程完全不加载 OTel
+      - infra/modules/tracing/systemd/50-tracing.conf      # cloudalbum-api 与 cloudalbum-worker；api 的同时复制到 cloudalbum-api@.service.d/（00 的 6.8）
+    cwAgentFragment: infra/modules/tracing/cwagent.json    # 仅 xray 档；keys 模式下拒绝投放（约定 2）
+    hostSetup: infra/modules/tracing/host-setup.sh         # 投放 drop-in；xray 档安装 Agent、检查版本、append-config
+    injects:                               # D2：本模块作为提供方
+      - { target: image-processing, params: { Tracing: Active }, when: { TRACING_DRIVER: xray } }   # Lambda 主动追踪
+      - { target: workflow,         params: { Tracing: Active }, when: { TRACING_DRIVER: xray } }   # 状态机 TracingConfiguration
+    # 本栈接收的注入：无
+    probe: { kind: active, method: "local：span 目录可写与最近导出；xray：本机 Collector 健康 + 导出错误计数", intervalSec: 30 }
+    billing:
+      - { resource: "X-Ray 记录与检索、扫描的 trace 数", dimension: usage }
+    lab: { compare: runtime-ab, hourlyBilled: false, experiments: [walkthrough, slow-hunt, overhead, propagation] }   # 文案见第 11 节
+    doc: docs/modules/05-ops-observability.md#tracing
+
+  audit:
+    group: E
+    function: AWS API 操作审计
+    awsService: AWS CloudTrail
+    auxServices: [Amazon S3（模块自带日志桶）]
+    type: infra                            # 无端口；感知器 + 只读读取器
+    detector: detectors/audit.ts           # 读取器 detectors/audit-reader.ts
+    switch: { var: AUDIT_MODE, values: [app, cloudtrail], ownedValues: [cloudtrail], localTiers: [] }
+    ownsEnv: [CLOUDTRAIL_]                 # AUDIT_RETENTION_DAYS、AUDIT_HASH_CHAIN 是 L0 核心配置，不属于本模块
+    credentials: optional                  # trail 由部署者身份创建、照常记录；应用只在展示时调用 cloudtrail 只读 API（缺凭证 → CRED-004）
+    prerequisites: []
+    requires: []                           # S3 数据事件需要 storage=s3 才有桶可选，但桶名由 storage 注入，不构成硬依赖
+    soft: [storage, monitoring, logging, kms]
+    conflicts: []
+    authoritative: false
+    bypass: []
+    preflight: [existing-trail, policy-quota]   # 已有多区域 / 组织 trail 时默认只读接入（CreateTrail=false）
+    stacks: [{ name: main, template: infra/modules/audit.yaml }]
+    # 本栈接收的注入（都可选，默认 ''）：DataEventBuckets（storage）、AlarmTopicArn（monitoring）、KmsKeyArn（kms）。本模块不向其他栈注入
+    probe: { kind: detector, intervalSec: 60 }
+    billing:
+      - { resource: "CloudTrail 额外副本的管理事件与数据事件", dimension: usage }
+      - { resource: "trail 日志桶的存储与请求；可选的 CloudWatch Logs 投递", dimension: usage }
+    lab: { compare: functional, hourlyBilled: false, experiments: [who-deleted, validate-logs, chain-tamper] }   # 文案见第 11 节
+    doc: docs/modules/05-ops-observability.md#audit
+
+  threat-detection:
+    group: E
+    function: 威胁检测
+    awsService: Amazon GuardDuty
+    auxServices: [Amazon EventBridge（发现转发规则）, Amazon SNS（模块自带 security-findings 主题）]
+    type: infra                            # 无端口；感知器 + 只读读取器
+    detector: detectors/threat-detection.ts   # 读取器 detectors/security-reader.ts
+    switch: { var: THREAT_DETECTION_MODE, values: [fail2ban, guardduty], ownedValues: [guardduty], localTiers: [] }
+    ownsEnv: [GUARDDUTY_]
+    credentials: optional                  # detector 由部署者身份创建、照常检测；应用只在展示与“生成示例发现”按钮时调用 guardduty API（缺凭证 → CRED-004）
+    prerequisites: [confirm-email]         # 发现邮件订阅需要收件人确认
+    requires: []
+    soft: [shell-access, waf, monitoring, kms]
+    conflicts: []
+    authoritative: false
+    bypass: []
+    preflight: [existing-detector, policy-quota]   # 每个账号每个区域只有一个 detector：新建 / 恢复（带 ManagedBy 标签）/ 只读接入
+    stacks: [{ name: main, template: infra/modules/threat-detection.yaml }]
+    # 本栈接收的注入：KmsKeyArn（kms）。本模块不向其他栈注入
+    # 基线（fail2ban + 本地分析器）由 ec2 安装（00 的 6.5）：本组只定义 render-fail2ban.sh、jail、过滤器与动作的内容，不另设 hostSetup
+    probe: { kind: detector, intervalSec: 60 }
+    billing:
+      - { resource: "GuardDuty 按分析的事件与日志量（可选保护计划另计）", dimension: usage }
+    lab: { compare: functional, hourlyBilled: false, experiments: [sample-findings, login-bruteforce, web-scan, dns-canary, ssh-bruteforce] }   # 文案见第 11 节
+    doc: docs/modules/05-ops-observability.md#threat-detection
+
+  compliance:
+    group: F
+    function: 配置合规与漂移检测
+    awsService: AWS Config
+    auxServices: [Config 托管规则, Config 一致性包（可选）, Amazon EventBridge, 模块自带 SNS 主题, 模块自带交付桶]
+    type: infra
+    switch: { var: COMPLIANCE_MODE, values: [local, config], ownedValues: [config], localTiers: [] }
+    ownsEnv: [COMPLIANCE_]
+    credentials: optional                  # 应用只读评估结果；记录器与规则由部署者创建
+    prerequisites: [confirm-email]         # 不合规通知的订阅邮件需要人工确认
+    requires: []                           # 没有模块级硬依赖
+    soft: [audit, shell-access, storage, kms]   # audit：时间线关联 CloudTrail；storage(s3)：桶类规则才有评估对象
+    conflicts: []
+    authoritative: false
+    multiInstanceSafe: { local: true, config: true }
+    bypass: []
+    stacks: [{ name: main, template: infra/modules/compliance.yaml }]
+    preflight: [existing-config-recorder, policy-quota]
+    detector: detectors/compliance.ts
+    migration: null                        # 无业务数据
+    billing:
+      - { resource: "Config 记录的配置项", dimension: usage }
+      - { resource: "Config 规则评估（逐条部署的规则）", dimension: usage }
+      - { resource: "一致性包评估（一致性包内规则对资源的评估，与规则评估分开计价）", dimension: usage }
+      - { resource: "交付桶中的配置快照与历史（S3）", dimension: usage }
+    lab:
+      summary:
+        local: "worker 内的配置自检规则集：读 root 安全快照与应用配置，只看得到本机"
+        aws: "AWS Config 记录项目资源配置，托管规则持续评估，不合规经 EventBridge → SNS 通知"
+      compare: functional                  # 两侧同时运行，对照覆盖矩阵
+      keyMetrics: ["可评估检查项数 / 未知项数", "金丝雀不合规的发现时延", "不合规项数（按严重程度）"]
+      hourlyBilled: false
+      diagram:
+        before: "flowchart LR; SNAP[root 快照]-->CHK[本地自检]-->DB[(compliance_evaluations)]"
+        after:  "flowchart LR; RES[SG/卷/桶/trail]-->REC[Config 记录器]-->RULES[托管规则]-->EB[EventBridge]-->SNS[邮件]"
+      experiments: [coverage-matrix, ssh-canary, host-drift, tls-canary-bucket, timeline]
+      badges: { local: "本地自检（只看得到本机）", aws: "AWS Config 规则", degraded: "合规评估不完整", error: "合规评估不可用" }
+    doc: docs/modules/06-governance-cost.md#compliance
+
+  vuln-scan:
+    group: F
+    function: 漏洞扫描
+    awsService: Amazon Inspector
+    auxServices: [Systems Manager（托管节点、Inventory，Inspector 自动创建的 SSM 关联）, Amazon EventBridge, 模块自带 SNS 主题（可选）]
+    type: infra
+    switch: { var: VULN_SCAN_MODE, values: [dnf, inspector], ownedValues: [inspector], localTiers: [] }
+    ownsEnv: [VULN_SCAN_]
+    credentials: required                  # 必须是 role（DEP-035）
+    prerequisites: [ssm-managed-node]
+    requires:
+      - { rule: DEP-035, when: { VULN_SCAN_MODE: inspector }, need: ["IAM_CREDENTIALS=role"] }
+    soft: [shell-access, image-processing, workflow, social-api, ami]   # Lambda 类模块启用后才有函数可扫
+    conflicts: []
+    authoritative: false
+    multiInstanceSafe: { dnf: true, inspector: true }
+    bypass: []
+    stacks: [{ name: main, template: infra/modules/vuln-scan.yaml }]
+    preflight: [existing-inspector, inspector-deep-paths, policy-quota]
+    detector: detectors/vuln-scan.ts
+    migration: null
+    billing:
+      - { resource: "Inspector EC2 扫描（按实例计）", dimension: usage }
+      - { resource: "Inspector Lambda 扫描（按函数计；代码扫描另计）", dimension: usage }
+    lab:
+      summary:
+        local: "root 定时器每天执行 dnf 安全公告与 npm audit，只扫本机与发布包"
+        aws: "Amazon Inspector 持续扫描本项目的 EC2 与 Lambda，并给出网络可达性发现"
+      compare: functional
+      keyMetrics: ["扫描覆盖的对象数", "从漏洞出现到被发现的时延", "按严重程度的待修复数"]
+      hourlyBilled: false
+      diagram:
+        before: "flowchart LR; T[root 定时器]-->D[dnf updateinfo]; T-->N[npm audit]; D-->J[(vuln-scan.json)]; N-->J"
+        after:  "flowchart LR; SSM[SSM Agent 清单]-->I[Inspector]; L[Lambda 包]-->I; I-->F[发现]; F-->EB[EventBridge]"
+      experiments: [coverage-matrix, canary-package, time-to-detect, network-reachability]
+      badges: { local: "本机扫描（dnf + npm audit）", aws: "Amazon Inspector 持续扫描", degraded: "扫描覆盖不完整", error: "漏洞扫描不可用" }
+    doc: docs/modules/06-governance-cost.md#vuln-scan
+
+  cost:
+    group: F
+    function: 费用护栏与告警
+    awsService: AWS Budgets
+    auxServices: [AWS Cost Explorer, 成本分配标签, 模块自带 SNS 主题]
+    type: infra
+    switch: { var: COST_MODE, values: [local, budgets], ownedValues: [budgets], localTiers: [] }
+    ownsEnv: [COST_]
+    credentials: optional                  # 预算由部署者创建；应用只读预算与（手动刷新时）Cost Explorer
+    prerequisites: [cost-allocation-tag, confirm-email]
+    requires: []
+    soft: []
+    conflicts: []
+    authoritative: false
+    multiInstanceSafe: { local: true, budgets: true }
+    bypass: []
+    stacks: [{ name: main, template: infra/modules/cost.yaml }]   # 预算是全局资源；栈部署在 AWS_REGION（CRED-003 例外：cost 的全局类资源）
+    preflight: [cost-allocation-tag-active, policy-quota]
+    detector: detectors/cost.ts
+    migration: null
+    billing:
+      - { resource: "启用了 Actions 的预算（每月前两个免费，之后按天计费；普通预算的监控与通知免费）", dimension: usage }
+      - { resource: "Cost Explorer API 请求", dimension: request }
+    lab:
+      summary:
+        local: "按 registry 计费维度 × 模块启用时长列出计费资源；学员注明出处抄录单价后才估算金额；长时间空开时提醒"
+        aws: "AWS Budgets 按项目标签与账号总额设月度预算，实际与预测超阈值时邮件 + SNS 告警；Cost Explorer 按模块标签看真实费用"
+      compare: functional
+      keyMetrics: ["计费资源出现在清单中的时延", "费用出现在 Budgets / Cost Explorer 中的时延", "无标签费用占比"]
+      hourlyBilled: false
+      diagram:
+        before: "flowchart LR; REG[registry billing]-->EST[本地估算]; MS[(modules.state.json)]-->EST; EST-->BAR[/lab 顶栏/]"
+        after:  "flowchart LR; BILL[账单数据]-->BUD[Budgets]-->SNS[邮件 / SNS]; BILL-->CE[Cost Explorer]-->BAR[/lab 顶栏/]"
+      experiments: [visibility-lag, tag-coverage, threshold-alert, idle-reminder, budget-action-canary]
+      badges: { local: "本地估算（不是账单）", aws: "AWS Budgets 预算", degraded: "预算数据不完整", error: "预算不可用" }
+    doc: docs/modules/06-governance-cost.md#cost
+
+  db-proxy:
+    group: F
+    function: 数据库连接池
+    awsService: Amazon RDS Proxy
+    auxServices: []
+    type: adapter                          # Knex 连接目标特例，不设端口（总纲 4.3）；探针在 modules/database-probe.ts
+    switch: { var: DB_PROXY_MODE, values: [none, pgbouncer, rds-proxy], ownedValues: [rds-proxy], localTiers: [pgbouncer] }
+    ownsEnv: [DB_PROXY_]                   # 按“最长前缀”从 database 的 DB_ 中划出
+    credentials: required                  # 深度探针；DB_PROXY_AUTH=iam 时生成 IAM 认证令牌
+    prerequisites: []
+    requires:
+      - { rule: DEP-033, when: { DB_PROXY_MODE: pgbouncer }, need: ["DB_DRIVER=postgres"] }
+      - { rule: DEP-033, when: { DB_PROXY_MODE: rds-proxy }, need: ["DB_DRIVER=postgres"] }
+      - { rule: DEP-032, when: { DB_PROXY_MODE: rds-proxy }, need: ["database"] }
+      - { rule: DEP-032, when: { DB_PROXY_MODE: rds-proxy, DB_PROXY_AUTH: secrets }, need: ["SECRETS_DRIVER=secretsmanager"] }
+      - { rule: DEP-036, when: { DB_PROXY_MODE: rds-proxy, DB_PROXY_AUTH: iam }, need: ["database"] }   # + deployCheck：RDS 已开启 IAM 数据库认证、用户已授予 rds_iam
+    conflicts:                             # RDS Proxy 与本机 PgBouncer 二选一；条件按总纲 5.1 写在 registry，loopback 与 selfHosted.match 同义
+      - { rule: MUTEX-006, when: { DB_PROXY_MODE: rds-proxy }, need: ["DB_PROXY_ENDPOINT!=loopback"] }
+    soft: [secrets, kms, monitoring, autoscaling]
+    selfHosted:                            # 本地档：EC2 上自建 PgBouncer（命中 match 时不要求 MODULE_DB_PROXY=on）
+      driver: pgbouncer
+      installer: scripts/selfhost/pgbouncer.sh
+      match: { DB_PROXY_ENDPOINT: loopback }
+    hostSetup: scripts/selfhost/pgbouncer.sh   # 仅 pgbouncer 档；满足总纲 2.7 不变量 5 的“重放契约”
+    authoritative: true                    # 没有端口；经代理的连接失败按 database（权威）处理，不回退直连
+    multiInstanceSafe: { none: true, pgbouncer: true, rds-proxy: true }   # pgbouncer 在 ASG 下由 ASG-016 警告
+    bypass: []
+    stacks: [{ name: main, template: infra/modules/db-proxy.yaml }]
+    injects:
+      - { target: database, params: { ClientSecurityGroupIds: "${Out.InfoProxySecurityGroupId}" } }
+      - { target: database, params: { IamDatabaseAuthentication: "true" }, when: { DB_PROXY_AUTH: iam } }
+    # 本栈接收的注入：VpcId、SubnetIds（network；未启用时为默认 VPC 中至少两个 AZ 的子网）；
+    #                 DbInstanceIdentifier、DbSecretArn（database）；KmsKeyArn（kms，DbSecret 使用 CMK 时授予解密）
+    # VPC 绑定模块：network 改变 VpcId 时受 DEP-016 约束（总纲已列入）
+    preflight: [policy-quota, rds-iam-auth]
+    migration: null                        # 无数据；只切换连接目标
+    probe: { kind: active, method: "经代理 select 1", intervalSec: 30 }
+    billing:
+      - { resource: "RDS Proxy（按底层数据库实例的 vCPU 计时）", dimension: hour, hourly: true }
+      - { resource: "RDS Proxy 附加端点（经 PrivateLink 接口端点计费）", dimension: hour, hourly: true }
+    lab:
+      summary:
+        local: "每个进程一个 Knex 连接池（本地档：EC2 自建 PgBouncer，事务级复用）"
+        aws: "RDS Proxy 托管连接池：事务级复用、故障转移时保持客户端连接、可强制 IAM 认证"
+      compare: before-after
+      keyMetrics: ["数据库实际连接数峰值", "连接风暴下的错误率与建连延迟", "故障转移期间写失败区间", "被钉住（pinned）的会话数"]
+      hourlyBilled: true
+      diagram:
+        before: "flowchart LR; P1[api]-->DB[(RDS)]; P2[api@3001]-->DB; W[worker]-->DB"
+        after:  "flowchart LR; P1[api]-->PX[RDS Proxy]; P2[api@3001]-->PX; W[worker]-->PX; PX-->DB[(RDS)]"
+      experiments: [conn-storm, conn-churn, failover-proxy, pinning, hop-latency]
+      badges: { local: "应用内连接池", aws: "经 RDS Proxy", degraded: "代理目标不健康", error: "代理不可达" }
+    doc: docs/modules/06-governance-cost.md#db-proxy
+
+  workflow:
+    group: F
+    function: 照片处理流程编排
+    awsService: AWS Step Functions
+    auxServices: [AWS Lambda（缩略图任务，复用 image-core）, Amazon EventBridge 规则, 模块自带 SQS 结果队列与 DLQ, Amazon Rekognition（SDK 集成，由 tagging 注入开启）]
+    type: adapter
+    port: WorkflowPort                     # ports/workflow.ts；adapters/workflow/{inline,stepfunctions}.ts
+    switch: { var: WORKFLOW_DRIVER, values: [inline, stepfunctions], ownedValues: [stepfunctions], localTiers: [] }
+    ownsEnv: [WORKFLOW_]
+    credentials: required
+    prerequisites: [toolchain]             # 缩略图任务的部署包在工具链栈的制品桶
+    requires:
+      - { rule: DEP-034, when: { WORKFLOW_DRIVER: stepfunctions }, need: ["STORAGE_DRIVER=s3"] }   # 工具链栈是否存在由 rules.ts 的 deployCheck() 检查
+    conflicts:
+      - { rule: MUTEX-005, when: { WORKFLOW_DRIVER: stepfunctions }, need: ["IMAGE_PROCESSOR!=lambda"] }
+    soft: [tagging, kms, tracing, monitoring]
+    authoritative: true                    # 状态机或结果队列不可用时 complete 返回 503，不改回进程内编排
+    multiInstanceSafe: { inline: true, stepfunctions: true }
+    bypass: []                             # 运行时 A/B 只用 image 键（属于 image-processing）
+    stacks: [{ name: main, template: infra/modules/workflow.yaml }]
+    auxQueues:
+      - { name: workflow-results, purpose: "状态机的结果回写与失败回报（Standard 的执行状态变更事件经 EventBridge 投递；带 DLQ workflow-results-dlq）" }
+      - { name: workflow-start-dlq, purpose: "EventBridge 规则启动执行失败时的 DLQ" }
+    injects:
+      - { target: monitoring, params: { StateMachineArn: "${Out.InfoStateMachineArn}" } }   # 告警维度：失败执行数
+    # 本栈接收的注入：RawBucketName、MediaBucketName（storage）；EnableRekognition（tagging）；KmsKeyArn（kms）；Tracing（tracing，xray 时 Active）
+    migration: null                        # 无数据；切换前排空结果队列（总纲 9.3）
+    probe: { kind: active, method: "states:DescribeStateMachine + events:DescribeRule + sqs:GetQueueAttributes", intervalSec: 30 }
+    billing:
+      - { resource: "Step Functions 状态转换（Standard）或请求与时长（Express）", dimension: usage }
+      - { resource: "缩略图任务 Lambda 的请求与时长", dimension: usage }
+      - { resource: "结果队列 SQS 请求", dimension: request }
+    lab:
+      summary:
+        local: "PhotoPipeline 在进程内按顺序编排，每步写 job_runs；进程倒下要靠对账兜底"
+        aws: "S3 → EventBridge 启动 Step Functions 状态机：缩略图 Lambda →（Rekognition）→ 决定 → 结果队列"
+      compare: before-after
+      keyMetrics: ["缩略图就绪时间 p95", "EC2 CPU 峰值", "worker 停机期间完成的照片数", "重试是否可见"]
+      hourlyBilled: false
+      diagram:
+        before: "flowchart LR; C[complete]-->PP[PhotoPipeline]-->T[缩略图]-->G[标签]-->D[决定]-->DB[(photos)]"
+        after:  "flowchart LR; S3-->EB[EventBridge]-->SF[状态机]-->L[缩略图 Lambda]; SF-->RK[Rekognition]; SF-->Q[结果队列]-->W[worker]-->DB[(photos)]"
+      experiments: [upload-burst, retry-visibility, worker-down, express-vs-standard, redrive]
+      badges: { local: "处理流程由 EC2 进程内编排", aws: "处理流程由 AWS Step Functions 编排", degraded: "编排有失败执行", error: "编排不可用" }
+    doc: docs/modules/06-governance-cost.md#workflow
+
+  ami:
+    group: F
+    function: 启动镜像构建
+    awsService: EC2 Image Builder
+    auxServices: [SSM Parameter Store（AMI ID 参数）, Image Builder 托管的 AL2023 基础镜像, EBS 快照]
+    type: infra
+    switch: { var: AMI_SOURCE, values: [userdata, golden], ownedValues: [golden], localTiers: [] }
+    ownsEnv: [AMI_]
+    credentials: optional                  # 构建实例用本栈自带的实例配置文件；应用只读管道状态
+    prerequisites: []
+    requires:
+      - { rule: DEP-037, when: { AMI_SOURCE: golden }, need: [] }   # 条件见 rules.ts 的 deployCheck()：每个所需架构都有 AVAILABLE 的已晋升黄金 AMI
+    soft: [autoscaling, vuln-scan, network, kms]
+    conflicts: []
+    authoritative: false
+    multiInstanceSafe: { userdata: true, golden: true }
+    bypass: []
+    stacks: [{ name: main, template: infra/modules/ami.yaml }]
+    baseParams: { ImageId: "/cloudalbum/${Env}/ami/promoted-${Arch}" }   # 已晋升黄金 AMI 的参数名；变化即触发替换实例的流程
+    injects:
+      - { target: autoscaling, params: { ImageParamArm64: "/cloudalbum/${Env}/ami/promoted-arm64", ImageParamX8664: "/cloudalbum/${Env}/ami/promoted-x86_64" } }
+    # 本栈接收的注入：VpcId、SubnetId（network，构建实例的安全组与子网；network 未启用时取默认 VPC）；KmsKeyArn（kms，AMI 快照加密）
+    preflight: [golden-image-available, ec2-replacement-staged, policy-quota]
+    detector: detectors/ami.ts
+    migration: null                        # 无应用数据；单实例切换走替换实例的流程
+    billing:
+      - { resource: "构建与测试用 EC2 实例（只在构建期间运行）", dimension: usage }
+      - { resource: "黄金 AMI 的 EBS 快照（每个架构 × 保留的版本数）", dimension: usage }
+    lab:
+      summary:
+        local: "每台实例从 AL2023 公共 AMI 启动，l0-bootstrap.sh 现场安装软件包与发布包"
+        aws: "Image Builder 管道把安装步骤烘焙进黄金 AMI，经测试与晋升后供基础栈与启动模板使用"
+      compare: before-after
+      keyMetrics: ["开机到安装完成的耗时", "开机到 InService 的耗时（ASG）", "实例刷新总时长", "启动时对外部依赖的数量"]
+      hourlyBilled: false
+      diagram:
+        before: "flowchart LR; AMI[AL2023 公共 AMI]-->BOOT[开机]-->DNF[dnf install]-->GH[下载发布包]-->RUN[运行]"
+        after:  "flowchart LR; IB[Image Builder 管道]-->GOLD[黄金 AMI]-->BOOT[开机]-->RUN[运行]"
+      experiments: [boot-time, rebuild-swap, scale-out, dependency-failure, staleness]
+      badges: { local: "AL2023 公共 AMI + 现场安装", aws: "黄金 AMI（EC2 Image Builder）", degraded: "黄金 AMI 未生效或已过期", error: "镜像管道不可用" }
+    doc: docs/modules/06-governance-cost.md#ami

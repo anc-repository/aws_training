@@ -1,0 +1,16 @@
+{
+  "//": "Type-check only (npm run build). These scripts run under tsx and import backend sources directly.",
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "declaration": false,
+    "declarationMap": false,
+    "sourceMap": false,
+    "paths": {
+      "@cloudalbum/contracts": ["../../packages/contracts/src/index.ts"],
+      "@cloudalbum/contracts/registry": ["../../packages/contracts/src/generated/registry.ts"],
+      "@cloudalbum/image-core": ["../../packages/image-core/src/index.ts"]
+    }
+  },
+  "include": ["*.ts"]
+}

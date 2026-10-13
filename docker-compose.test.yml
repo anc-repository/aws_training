@@ -1,0 +1,40 @@
+# 测试用的本地服务（只在开发机 / CI 上运行；不连接任何真实 AWS 账号）
+#   npm run test:services:up      启动
+#   CLOUDALBUM_IT=1 npm test      运行 *.int.test.ts
+#   npm run test:services:down    停止并删除数据
+#
+# - postgres:16  → database 模块（自建档 / RDS 行为的近似）与双方言迁移测试；端口 55432
+# - valkey:8     → cache 模块（redis 驱动、LockPort redis）；端口 56379
+# - localstack   → storage(s3)、queue(sqs)、cognito 以外的 AWS 适配器契约测试；端口 4566（Cognito 需要 LocalStack Pro，用 aws-sdk-client-mock）
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: cloudalbum
+      POSTGRES_PASSWORD: cloudalbum
+      POSTGRES_DB: cloudalbum
+    ports:
+      - "127.0.0.1:55432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U cloudalbum -d cloudalbum"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  valkey:
+    image: valkey/valkey:8
+    ports:
+      - "127.0.0.1:56379:6379"
+    healthcheck:
+      test: ["CMD", "valkey-cli", "ping"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  localstack:
+    image: localstack/localstack:4
+    environment:
+      SERVICES: s3,sqs,lambda,events,sts,iam,cloudfront,elasticache,rds
+      AWS_DEFAULT_REGION: ap-northeast-1
+    ports:
+      - "127.0.0.1:4566:4566"

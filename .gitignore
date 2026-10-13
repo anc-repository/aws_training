@@ -14,3 +14,23 @@ experiments/results/
 Thumbs.db
 .vscode/
 .idea/
+
+# --- CloudAlbum scaffold ---
+# local state of scripts/module and dev data (npm run dev:init)
+.cloudalbum/
+# experiment outputs (experiments/_results is the runner's output dir)
+experiments/_results/
+experiments/_reports/
+# databases
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
+*.db
+# TypeScript / tooling outputs
+*.tsbuildinfo
+.vite/
+.vitest/
+.eslintcache
+lambdas/*/dist/
+lambdas/*/build/
+npm-debug.log*

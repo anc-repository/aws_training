@@ -1,0 +1,22 @@
+{
+  "name": "@cloudalbum/experiments",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Comparison experiments runner (Node implementation, no k6 dependency).",
+  "type": "module",
+  "scripts": {
+    "build": "tsc -b",
+    "exp": "tsx _lib/runner.ts",
+    "exp:report": "tsx _lib/report.ts",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@cloudalbum/contracts": "0.1.0",
+    "ajv": "^8.17.1",
+    "commander": "^14.0.1",
+    "sharp": "^0.34.4",
+    "ulid": "^3.0.1",
+    "undici": "^7.16.0",
+    "yaml": "^2.8.1"
+  }
+}

@@ -1,0 +1,26 @@
+// backend/src/ports/index.ts —— 24 个端口：23 个模块端口 + 内部 LockPort（总纲 §4.1）
+export type * from './common.js';
+export type * from './storage.js';
+export type * from './auth.js';
+export type * from './cache.js';
+export type * from './queue.js';
+export type * from './image-processor.js';
+export type * from './notifier.js';
+export type * from './email.js';
+export type * from './scheduler.js';
+export type * from './social-store.js';
+export type * from './tagger.js';
+export type * from './secrets.js';
+export type * from './config.js';
+export type * from './logger.js';
+export type * from './metrics.js';
+export type * from './tracer.js';
+export type * from './analytics.js';
+export type * from './crypto.js';
+export type * from './aws-credentials.js';
+export type * from './direct-upload.js';
+export type * from './cdn.js';
+export type * from './blocklist.js';
+export type * from './instance-lifecycle.js';
+export type * from './workflow.js';
+export type * from './lock.js';

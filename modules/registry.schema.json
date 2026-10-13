@@ -1,0 +1,279 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://cloudalbum.invalid/schemas/registry.schema.json",
+  "title": "CloudAlbum module registry (modules/registry.yaml)",
+  "description": "Field set fixed by modular-design.md §3.5. Fields not listed here must not be used (e.g. reconfigureOn was removed, systemdDropIn is spelled systemdDropIns).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "modules"],
+  "properties": {
+    "version": { "type": "integer", "minimum": 1 },
+    "modules": {
+      "type": "object",
+      "propertyNames": { "$ref": "#/definitions/moduleId" },
+      "required": [
+        "ec2", "network", "cdn", "dns", "tls", "waf", "load-balancer", "autoscaling",
+        "iam", "auth", "identity-pool", "secrets", "config", "kms",
+        "storage", "shared-fs", "database", "cache", "social-store", "backup", "analytics",
+        "image-processing", "queue", "notification", "email", "scheduler", "tagging", "social-api",
+        "shell-access", "logging", "monitoring", "tracing", "audit", "threat-detection",
+        "compliance", "vuln-scan", "cost", "db-proxy", "workflow", "ami"
+      ],
+      "additionalProperties": { "$ref": "#/definitions/module" }
+    }
+  },
+  "definitions": {
+    "moduleId": {
+      "enum": [
+        "ec2", "network", "cdn", "dns", "tls", "waf", "load-balancer", "autoscaling",
+        "iam", "auth", "identity-pool", "secrets", "config", "kms",
+        "storage", "shared-fs", "database", "cache", "social-store", "backup", "analytics",
+        "image-processing", "queue", "notification", "email", "scheduler", "tagging", "social-api",
+        "shell-access", "logging", "monitoring", "tracing", "audit", "threat-detection",
+        "compliance", "vuln-scan", "cost", "db-proxy", "workflow", "ami"
+      ]
+    },
+    "moduleIdList": { "type": "array", "items": { "$ref": "#/definitions/moduleId" }, "uniqueItems": true },
+    "bypassKey": {
+      "enum": ["cache", "cdn", "queue", "image", "tagger", "tracing", "analytics", "replica", "kms", "identity-pool"]
+    },
+    "secretName": {
+      "description": "SecretPort logical names (§4.2 ports/secrets.ts, 12 names)",
+      "enum": [
+        "jwt-signing-key", "upload-hmac-key", "media-hmac-key", "callback-hmac-key", "internal-hmac-key",
+        "cookie-secret", "local-master-key", "db-password", "redis-auth-token", "origin-verify",
+        "cognito-client-secret", "cloudfront-signing-key"
+      ]
+    },
+    "ruleId": { "type": "string", "pattern": "^(CFG|CRED|DEP|MUTEX|ASG|SEC)-[0-9]{3}$" },
+    "envVar": { "type": "string", "pattern": "^[A-Z][A-Z0-9_]*$" },
+    "envPrefixOrKey": {
+      "description": "A prefix ending with '_' (e.g. STORAGE_S3_) or a full key (e.g. APP_BASE_URL)",
+      "type": "string",
+      "pattern": "^[A-Z][A-Z0-9_]*$"
+    },
+    "when": {
+      "description": "Condition on env variables (all must equal). Only env variables declared in config/schema.ts may appear.",
+      "type": "object",
+      "minProperties": 1,
+      "propertyNames": { "$ref": "#/definitions/envVar" },
+      "additionalProperties": { "type": ["string", "number", "boolean"] }
+    },
+    "needItem": {
+      "description": "Module id, 'a | b', VAR=value, VAR!=value, VAR!= (non-empty), VAR= (empty), VAR=loopback, VAR!=loopback",
+      "type": "string",
+      "minLength": 1
+    },
+    "requireExpr": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["rule", "need"],
+      "properties": {
+        "rule": { "$ref": "#/definitions/ruleId" },
+        "when": { "$ref": "#/definitions/when" },
+        "need": { "type": "array", "items": { "$ref": "#/definitions/needItem" } },
+        "severity": { "enum": ["error", "warn"] }
+      }
+    },
+    "conflictExpr": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["rule"],
+      "properties": {
+        "rule": { "$ref": "#/definitions/ruleId" },
+        "module": { "$ref": "#/definitions/moduleId" },
+        "when": { "$ref": "#/definitions/when" },
+        "need": { "type": "array", "items": { "$ref": "#/definitions/needItem" } }
+      }
+    },
+    "enumSwitch": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["var", "values", "ownedValues", "localTiers"],
+      "properties": {
+        "var": { "$ref": "#/definitions/envVar" },
+        "values": { "type": "array", "minItems": 2, "items": { "type": "string", "minLength": 1 }, "uniqueItems": true },
+        "ownedValues": { "type": "array", "minItems": 1, "items": { "type": "string" }, "uniqueItems": true },
+        "localTiers": { "type": "array", "items": { "type": "string" }, "uniqueItems": true }
+      }
+    },
+    "paramSwitch": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["var", "kind"],
+      "properties": {
+        "var": { "$ref": "#/definitions/envVar" },
+        "kind": { "const": "param" }
+      }
+    },
+    "paramExpr": {
+      "description": "Literal, ${Out.<Output>}, ${<VAR>}, ${Param.<Name>}, ${Env}, ${Arch}; '+' prefix appends to a list parameter",
+      "type": "string"
+    },
+    "stack": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "template"],
+      "properties": {
+        "name": { "type": "string", "pattern": "^[a-z][a-z0-9-]*$" },
+        "template": { "type": "string", "pattern": "^infra/modules/[a-z0-9-]+\\.yaml$" },
+        "region": {
+          "description": "AWS region, or param:<StackParameter> when the region is chosen at deploy time (backup DR vault)",
+          "type": "string",
+          "pattern": "^([a-z]{2}(-[a-z]+)+-[0-9]|param:[A-Za-z][A-Za-z0-9]*)$"
+        },
+        "when": { "oneOf": [{ "type": "string", "minLength": 1 }, { "$ref": "#/definitions/when" }] }
+      }
+    },
+    "inject": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["target", "params"],
+      "properties": {
+        "target": { "oneOf": [{ "$ref": "#/definitions/moduleId" }, { "const": "*" }] },
+        "stack": { "type": "string" },
+        "params": {
+          "type": "object",
+          "minProperties": 1,
+          "additionalProperties": { "$ref": "#/definitions/paramExpr" }
+        },
+        "when": { "$ref": "#/definitions/when" }
+      }
+    },
+    "baseParamValue": {
+      "oneOf": [
+        { "$ref": "#/definitions/paramExpr" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["value", "when"],
+          "properties": { "value": { "type": "string" }, "when": { "$ref": "#/definitions/when" } }
+        }
+      ]
+    },
+    "internalEndpoint": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "exposure", "secret"],
+      "properties": {
+        "path": { "type": "string", "pattern": "^/internal/[a-z0-9/-]+$" },
+        "exposure": { "enum": ["public-hmac", "vpc-hmac"] },
+        "secret": { "$ref": "#/definitions/secretName" },
+        "when": { "$ref": "#/definitions/when" }
+      }
+    },
+    "auxQueue": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "purpose"],
+      "properties": { "name": { "type": "string", "pattern": "^[a-z][a-z0-9-]*$" }, "purpose": { "type": "string" } }
+    },
+    "selfHosted": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["driver", "installer", "match"],
+      "properties": {
+        "driver": { "type": "string" },
+        "installer": { "type": "string", "pattern": "^scripts/selfhost/[a-z0-9-]+\\.sh$" },
+        "match": {
+          "type": "object",
+          "minProperties": 1,
+          "propertyNames": { "$ref": "#/definitions/envVar" },
+          "additionalProperties": { "type": "string" }
+        }
+      }
+    },
+    "probe": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind"],
+      "properties": {
+        "kind": { "enum": ["active", "passive", "local", "detector"] },
+        "method": { "type": "string" },
+        "intervalSec": { "type": "integer", "minimum": 5 }
+      }
+    },
+    "billing": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["resource", "dimension"],
+      "properties": {
+        "resource": { "type": "string", "minLength": 1 },
+        "dimension": { "enum": ["hour", "usage", "request"] },
+        "hourly": { "type": "boolean" }
+      }
+    },
+    "lab": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "summary": { "type": "object", "additionalProperties": { "type": "string" } },
+        "compare": { "enum": ["runtime-ab", "before-after", "functional", "fault"] },
+        "sideBySide": { "type": "boolean" },
+        "keyMetrics": { "type": "array", "items": { "type": "string" } },
+        "hourlyBilled": { "type": "boolean" },
+        "diagram": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": { "before": { "type": "string" }, "after": { "type": "string" } }
+        },
+        "experiments": { "type": "array", "items": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]*$" }, "uniqueItems": true },
+        "badges": { "type": "object" }
+      }
+    },
+    "module": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["group", "function", "awsService", "auxServices", "type", "credentials", "stacks", "lab", "doc"],
+      "properties": {
+        "group": { "enum": ["base", "A", "B", "C", "D", "E", "F"] },
+        "function": { "type": "string", "minLength": 1 },
+        "awsService": { "type": "string", "minLength": 1 },
+        "auxServices": { "type": "array", "items": { "type": "string" } },
+        "type": { "enum": ["adapter", "param", "infra", "base"] },
+        "port": { "oneOf": [{ "type": "string", "pattern": "^[A-Z][A-Za-z]+Port$" }, { "type": "null" }] },
+        "switch": { "oneOf": [{ "$ref": "#/definitions/enumSwitch" }, { "$ref": "#/definitions/paramSwitch" }] },
+        "ownsEnv": { "type": "array", "minItems": 1, "items": { "$ref": "#/definitions/envPrefixOrKey" }, "uniqueItems": true },
+        "credentials": { "enum": ["required", "optional", "none"] },
+        "version": { "type": "integer", "minimum": 1 },
+        "prerequisites": { "type": "array", "items": { "type": "string", "pattern": "^[a-z][a-z0-9-]*$" }, "uniqueItems": true },
+        "requires": { "type": "array", "items": { "$ref": "#/definitions/requireExpr" } },
+        "soft": { "$ref": "#/definitions/moduleIdList" },
+        "conflicts": { "type": "array", "items": { "$ref": "#/definitions/conflictExpr" } },
+        "orderBefore": { "$ref": "#/definitions/moduleIdList" },
+        "authoritative": { "type": "boolean" },
+        "multiInstanceSafe": { "type": "object", "additionalProperties": { "type": "boolean" } },
+        "bypass": { "type": "array", "items": { "$ref": "#/definitions/bypassKey" }, "uniqueItems": true },
+        "stacks": { "type": "array", "minItems": 1, "items": { "$ref": "#/definitions/stack" } },
+        "secretParams": { "type": "array", "items": { "$ref": "#/definitions/secretName" }, "uniqueItems": true },
+        "baseParams": {
+          "description": "A mapping, never a list of parameter names (§3.5)",
+          "type": "object",
+          "additionalProperties": { "$ref": "#/definitions/baseParamValue" }
+        },
+        "injects": { "type": "array", "items": { "$ref": "#/definitions/inject" } },
+        "internalEndpoints": { "type": "array", "items": { "$ref": "#/definitions/internalEndpoint" } },
+        "auxQueues": { "type": "array", "items": { "$ref": "#/definitions/auxQueue" } },
+        "nginxFragments": { "type": "array", "items": { "type": "string", "pattern": "^infra/" } },
+        "systemdDropIns": { "type": "array", "items": { "type": "string", "pattern": "^infra/" } },
+        "cwAgentFragment": { "type": "string", "pattern": "^infra/" },
+        "hostSetup": {
+          "description": "Root host-setup script supporting apply / revert (normally infra/modules/<id>/host-setup.sh; db-proxy reuses scripts/selfhost/pgbouncer.sh)",
+          "type": "string",
+          "pattern": "^(infra|scripts)/.+\\.sh$"
+        },
+        "preflight": { "type": "array", "items": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]*$" }, "uniqueItems": true },
+        "selfHosted": { "$ref": "#/definitions/selfHosted" },
+        "probe": { "$ref": "#/definitions/probe" },
+        "detector": { "type": "string", "pattern": "^detectors/[a-z0-9-]+\\.ts$" },
+        "migration": { "type": ["string", "null"] },
+        "billing": { "type": "array", "items": { "$ref": "#/definitions/billing" } },
+        "lab": { "$ref": "#/definitions/lab" },
+        "doc": { "type": "string", "pattern": "^docs/modules/0[0-6]-[a-z0-9-]+\\.md#[a-z0-9-]+$" }
+      },
+      "if": { "properties": { "type": { "const": "base" } } },
+      "then": { "not": { "anyOf": [{ "required": ["switch"] }, { "required": ["ownsEnv"] }] } },
+      "else": { "required": ["switch", "ownsEnv"] }
+    }
+  }
+}

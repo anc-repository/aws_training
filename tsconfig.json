@@ -1,0 +1,23 @@
+{
+  "//": [
+    "Solution file for `tsc -b` (npm run build). The frontend is type-checked separately (bundler resolution, noEmit).",
+    "compilerOptions.paths is only used by tsx (npm run registry:check / gen:registry / dev scripts) so that",
+    "workspace packages resolve to their TypeScript sources without a prior build; it does not affect `tsc -b`."
+  ],
+  "compilerOptions": {
+    "paths": {
+      "@cloudalbum/contracts": ["./packages/contracts/src/index.ts"],
+      "@cloudalbum/contracts/registry": ["./packages/contracts/src/generated/registry.ts"],
+      "@cloudalbum/image-core": ["./packages/image-core/src/index.ts"]
+    }
+  },
+  "files": [],
+  "references": [
+    { "path": "packages/contracts" },
+    { "path": "packages/image-core" },
+    { "path": "backend" },
+    { "path": "lambdas/image-thumbnail" },
+    { "path": "experiments" },
+    { "path": "scripts/module-cli" }
+  ]
+}

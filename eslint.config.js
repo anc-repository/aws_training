@@ -1,0 +1,65 @@
+// ESLint flat config（ESLint 9 + typescript-eslint）
+//
+// 关键约束（总纲原则 6）：业务代码不认识 AWS——@aws-sdk/* 只允许出现在 backend/src/adapters/、backend/src/modules/detectors/、
+// scripts/、lambdas/（以及测试中的 aws-sdk-client-mock）。前端的 AWS 代码只能经动态 import() 按需加载（总纲 12.1）。
+import js from '@eslint/js';
+import reactHooks from 'eslint-plugin-react-hooks';
+import globals from 'globals';
+import tseslint from 'typescript-eslint';
+
+const awsSdkRestriction = {
+  patterns: [
+    {
+      group: ['@aws-sdk/*'],
+      message: '@aws-sdk/* 只允许出现在 adapters/、modules/detectors/、scripts/、lambdas/（总纲原则 6）；L0 运行时不得加载 AWS SDK。',
+    },
+  ],
+};
+
+export default tseslint.config(
+  {
+    ignores: [
+      '**/node_modules/**',
+      '**/dist/**',
+      '**/build/**',
+      'coverage/**',
+      '.cloudalbum/**',
+      'experiments/_results/**',
+      'experiments/_reports/**',
+      'packages/contracts/src/generated/**',
+      'docs/**',
+    ],
+  },
+  js.configs.recommended,
+  ...tseslint.configs.recommended,
+  {
+    languageOptions: {
+      ecmaVersion: 2023,
+      sourceType: 'module',
+      globals: { ...globals.node },
+    },
+    rules: {
+      '@typescript-eslint/no-unused-vars': ['error', {
+        argsIgnorePattern: '^_', varsIgnorePattern: '^_', caughtErrorsIgnorePattern: '^_', ignoreRestSiblings: true,
+      }],
+      'no-restricted-imports': ['error', awsSdkRestriction],
+    },
+  },
+  {
+    files: [
+      'backend/src/adapters/**',
+      'backend/src/modules/detectors/**',
+      'scripts/**',
+      'lambdas/**',
+      '**/test/**',
+      '**/*.test.ts',
+    ],
+    rules: { 'no-restricted-imports': 'off' },
+  },
+  {
+    files: ['frontend/**/*.{ts,tsx}'],
+    languageOptions: { globals: { ...globals.browser } },
+    plugins: { 'react-hooks': reactHooks },
+    rules: { ...reactHooks.configs.recommended.rules },
+  },
+);

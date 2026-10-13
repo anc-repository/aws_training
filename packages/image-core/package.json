@@ -1,0 +1,23 @@
+{
+  "name": "@cloudalbum/image-core",
+  "version": "0.1.0",
+  "private": true,
+  "description": "sharp rendering core shared by inline / worker / Lambda / workflow thumbnail tasks (fair comparison).",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -b",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "exifr": "^7.1.3",
+    "sharp": "^0.34.4"
+  }
+}
