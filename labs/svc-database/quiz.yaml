@@ -1,0 +1,63 @@
+schema: atl.quiz/v1
+version: 1.0.0
+questions:
+  - id: db-read-replica
+    domain: performance
+    type: single
+    kind: scenario
+    services: [rds]
+    stem: 一个 RDS for PostgreSQL Multi-AZ 实例部署，报表查询拖慢了主库。最合适的做法是？
+    options:
+      - { id: a, text: 把报表查询指向 Multi-AZ 的备库 }
+      - { id: b, text: 创建只读副本，报表查询改连副本的端点 }
+      - { id: c, text: 在前面加 RDS Proxy }
+      - { id: d, text: 把存储从 gp3 改为 io2 }
+    answer: [b]
+    explain: Multi-AZ 实例部署的备库不可读，只用于故障转移；只读副本异步复制、可分担读。RDS Proxy 解决连接数问题，不分担查询负载。
+    relatesTo: replica
+    difficulty: 1
+  - id: db-encrypt
+    domain: secure
+    type: single
+    kind: scenario
+    services: [rds, kms]
+    stem: 一个未加密的 RDS 实例需要改为静态加密。正确的做法是？
+    options:
+      - { id: a, text: 在控制台修改实例，勾选“启用加密” }
+      - { id: b, text: 创建快照 → 复制快照时选择 KMS 密钥加密 → 从加密快照恢复新实例 → 切换应用 }
+      - { id: c, text: 创建加密的只读副本，再提升为主库 }
+      - { id: d, text: 在参数组中设置 rds.force_ssl=1 }
+    answer: [b]
+    explain: 加密只能在创建时决定；未加密实例不能直接创建加密的只读副本；rds.force_ssl 是传输加密，与静态加密无关。
+    relatesTo: inspect
+    difficulty: 2
+  - id: db-pitr
+    domain: resilient
+    type: multi
+    kind: concept
+    services: [rds]
+    stem: 关于 RDS 自动备份与时间点恢复，正确的是哪两项？
+    options:
+      - { id: a, text: 时间点恢复会创建一个新的数据库实例 }
+      - { id: b, text: 自动备份的保留期最长可设为 35 天 }
+      - { id: c, text: 时间点恢复会原地覆盖现有实例的数据 }
+      - { id: d, text: 手动快照会在自动备份保留期结束后自动删除 }
+    answer: [a, b]
+    explain: 时间点恢复总是恢复为新实例（需要指定子网组与安全组）；手动快照不会自动过期，需要手工删除。
+    relatesTo: pitr
+    difficulty: 2
+  - id: db-multi-az-failover
+    domain: resilient
+    type: single
+    kind: scenario
+    services: [rds]
+    stem: 一个 RDS Multi-AZ 实例部署的主库所在 AZ 发生故障。应用通过实例端点连接数据库，需要做什么才能继续写入？
+    options:
+      - { id: a, text: 什么都不用改；RDS 自动故障转移到备库，端点的 DNS 指向新主库，应用重连即可 }
+      - { id: b, text: 手动把应用的连接串改成备库的 IP }
+      - { id: c, text: 从最近的快照恢复一个新实例 }
+      - { id: d, text: 把只读副本提升为主库 }
+    answer: [a]
+    explain: Multi-AZ 的故障转移是自动的，端点不变、DNS 指向新主库；应用只需要具备重连能力。快照恢复与提升副本会丢失数据或需要改连接串。
+    relatesTo: failover
+    difficulty: 1

@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="80" height="80" viewBox="0 0 80 80" role="img" aria-label="ELC">
+  <rect x="2" y="2" width="76" height="76" rx="10" fill="#F4F2EE" stroke="#2B2B2B" stroke-width="2"/>
+  <rect x="2" y="2" width="6" height="76" rx="3" fill="#6B7A2A"/>
+  <circle cx="9.5" cy="9.5" r="4" fill="#6B7A2A"/>
+  <text x="42" y="50" text-anchor="middle" font-family="ui-monospace, Menlo, Consolas, monospace" font-size="22" font-weight="700" fill="#2B2B2B">ELC</text>
+</svg>

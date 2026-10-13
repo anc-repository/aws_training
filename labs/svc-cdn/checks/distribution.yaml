@@ -1,0 +1,142 @@
+# 接入与分配：capability、经分配的入口链、8080 源站监听器的校验头、分配的归属与源站配置
+checks:
+  - id: cap-cdn-healthy
+    title: capabilities 中 cdn 的驱动为 cloudfront，且状态正常
+    type: capability
+    module: cdn
+    drift: { policy: must-hold, monitor: true }
+    assert:
+      - { path: $.driver, op: eq, value: cloudfront, label: 驱动 }
+      - { path: $, op: healthy, label: 状态正常（只允许本卡声明的预期警告） }
+    explain: 本卡的 expectedWarnings 为空，所以 cdn 必须是 ok；若出现 degraded，证据会列出是哪条规则导致的。
+    reproduce: { run: 'curl -s http://127.0.0.1/api/capabilities | jq ".modules.cdn | {driver, status, detail}"', runsOn: lab }
+
+  - id: entry-cloudfront
+    title: 经本会话分配请求 /api/health/live，入口链以 cloudfront 开头
+    type: http-header
+    from: platform
+    target: cdn
+    path: /api/health/live
+    method: GET
+    dependsOn: [distribution-deployed]
+    drift: { policy: must-hold }
+    assert:
+      - { path: $.status, op: eq, value: 200, label: 状态码 }
+      - { path: $.pathSegments.entry, op: startsWith, value: cloudfront, label: 入口链 }
+      - { path: $.headers.x-amz-cf-id, op: exists, label: 带 X-Amz-Cf-Id }
+    corroborate:
+      - id: edge-tls
+        via: builtin
+        name: tls-san
+        args: { expect: '*.cloudfront.net', san: '{{$.tls.subjectAltNames}}' }
+    explain: 目标域名取自 GetDistribution（本会话创建的分配），证书必须是 *.cloudfront.net。
+    reproduce: { run: 'curl -sI "https://{{ var.cdnDomain }}/api/health/live" | grep -iE "^(x-cache|x-cloudalbum-path):"', runsOn: workstation }
+
+  - id: origin-direct-denied
+    title: 不带 X-Origin-Verify 直接访问 8080 源站监听器返回 403
+    type: local
+    on: lab
+    checkId: http-probe
+    args: { target: cdn-origin, path: /api/health/live, method: GET }
+    drift: { policy: must-hold, monitor: true }
+    assert:
+      - { path: '$.responses[0].status', op: eq, value: 403, label: 直连 8080 的状态码 }
+    explain: 8080 只接受带正确 X-Origin-Verify 的请求；从实验机本地访问可以绕开安全组，只测试 Nginx 的校验逻辑。
+    reproduce: { run: 'curl -s -o /dev/null -w "%{http_code}\n" http://127.0.0.1:8080/api/health/live', runsOn: lab }
+    pitfalls: [verify-not-enforced]
+
+  - id: distribution-deployed
+    title: 本次实验创建的分配已部署，源站为实验机公网 DNS:8080（仅 HTTP）并带校验头
+    type: aws-readonly
+    service: cloudfront
+    action: GetDistribution
+    region: global
+    params: { Id: '{{ var.distributionId }}' }
+    ownership:
+      resource: '{{$.Distribution.ARN}}'
+      resourceId: '{{$.Distribution.Id}}'
+      createEvents: [CreateDistribution, CreateDistributionWithTags]
+      mode: session
+      createdAfter: session.readyAt
+      maxWaitMinutes: 20
+    wait: { typicalMinutes: 5, maxMinutes: 20 }
+    pendingIf:
+      - { path: $.Distribution.Status, op: eq, value: InProgress }
+    drift: { policy: must-hold, monitor: true }
+    assert:
+      - { path: $.Distribution.Status, op: eq, value: Deployed, label: 状态 }
+      - { path: $.Distribution.DistributionConfig.Enabled, op: eq, value: true, label: 已启用 }
+      - path: $.Distribution.DistributionConfig.Origins.Items
+        where: { DomainName: '{{ target.publicDns }}', CustomOriginConfig.HTTPPort: 8080, CustomOriginConfig.OriginProtocolPolicy: http-only }
+        op: len_eq
+        value: 1
+        label: 指向实验机 8080、仅 HTTP 的源站
+      - path: '$.Distribution.DistributionConfig.Origins.Items[0].CustomHeaders.Items'
+        where: { HeaderName: X-Origin-Verify }
+        op: len_eq
+        value: 1
+        label: 源站带 X-Origin-Verify 头
+    evidence:
+      redact: ['$..CustomHeaders.Items[*].HeaderValue']
+      keep: ['$.Distribution.Id', '$.Distribution.Status', '$.Distribution.DomainName', '$.Distribution.ARN']
+    explain: 先确认分配是你在本次实验中创建的（本会话的 cdn 模块栈），再核对状态与源站配置。
+    reproduce: { run: 'aws cloudfront get-distribution --id {{ var.distributionId }} --query "Distribution.[Status,DomainName]"', runsOn: workstation }
+    pitfalls: [ip-origin, still-deploying, not-mine]
+    manualFallback:
+      where: { breadcrumb: [CloudFront, 分配, '{{ var.distributionId }}'], region: global }
+      observed:
+        question: “上次修改”一栏显示什么？
+        options:
+          - { value: date, label: 一个日期时间, expected: true }
+          - { value: deploying, label: 正在部署, fixHint: 再等几分钟 }
+      evidence:
+        command: { run: 'aws cloudfront get-distribution --id {{ var.distributionId }}', runsOn: workstation }
+        parse: json
+        assert:
+          - { path: $.Distribution.Status, op: eq, value: Deployed }
+
+  - id: invalidation-completed
+    title: 本分配有一条已完成的失效
+    type: aws-readonly
+    service: cloudfront
+    action: ListInvalidations
+    region: global
+    params: { DistributionId: '{{ var.distributionId }}' }
+    dependsOn: [distribution-deployed]
+    wait: { typicalMinutes: 2, maxMinutes: 10 }
+    pendingIf:
+      - { path: $.InvalidationList.Items, where: { Status: InProgress }, op: len_gte, value: 1 }
+    drift: { policy: once }
+    assert:
+      - { path: $.InvalidationList.Items, where: { Status: Completed }, op: len_gte, value: 1, label: 已完成的失效 }
+    explain: 分配是本会话创建的（distribution-deployed 已确认归属），它的失效记录也只可能来自本会话。
+    reproduce: { run: 'aws cloudfront list-invalidations --distribution-id {{ var.distributionId }} --query "InvalidationList.Items[].[Id,Status,CreateTime]"', runsOn: workstation }
+    manualFallback:
+      where: { breadcrumb: [CloudFront, 分配, '{{ var.distributionId }}', 失效], region: global }
+      observed:
+        question: 失效列表中最近一条的状态是什么？
+        options:
+          - { value: completed, label: 已完成, expected: true }
+          - { value: in-progress, label: 正在进行, fixHint: 失效通常在几分钟内完成 }
+
+  - id: invalidation-vs-versioning
+    title: 比较失效与版本化文件名的生效时间与费用
+    type: manual
+    spec:
+      confirm: 我分别用“创建失效”和“版本化键”更新了同一张缩略图，并观察了生效时间
+      observed:
+        question: 哪一种方式在点击后立即生效，并且不消耗失效配额？
+        options:
+          - { value: versioned, label: 版本化文件名（新的对象键）, expected: true }
+          - { value: invalidation, label: 创建失效, fixHint: 失效需要在全部边缘生效，通常要几十秒到几分钟；版本化键是新对象，第一次请求就回源取新内容 }
+    explain: 原生手动确认：生效时间与配额的差别只能由你在页面上观察（04 §5.2.6）。
+
+pitfalls:
+  - { id: verify-not-enforced, title: 8080 没有校验 X-Origin-Verify, match: [ { checkId: origin-direct-denied, result: fail } ],
+      cause: 8080 监听器没有校验 X-Origin-Verify（源站任何人都能绕过 CloudFront 访问）, fix: 重新执行 scripts/module enable cdn，让脚本重新投放 cdn-origin.conf }
+  - { id: ip-origin, title: 源站填成了 IP, match: [ { checkId: distribution-deployed, assertionLabel: 指向实验机 8080、仅 HTTP 的源站 } ],
+      cause: CloudFront 的自定义源站只接受域名；源站必须是实验机的公网 DNS 名, fix: 不要在控制台修改分配的源站；重新执行 scripts/module enable cdn }
+  - { id: still-deploying, title: 分配仍在部署, match: [ { checkId: distribution-deployed, result: pending } ],
+      cause: 分配的配置正在传播到全部边缘站点, fix: 等待几分钟，平台会自动重测 }
+  - { id: not-mine, title: 分配不属于本会话, match: [ { checkId: distribution-deployed, errorCode: OWNERSHIP_MISMATCH } ],
+      cause: 检测到的分配不是本次实验创建的（或创建它的会话不在本环境的交接链中）, fix: 在本次实验中重新执行 scripts/module enable cdn }

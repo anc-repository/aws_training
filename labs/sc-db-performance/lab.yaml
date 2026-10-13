@@ -1,0 +1,74 @@
+# labs/sc-db-performance/lab.yaml —— 目录占位（status: planned）：只有目录元数据，可在目录中显示但不能开始实验；
+# 取值来自 05 §4 与 cards/ 逐卡文档。步骤、手册、检查与小测在后续批次补齐，届时 status 改为 beta 并提升版本。
+schema: atl.lab/v2
+id: sc-db-performance
+kind: scenario
+version: 0.1.0
+status: planned
+title: 数据库提速
+subtitle: RDS 只读副本 + ElastiCache + RDS Proxy
+summary: 热点读交给缓存，能接受秒级延迟的读交给只读副本，连接风暴交给连接池代理——三种手段各管一段，用路径头看清每个请求走了哪条路
+story: 时间线页面越来越慢：数据库 CPU 在晚高峰居高不下，大部分是重复的时间线与相册列表查询；运营每天还要跑几条重的统计查询，跑的时候前台也跟着变慢；最近为了应对高峰，团队把 api 进程数翻了一倍，结果数据库报 `too many connections`。DBA 给出三条建议：加缓存、加只读副本、加连接池代理。架构师要搞清楚它们分别解决什么问题、各自的代价，以及哪些请求能走哪条路。
+scenario: {question: 一个社交应用的个人主页读请求很多、同一用户的主页会被反复访问，数据允许数秒陈旧；数据库是 RDS for PostgreSQL，CPU 长期偏高。团队希望在改动最小的前提下显著降低数据库负载与响应时间。最合适的是？}
+difficulty: advanced
+estimatedMinutes: 150
+timeLimitMinutes: 240
+extensions: {maxCount: 2, minutesEach: 30}
+retain: {allowed: true, maxHours: 12}
+regions:
+  supported: [ap-northeast-1]
+services:
+- {id: rds, role: primary, module: database}
+- {id: elasticache, role: primary, module: cache}
+- {id: rds-proxy, role: primary, module: db-proxy}
+- {id: secretsmanager, role: context, module: secrets}
+- {id: iam, role: context, module: iam}
+modules:
+  target: [database, cache, db-proxy]
+  start: [iam, secrets, database]
+  context: []
+  related: []
+prerequisites:
+  cards:
+  - {id: svc-database, kind: soft}
+  - {id: svc-cache, kind: soft}
+  - {id: svc-db-proxy, kind: soft}
+startProfile:
+  provisions:
+  - item: iam
+    kind: module
+    basis: credential
+    set: {IAM_CREDENTIALS: role}
+    reason: 平台约定除 svc-ec2、svc-iam 外起始状态都带实例角色（C3）
+  - item: secrets
+    kind: module
+    basis: closure
+    rule: DEP-033
+    set: {SECRETS_DRIVER: secretsmanager}
+  - item: database
+    kind: module
+    basis: closure
+    rule: DEP-032
+    set: {DB_DRIVER: postgres}
+  - item: load-balancer
+    kind: local
+    set: {LB_LOCAL_WORKERS: 2}
+  - {item: preview-direct-https, kind: platform, reason: 预览使用方案 B 的 Let's Encrypt IP 证书（03 §6.2）}
+  platform:
+    preview: {directHttps: 'on'}
+targetModules:
+- id: database
+  driver: postgres
+  fromDriver: postgres
+  params: {CreateReadReplica: true}
+- {id: cache, driver: redis}
+- {id: db-proxy, driver: rds-proxy}
+expectedWarnings: []
+cost: {tier: high}
+provision: {class: C}
+badge: {title: 数据库提速, short: 库提速}
+tracks: [performant, saa-main]
+saa:
+  domains: [performance, resilient, cost]
+tags: [cache, database, db-proxy]
+certificate: {enabled: false}

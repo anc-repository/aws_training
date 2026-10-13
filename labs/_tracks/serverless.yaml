@@ -1,0 +1,32 @@
+# labs/_tracks/serverless.yaml —— Serverless 应用（tracks-and-catalog §4.5）
+schema: atl.track/v2
+id: serverless
+version: 1.0.0
+title: Serverless 应用
+summary: 把分散在原 Lab 4、10、11、12、17 中的无服务器内容连成一条线：事件驱动、按请求付费、托管扩展。
+audience: 想系统掌握事件驱动与无服务器的学员
+stages:
+  - id: s1-events
+    title: 存储与事件驱动
+    items:
+      - { card: svc-storage, role: required }
+      - { card: svc-image-processing, role: required }
+      - { card: svc-queue, role: required }
+      - { card: sc-image-pipeline, role: required }
+      - { card: sc-decoupling, role: required }
+      - { card: svc-tagging, role: optional }
+      - { card: svc-notification, role: optional }
+      - { card: sc-event-fanout, role: optional }
+  - id: s2-api
+    title: 托管 API
+    items:
+      - { card: svc-social-store, role: required }
+      - { card: svc-social-api, role: required }
+      - { card: sc-serverless-api, role: required }
+      - { card: sc-user-identity, role: optional }
+  - id: s3-orchestration
+    title: 编排
+    items:
+      - { group: g-orchestration, title: 编排, pick: 1, cards: [svc-workflow, svc-scheduler] }
+completion: { allowManual: true, minAutoRatio: 0.8, excludeSelfReported: true }
+certificate: { enabled: true, title: Serverless 应用路径证书 }

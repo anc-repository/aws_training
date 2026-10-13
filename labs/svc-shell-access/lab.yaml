@@ -1,0 +1,56 @@
+# labs/svc-shell-access/lab.yaml —— 目录占位（status: planned）：只有目录元数据，可在目录中显示但不能开始实验；
+# 取值来自 05 §4 与 cards/ 逐卡文档。步骤、手册、检查与小测在后续批次补齐，届时 status 改为 beta 并提升版本。
+schema: atl.lab/v2
+id: svc-shell-access
+kind: service
+version: 0.1.0
+status: planned
+service: AWS Systems Manager Session Manager
+function: 运维登录
+title: AWS Systems Manager Session Manager：运维登录
+summary: 把运维登录从“SSH 22 + 密钥对”换成 Session Manager：安全组零管理端口入站，用 IAM 身份登录和端口转发，会话里的命令写进 CloudWatch Logs。
+difficulty: beginner
+estimatedMinutes: 60
+timeLimitMinutes: 90
+extensions: {maxCount: 2, minutesEach: 30}
+retain: {allowed: true, maxHours: 24}
+regions:
+  supported: [ap-northeast-1]
+services:
+- {id: ssm-session-manager, name: AWS Systems Manager Session Manager, role: primary, module: shell-access}
+- {id: iam, role: context, module: iam}
+modules:
+  target: [shell-access]
+  start: [iam]
+  context: []
+  related: [logging]
+prerequisites:
+  cards:
+  - {id: svc-ec2, kind: soft}
+  - {id: svc-iam, kind: soft}
+startProfile:
+  provisions:
+  - item: iam
+    kind: module
+    basis: credential
+    set: {IAM_CREDENTIALS: role}
+    reason: 平台约定除 svc-ec2、svc-iam 外起始状态都带实例角色（C3）
+  - {item: preview-direct-https, kind: platform, reason: 预览使用方案 B 的 Let's Encrypt IP 证书（03 §6.2）}
+  - {item: ssh-from-workstation, kind: platform, reason: SSH 只对工作台私网 /32 开放}
+  platform:
+    preview: {directHttps: 'on'}
+targetModules:
+- {id: shell-access, driver: ssm}
+expectedWarnings: []
+workstation: {required: true, sshFromWorkstation: true}
+platform:
+  accountImpact:
+  - {id: ssm-session-prefs, scope: region, resource: SSM-SessionManagerRunShell 会话首选项, revert: restore, note: 备份后修改，回收时还原}
+cost: {tier: low}
+provision: {class: A}
+badge: {title: 零入站运维}
+tracks: [operations, saa-main, secure]
+saa:
+  domains: [secure]
+tags: [shell-access, ssm-session-manager]
+certificate: {enabled: false}

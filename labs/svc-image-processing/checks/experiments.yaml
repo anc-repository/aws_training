@@ -1,0 +1,24 @@
+checks:
+  - id: exp-before
+    title: upload-burst 的 before（inline）有一条有效结果
+    type: experiment
+    module: image-processing
+    experiment: upload-burst
+    label: before
+    accept: [valid]
+
+  - id: exp-pair
+    title: upload-burst 的 before 与 after 都有效且可比
+    type: experiment
+    module: image-processing
+    experiment: upload-burst
+    pair: [before, after]
+    accept: [valid]
+
+  - id: exp-failures
+    title: failures 的 after（损坏的 JPEG 很快变成 FAILED）有一条有效结果
+    type: experiment
+    module: image-processing
+    experiment: failures
+    label: after
+    accept: [valid]

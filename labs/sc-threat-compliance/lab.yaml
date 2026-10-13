@@ -1,0 +1,62 @@
+# labs/sc-threat-compliance/lab.yaml —— 目录占位（status: planned）：只有目录元数据，可在目录中显示但不能开始实验；
+# 取值来自 05 §4 与 cards/ 逐卡文档。步骤、手册、检查与小测在后续批次补齐，届时 status 改为 beta 并提升版本。
+schema: atl.lab/v2
+id: sc-threat-compliance
+kind: scenario
+version: 0.1.0
+status: planned
+title: 威胁检测与合规
+subtitle: GuardDuty + Inspector + Config + CloudTrail
+summary: 四个“只检测、不阻断”的服务各看一个方向——异常行为、软件漏洞、配置违规、操作记录——用金丝雀逐个触发，再把发现汇总成一条响应链
+story: 安全团队收到一份客户问卷：“你们如何发现被入侵的服务器？如何管理软件漏洞？如何确保配置不偏离基线？发生事件后如何追溯是谁做的？”团队目前只有 fail2ban 和每天一次的 `dnf updateinfo`，而且它们都跑在被保护的那台服务器上。目标是在一个下午搭起一套账号级、与实例解耦的检测体系，并用演练证明每一类问题都能在可接受的时间内被发现、被通知、被追溯。
+scenario: {question: 一家公司有几十个 AWS 账号，安全团队希望在一个地方集中查看 GuardDuty、Inspector、Config 等服务的发现，按严重程度排序，并对照安全最佳实践标准打分。最合适的是？}
+difficulty: intermediate
+estimatedMinutes: 120
+timeLimitMinutes: 180
+extensions: {maxCount: 2, minutesEach: 30}
+retain: {allowed: true, maxHours: 24}
+regions:
+  supported: [ap-northeast-1]
+services:
+- {id: guardduty, role: primary, module: threat-detection}
+- {id: inspector, role: primary, module: vuln-scan}
+- {id: config, role: primary, module: compliance}
+- {id: cloudtrail, role: primary, module: audit}
+- {id: iam, role: context, module: iam}
+modules:
+  target: [audit, threat-detection, vuln-scan, compliance]
+  start: [iam]
+  context: []
+  related: []
+prerequisites:
+  cards:
+  - {id: svc-threat-detection, kind: soft}
+  - {id: svc-vuln-scan, kind: soft}
+  - {id: svc-compliance, kind: soft}
+  - {id: sc-security-baseline, kind: soft}
+  learnerInputs:
+  - {id: alert-email}
+startProfile:
+  provisions:
+  - item: iam
+    kind: module
+    basis: credential
+    set: {IAM_CREDENTIALS: role}
+    reason: 平台约定除 svc-ec2、svc-iam 外起始状态都带实例角色（C3）
+  - {item: preview-direct-https, kind: platform, reason: 预览使用方案 B 的 Let's Encrypt IP 证书（03 §6.2）}
+  platform:
+    preview: {directHttps: 'on'}
+targetModules:
+- {id: audit, driver: cloudtrail}
+- {id: threat-detection, driver: guardduty}
+- {id: vuln-scan, driver: inspector}
+- {id: compliance, driver: config}
+expectedWarnings: []
+cost: {tier: medium}
+provision: {class: A}
+badge: {title: 威胁与合规, short: 合规}
+tracks: [operations, saa-main, secure]
+saa:
+  domains: [secure]
+tags: [audit, compliance, threat-detection, vuln-scan]
+certificate: {enabled: false}

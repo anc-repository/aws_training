@@ -1,0 +1,70 @@
+# labs/sc-decoupling/lab.yaml —— 目录占位（status: planned）：只有目录元数据，可在目录中显示但不能开始实验；
+# 取值来自 05 §4 与 cards/ 逐卡文档。步骤、手册、检查与小测在后续批次补齐，届时 status 改为 beta 并提升版本。
+schema: atl.lab/v2
+id: sc-decoupling
+kind: scenario
+version: 0.1.0
+status: planned
+title: 削峰与重试
+subtitle: SQS + EC2 worker + Lambda + DLQ
+summary: 用 SQS 把“接收请求”和“处理任务”拆开：重启不丢任务、坏消息进死信队列，再让 Lambda 以受控的并发消费同一类积压
+story: 节日活动当晚，用户一次上传几百张照片。为了让上传接口快一点，团队把缩略图改成“先放进进程内队列，后台慢慢做”，接口确实快了——直到一次发布重启，几百个排队中的任务连同“上传成功”通知一起消失；还有一张损坏的图片让 worker 反复崩溃、拖住了后面所有任务。运维希望：任务与进程生命周期解耦；坏消息被隔离且可以重放；高峰期间处理能力可以扩展，但不能把下游压垮。
+scenario: {question: 一个订单系统在促销期间收到的订单量是平时的数十倍，后端库存服务每秒只能处理固定数量的请求，超量时会报错。要求订单一个都不能丢，用户提交后立刻得到“已受理”。最合适的方案是？}
+difficulty: intermediate
+estimatedMinutes: 90
+timeLimitMinutes: 150
+extensions: {maxCount: 2, minutesEach: 30}
+retain: {allowed: true, maxHours: 24}
+regions:
+  supported: [ap-northeast-1]
+services:
+- {id: sqs, role: primary, module: queue}
+- {id: lambda, role: primary, module: image-processing}
+- {id: ec2, role: supporting, module: ec2}
+- {id: eventbridge, role: supporting}
+- {id: iam, role: context, module: iam}
+modules:
+  target: [queue, image-processing]
+  start: [iam, storage]
+  context: []
+  related: []
+prerequisites:
+  cards:
+  - {id: svc-queue, kind: soft}
+  - {id: sc-image-pipeline, kind: soft}
+startProfile:
+  provisions:
+  - item: iam
+    kind: module
+    basis: credential
+    set: {IAM_CREDENTIALS: role}
+    reason: 平台约定除 svc-ec2、svc-iam 外起始状态都带实例角色（C3）
+  - item: storage
+    kind: module
+    basis: closure
+    rule: DEP-003
+    set: {STORAGE_DRIVER: s3}
+  - item: queue
+    kind: local
+    set: {QUEUE_DRIVER: memory}
+  - item: image-processing
+    kind: local
+    set: {IMAGE_PROCESSOR: worker}
+  - {item: preview-direct-https, kind: platform, reason: 预览使用方案 B 的 Let's Encrypt IP 证书（03 §6.2）}
+  platform:
+    preview: {directHttps: 'on'}
+targetModules:
+- {id: queue, driver: sqs, fromDriver: memory}
+- id: image-processing
+  driver: lambda
+  fromDriver: worker
+  set: {IMAGE_TRIGGER: buffer-queue}
+expectedWarnings: []
+cost: {tier: low}
+provision: {class: A}
+badge: {title: 削峰与重试, short: 削峰重试}
+tracks: [resilient, saa-main, serverless]
+saa:
+  domains: [resilient, performance]
+tags: [image-processing, queue]
+certificate: {enabled: false}

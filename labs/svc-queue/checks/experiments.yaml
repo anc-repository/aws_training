@@ -1,0 +1,16 @@
+checks:
+  - id: exp-before
+    title: upload-burst 的 before（memory 队列 + 重启 api）有一条有效结果
+    type: experiment
+    module: queue
+    experiment: upload-burst
+    label: before
+    accept: [valid]
+
+  - id: exp-pair
+    title: upload-burst 的 before 与 after 都有效且可比
+    type: experiment
+    module: queue
+    experiment: upload-burst
+    pair: [before, after]
+    accept: [valid]

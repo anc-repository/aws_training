@@ -1,0 +1,225 @@
+# labs/sc-static-acceleration/lab.yaml —— 静态资源全球加速：S3 + CloudFront（cards/scenario-cards §3.1）
+# 实现核对（implementation-notes platform-content）：
+# - 本轮仓库没有 tls、dns 模块（infra/modules 下没有模板，registry 也未实现），卡片 v1 只保留 cdn（媒体源站 = S3 + OAC）；
+#   自定义域名、us-east-1 的 ACM 证书与 Route 53 Alias 改为手册中的讲解与小测，待模块实现后以条件目标补回（版本 +1）。
+# - 去掉 tls 之后，“直连自签名 → 边缘 ACM 证书”的叙事不再成立，预览方案 B 保持开启（与 svc-cdn 一致），避免预览只能在新标签页打开。
+# - cdn 的公共检查（分配归属、入口链、边缘命中、失效）引用 svc-cdn 的同名检查；变量名与 svc-cdn 保持一致。
+schema: atl.lab/v2
+id: sc-static-acceleration
+kind: scenario
+version: 1.0.0
+status: beta
+title: 静态资源全球加速
+subtitle: S3 + CloudFront（OAC 私有桶 + 边缘缓存）
+summary: 把缩略图与前端资源交给离用户最近的边缘节点，同时让照片桶对公网完全关闭：媒体只能经 CloudFront 的 OAC 读取。
+story: |
+  CloudAlbum 的用户从日本扩展到北美和欧洲。海外用户反馈相册页的缩略图要一张张慢慢出来，首页脚本偶尔加载失败；
+  安全团队要求照片桶不能有任何公开访问路径，所有媒体都必须经 HTTPS 访问；财务希望不要为此增加按小时计费的服务器。
+  架构师需要在一天内给出改造方案并演示效果。
+scenario:
+  question: 一家图片社区把图片存放在 us-east-1 的 S3 桶中，全球用户反馈加载慢。要求：降低全球访问延迟；桶不得公开；使用 media.example.com 与受信证书；运维工作量最少。哪个方案最合适？
+  constraints: [降低全球访问延迟, 照片桶不得公开, 全程 HTTPS, 不增加按小时计费的服务器]
+  antiPatterns:
+    - 用 S3 静态网站端点作 CloudFront 源：只支持 HTTP、不能配合 OAC，桶必须公开读
+    - 用 S3 Transfer Acceleration 代替 CDN：它加速客户端与桶之间的传输，但不缓存内容
+    - 用 Global Accelerator 代替 CDN：它提供静态 Anycast IP，不缓存，也不能直接以 S3 为端点
+    - 用 OAI 访问 SSE-KMS 加密的对象：OAI 不支持，应使用 OAC
+objectives:
+  - { text: 用 OAC 与桶策略的 AWS:SourceArn 让私有桶只对本分配开放, domain: secure, relatesTo: private-bucket }
+  - { text: 说清缓存策略、源请求策略、响应头策略各管什么, domain: performance, relatesTo: enable-cdn }
+  - { text: 用服务端证据证明边缘命中不回源, domain: performance, relatesTo: after }
+  - { text: 比较失效与版本化文件名, domain: cost, relatesTo: invalidation }
+  - { text: 区分 CloudFront、S3 Transfer Acceleration 与 Global Accelerator, domain: performance, relatesTo: after }
+difficulty: intermediate
+estimatedMinutes: 90
+timeLimitMinutes: 150
+extensions: { maxCount: 2, minutesEach: 30 }
+retain: { allowed: true, maxHours: 24, reason: 新增服务都按量计费；分配的禁用与删除较慢，保留后可以在 sc-edge-protection 中继续 }
+regions:
+  supported: [ap-northeast-1]
+  alsoUses: [global, us-east-1]
+services:
+  - { id: cloudfront, name: Amazon CloudFront, role: primary, module: cdn }
+  - { id: s3, name: Amazon S3（媒体桶，起始状态预置）, role: primary, module: storage, creditBy: [private-bucket] }
+  - { id: ec2, name: Amazon EC2（页面与 /assets 的源站）, role: supporting, module: ec2 }
+  - { id: iam, name: AWS IAM（实例角色）, role: context, module: iam }
+modules: { target: [cdn], start: [iam, storage], context: [], related: [tls, dns, waf] }
+prerequisites:
+  cards:
+    - { id: svc-storage, kind: soft }
+    - { id: svc-cdn, kind: soft }
+  learnerInputs: []
+  knowledge: [HTTP 缓存头（Cache-Control、Age、ETag）, S3 桶策略的基本结构]
+
+startProfile:
+  provisions:
+    - { item: iam, kind: module, basis: credential, set: { IAM_CREDENTIALS: role },
+        reason: 平台约定起始状态带实例角色（C3）；storage 本身也是 credentials required，cdn 的失效按钮与 GetDistribution 探针也用它 }
+    - { item: storage, kind: module, basis: closure, rule: DEP-010, set: { STORAGE_DRIVER: s3 },
+        reason: cdn 的 CDN_MEDIA_ORIGIN=s3 依赖 storage(s3)（DEP-010）；照片已在 S3，学员只专注“桶前面加分配” }
+    - { item: mgmt-channel, kind: platform, reason: 实验机挂只含 AmazonSSMManagedInstanceCore 的 CloudAlbumAppRole，是平台的管理通道，不是应用权限 }
+    - { item: workstation, kind: platform, reason: 每个会话一台工作台，用于运行 scripts/module、AWS CLI 与对比实验 }
+    - { item: preview-direct-https, kind: platform, reason: 本版不含 tls 模块，预览方案 B 保持开启（与 svc-cdn 一致） }
+  platform: { preview: { directHttps: 'on' } }
+  reason: 起始状态是 L0 + 实例角色 + storage(s3)（档位 atl/sc-static-acceleration/default）；cdn 是目标模块，不预置
+targetModules:
+  - id: cdn
+    driver: cloudfront
+    set: { CDN_ORIGIN_TYPE: ec2, CDN_MEDIA_ORIGIN: s3, CDN_DIRECT_ACCESS: open }
+    wireStep: enable-cdn
+    adoptsExisting: false
+expectedWarnings: []
+workstation: { required: true, tools: [aws-cli, node, jq], savingsMode: degraded }
+platform:
+  consoleLinks: [cloudfront.distribution, s3.bucket]
+provision: { class: A, cleanupBudgetMinutes: 90 }
+
+variables:
+  distributionId: { label: 分配 ID, from: derived, fillFrom: stack.cdn.EnvCdnDistributionId, pattern: '^E[A-Z0-9]{8,20}$' }
+  cdnDomain: { label: 分配域名, from: derived, fillFrom: stack.cdn.InfoDistributionDomainName, pattern: '^[a-z0-9]+\.cloudfront\.net$' }
+  mediaBucket: { label: 媒体桶, from: derived, fillFrom: stack.storage.EnvStorageS3MediaBucket }
+
+cost:
+  currency: USD
+  tier: low
+  mainDrivers: [CloudFront 请求与出网流量, S3 存储与请求, 超出免费配额的失效路径]
+  basis:
+    - { ref: start-profile, note: 实验机 EC2、EBS、公网 IPv4；起始状态中的 S3 按量计费 }
+    - { ref: workstation, note: 工作台 EC2、EBS、公网 IPv4 }
+    - { key: cf-requests, pricingKey: cloudfront.requests.https, billing: usage, quantity: 1, unit: requests,
+        assumedUsagePerHour: 5000, source: target, whenRetained: false }
+    - { key: cf-dto, pricingKey: cloudfront.dto, billing: usage, quantity: 1, unit: GB,
+        assumedUsagePerHour: 0.2, source: target, whenRetained: false }
+    - { key: cf-invalidation, pricingKey: cloudfront.invalidation, billing: usage, quantity: 1, unit: paths,
+        assumedUsagePerHour: 2, source: learner-created, whenRetained: false, note: 失效路径在每月免费配额内通常不收费 }
+  assumptions:
+    - 从 AWS 源站（S3、EC2）到 CloudFront 的传输不计出网费用；学习流量通常在免费额度内，以官方定价为准
+
+steps:
+  - id: orient
+    type: experiment
+    title: 观察起点：预签名 URL 直连 S3，记录 before
+    manual: manual/10-orient.md
+    experiment: { module: cdn, id: media-load, label: before }
+    panel: terminal-workstation
+    estMinutes: 12
+    checks: [storage-s3-start, media-presigned-baseline, svc-cdn/exp-media-before]
+
+  - id: enable-cdn
+    type: script
+    wire: true
+    title: 创建分配并以 S3 为媒体源站（OAC）
+    manual: manual/20-enable-cdn.md
+    methods: [script]
+    requires: { steps: [orient] }
+    panel: terminal-workstation
+    estMinutes: 25
+    startsBilling: { class: usage, pricingKeys: [cloudfront.requests.https, cloudfront.dto], note: 按量计费 }
+    wait: { typicalMinutes: 8, maxMinutes: 25, text: 三阶段：以 EC2 为源部署分配、注入分配 ARN 生成 OAC 桶策略、媒体源站切到 S3 }
+    checks: [svc-cdn/cap-cdn-healthy, svc-cdn/entry-cloudfront, svc-cdn/distribution-deployed, media-behavior-oac, bucket-policy-oac]
+
+  - id: private-bucket
+    type: cli
+    title: 证明桶仍然私有，媒体只能经 CloudFront 读取
+    manual: manual/30-private-bucket.md
+    requires: { steps: [enable-cdn] }
+    panel: terminal-workstation
+    estMinutes: 12
+    checks: [bucket-not-public, bucket-bpa, media-url-cdn, svc-cdn/edge-cache-observed]
+
+  - id: after
+    type: experiment
+    title: 记录 after：边缘缓存后的源站负载
+    manual: manual/40-after.md
+    experiment: { module: cdn, id: media-load, label: after }
+    requires: { steps: [enable-cdn] }
+    panel: terminal-workstation
+    estMinutes: 12
+    checks: [svc-cdn/exp-media-pair]
+
+  - id: invalidation
+    type: cli
+    title: 失效与版本化文件名
+    manual: manual/50-invalidation.md
+    requires: { steps: [enable-cdn] }
+    panel: terminal-workstation
+    estMinutes: 15
+    checks: [svc-cdn/invalidation-completed, svc-cdn/invalidation-vs-versioning]
+
+finalChecks:
+  - no-world-ssh
+  - { ref: svc-cdn/cap-cdn-healthy, as: final-cdn-healthy }
+  - { ref: bucket-not-public, as: final-bucket-not-public }
+
+experiments:
+  - module: cdn
+    id: media-load
+    labels:
+      - { id: before, role: baseline, requires: { cdn: direct } }
+      - { id: after, role: treatment, requires: { cdn: cloudfront } }
+    pairs: [[before, after]]
+    required: true
+    runner: workstation
+    allowSimulatedBaseline: true
+    corroboration: { minServerRatio: 0.9 }
+  - { module: cdn, id: ttfb, labels: [before, after], required: false, runner: workstation }
+
+quiz: { file: quiz.yaml, draw: 3 }
+badge: { title: 全球加速, icon: assets/badge.svg }
+tracks: [networking, performant, saa-main]
+
+cleanup:
+  summary: 结束实验后，平台先禁用再删除分配（需要数分钟），并删除缓存策略、响应头策略、OAC 与 CloudFront Function；媒体桶随 storage 一起清空后删除。
+  autoReclaim: true
+  dataRisk: [上传的照片随桶删除；报告中保留证据摘要]
+  learnerCreatedHints:
+    - { resourceType: 'AWS::CloudFront::Distribution', how: 先禁用，状态变为已部署后再删除 }
+  verify:
+    - svc-cdn/dist-gone
+
+saa:
+  domains: [performance, secure, cost]
+  topics:
+    - { id: oac, title: OAC 与 OAI；只允许 CloudFront 访问 S3 的桶策略, domain: secure, relatesTo: private-bucket }
+    - { id: three-policies, title: 缓存策略、源请求策略、响应头策略的分工, domain: performance, relatesTo: enable-cdn }
+    - { id: invalidation, title: 失效与版本化文件名；失效的计费, domain: cost, relatesTo: invalidation }
+    - { id: edge-cert, title: CloudFront 使用的 ACM 证书必须在 us-east-1；Route 53 Alias 与 CNAME, domain: secure }
+    - { id: accelerators, title: CloudFront、S3 Transfer Acceleration、Global Accelerator 的对比, domain: performance, relatesTo: after }
+  confusables:
+    - { a: OAC, b: OAI, rule: OAC 用 SigV4 以服务主体访问，支持 SSE-KMS 与全部区域；OAI 是旧机制，不支持 SSE-KMS }
+    - { a: Route 53 Alias, b: CNAME, rule: Alias 可用于根域名，指向 AWS 资源的查询不收费；根域名不能有 CNAME }
+
+tags: [cdn, cloudfront, s3, oac, edge, performance]
+
+permissions:
+  learner:
+    - cloudformation:CreateChangeSet
+    - cloudformation:DescribeChangeSet
+    - cloudformation:ExecuteChangeSet
+    - cloudformation:DescribeStacks
+    - cloudformation:DescribeStackEvents
+    - cloudfront:CreateDistribution
+    - cloudfront:UpdateDistribution
+    - cloudfront:GetDistribution
+    - cloudfront:GetDistributionConfig
+    - cloudfront:CreateCachePolicy
+    - cloudfront:CreateResponseHeadersPolicy
+    - cloudfront:CreateOriginAccessControl
+    - cloudfront:CreateFunction
+    - cloudfront:PublishFunction
+    - cloudfront:CreateInvalidation
+    - cloudfront:GetInvalidation
+    - cloudfront:ListInvalidations
+    - cloudfront:TagResource
+    - s3:PutBucketPolicy
+    - s3:GetBucketPolicy
+    - ec2:DescribeManagedPrefixLists
+    - ec2:CreateSecurityGroup
+    - ec2:AuthorizeSecurityGroupIngress
+    - iam:CreatePolicy
+    - iam:AttachRolePolicy
+    - ssm:SendCommand
+  notes: 桶策略由 storage 栈的更新写入（cdn 注入 CdnDistributionArn）；学员不直接编辑桶策略
+
+certificate: { enabled: false }
+owners: [cloudalbum-maintainers]

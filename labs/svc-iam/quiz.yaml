@@ -1,0 +1,63 @@
+schema: atl.quiz/v1
+version: 1.0.0
+questions:
+  - id: iam-instance-profile
+    domain: secure
+    type: single
+    kind: scenario
+    services: [iam, ec2]
+    stem: EC2 上的应用需要读写 S3。最安全、运维最省事的凭证做法是？
+    options:
+      - { id: a, text: 给实例关联带最小权限策略的 IAM 角色（实例配置文件） }
+      - { id: b, text: 把访问密钥写进环境变量 }
+      - { id: c, text: 写进 ~/.aws/credentials }
+      - { id: d, text: 写进 User Data }
+    answer: [a]
+    explain: 角色提供自动轮换的临时凭证，不落盘；User Data 可以通过 DescribeInstanceAttribute 读出，环境变量和文件都会随快照、备份扩散。
+    relatesTo: enable
+    difficulty: 1
+  - id: iam-revoke
+    domain: secure
+    type: single
+    kind: scenario
+    services: [iam, sts]
+    stem: 怀疑某个角色的临时凭证已被盗，需要让此前签发的会话立即失效，但不删除角色。应该怎么做？
+    options:
+      - { id: a, text: 在 IAM 控制台对该角色执行“撤销活动会话” }
+      - { id: b, text: 删除使用该角色的实例 }
+      - { id: c, text: 轮换访问密钥 }
+      - { id: d, text: 修改角色的信任策略 }
+    answer: [a]
+    explain: 撤销会话会给角色加一条按 aws:TokenIssueTime 拒绝旧会话的内联策略；临时凭证没有“访问密钥轮换”。实例上的 IMDS 仍会提供旧凭证直到轮换，实例需要换新会话才能恢复。
+    relatesTo: whoami
+    difficulty: 2
+  - id: iam-caller-identity
+    domain: secure
+    type: multi
+    kind: concept
+    services: [sts]
+    stem: 关于 sts:GetCallerIdentity，正确的是哪两项？
+    options:
+      - { id: a, text: 调用它不需要任何 IAM 权限 }
+      - { id: b, text: 即使显式 Deny 也无法阻止调用 }
+      - { id: c, text: 可以用来确认角色是否仍有 S3 权限 }
+      - { id: d, text: 返回调用者的 Secret Access Key }
+    answer: [a, b]
+    explain: 它只能证明“认证成功、我是谁”，不能证明授权；健康检查要再加一个受策略约束的调用（本模块用 iam:GetRole）。
+    relatesTo: enable
+    difficulty: 2
+  - id: iam-imdsv2
+    domain: secure
+    type: single
+    kind: scenario
+    services: [ec2]
+    stem: 一个 Web 应用存在 SSRF 漏洞，攻击者可以让服务器向任意 URL 发出 GET 请求。哪项措施能阻止攻击者经此读取实例角色的临时凭证？
+    options:
+      - { id: a, text: 要求实例只使用 IMDSv2（HttpTokens=required） }
+      - { id: b, text: 在安全组中拒绝出站到 169.254.169.254 }
+      - { id: c, text: 给实例换一个更大的实例类型 }
+      - { id: d, text: 开启 EBS 加密 }
+    answer: [a]
+    explain: IMDSv2 要求先用 PUT 获取会话令牌，只能代发 GET 的 SSRF 拿不到令牌；安全组不过滤到 IMDS 的流量。
+    relatesTo: imds
+    difficulty: 1

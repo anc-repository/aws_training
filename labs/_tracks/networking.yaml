@@ -1,0 +1,25 @@
+# labs/_tracks/networking.yaml —— 网络与边缘（tracks-and-catalog §4.5）
+schema: atl.track/v2
+id: networking
+version: 1.0.0
+title: 网络与边缘
+summary: VPC、子网、路由、NAT、终端节点、ALB、CloudFront、WAF：SAA 网络题的主体；需要域名的内容全部是可选。
+audience: 想系统掌握网络隔离、入口与边缘防护的学员
+stages:
+  - id: s1-network
+    title: 网络与入口
+    items:
+      - { card: svc-network, role: required }
+      - { card: svc-load-balancer, role: required }
+      - { card: sc-private-network, role: required }
+  - id: s2-edge
+    title: 边缘与防护
+    items:
+      - { card: svc-cdn, role: required }
+      - { card: svc-waf, role: required }
+      - { card: sc-edge-protection, role: required, note: 与 svc-waf 有一半内容重叠，是有意的复习 }
+      - { card: svc-dns, role: optional, note: 需要域名 }
+      - { card: svc-tls, role: optional, note: 需要域名 }
+      - { card: sc-static-acceleration, role: optional, note: 域名可选 }
+completion: { allowManual: true, minAutoRatio: 0.8, excludeSelfReported: true }
+certificate: { enabled: true, title: 网络与边缘路径证书 }

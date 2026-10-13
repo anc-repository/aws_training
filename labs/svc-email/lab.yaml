@@ -1,0 +1,58 @@
+# labs/svc-email/lab.yaml —— 目录占位（status: planned）：只有目录元数据，可在目录中显示但不能开始实验；
+# 取值来自 05 §4 与 cards/ 逐卡文档。步骤、手册、检查与小测在后续批次补齐，届时 status 改为 beta 并提升版本。
+schema: atl.lab/v2
+id: svc-email
+kind: service
+version: 0.1.0
+status: planned
+service: Amazon SES
+function: 真实发信与退信回流
+title: Amazon SES：真实发信与退信回流
+summary: 把只写进本地 outbox 的邮件改由 SES 真正发出，验证发件身份、查看 DKIM 签名，并用 SES 邮箱模拟器演练退信与投诉回流。
+difficulty: beginner
+estimatedMinutes: 60
+timeLimitMinutes: 90
+extensions: {maxCount: 2, minutesEach: 30}
+retain: {allowed: true, maxHours: 24}
+regions:
+  supported: [ap-northeast-1]
+services:
+- {id: ses, name: Amazon SES, role: primary, module: email}
+- {id: iam, role: context, module: iam}
+modules:
+  target: [email]
+  start: [iam]
+  context: []
+  related: [notification]
+prerequisites:
+  cards:
+  - {id: svc-ec2, kind: soft}
+  - {id: svc-iam, kind: soft}
+  - {id: svc-notification, kind: soft}
+  learnerInputs:
+  - {id: ses-identity}
+startProfile:
+  provisions:
+  - item: iam
+    kind: module
+    basis: credential
+    set: {IAM_CREDENTIALS: role}
+    reason: 平台约定除 svc-ec2、svc-iam 外起始状态都带实例角色（C3）
+  - {item: preview-direct-https, kind: platform, reason: 预览使用方案 B 的 Let's Encrypt IP 证书（03 §6.2）}
+  platform:
+    preview: {directHttps: 'on'}
+targetModules:
+- {id: email, driver: ses}
+expectedWarnings: []
+platform:
+  accountImpact:
+  - {id: ses-identity, scope: region, resource: SES 发件身份, revert: delete, note: 本会话创建的删除；可勾选保留}
+cost: {tier: low}
+provision: {class: A}
+keepablePrerequisites: [ses-identity]
+badge: {title: 真实投递}
+tracks: [saa-main]
+saa:
+  domains: [secure, resilient]
+tags: [email, ses]
+certificate: {enabled: false}

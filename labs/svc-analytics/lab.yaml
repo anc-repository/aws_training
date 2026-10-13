@@ -1,0 +1,54 @@
+# labs/svc-analytics/lab.yaml —— 目录占位（status: planned）：只有目录元数据，可在目录中显示但不能开始实验；
+# 取值来自 05 §4 与 cards/ 逐卡文档。步骤、手册、检查与小测在后续批次补齐，届时 status 改为 beta 并提升版本。
+schema: atl.lab/v2
+id: svc-analytics
+kind: service
+version: 0.1.0
+status: planned
+service: Amazon Data Firehose
+function: 点击流采集与投递
+title: Amazon Data Firehose：点击流采集与投递
+summary: 点击事件不再写进业务库，改由 EC2 批量转发给 Data Firehose 落到 S3 数据湖，再用 Athena 按分区查询，看清分析负载如何离开 OLTP 库。
+difficulty: intermediate
+estimatedMinutes: 75
+timeLimitMinutes: 120
+extensions: {maxCount: 2, minutesEach: 30}
+retain: {allowed: true, maxHours: 24}
+regions:
+  supported: [ap-northeast-1]
+services:
+- {id: firehose, name: Amazon Data Firehose, role: primary, module: analytics}
+- {id: iam, role: context, module: iam}
+modules:
+  target: [analytics]
+  start: [iam]
+  context: []
+  related: [storage]
+prerequisites:
+  cards:
+  - {id: svc-ec2, kind: soft}
+  - {id: svc-iam, kind: soft}
+  - {id: sc-analytics, kind: soft}
+startProfile:
+  provisions:
+  - item: iam
+    kind: module
+    basis: credential
+    set: {IAM_CREDENTIALS: role}
+    reason: 平台约定除 svc-ec2、svc-iam 外起始状态都带实例角色（C3）
+  - {item: preview-direct-https, kind: platform, reason: 预览使用方案 B 的 Let's Encrypt IP 证书（03 §6.2）}
+  platform:
+    preview: {directHttps: 'on'}
+targetModules:
+- id: analytics
+  driver: firehose
+  params: {OutputFormat: json}
+expectedWarnings: []
+cost: {tier: low}
+provision: {class: A}
+badge: {title: 数据湖投递}
+tracks: [cost-optimized, performant, saa-main]
+saa:
+  domains: [performance, cost, resilient]
+tags: [analytics, firehose]
+certificate: {enabled: false}

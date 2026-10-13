@@ -1,0 +1,260 @@
+# labs/svc-database/lab.yaml —— Amazon RDS for PostgreSQL：托管关系数据库（cards/service-cards-2 svc-database）
+# 实现核对（implementation-notes platform-content）：
+# - 卡片第 1 步的 `node dist/cli.js lab:seed` 在 backend/src/cli.ts 中不存在；改为观察步骤，mixed-rw 由运行器的实验用户自行写入数据。
+# - pitr 是手工实验（experiments/database 没有 pitr.sh），改为选做的 cli 步骤：aws rds restore-db-instance-to-point-in-time → 检查 → 删除。
+# - 故障转移由运行器在工作台执行 faults/rds-failover.sh（--fault-via local，需要 DB_INSTANCE_ID）。
+schema: atl.lab/v2
+id: svc-database
+kind: service
+version: 1.0.0
+status: beta
+service: Amazon RDS for PostgreSQL
+function: 托管关系数据库
+title: Amazon RDS for PostgreSQL：托管关系数据库
+subtitle: EBS 上的 SQLite → Multi-AZ 的 RDS for PostgreSQL
+summary: 把 SQLite 换成 Multi-AZ 的 RDS for PostgreSQL，同一套 Knex 仓储代码换来托管备份、时间点恢复与自动故障转移，并亲手触发一次故障转移。
+story: |
+  L0 的用户、相册与照片元数据在 EBS 上的一个 SQLite 文件里，与 Node 同进程读写：单写者，高并发写时同步驱动阻塞事件循环；
+  EC2 一停，数据库跟着停；备份和数据在同一块盘上。这张卡片把数据库换成 Multi-AZ 的 RDS for PostgreSQL，
+  再亲手触发一次故障转移，看应用经历一段写失败后自动重连。
+objectives:
+  - { text: 区分 Multi-AZ 实例部署与只读副本, domain: resilient, relatesTo: failover }
+  - { text: 说清自动备份与时间点恢复（恢复为新实例）, domain: resilient, relatesTo: inspect }
+  - { text: 用安全组链、PubliclyAccessible=false 与 rds.force_ssl 保护数据库, domain: secure, relatesTo: inspect }
+  - { text: 理解“换成 RDS 不会让单次查询变快”, domain: performance, relatesTo: after }
+difficulty: advanced
+estimatedMinutes: 120
+timeLimitMinutes: 180
+extensions: { maxCount: 2, minutesEach: 30 }
+retain: { allowed: true, maxHours: 8, reason: Multi-AZ 的两个实例继续按小时计费；保留后可以在 svc-db-proxy、sc-db-performance 中继续 }
+regions:
+  supported: [ap-northeast-1]
+services:
+  - { id: rds, name: Amazon RDS for PostgreSQL, role: primary, module: database }
+  - { id: vpc, name: Amazon VPC（DB 子网组、sg-db）, role: observed }
+  - { id: iam, name: AWS IAM（实例角色，深度探针的 Describe 权限）, role: context, module: iam }
+  - { id: cloudwatch, name: Amazon CloudWatch（DatabaseConnections）, role: observed }
+modules: { target: [database], start: [iam], context: [], related: [db-proxy, cache, backup, network] }
+prerequisites:
+  cards:
+    - { id: svc-ec2, kind: soft }
+  knowledge: [SQL 与事务的基本概念, 安全组的来源可以是另一个安全组]
+
+startProfile:
+  provisions:
+    - { item: iam, kind: module, basis: credential, set: { IAM_CREDENTIALS: role },
+        reason: 平台约定除 svc-ec2、svc-iam 外起始状态都带实例角色（C3）；深度探针 rds:DescribeDBInstances 因此可用 }
+    - { item: mgmt-channel, kind: platform, reason: 实验机挂只含 AmazonSSMManagedInstanceCore 的 CloudAlbumAppRole，是平台的管理通道，不是应用权限 }
+    - { item: workstation, kind: platform, reason: 每个会话一台工作台，用于运行 scripts/module、AWS CLI 与对比实验 }
+    - { item: preview-direct-https, kind: platform, reason: 预览使用方案 B 的 Let's Encrypt IP 证书；本卡不涉及 tls，保持开启 }
+  platform: { preview: { directHttps: 'on' } }
+  reason: database 的 requires 为空；DB 子网组取默认 VPC 中至少两个 AZ 的默认子网（档位 atl/svc-database/default）
+targetModules:
+  - { id: database, driver: postgres, params: { MultiAz: 'true' }, wireStep: enable, adoptsExisting: false }
+expectedWarnings: []
+workstation: { required: true, tools: [aws-cli, node, jq], savingsMode: degraded }
+platform:
+  consoleLinks: [rds.database, ec2.securityGroup]
+provision: { class: A }
+
+variables:
+  dbInstanceId: { label: 数据库实例 ID, from: derived, fillFrom: stack.database.InfoDbInstanceId }
+  dbHost: { label: 数据库端点, from: derived, fillFrom: stack.database.EnvDbHost }
+
+cost:
+  currency: USD
+  tier: high
+  mainDrivers: [RDS 实例小时（Multi-AZ 的备库也按实例计）, gp3 存储, 超出免费额度的备份存储, 选做的恢复实例与只读副本]
+  basis:
+    - { ref: start-profile, note: 实验机 EC2、EBS（根卷与数据卷）、公网 IPv4 }
+    - { ref: workstation, note: 工作台 EC2、EBS、公网 IPv4 }
+    - { key: rds-instance, pricingKey: rds.instance, billing: hourly, quantity: 2, source: target, whenRetained: true,
+        note: db.t4g.micro Multi-AZ：主库与备库各按一个实例计 }
+    - { key: rds-storage, pricingKey: rds.storage.gp3, billing: monthly, quantity: 40, unit: GB-month, source: target, whenRetained: true,
+        note: 20 GiB gp3 × 2（Multi-AZ） }
+    - { key: rds-pitr-instance, pricingKey: rds.instance, billing: hourly, quantity: 1, source: learner-created, optional: true, whenRetained: false,
+        note: 选做的时间点恢复出的新实例，验证后立即删除 }
+    - { key: rds-replica, pricingKey: rds.instance, billing: hourly, quantity: 1, source: target, optional: true, whenRetained: true,
+        note: 选做的只读副本（CreateReadReplica=true） }
+  assumptions:
+    - 单 AZ 部署约为 Multi-AZ 的一半；自动备份不超过数据库存储大小的部分不另收费；以官方定价为准
+
+steps:
+  - id: orient
+    type: observe
+    title: 观察 SQLite：数据库与应用同生共死
+    manual: manual/10-orient.md
+    panel: preview
+    estMinutes: 5
+    checks: [db-sqlite-baseline]
+
+  - id: baseline
+    type: experiment
+    title: 记录 before：混合读写（SQLite）
+    manual: manual/20-baseline.md
+    experiment: { module: database, id: mixed-rw, label: before }
+    requires: { steps: [orient] }
+    panel: terminal-workstation
+    estMinutes: 8
+    checks: [exp-mixed-before]
+
+  - id: baseline-failover
+    type: experiment
+    title: 记录 before：重启 api 时的写失败区间
+    manual: manual/25-baseline-failover.md
+    experiment: { module: database, id: failover, label: before }
+    requires: { steps: [orient] }
+    panel: terminal-workstation
+    estMinutes: 6
+    checks: [exp-failover-before]
+
+  - id: enable
+    type: script
+    wire: true
+    title: 接入 RDS：建 Multi-AZ 实例并迁移数据
+    manual: manual/30-enable.md
+    methods: [script]
+    requires: { steps: [baseline, baseline-failover] }
+    panel: terminal-workstation
+    estMinutes: 30
+    startsBilling: { class: hourly, pricingKeys: [rds.instance, rds.storage.gp3], note: Multi-AZ 的两个实例从创建开始按小时计费 }
+    wait: { typicalMinutes: 20, maxMinutes: 45, text: 创建 Multi-AZ 实例、下载 CA、只读窗口内迁移、重启 }
+    checks: [db-wired, db-path-rds, db-instance]
+
+  - id: inspect
+    type: console
+    title: 看懂网络、加密与备份
+    manual: manual/40-inspect.md
+    methods: [console, cli]
+    requires: { steps: [enable] }
+    panel: console
+    estMinutes: 12
+    checks: [db-sg-rule, db-backup-az, workstation-5432]
+
+  - id: after
+    type: experiment
+    title: 记录 after：同样的混合读写（RDS）
+    manual: manual/50-after.md
+    experiment: { module: database, id: mixed-rw, label: after }
+    requires: { steps: [enable] }
+    panel: terminal-workstation
+    estMinutes: 8
+    checks: [exp-mixed-pair]
+
+  - id: failover
+    type: experiment
+    title: 故障转移：强制切到备库
+    manual: manual/60-failover.md
+    experiment: { module: database, id: failover, label: after }
+    requires: { steps: [inspect] }
+    panel: terminal-workstation
+    estMinutes: 12
+    checks: [exp-failover-pair, failover-az-changed]
+
+  - id: pitr
+    type: cli
+    title: （选做）时间点恢复为新实例
+    manual: manual/70-pitr.md
+    optional: { reason: 恢复出新实例需要十几分钟以上；剩余时间不足 40 分钟时跳过 }
+    requires: { steps: [enable] }
+    estMinutes: 30
+    startsBilling: { class: hourly, pricingKeys: [rds.instance], note: 恢复出的新实例按小时计费，验证后立即删除 }
+    wait: { typicalMinutes: 15, maxMinutes: 40, text: 从自动备份恢复出新实例 }
+    checks: [ { ref: pitr-instance, required: false } ]
+
+  - id: replica
+    type: experiment
+    title: （选做）只读副本：扩展读
+    manual: manual/80-replica.md
+    optional: { reason: 副本是第 3 个按小时计费的实例，创建需要十几分钟以上 }
+    experiment: { module: database, id: replica-read, label: after }
+    requires: { steps: [enable] }
+    estMinutes: 30
+    startsBilling: { class: hourly, pricingKeys: [rds.instance], note: 只读副本按实例小时计费 }
+    checks: [ { ref: exp-replica-read, required: false } ]
+
+finalChecks:
+  - no-world-ssh
+  - { ref: db-wired, as: final-db-wired }
+  - { ref: db-sg-rule, as: final-db-sg-rule }
+
+experiments:
+  - module: database
+    id: mixed-rw
+    labels:
+      - { id: before, role: baseline, requires: { database: sqlite } }
+      - { id: after, role: treatment, requires: { database: postgres } }
+    pairs: [[before, after]]
+    required: true
+    runner: workstation
+    allowSimulatedBaseline: false
+    corroboration: { minServerRatio: 0.9 }
+  - module: database
+    id: failover
+    labels:
+      - { id: before, role: baseline, requires: { database: sqlite } }
+      - { id: after, role: treatment, requires: { database: postgres } }
+    pairs: [[before, after]]
+    required: true
+    runner: workstation
+    allowSimulatedBaseline: false
+  - module: database
+    id: replica-read
+    labels: [ { id: after, role: single } ]
+    required: false
+    runner: workstation
+
+quiz: { file: quiz.yaml, draw: 3 }
+badge: { title: 托管数据库, icon: assets/badge.svg }
+tracks: [performant, quick-compare, resilient, saa-main]
+
+cleanup:
+  summary: 结束实验后，平台删除本次会话的数据库实例（跳过最终快照、删除自动备份）、已产生的最终快照、子网组、参数组与 sg-db。
+  autoReclaim: true
+  dataRisk: [数据库中的数据随实例删除；不要写入真实的个人数据]
+  learnerCreatedHints:
+    - { resourceType: 'AWS::RDS::DBInstance', how: '选做 pitr 恢复出的实例：aws rds delete-db-instance --skip-final-snapshot --delete-automated-backups' }
+  verify:
+    - db-gone
+    - { ref: pitr-gone, required: false }
+
+saa:
+  domains: [resilient, performance, secure, cost]
+  topics:
+    - { id: multi-az, title: Multi-AZ 实例部署：同步复制、自动故障转移、备库不可读, domain: resilient, relatesTo: failover }
+    - { id: pitr, title: 自动备份（最长 35 天）与时间点恢复（恢复为新实例）, domain: resilient, relatesTo: pitr }
+    - { id: db-network, title: DB 子网组、安全组链、PubliclyAccessible、rds.force_ssl, domain: secure, relatesTo: inspect }
+    - { id: read-replica, title: 只读副本：异步复制、扩展读、可跨区域, domain: performance, relatesTo: replica }
+  confusables:
+    - { a: Multi-AZ 实例部署, b: 只读副本, rule: Multi-AZ 备库同步复制、不可读，只用于故障转移；只读副本异步复制、可读，用于扩展读 }
+    - { a: 静态加密, b: rds.force_ssl, rule: 静态加密只能在创建时开启；rds.force_ssl 强制客户端用 TLS 连接，是传输加密 }
+
+tags: [database, rds, postgresql, multi-az, backup]
+
+permissions:
+  learner:
+    - cloudformation:CreateChangeSet
+    - cloudformation:DescribeChangeSet
+    - cloudformation:ExecuteChangeSet
+    - cloudformation:DescribeStacks
+    - cloudformation:DescribeStackEvents
+    - rds:CreateDBInstance
+    - rds:CreateDBSubnetGroup
+    - rds:CreateDBParameterGroup
+    - rds:ModifyDBParameterGroup
+    - rds:CreateDBInstanceReadReplica
+    - rds:DescribeDBInstances
+    - rds:RebootDBInstance
+    - rds:RestoreDBInstanceToPointInTime
+    - rds:DeleteDBInstance
+    - rds:AddTagsToResource
+    - ec2:CreateSecurityGroup
+    - ec2:AuthorizeSecurityGroupIngress
+    - ec2:DescribeSecurityGroupRules
+    - iam:CreatePolicy
+    - iam:AttachRolePolicy
+    - ssm:SendCommand
+  notes: 主密码在实验机的 secrets.env（db-password）；故障转移与时间点恢复用学员身份在工作台执行；不要开启删除保护（回收会失败）
+
+certificate: { enabled: false }
+owners: [cloudalbum-maintainers]

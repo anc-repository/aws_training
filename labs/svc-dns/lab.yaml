@@ -1,0 +1,55 @@
+# labs/svc-dns/lab.yaml —— 目录占位（status: planned）：只有目录元数据，可在目录中显示但不能开始实验；
+# 取值来自 05 §4 与 cards/ 逐卡文档。步骤、手册、检查与小测在后续批次补齐，届时 status 改为 beta 并提升版本。
+schema: atl.lab/v2
+id: svc-dns
+kind: service
+version: 0.1.0
+status: planned
+service: Amazon Route 53
+function: 域名解析
+title: Amazon Route 53：域名解析
+summary: 让相册用固定域名访问：背后的 IP 变了，域名链接在 TTL 过后自动恢复；顺带认识 Alias、TTL 与健康检查。
+difficulty: intermediate
+estimatedMinutes: 60
+timeLimitMinutes: 120
+extensions: {maxCount: 2, minutesEach: 30}
+retain: {allowed: true, maxHours: 24}
+regions:
+  supported: [ap-northeast-1]
+  alsoUses: [global, us-east-1]
+services:
+- {id: route53, name: Amazon Route 53, role: primary, module: dns}
+- {id: iam, role: context, module: iam}
+modules:
+  target: [dns]
+  start: [iam]
+  context: []
+  related: [tls, cdn]
+prerequisites:
+  cards:
+  - {id: svc-ec2, kind: soft}
+  learnerInputs:
+  - {id: domain}
+startProfile:
+  provisions:
+  - item: iam
+    kind: module
+    basis: credential
+    set: {IAM_CREDENTIALS: role}
+    reason: 平台约定除 svc-ec2、svc-iam 外起始状态都带实例角色（C3）
+  - {item: preview-direct-https, kind: platform, reason: 预览使用方案 B 的 Let's Encrypt IP 证书（03 §6.2）}
+  platform:
+    preview: {directHttps: 'on'}
+targetModules:
+- id: dns
+  driver: route53
+  set: {DNS_TARGET_TYPE: eip}
+expectedWarnings: []
+cost: {tier: low}
+provision: {class: A}
+badge: {title: 固定域名}
+tracks: [networking, resilient, saa-main]
+saa:
+  domains: [resilient, cost]
+tags: [dns, route53]
+certificate: {enabled: false}

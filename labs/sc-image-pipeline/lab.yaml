@@ -1,0 +1,69 @@
+# labs/sc-image-pipeline/lab.yaml —— 目录占位（status: planned）：只有目录元数据，可在目录中显示但不能开始实验；
+# 取值来自 05 §4 与 cards/ 逐卡文档。步骤、手册、检查与小测在后续批次补齐，届时 status 改为 beta 并提升版本。
+schema: atl.lab/v2
+id: sc-image-pipeline
+kind: scenario
+version: 0.1.0
+status: planned
+title: 无服务器图片流水线
+subtitle: S3 + EventBridge + Lambda + SQS + Rekognition
+summary: 上传到 S3 就自动触发缩略图生成与内容识别，EC2 只签发 URL 和写回结果；扩展练习用 Step Functions 把多个步骤编排成可视化的流程
+story: 用户一次上传几十张手机原图，`complete` 接口要等 sharp 在 EC2 上把每张图压完才返回，期间整个网站都变慢。产品还想要“按内容搜索照片”（搜“狗”“海边”）和自动拦截不当内容。团队希望：上传完成接口立刻返回；处理能力随上传量自动伸缩；失败的图片有地方可查、可重试；EC2 宕机时已经上传的照片也能处理完；不需要为偶发的上传高峰常开大实例。
+scenario: {question: 一家保险公司收到大量理赔照片，上传到 S3 后需要依次执行：生成缩略图、识别车辆损伤、根据结果决定转人工还是自动通过，人工复核可能等待数天；要求每一步失败都能重试并可视化，且能在失败处继续。最合适的方案是？}
+difficulty: intermediate
+estimatedMinutes: 105
+timeLimitMinutes: 180
+extensions: {maxCount: 2, minutesEach: 30}
+retain: {allowed: true, maxHours: 24}
+regions:
+  supported: [ap-northeast-1]
+services:
+- {id: lambda, role: primary, module: image-processing}
+- {id: rekognition, role: primary, module: tagging}
+- {id: s3, role: supporting, module: storage}
+- {id: eventbridge, role: supporting}
+- {id: sqs, role: supporting}
+- {id: stepfunctions, role: supporting, module: workflow, optional: true}
+- {id: iam, role: context, module: iam}
+modules:
+  target: [image-processing, tagging, workflow]
+  start: [iam, storage]
+  context: []
+  related: []
+prerequisites:
+  cards:
+  - {id: svc-storage, kind: soft}
+  - {id: svc-image-processing, kind: soft}
+  - {id: svc-tagging, kind: soft}
+startProfile:
+  provisions:
+  - item: iam
+    kind: module
+    basis: credential
+    set: {IAM_CREDENTIALS: role}
+    reason: 平台约定除 svc-ec2、svc-iam 外起始状态都带实例角色（C3）
+  - item: storage
+    kind: module
+    basis: closure
+    rule: DEP-003
+    set: {STORAGE_DRIVER: s3}
+  - {item: preview-direct-https, kind: platform, reason: 预览使用方案 B 的 Let's Encrypt IP 证书（03 §6.2）}
+  platform:
+    preview: {directHttps: 'on'}
+targetModules:
+- id: image-processing
+  driver: lambda
+  set: {IMAGE_TRIGGER: eventbridge}
+- id: tagging
+  driver: rekognition
+  set: {TAGGER_INPUT: s3}
+- {id: workflow, driver: stepfunctions, optional: true}
+expectedWarnings: []
+cost: {tier: low}
+provision: {class: A}
+badge: {title: 图片流水线, short: 流水线}
+tracks: [performant, saa-main, serverless]
+saa:
+  domains: [performance, resilient, cost]
+tags: [image-processing, tagging, workflow]
+certificate: {enabled: false}

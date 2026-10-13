@@ -1,0 +1,55 @@
+# labs/svc-notification/lab.yaml —— 目录占位（status: planned）：只有目录元数据，可在目录中显示但不能开始实验；
+# 取值来自 05 §4 与 cards/ 逐卡文档。步骤、手册、检查与小测在后续批次补齐，届时 status 改为 beta 并提升版本。
+schema: atl.lab/v2
+id: svc-notification
+kind: service
+version: 0.1.0
+status: planned
+service: Amazon SNS
+function: 通知扇出与订阅过滤
+title: Amazon SNS：通知扇出与订阅过滤
+summary: 把“应用逐个发邮件”的站外通知换成一次 SNS Publish，按订阅过滤策略扇出到邮件订阅与模块自带的 SQS 收件队列。
+difficulty: beginner
+estimatedMinutes: 60
+timeLimitMinutes: 90
+extensions: {maxCount: 2, minutesEach: 30}
+retain: {allowed: true, maxHours: 24}
+regions:
+  supported: [ap-northeast-1]
+services:
+- {id: sns, name: Amazon SNS, role: primary, module: notification}
+- {id: iam, role: context, module: iam}
+modules:
+  target: [notification]
+  start: [iam]
+  context: []
+  related: [email, queue]
+prerequisites:
+  cards:
+  - {id: svc-ec2, kind: soft}
+  - {id: svc-iam, kind: soft}
+  - {id: svc-email, kind: soft}
+  - {id: sc-event-fanout, kind: soft}
+  learnerInputs:
+  - {id: notify-email}
+startProfile:
+  provisions:
+  - item: iam
+    kind: module
+    basis: credential
+    set: {IAM_CREDENTIALS: role}
+    reason: 平台约定除 svc-ec2、svc-iam 外起始状态都带实例角色（C3）
+  - {item: preview-direct-https, kind: platform, reason: 预览使用方案 B 的 Let's Encrypt IP 证书（03 §6.2）}
+  platform:
+    preview: {directHttps: 'on'}
+targetModules:
+- {id: notification, driver: sns}
+expectedWarnings: []
+cost: {tier: low}
+provision: {class: A}
+badge: {title: 一发多收}
+tracks: [resilient, saa-main, serverless]
+saa:
+  domains: [resilient, performance]
+tags: [notification, sns]
+certificate: {enabled: false}

@@ -1,0 +1,58 @@
+# labs/sc-analytics/lab.yaml —— 目录占位（status: planned）：只有目录元数据，可在目录中显示但不能开始实验；
+# 取值来自 05 §4 与 cards/ 逐卡文档。步骤、手册、检查与小测在后续批次补齐，届时 status 改为 beta 并提升版本。
+schema: atl.lab/v2
+id: sc-analytics
+kind: scenario
+version: 0.1.0
+status: planned
+title: 点击流分析
+subtitle: Data Firehose + S3 + Athena（+ Glue）
+summary: 把点击事件从业务库里搬出去：Firehose 按分钟缓冲写入 S3 数据湖，Glue 数据目录描述表结构，Athena 用 SQL 按扫描量计费地查询
+story: 运营想知道“哪些相册被看得最多、用户在哪一步放弃上传”。现在每次页面浏览都往业务库的 `click_events` 表里插一行：几周后这张表比业务数据还大，每天的统计报表要跑好几分钟，跑的时候前台评论接口变慢，数据库备份也越来越大。数据团队希望：点击流与业务库彻底分开、长期低成本保存、能用 SQL 随时分析，而且不想维护任何服务器或集群。
+scenario: {question: 一家物联网公司每秒产生大量设备读数，需要：多个团队各自实时消费同一份数据（告警、看板），并且能在出错时重放过去 24 小时的数据。最合适的是？}
+difficulty: intermediate
+estimatedMinutes: 90
+timeLimitMinutes: 150
+extensions: {maxCount: 2, minutesEach: 30}
+retain: {allowed: true, maxHours: 24}
+regions:
+  supported: [ap-northeast-1]
+services:
+- {id: firehose, role: primary, module: analytics}
+- id: athena
+  role: supporting
+  creditBy: [query-athena]
+- {id: glue, role: supporting}
+- {id: s3, role: supporting}
+- {id: iam, role: context, module: iam}
+modules:
+  target: [analytics]
+  start: [iam]
+  context: []
+  related: []
+prerequisites:
+  cards:
+  - {id: svc-analytics, kind: soft}
+startProfile:
+  provisions:
+  - item: iam
+    kind: module
+    basis: credential
+    set: {IAM_CREDENTIALS: role}
+    reason: 平台约定除 svc-ec2、svc-iam 外起始状态都带实例角色（C3）
+  - {item: preview-direct-https, kind: platform, reason: 预览使用方案 B 的 Let's Encrypt IP 证书（03 §6.2）}
+  platform:
+    preview: {directHttps: 'on'}
+targetModules:
+- id: analytics
+  driver: firehose
+  params: {OutputFormat: parquet}
+expectedWarnings: []
+cost: {tier: low}
+provision: {class: A}
+badge: {title: 点击流分析, short: 点击流}
+tracks: [cost-optimized, performant, saa-main]
+saa:
+  domains: [performance, cost]
+tags: [analytics]
+certificate: {enabled: false}

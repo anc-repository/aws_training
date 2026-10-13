@@ -1,0 +1,56 @@
+# labs/svc-audit/lab.yaml —— 目录占位（status: planned）：只有目录元数据，可在目录中显示但不能开始实验；
+# 取值来自 05 §4 与 cards/ 逐卡文档。步骤、手册、检查与小测在后续批次补齐，届时 status 改为 beta 并提升版本。
+schema: atl.lab/v2
+id: svc-audit
+kind: service
+version: 0.1.0
+status: planned
+service: AWS CloudTrail
+function: AWS API 操作审计
+title: AWS CloudTrail：AWS API 操作审计
+summary: 在“知道最终用户”的应用审计表旁边加上“知道 AWS 身份”的 CloudTrail trail：多区域长期留存、日志文件完整性验证，并把两层审计对齐。
+difficulty: intermediate
+estimatedMinutes: 75
+timeLimitMinutes: 120
+extensions: {maxCount: 2, minutesEach: 30}
+retain: {allowed: true, maxHours: 24}
+regions:
+  supported: [ap-northeast-1]
+services:
+- {id: cloudtrail, name: AWS CloudTrail, role: primary, module: audit}
+- {id: iam, role: context, module: iam}
+modules:
+  target: [audit]
+  start: [iam]
+  context: []
+  related: [compliance]
+prerequisites:
+  cards:
+  - {id: svc-iam, kind: soft}
+  - {id: svc-threat-detection, kind: soft}
+  - {id: sc-security-baseline, kind: soft}
+  - {id: sc-threat-compliance, kind: soft}
+startProfile:
+  provisions:
+  - item: iam
+    kind: module
+    basis: credential
+    set: {IAM_CREDENTIALS: role}
+    reason: 平台约定除 svc-ec2、svc-iam 外起始状态都带实例角色（C3）
+  - {item: preview-direct-https, kind: platform, reason: 预览使用方案 B 的 Let's Encrypt IP 证书（03 §6.2）}
+  platform:
+    preview: {directHttps: 'on'}
+targetModules:
+- {id: audit, driver: cloudtrail}
+expectedWarnings: []
+platform:
+  accountImpact:
+  - {id: cloudtrail-trail, scope: account, resource: CloudTrail trail, preexisting: adopt-readonly, revert: delete, note: 已有管理事件 trail 时只读接入}
+cost: {tier: low}
+provision: {class: A}
+badge: {title: 谁动了 AWS}
+tracks: [operations, saa-main, secure]
+saa:
+  domains: [secure]
+tags: [audit, cloudtrail]
+certificate: {enabled: false}

@@ -1,0 +1,41 @@
+# labs/_tracks/secure.yaml —— 安全专项（tracks-and-catalog §4.3）
+schema: atl.track/v2
+id: secure
+version: 1.0.0
+title: 安全专项
+summary: 补强“设计安全的架构”：身份与凭证 → 数据保护 → 审计 → 用户身份 → 边界防护 → 检测。
+audience: 想补强 SAA“设计安全的架构”领域的学员
+domain: secure
+stages:
+  - id: s1-credentials
+    title: 身份与凭证
+    items:
+      - { card: svc-iam, role: required }
+      - { card: svc-shell-access, role: required }
+  - id: s2-data
+    title: 数据保护与审计
+    items:
+      - { card: svc-kms, role: required }
+      - { card: svc-secrets, role: required }
+      - { card: svc-config, role: optional }
+      - { card: svc-audit, role: required }
+      - { card: sc-security-baseline, role: required, note: 已完成前面单服务卡的学员会觉得前半段较快，这是有意的复习 }
+  - id: s3-identity
+    title: 用户身份
+    items:
+      - { card: svc-auth, role: required }
+      - { group: g-identity, title: 身份, pick: 1, cards: [svc-identity-pool, sc-user-identity] }
+  - id: s4-boundary
+    title: 边界防护
+    items:
+      - { card: svc-waf, role: required }
+      - { group: g-network, title: 网络, pick: 1, cards: [svc-network, sc-private-network] }
+      - { card: svc-tls, role: optional, note: 需要域名 }
+      - { card: sc-edge-protection, role: optional }
+  - id: s5-detect
+    title: 检测
+    items:
+      - { group: g-detect, title: 检测, pick: 1, cards: [svc-threat-detection, svc-compliance, svc-vuln-scan] }
+      - { card: sc-threat-compliance, role: required }
+completion: { allowManual: true, minAutoRatio: 0.8, excludeSelfReported: true }
+certificate: { enabled: true, title: 安全架构专项证书 }

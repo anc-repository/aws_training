@@ -1,0 +1,55 @@
+# labs/svc-monitoring/lab.yaml —— 目录占位（status: planned）：只有目录元数据，可在目录中显示但不能开始实验；
+# 取值来自 05 §4 与 cards/ 逐卡文档。步骤、手册、检查与小测在后续批次补齐，届时 status 改为 beta 并提升版本。
+schema: atl.lab/v2
+id: svc-monitoring
+kind: service
+version: 0.1.0
+status: planned
+service: Amazon CloudWatch
+function: 指标、告警与仪表板
+title: Amazon CloudWatch：指标、告警与仪表板
+summary: 让告警与实例解耦：指标双写到 CloudWatch，Agent 补上内存与磁盘，告警在 AWS 侧评估并经 SNS 送达——实例停了也能报警。
+difficulty: beginner
+estimatedMinutes: 75
+timeLimitMinutes: 120
+extensions: {maxCount: 2, minutesEach: 30}
+retain: {allowed: true, maxHours: 24}
+regions:
+  supported: [ap-northeast-1]
+services:
+- {id: cloudwatch, name: Amazon CloudWatch, role: primary, module: monitoring}
+- {id: iam, role: context, module: iam}
+modules:
+  target: [monitoring]
+  start: [iam]
+  context: []
+  related: [logging, tracing]
+prerequisites:
+  cards:
+  - {id: svc-iam, kind: soft}
+  - {id: svc-logging, kind: soft}
+  - {id: sc-observability, kind: soft}
+  learnerInputs:
+  - {id: notify-email}
+startProfile:
+  provisions:
+  - item: iam
+    kind: module
+    basis: credential
+    set: {IAM_CREDENTIALS: role}
+    reason: 平台约定除 svc-ec2、svc-iam 外起始状态都带实例角色（C3）
+  - {item: featureFlags.lab.faults, kind: runtime, value: true}
+  - {item: preview-direct-https, kind: platform, reason: 预览使用方案 B 的 Let's Encrypt IP 证书（03 §6.2）}
+  platform:
+    preview: {directHttps: 'on'}
+targetModules:
+- {id: monitoring, driver: cloudwatch}
+expectedWarnings: []
+cost: {tier: low}
+provision: {class: A}
+badge: {title: 实例倒下也报警}
+tracks: [operations, resilient, saa-main]
+saa:
+  domains: [resilient, performance, cost]
+tags: [monitoring, cloudwatch]
+certificate: {enabled: false}

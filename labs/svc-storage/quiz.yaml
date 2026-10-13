@@ -1,0 +1,62 @@
+schema: atl.quiz/v1
+version: 1.0.0
+questions:
+  - id: storage-offload
+    domain: performance
+    type: single
+    kind: scenario
+    services: [s3]
+    stem: 一个照片网站把上传请求先发给 EC2 上的应用，再由应用写入存储。高峰时 EC2 的网络与 CPU 被上传占满。用最少的运维改动卸载这部分负载，应该怎么做？
+    options:
+      - { id: a, text: 把实例换成更大的规格 }
+      - { id: b, text: 由应用签发 S3 预签名 URL，浏览器直接把文件上传到 S3 }
+      - { id: c, text: 把上传目录改到 EFS }
+      - { id: d, text: 在 EC2 前加 CloudFront 缓存上传请求 }
+    answer: [b]
+    explain: 预签名 URL 让应用只做鉴权与签名，字节不再经过服务器；更大的实例只是推迟问题；EFS 仍由应用接收字节；CloudFront 不缓存 PUT，上传仍会回源。
+    relatesTo: enable
+    difficulty: 1
+  - id: storage-lifecycle
+    domain: cost
+    type: multi
+    kind: scenario
+    services: [s3]
+    stem: 原图处理完成后很少再读，但要防误删并控制成本。原图约数 MB，缩略图大多小于 128 KB。应该选择哪两项？
+    options:
+      - { id: a, text: 开启版本控制，并配置非当前版本在 30 天后过期的生命周期规则 }
+      - { id: b, text: 用生命周期规则把原图（raw/ 前缀）的当前版本在 30 天后转为 S3 Standard-IA }
+      - { id: c, text: 把缩略图转为 S3 Intelligent-Tiering 以自动节省费用 }
+      - { id: d, text: 把桶设为公开读取，减少预签名 GET 的请求费 }
+    answer: [a, b]
+    explain: 版本控制能恢复误删，非当前版本过期避免旧版本无限累积；Standard-IA 适合 MB 级、低频访问的原图。Intelligent-Tiering 对小于 128 KB 的对象不做自动分层；公开桶是安全风险。
+    relatesTo: inspect-bucket
+    difficulty: 2
+  - id: storage-gateway-endpoint
+    domain: cost
+    type: single
+    kind: scenario
+    services: [s3, vpc]
+    stem: 私有子网中的 EC2 需要读写 S3，要求流量不经互联网，并且不产生 NAT 网关的数据处理费。最合适的是？
+    options:
+      - { id: a, text: 为 S3 创建网关型 VPC 终端节点，并关联私有子网的路由表 }
+      - { id: b, text: 部署 NAT 网关 }
+      - { id: c, text: 与 S3 建立 VPC 对等连接 }
+      - { id: d, text: 给实例分配公网 IP }
+    answer: [a]
+    explain: S3（以及 DynamoDB）的网关型终端节点不按小时收费、不经 NAT；接口型终端节点也能私有访问 S3，但按小时计费；S3 不是 VPC，无法对等。
+    difficulty: 1
+  - id: storage-bpa
+    domain: secure
+    type: single
+    kind: concept
+    services: [s3]
+    stem: 团队希望无论桶策略或 ACL 怎么写，账号里的桶都不会被意外公开。最直接的控制是？
+    options:
+      - { id: a, text: 开启账号级与桶级的 S3 Block Public Access }
+      - { id: b, text: 给每个对象设置 private ACL }
+      - { id: c, text: 开启默认加密 }
+      - { id: d, text: 开启版本控制 }
+    answer: [a]
+    explain: Block Public Access 会忽略或拒绝公开的 ACL 与桶策略，是防止意外公开的总开关；加密与版本控制不控制访问范围。
+    relatesTo: inspect-bucket
+    difficulty: 1

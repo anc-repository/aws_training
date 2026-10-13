@@ -1,0 +1,245 @@
+# labs/svc-storage/lab.yaml —— Amazon S3：照片对象存储（cards/service-cards-2 附录 A 的完整示例）
+schema: atl.lab/v2
+id: svc-storage
+kind: service
+version: 1.0.0
+status: beta
+service: Amazon S3
+function: 照片对象存储
+title: Amazon S3：照片对象存储
+subtitle: 上传字节从 EC2 网卡移到浏览器直传 S3
+summary: 把照片从 EC2 的 EBS 数据卷搬进 S3，上传改为预签名 URL 直传；用同一组压测对比 EC2 网卡入流量、API CPU 与数据卷水位的变化。
+story: |
+  CloudAlbum 只有一台 EC2：每张原图都要经 Nginx 流进 Node、写到 20 GiB 的数据卷上，
+  同一块盘上还有 SQLite、日志和本地备份。上传一多，CPU 被占满；盘一满，连评论都写不进去。
+  这一课把“存照片”交给 Amazon S3，EC2 只负责签发一个几 KB 的上传 URL。
+objectives:
+  - { text: 说清预签名 URL 直传为什么能卸载应用服务器, domain: performance, relatesTo: enable }
+  - { text: 识别桶的安全基线：BPA、禁用 ACL、只允许 HTTPS、默认加密, domain: secure, relatesTo: inspect-bucket }
+  - { text: 用版本控制与生命周期兼顾防误删与成本, domain: cost, relatesTo: inspect-bucket }
+  - { text: 比较 S3 与 EBS 的耐久性与扩展方式, domain: resilient, relatesTo: after }
+difficulty: beginner
+estimatedMinutes: 60
+timeLimitMinutes: 90
+extensions: { maxCount: 2, minutesEach: 30 }
+retain: { allowed: true, maxHours: 24, reason: 只有按量计费的 S3；保留后可以继续浏览相册 }
+provision: { class: A }
+regions:
+  supported: [ap-northeast-1]
+services:
+  - { id: s3, name: Amazon S3, role: primary, module: storage }
+  - { id: iam, name: AWS IAM（实例角色，起始状态预置）, role: context, module: iam }
+  - { id: eventbridge, name: Amazon EventBridge（桶级事件投递，只开启不消费）, role: observed }
+  - { id: ebs, name: Amazon EBS（对照组）, role: observed, module: ec2 }
+  - { id: ssm-session-manager, name: AWS Systems Manager Session Manager（平台管理通道）, role: observed }
+modules: { target: [storage], start: [iam], context: [], related: [cdn, kms, image-processing, shared-fs] }
+prerequisites:
+  cards:
+    - { id: svc-ec2, kind: soft }
+    - { id: svc-iam, kind: soft }
+  learnerInputs: []
+  knowledge: [HTTP PUT 与 Content-Type, 浏览器开发者工具的 Network 面板]
+
+startProfile:
+  provisions:
+    - { item: iam, kind: module, basis: credential, set: { IAM_CREDENTIALS: role },
+        reason: '平台约定除 svc-ec2、svc-iam 外起始状态都带实例角色（C3）；storage 本身也是 credentials: required（CRED-001）' }
+    - { item: mgmt-channel, kind: platform, reason: 实验机挂只含 AmazonSSMManagedInstanceCore 的 CloudAlbumAppRole，是平台的管理通道，不是应用权限 }
+    - { item: workstation, kind: platform, reason: 每个会话一台工作台，用于运行 scripts/module、AWS CLI 与压测 }
+    - { item: preview-direct-https, kind: platform, reason: 方案 B 的 Let's Encrypt IP 证书，供预览面板嵌入（03 §6.2）；本卡不涉及 tls，保持开启 }
+  platform: { preview: { directHttps: 'on' } }
+  reason: storage 的 requires 为空，起始状态只有 L0 与 C3 规定的实例角色（档位 atl/svc-storage/default）
+
+targetModules:
+  - { id: storage, driver: s3, wireStep: enable, adoptsExisting: false }
+expectedWarnings: []
+
+workstation: { required: true, tools: [aws-cli, node, jq], savingsMode: degraded }
+platform:
+  consoleLinks: [s3.bucket]
+
+variables:
+  rawBucket: { label: 原图桶, from: derived, fillFrom: stack.storage.EnvStorageS3RawBucket }
+  mediaBucket: { label: 展示桶, from: derived, fillFrom: stack.storage.EnvStorageS3MediaBucket }
+  rawBucketArn: { label: 原图桶 ARN, from: derived, fillFrom: stack.storage.InfoRawBucketArn }
+
+cost:
+  currency: USD
+  tier: low
+  mainDrivers: [S3 存储（含旧版本）, S3 PUT / GET 请求, 流出到互联网的流量]
+  basis:
+    - { ref: start-profile, note: 实验机 EC2、EBS（根卷与数据卷）、公网 IPv4；iam 不计费 }
+    - { ref: workstation, note: 工作台 EC2、EBS、公网 IPv4 }
+    - { key: s3-storage, pricingKey: s3.standard.storage, billing: usage, quantity: 1, unit: GB-month,
+        assumedUsagePerHour: 0.004, source: target, whenRetained: true, note: 约 3 GB 原图与缩略图留存，按小时折算 }
+    - { key: s3-put, pricingKey: s3.requests.put, billing: usage, quantity: 1, unit: requests,
+        assumedUsagePerHour: 2000, source: target, whenRetained: false }
+    - { key: s3-get, pricingKey: s3.requests.get, billing: usage, quantity: 1, unit: requests,
+        assumedUsagePerHour: 5000, source: target, whenRetained: false }
+  assumptions:
+    - 压测按 fileMb=5、10 个并发 × 60 秒两轮估算；浏览器直传 S3 的入站流量不收费；以官方定价为准
+    - 预签名 GET 下载到浏览器与工作台的流出流量按量计费，学习规模下很小
+
+steps:
+  - id: orient
+    type: observe
+    title: 观察起始状态：照片写在 EC2 的数据卷上
+    manual: manual/10-orient.md
+    estMinutes: 5
+    panel: preview
+    checks:
+      - storage-local-baseline
+      - { ref: data-volume-usage, required: false }
+
+  - id: baseline
+    type: experiment
+    title: 记录基线（before）：上传经过 EC2
+    manual: manual/20-baseline.md
+    experiment: { module: storage, id: upload-burst, label: before }
+    panel: terminal-workstation
+    estMinutes: 8
+    checks: [exp-before]
+
+  - id: enable
+    type: script
+    wire: true
+    title: 接入 S3：部署桶、迁移照片、切换驱动
+    manual: manual/30-enable.md
+    methods: [script]
+    requires: { steps: [baseline] }
+    panel: terminal-workstation
+    estMinutes: 12
+    startsBilling: { class: usage, pricingKeys: [s3.standard.storage, s3.requests.put, s3.requests.get], note: 按量计费 }
+    wait: { typicalMinutes: 3, maxMinutes: 15, text: 部署两个桶、只读窗口内迁移已有照片、重启并跑深度探针 }
+    checks: [storage-wired, media-url-s3, upload-presign-seen]
+
+  - id: inspect-bucket
+    type: console
+    title: 检查原图桶的安全与成本配置
+    manual: manual/40-inspect-bucket.md
+    methods: [console, cli]
+    requires: { steps: [enable] }
+    panel: console
+    estMinutes: 10
+    checks: [bucket-bpa, bucket-versioning, bucket-encryption, bucket-notification-eventbridge-only]
+
+  - id: observe-direct-upload
+    type: observe
+    title: 亲眼看到浏览器直传 S3
+    manual: manual/50-observe-direct-upload.md
+    requires: { steps: [enable] }
+    estMinutes: 8
+    panel: preview
+    checks:
+      - put-target-answer
+      - { ref: lab-net-bytes, required: false }
+
+  - id: after
+    type: experiment
+    title: 记录 after：同一压测，上传不再经过 EC2
+    manual: manual/60-after.md
+    experiment: { module: storage, id: upload-burst, label: after }
+    requires: { steps: [enable] }
+    panel: terminal-workstation
+    estMinutes: 8
+    checks: [exp-pair]
+
+  - id: sidebyside
+    type: experiment
+    title: （选做）同部署侧路对比：local 与 s3 交替上传
+    manual: manual/70-sidebyside.md
+    optional: { reason: 与 before/after 结论方向一致，只看数量级 }
+    experiment: { module: storage, id: upload-sidebyside, label: after }
+    requires: { steps: [enable] }
+    estMinutes: 8
+    checks: [ { ref: exp-sidebyside, required: false } ]
+
+  - id: ebs-growth
+    type: experiment
+    title: （选做）数据卷写满：上传不受影响，评论仍会失败
+    manual: manual/80-ebs-growth.md
+    optional: { reason: 会临时占满数据卷，结束时自动释放 }
+    experiment: { module: storage, id: ebs-growth, label: after }
+    requires: { steps: [enable] }
+    estMinutes: 8
+    checks:
+      - { ref: exp-ebs-growth, required: false }
+      - { ref: balloon-released, required: false }
+
+finalChecks:
+  - no-world-ssh
+  - { ref: storage-wired, as: final-storage-wired }
+  - { ref: bucket-bpa, as: final-bucket-bpa }
+
+experiments:
+  - module: storage
+    id: upload-burst
+    labels:
+      - { id: before, role: baseline, requires: { storage: local } }
+      - { id: after, role: treatment, requires: { storage: s3 } }
+    pairs: [[before, after]]
+    required: true
+    runner: workstation
+    allowSimulatedBaseline: false
+    corroboration: { minServerRatio: 0.9 }
+  - { module: storage, id: upload-sidebyside, labels: [after], required: false, runner: workstation }
+  - { module: storage, id: ebs-growth, labels: [after], required: false, runner: workstation }
+
+quiz: { file: quiz.yaml, draw: 3 }
+badge: { title: S3 直传, icon: assets/badge.svg }
+tracks: [cost-optimized, performant, quick-compare, saa-main, serverless]
+certificate: { enabled: false }
+
+cleanup:
+  summary: 结束实验后，平台会清空并删除本次会话创建的两个桶（含全部版本）与策略。不需要先 disable storage。
+  autoReclaim: true
+  dataRisk:
+    - 上传到桶里的照片会被删除；版本控制保留的旧版本也会一起删除
+    - 实验机与其上的数据卷随会话删除，报告中只保留证据摘要
+  learnerCreatedHints: []
+  verify:
+    - buckets-gone
+
+saa:
+  domains: [performance, resilient, secure, cost]
+  topics:
+    - { id: presigned-url, title: 预签名 URL 直传卸载应用服务器, domain: performance, relatesTo: enable }
+    - { id: bucket-baseline, title: BPA、BucketOwnerEnforced、SecureTransport、默认加密, domain: secure, relatesTo: inspect-bucket }
+    - { id: lifecycle, title: 版本控制、生命周期与存储类别的最短天数和最小尺寸, domain: cost, relatesTo: inspect-bucket }
+    - { id: durability, title: S3 跨多 AZ 与 EBS 单 AZ 的耐久性差别, domain: resilient, relatesTo: after }
+  confusables:
+    - { a: S3 事件通知, b: S3 → EventBridge, rule: 同一事件类型的重叠前缀不能配置多个通知目标；EventBridge 可以多个规则各自消费 }
+    - { a: 网关型终端节点, b: 接口型终端节点, rule: S3 与 DynamoDB 的网关型不按小时计费；接口型按小时计费、可从本地网络访问 }
+
+tags: [storage, s3, presigned-url, performance, beginner]
+
+permissions:
+  learner:
+    - cloudformation:CreateChangeSet
+    - cloudformation:DescribeChangeSet
+    - cloudformation:ExecuteChangeSet
+    - cloudformation:DescribeStacks
+    - cloudformation:DescribeStackEvents
+    - s3:CreateBucket
+    - s3:PutBucketVersioning
+    - s3:PutLifecycleConfiguration
+    - s3:PutBucketPolicy
+    - s3:PutBucketCORS
+    - s3:PutBucketNotification
+    - s3:PutBucketPublicAccessBlock
+    - s3:PutBucketOwnershipControls
+    - s3:PutEncryptionConfiguration
+    - s3:PutBucketTagging
+    - s3:GetBucketPublicAccessBlock
+    - s3:GetBucketVersioning
+    - s3:GetEncryptionConfiguration
+    - s3:GetBucketNotification
+    - s3:GetLifecycleConfiguration
+    - s3:ListBucket
+    - iam:CreatePolicy
+    - iam:AttachRolePolicy
+    - ssm:SendCommand
+    - ssm:GetCommandInvocation
+  notes: 平台模式下 scripts/module 给栈打 atl:component=env、atl:session-id、atl:lab-id、atl:env-id 标签（C4(d)），state.json 在 cloudalbum-lab-state 桶、锁在 cloudalbum-lab-locks 表（C4(c)）
+
+owners: [cloudalbum-maintainers]

@@ -1,0 +1,149 @@
+checks:
+  # ---- 起始状态（before 一律 once）
+  - id: queue-memory-baseline
+    title: 起始状态：任务队列是 api 进程内的 memory 本地档
+    type: capability
+    module: queue
+    drift: { policy: once }
+    assert:
+      - { path: $.driver, op: eq, value: memory, label: 驱动 }
+      - { path: $.status, op: eq, value: 'off', label: 模块状态（本地档不是 AWS 实现） }
+    explain: memory 是本地档：任务排在 api 进程的内存里，接口立即返回，但进程一重启就丢。
+
+  - id: worker-tier
+    title: 缩略图由独立的 worker 进程生成
+    type: capability
+    module: image-processing
+    drift: { policy: once }
+    assert:
+      - { path: $.driver, op: eq, value: worker, label: 驱动 }
+    explain: worker 档让缩略图离开请求路径，批量上传时才能看出队列的作用。
+
+  # ---- 接入 SQS
+  - id: queue-wired
+    title: queue 已切换到 SQS，且状态正常
+    type: capability
+    module: queue
+    drift: { policy: must-hold, monitor: true }
+    assert:
+      - { path: $.driver, op: eq, value: sqs, label: 驱动 }
+      - { path: $, op: healthy, label: 状态正常（本卡 expectedWarnings 为空，即必须是 ok） }
+    reproduce: { run: 'curl -s http://127.0.0.1/api/capabilities | jq ".modules.queue | {driver, status, detail}"', runsOn: lab }
+
+  - id: queue-path-seen
+    title: 最近的真实请求把任务投进了 SQS
+    type: local
+    on: lab
+    checkId: path-seen
+    args: { segment: queue, pattern: 'sqs:queued', window: 15m, minCount: 1, excludeProbe: true }
+    dependsOn: [queue-wired]
+    drift: { policy: once }
+    assert:
+      - { path: $.count, op: gte, value: 1, label: 出现 queue=sqs:queued 的请求数 }
+    explain: 在应用预览里上传任意一张照片即可满足；路径签名由应用按实际调用的驱动生成，探测请求不计入。
+
+  - id: queue-attributes
+    title: 本会话的任务队列配置了死信队列、长轮询与服务端加密
+    type: aws-readonly
+    service: sqs
+    action: GetQueueAttributes
+    region: app
+    params: { QueueUrl: '{{ var.queueUrl }}', AttributeNames: [All] }
+    ownership: { resource: '{{ var.queueArn }}', mode: session, createdAfter: session.readyAt }
+    drift: { policy: must-hold }
+    assert:
+      - { path: $.Attributes.RedrivePolicy, op: matches, value: '"maxReceiveCount":"?3"?', label: maxReceiveCount = 3 }
+      - { path: $.Attributes.RedrivePolicy, op: contains, value: '{{ var.dlqArn }}', label: 死信队列是本会话的 DLQ }
+      - { path: $.Attributes.ReceiveMessageWaitTimeSeconds, op: eq, value: '20', label: 长轮询 20 秒 }
+      - { path: $.Attributes.SqsManagedSseEnabled, op: eq, value: 'true', label: SSE-SQS 加密 }
+    explain: 先确认队列是本会话的 queue 模块栈创建的，再核对重驱动策略、长轮询与加密。
+    reproduce: { run: 'aws sqs get-queue-attributes --queue-url "{{ var.queueUrl }}" --attribute-names All --query "Attributes.[RedrivePolicy,ReceiveMessageWaitTimeSeconds,SqsManagedSseEnabled]"', runsOn: workstation }
+    manualFallback:
+      where: { breadcrumb: [SQS, 队列, 'cloudalbum-{{ session.env }}-queue-jobs', 死信队列], region: app }
+      observed:
+        question: “最大接收数”显示多少？
+        options:
+          - { value: '3', label: '3', expected: true }
+          - { value: other, label: 其他值或未配置, fixHint: 不要在控制台修改栈管理的队列；重新执行 scripts/module enable queue }
+
+  # ---- 死信队列
+  - id: dlq-has-message
+    title: 坏消息在接收 3 次后进入了死信队列
+    type: aws-readonly
+    service: sqs
+    action: GetQueueAttributes
+    region: app
+    params: { QueueUrl: '{{ var.dlqUrl }}', AttributeNames: [ApproximateNumberOfMessages, MessageRetentionPeriod] }
+    ownership: { resource: '{{ var.dlqArn }}', mode: session }
+    wait: { typicalMinutes: 8, maxMinutes: 20 }
+    pendingIf:
+      - { path: $.Attributes.ApproximateNumberOfMessages, op: eq, value: '0' }
+    drift: { policy: once }
+    assert:
+      - { path: $.Attributes.ApproximateNumberOfMessages, op: gte, value: 1, label: 死信队列中的可见消息数 }
+      - { path: $.Attributes.MessageRetentionPeriod, op: eq, value: '1209600', label: 死信队列保留 14 天（长于源队列） }
+    explain: worker 不删除无法解析的消息；接收次数超过 maxReceiveCount 后由 SQS 把它移入死信队列，源队列恢复畅通。
+    reproduce: { run: 'aws sqs get-queue-attributes --queue-url "{{ var.dlqUrl }}" --attribute-names ApproximateNumberOfMessages', runsOn: workstation }
+    pitfalls: [poison-too-early]
+    manualFallback:
+      where: { breadcrumb: [SQS, 队列, 'cloudalbum-{{ session.env }}-queue-jobs-dlq'], region: app }
+      observed:
+        question: 死信队列的“可用消息”数是多少？
+        options:
+          - { value: '1+', label: 1 条或更多, expected: true }
+          - { value: '0', label: '0', fixHint: 接收 3 次、每次等可见性超时后才会进入死信队列，请再等几分钟 }
+
+  - id: dlq-move-task
+    title: 从死信队列发起了重放（消息移动任务）
+    type: aws-readonly
+    service: sqs
+    action: ListMessageMoveTasks
+    region: app
+    params: { SourceArn: '{{ var.dlqArn }}' }
+    dependsOn: [dlq-has-message]
+    drift: { policy: once }
+    assert:
+      - { path: $.Results, op: len_gte, value: 1, label: 消息移动任务数 }
+    explain: 死信队列是本会话 queue 模块栈创建的（dlq-has-message 已确认归属），它的移动任务只可能来自本会话。
+    reproduce: { run: 'aws sqs list-message-move-tasks --source-arn "{{ var.dlqArn }}"', runsOn: workstation }
+    manualFallback:
+      where: { breadcrumb: [SQS, 队列, 'cloudalbum-{{ session.env }}-queue-jobs-dlq', 开始 DLQ 重驱动], region: app }
+      observed:
+        question: 重驱动任务的状态是什么？
+        options:
+          - { value: done, label: 已完成或正在运行, expected: true }
+          - { value: none, label: 没有任务, fixHint: 先执行本步骤中的 start-message-move-task 命令 }
+
+  - id: dlq-outcome
+    title: 说出重放之后坏消息去了哪里
+    type: manual
+    spec:
+      observed:
+        question: handler 没有修复时，重放回源队列的坏消息最后去了哪里？
+        options:
+          - { value: dlq-again, label: 再次被接收 3 次后回到死信队列, expected: true }
+          - { value: processed, label: 被正常处理掉了, fixHint: 消息本身无法解析，重放只是让它再试一遍 }
+          - { value: lost, label: 消失了, fixHint: 标准队列的消息在保留期内不会凭空消失；看看死信队列的消息数 }
+
+  # ---- 回收验证
+  - id: queue-gone
+    title: 本会话的任务队列已删除
+    type: aws-readonly
+    service: sqs
+    action: GetQueueUrl
+    region: app
+    params: { QueueName: 'cloudalbum-{{ session.env }}-queue-jobs' }
+    expectError: QueueDoesNotExist
+    required: false
+    reproduce: { run: 'aws sqs get-queue-url --queue-name cloudalbum-{{ session.env }}-queue-jobs', runsOn: workstation }
+    manualFallback:
+      where: { breadcrumb: [SQS, 队列], region: app }
+      observed:
+        question: 列表中还能找到 cloudalbum-{{ session.env }}-queue-jobs 吗？
+        options:
+          - { value: gone, label: 找不到, expected: true }
+          - { value: present, label: 还在 }
+
+pitfalls:
+  - { id: poison-too-early, title: 坏消息还没进入死信队列, match: [ { checkId: dlq-has-message, result: pending } ],
+      cause: 每次接收后要等可见性超时（并按接收次数退避）才会再次可见，接收 3 次后才移入死信队列, fix: 等几分钟；期间可以在 /admin/jobs 看接收次数 }

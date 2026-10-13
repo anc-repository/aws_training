@@ -1,0 +1,60 @@
+# labs/svc-tracing/lab.yaml —— 目录占位（status: planned）：只有目录元数据，可在目录中显示但不能开始实验；
+# 取值来自 05 §4 与 cards/ 逐卡文档。步骤、手册、检查与小测在后续批次补齐，届时 status 改为 beta 并提升版本。
+schema: atl.lab/v2
+id: svc-tracing
+kind: service
+version: 0.1.0
+status: planned
+service: AWS X-Ray
+function: 分布式链路追踪
+title: AWS X-Ray：分布式链路追踪
+summary: 从单跳的 Server-Timing 到本机 span 树，再到 X-Ray 服务地图：同一套 OpenTelemetry 插桩只换导出后端，找出“慢在哪一段”。
+difficulty: intermediate
+estimatedMinutes: 75
+timeLimitMinutes: 120
+extensions: {maxCount: 2, minutesEach: 30}
+retain: {allowed: true, maxHours: 24}
+regions:
+  supported: [ap-northeast-1]
+services:
+- {id: xray, name: AWS X-Ray, role: primary, module: tracing}
+- {id: iam, role: context, module: iam}
+modules:
+  target: [tracing]
+  start: [iam]
+  context: []
+  related: [logging, monitoring]
+prerequisites:
+  cards:
+  - {id: svc-logging, kind: soft}
+  - {id: svc-monitoring, kind: soft}
+  - {id: sc-observability, kind: soft}
+  - {id: sc-image-pipeline, kind: soft}
+startProfile:
+  provisions:
+  - item: iam
+    kind: module
+    basis: credential
+    set: {IAM_CREDENTIALS: role}
+    reason: 平台约定除 svc-ec2、svc-iam 外起始状态都带实例角色（C3）
+  - item: image-processing
+    kind: local
+    set: {IMAGE_PROCESSOR: worker}
+  - item: queue
+    kind: local
+    set: {QUEUE_DRIVER: memory}
+  - {item: featureFlags.lab.faults, kind: runtime, value: true}
+  - {item: preview-direct-https, kind: platform, reason: 预览使用方案 B 的 Let's Encrypt IP 证书（03 §6.2）}
+  platform:
+    preview: {directHttps: 'on'}
+targetModules:
+- {id: tracing, driver: xray}
+expectedWarnings: []
+cost: {tier: low}
+provision: {class: A}
+badge: {title: 慢点猎手}
+tracks: [operations, performant, saa-main]
+saa:
+  domains: [performance, resilient]
+tags: [tracing, xray]
+certificate: {enabled: false}

@@ -1,0 +1,72 @@
+# labs/sc-private-network/lab.yaml —— 目录占位（status: planned）：只有目录元数据，可在目录中显示但不能开始实验；
+# 取值来自 05 §4 与 cards/ 逐卡文档。步骤、手册、检查与小测在后续批次补齐，届时 status 改为 beta 并提升版本。
+schema: atl.lab/v2
+id: sc-private-network
+kind: scenario
+version: 0.1.0
+status: planned
+title: 私有网络
+subtitle: VPC + NAT + VPC 终端节点 + Session Manager
+summary: 把实例搬进没有公网地址的私有子网：入口只剩 ALB，运维不开 22 端口，访问 AWS 服务走终端节点，访问公网走 NAT，全部流量可在 Flow Logs 中追溯
+story: 一次渗透测试报告指出：应用服务器有公网 IP，80/443 对全网开放，22 端口对运维网段开放，上线后不到一小时就开始收到扫描请求；服务器访问 S3 与 SQS 走的是公网端点；出了问题无法回答“这台机器在某个时间连过哪里”。整改要求：实例不能有公网地址；唯一入口是负载均衡器；运维不开任何入站端口且有审计；访问
+  AWS 服务尽量不经过公网；保留完整的网络流量记录。同时财务提醒：NAT 和终端节点都按小时收费，要说明取舍。
+scenario: {question: 一家金融公司的应用服务器位于两个 AZ 的私有子网中，需要访问第三方支付 API（互联网），第三方要求固定的源 IP 白名单；任何一个 AZ 故障时另一个 AZ 仍能出网。最合适的是？}
+difficulty: advanced
+estimatedMinutes: 120
+timeLimitMinutes: 180
+extensions: {maxCount: 2, minutesEach: 30}
+retain: {allowed: true, maxHours: 12}
+regions:
+  supported: [ap-northeast-1]
+services:
+- {id: vpc, role: primary, module: network}
+- {id: ssm-session-manager, role: primary, module: shell-access}
+- {id: nat-gateway, role: supporting}
+- {id: vpc-endpoint, role: supporting}
+- {id: elb, role: context, module: load-balancer}
+- {id: iam, role: context, module: iam}
+modules:
+  target: [shell-access, network]
+  start: [iam, network, load-balancer]
+  context: []
+  related: []
+prerequisites:
+  cards:
+  - {id: svc-network, kind: soft}
+  - {id: svc-shell-access, kind: soft}
+  - {id: svc-load-balancer, kind: soft}
+startProfile:
+  provisions:
+  - item: iam
+    kind: module
+    basis: credential
+    set: {IAM_CREDENTIALS: role}
+    reason: 平台约定除 svc-ec2、svc-iam 外起始状态都带实例角色（C3）
+  - item: network
+    kind: module
+    basis: precursor
+    set: {NETWORK_PLACEMENT: public}
+  - item: load-balancer
+    kind: module
+    basis: closure
+    rule: DEP-009
+    set: {LB_MODE: alb}
+  - {item: ssh-from-workstation, kind: platform, reason: SSH 只对工作台公网出口 /32 开放}
+  platform:
+    preview: {directHttps: 'off'}
+targetModules:
+- {id: shell-access, driver: ssm}
+- id: network
+  driver: private
+  fromDriver: public
+  set: {NETWORK_NAT_MODE: gateway, NETWORK_INTERFACE_ENDPOINTS: ops}
+expectedWarnings: []
+workstation: {required: true, sshFromWorkstation: true}
+cost: {tier: high}
+provision: {class: B}
+badge: {title: 私有网络, short: 私有网络}
+tracks: [cost-optimized, networking, saa-main, secure]
+saa:
+  domains: [secure, resilient, cost]
+tags: [network, shell-access]
+certificate: {enabled: false}

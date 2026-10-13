@@ -1,0 +1,152 @@
+# 本卡专属检查；cdn 的公共检查（分配归属、入口链、边缘命中、失效、回收）引用 svc-cdn 的同名检查
+checks:
+  # ---- 起点（before 一律 once）
+  - id: storage-s3-start
+    title: 起始状态：照片已经在 S3
+    type: capability
+    module: storage
+    drift: { policy: once }
+    assert:
+      - { path: $.driver, op: eq, value: s3, label: 驱动 }
+      - { path: $, op: healthy, label: 状态正常 }
+    explain: 起始状态预置了 storage(s3)（DEP-010），本卡只专注“桶前面加分配”。
+
+  - id: media-presigned-baseline
+    title: 起点：缩略图 URL 是每次不同的 S3 预签名地址
+    type: http-header
+    from: lab
+    target: self
+    path: /api/lab/probe/media-url
+    method: GET
+    drift: { policy: once }
+    assert:
+      - { path: $.status, op: eq, value: 200, label: 状态码 }
+      - { path: $.json.provider, op: eq, value: 'storage:s3', label: 签名方 }
+      - { path: $.json.signed, op: eq, value: true, label: 预签名 }
+      - { path: $.json.cdn, op: eq, value: false, label: 未经 CDN 改写 }
+    explain: 每次请求都签出不同的 URL，浏览器与任何中间缓存都无法复用；字节从东京的桶直接跨洲传输。
+
+  # ---- 媒体源站切到 S3（OAC）
+  - id: media-behavior-oac
+    title: /media/* 行为指向 S3 源站，源站配置了 OAC，查看者协议重定向到 HTTPS
+    type: aws-readonly
+    service: cloudfront
+    action: GetDistributionConfig
+    region: global
+    params: { Id: '{{ var.distributionId }}' }
+    dependsOn: [distribution-deployed]
+    drift: { policy: must-hold }
+    assert:
+      - path: $.DistributionConfig.CacheBehaviors.Items
+        where: { PathPattern: '/media/*', TargetOriginId: s3-media, ViewerProtocolPolicy: redirect-to-https }
+        op: len_eq
+        value: 1
+        label: /media/* 行为
+      - path: $.DistributionConfig.Origins.Items
+        where: { Id: s3-media, OriginAccessControlId: { op: matches, value: '^[A-Z0-9]{8,}$' } }
+        op: len_eq
+        value: 1
+        label: S3 源站带 OAC
+      - path: $.DistributionConfig.Origins.Items
+        where: { Id: s3-media, DomainName: { op: startsWith, value: '{{ var.mediaBucket }}.s3.' } }
+        op: len_eq
+        value: 1
+        label: 源站是本会话的媒体桶（REST 端点，不是网站端点）
+    explain: 分配是本会话创建的（distribution-deployed 已确认归属）。源站必须是 S3 REST 端点：网站端点只支持 HTTP，也不能配合 OAC。
+    reproduce: { run: 'aws cloudfront get-distribution-config --id {{ var.distributionId }} --query "DistributionConfig.{Behaviors:CacheBehaviors.Items[].[PathPattern,TargetOriginId],Origins:Origins.Items[].[Id,DomainName,OriginAccessControlId]}"', runsOn: workstation }
+    manualFallback:
+      where: { breadcrumb: [CloudFront, 分配, '{{ var.distributionId }}', 行为], region: global }
+      observed:
+        question: “/media/*”行为的源是什么？
+        options:
+          - { value: s3, label: S3 媒体桶（s3-media）, expected: true }
+          - { value: app, label: 实验机（app-origin）, fixHint: 用 --set CDN_MEDIA_ORIGIN=s3 重新执行 scripts/module enable cdn }
+
+  - id: bucket-policy-oac
+    title: 媒体桶策略只允许本分配经 CloudFront 读取 variants/*
+    type: aws-readonly
+    service: s3
+    action: GetBucketPolicy
+    region: app
+    params: { Bucket: '{{ var.mediaBucket }}' }
+    ownership: { resource: 'arn:aws:s3:::{{ var.mediaBucket }}', mode: session-or-start }
+    dependsOn: [media-behavior-oac]
+    drift: { policy: must-hold }
+    assert:
+      - { path: $.Policy, op: contains, value: cloudfront.amazonaws.com, label: Principal 是 CloudFront 服务主体 }
+      - { path: $.Policy, op: contains, value: 'AWS:SourceArn', label: 用 AWS:SourceArn 限定分配 }
+      - { path: $.Policy, op: contains, value: 'distribution/{{ var.distributionId }}', label: 限定的是本分配 }
+      - { path: $.Policy, op: contains, value: '/variants/*', label: 只开放 variants/* }
+    explain: 媒体桶由起始状态的 storage 栈创建；cdn 启用时把分配 ARN 注入 storage 栈，生成这条只读 variants/* 的语句，raw/ 与 reports/ 永远不经 CDN 暴露。
+    reproduce: { run: 'aws s3api get-bucket-policy --bucket {{ var.mediaBucket }} --query Policy --output text | jq .', runsOn: workstation }
+    manualFallback:
+      where: { breadcrumb: [S3, 存储桶, '{{ var.mediaBucket }}', 权限, 存储桶策略], region: app }
+      observed:
+        question: 允许 CloudFront 读取的语句，Resource 与 Condition 分别是什么？
+        options:
+          - { value: ok, label: 'Resource 是 variants/*，条件 AWS:SourceArn 等于本分配', expected: true }
+          - { value: other, label: 其他, fixHint: 不要手工编辑桶策略；重新执行 scripts/module enable cdn --set CDN_MEDIA_ORIGIN=s3 }
+
+  # ---- 桶仍然私有
+  - id: bucket-not-public
+    title: 媒体桶的策略不是公开策略
+    type: aws-readonly
+    service: s3
+    action: GetBucketPolicyStatus
+    region: app
+    params: { Bucket: '{{ var.mediaBucket }}' }
+    dependsOn: [bucket-policy-oac]
+    drift: { policy: must-hold }
+    assert:
+      - { path: $.PolicyStatus.IsPublic, op: eq, value: false, label: IsPublic }
+    explain: 只允许特定服务主体 + 特定 SourceArn 的语句不算公开；任何 Principal 为 * 的放行都会让 IsPublic 变为 true。
+    reproduce: { run: 'aws s3api get-bucket-policy-status --bucket {{ var.mediaBucket }}', runsOn: workstation }
+    manualFallback:
+      where: { breadcrumb: [S3, 存储桶], region: app }
+      observed:
+        question: 媒体桶的“访问”一栏显示什么？
+        options:
+          - { value: private, label: 存储桶和对象不是公有的（或“仅授权用户”）, expected: true }
+          - { value: public, label: 公开, fixHint: 桶策略被改过；重新执行 scripts/module enable cdn --set CDN_MEDIA_ORIGIN=s3 }
+
+  - id: bucket-bpa
+    title: 媒体桶的四项“阻止公有访问”全部开启
+    type: aws-readonly
+    service: s3
+    action: GetPublicAccessBlock
+    region: app
+    params: { Bucket: '{{ var.mediaBucket }}' }
+    dependsOn: [bucket-policy-oac]
+    drift: { policy: must-hold }
+    assert:
+      - { path: $.PublicAccessBlockConfiguration.BlockPublicAcls, op: eq, value: true, label: BlockPublicAcls }
+      - { path: $.PublicAccessBlockConfiguration.IgnorePublicAcls, op: eq, value: true, label: IgnorePublicAcls }
+      - { path: $.PublicAccessBlockConfiguration.BlockPublicPolicy, op: eq, value: true, label: BlockPublicPolicy }
+      - { path: $.PublicAccessBlockConfiguration.RestrictPublicBuckets, op: eq, value: true, label: RestrictPublicBuckets }
+    explain: OAC 让 CloudFront 以服务身份读取私有桶，所以四项 BPA 可以保持全开。
+    reproduce: { run: 'aws s3api get-public-access-block --bucket {{ var.mediaBucket }}', runsOn: workstation }
+    manualFallback:
+      where: { breadcrumb: [S3, 存储桶, '{{ var.mediaBucket }}', 权限, 阻止公有访问], region: app }
+      observed:
+        question: “阻止所有公开访问”是否为“开启”？
+        options:
+          - { value: 'on', label: 开启, expected: true }
+          - { value: 'off', label: 关闭, fixHint: 不要关闭 BPA；OAC 不需要公开访问 }
+
+  - id: media-url-cdn
+    title: 应用签发的缩略图 URL 改为分配域名下的稳定地址
+    type: http-header
+    from: lab
+    target: self
+    path: /api/lab/probe/media-url
+    method: GET
+    dependsOn: [cap-cdn-healthy]
+    drift: { policy: must-hold }
+    assert:
+      - { path: $.status, op: eq, value: 200, label: 状态码 }
+      - { path: $.json.cdn, op: eq, value: true, label: 经 CDN 改写 }
+      - { path: $.json.host, op: eq, value: '{{ var.cdnDomain }}', label: 主机是本分配 }
+      - { path: $.json.scheme, op: eq, value: https, label: HTTPS }
+      - { path: $.json.signed, op: eq, value: false, label: 不再带签名参数 }
+    explain: 公开可见的缩略图改为 https://<分配域名>/media/variants/…，URL 稳定，边缘与浏览器都能缓存；原图仍走预签名 URL。
+    reproduce: { run: 'curl -s -o /dev/null -D - "http://127.0.0.1/api/feed?limit=1" | grep -i "^x-cloudalbum-path:"', runsOn: lab }

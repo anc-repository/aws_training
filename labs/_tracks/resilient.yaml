@@ -1,0 +1,35 @@
+# labs/_tracks/resilient.yaml —— 弹性专项（tracks-and-catalog §4.3）
+schema: atl.track/v2
+id: resilient
+version: 1.0.0
+title: 弹性专项
+summary: 补强“设计弹性的架构”：单点与可替换的实例、解耦、跨 AZ 的高可用、备份与灾备。
+audience: 想补强 SAA“设计弹性的架构”领域的学员
+domain: resilient
+stages:
+  - id: s1-decouple
+    title: 单点与解耦
+    items:
+      - { card: svc-ec2, role: required, note: 单点与可替换的实例 }
+      - { card: svc-queue, role: required }
+      - { group: g-messaging, title: 消息, pick: 1, cards: [svc-notification, sc-event-fanout] }
+      - { card: sc-decoupling, role: required }
+  - id: s2-ha
+    title: 高可用
+    note: svc-database、svc-autoscaling、sc-ha-web 含 RDS、ALB 与多台实例，是本路径的费用高点
+    items:
+      - { card: svc-load-balancer, role: required }
+      - { card: svc-database, role: required }
+      - { card: svc-autoscaling, role: required }
+      - { card: sc-ha-web, role: required }
+      - { card: svc-monitoring, role: optional }
+      - { card: svc-shared-fs, role: optional }
+      - { card: svc-ami, role: optional }
+  - id: s3-recovery
+    title: 备份与灾备
+    items:
+      - { card: svc-backup, role: required }
+      - { group: g-dr, title: 灾备, pick: 1, cards: [sc-backup-dr, svc-dns], note: svc-dns 需要域名（故障转移），没有域名时选 sc-backup-dr }
+      - { card: svc-workflow, role: optional }
+completion: { allowManual: true, minAutoRatio: 0.8, excludeSelfReported: true }
+certificate: { enabled: true, title: 弹性架构专项证书 }

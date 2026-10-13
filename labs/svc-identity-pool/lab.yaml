@@ -1,0 +1,64 @@
+# labs/svc-identity-pool/lab.yaml —— 目录占位（status: planned）：只有目录元数据，可在目录中显示但不能开始实验；
+# 取值来自 05 §4 与 cards/ 逐卡文档。步骤、手册、检查与小测在后续批次补齐，届时 status 改为 beta 并提升版本。
+schema: atl.lab/v2
+id: svc-identity-pool
+kind: service
+version: 0.1.0
+status: planned
+service: Amazon Cognito Identity Pool
+function: 终端用户直传 S3
+title: Amazon Cognito Identity Pool：终端用户直传 S3
+summary: 已登录用户换取一组只能写自己前缀的 STS 临时凭证，浏览器直接分片上传到 S3：授权从“应用代码”搬到“IAM 策略变量”。
+difficulty: intermediate
+estimatedMinutes: 90
+timeLimitMinutes: 150
+extensions: {maxCount: 2, minutesEach: 30}
+retain: {allowed: true, maxHours: 24}
+regions:
+  supported: [ap-northeast-1]
+services:
+- {id: cognito-identity-pool, name: Amazon Cognito Identity Pool, role: primary, module: identity-pool}
+- {id: iam, role: context, module: iam}
+- {id: s3, role: context, module: storage}
+- {id: cognito-user-pool, role: context, module: auth}
+modules:
+  target: [identity-pool]
+  start: [iam, storage, auth]
+  context: []
+  related: [auth, storage]
+prerequisites:
+  cards:
+  - {id: svc-auth, kind: soft}
+  - {id: svc-storage, kind: soft}
+startProfile:
+  provisions:
+  - item: iam
+    kind: module
+    basis: credential
+    set: {IAM_CREDENTIALS: role}
+    reason: 平台约定除 svc-ec2、svc-iam 外起始状态都带实例角色（C3）
+  - item: storage
+    kind: module
+    basis: closure
+    rule: DEP-002
+    set: {STORAGE_DRIVER: s3}
+  - item: auth
+    kind: module
+    basis: closure
+    rule: DEP-002
+    set: {AUTH_DRIVER: cognito, COGNITO_LOGIN_MODE: sdk, AUTH_MIGRATION: bulk}
+  - {item: cognito-test-users, kind: seed, reason: 已确认、密码已知的 Cognito 测试用户（06 种子登记表）}
+  - {item: preview-direct-https, kind: platform, reason: 预览使用方案 B 的 Let's Encrypt IP 证书（03 §6.2）}
+  platform:
+    preview: {directHttps: 'on'}
+targetModules:
+- {id: identity-pool, driver: cognito}
+expectedWarnings: [DEP-013, DEP-030]
+cost: {tier: low}
+provision: {class: B}
+badge: {title: 直传 S3}
+tracks: [saa-main, secure]
+saa:
+  domains: [secure, performance]
+tags: [identity-pool, cognito-identity-pool]
+certificate: {enabled: false}

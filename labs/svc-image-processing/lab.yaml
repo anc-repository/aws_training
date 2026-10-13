@@ -1,0 +1,245 @@
+# labs/svc-image-processing/lab.yaml —— AWS Lambda：缩略图生成（cards/service-cards-2 svc-image-processing）
+# 实现核对（implementation-notes platform-content）：experiments/image-processing 的 throttle、cold-start 是手工实验（不能上传结果），
+# 卡片把“紧急刹车”改为 cli 步骤（aws lambda put/delete-function-concurrency），以 manual 与 aws-readonly 判定；
+# failures 的“暂时错误”（FAULT_RATE）同为手工部分，改为选读，只保留“环境变量中没有 FAULT_RATE”的 must-hold 检查。
+# 回写通道：scripts/module enable image-processing --param ResultChannel=queue（平台模式默认也是 queue，不触发 DEP-021）。
+schema: atl.lab/v2
+id: svc-image-processing
+kind: service
+version: 1.0.0
+status: beta
+service: AWS Lambda
+function: 缩略图生成
+title: AWS Lambda：缩略图生成
+subtitle: EC2 上的 sharp → S3 + EventBridge + Lambda
+summary: 缩略图从 EC2 上的 sharp 改由 S3 → EventBridge → Lambda 生成，批量上传时“上传完成”接口与 EC2 CPU 曲线的变化一目了然。
+story: |
+  L0 的缩略图在“上传完成”请求内由 sharp 同步生成。批量上传 200 张时，请求在信号量上排队，两个 vCPU 被占满，
+  浏览时间线也跟着卡。这张卡片让原图一落进 S3 就由 EventBridge 触发 Lambda 生成缩略图，EC2 只负责写回结果。
+objectives:
+  - { text: 说清 EventBridge 异步调用 Lambda 的重试、最大事件年龄与失败目标, domain: resilient, relatesTo: failures }
+  - { text: 用输入输出分离避免递归调用, domain: cost, relatesTo: inspect }
+  - { text: 区分预留并发与预置并发, domain: performance, relatesTo: throttle }
+  - { text: 理解 Lambda 无法读取 EBS：状态必须外置, domain: resilient, relatesTo: enable }
+difficulty: intermediate
+estimatedMinutes: 90
+timeLimitMinutes: 150
+extensions: { maxCount: 2, minutesEach: 30 }
+retain: { allowed: true, maxHours: 24, reason: 函数、规则与队列都按调用计费，保留期间几乎不产生费用 }
+regions:
+  supported: [ap-northeast-1]
+services:
+  - { id: lambda, name: AWS Lambda, role: primary, module: image-processing }
+  - { id: s3, name: Amazon S3（起始状态预置的原图桶与展示桶）, role: context, module: storage }
+  - { id: iam, name: AWS IAM（实例角色）, role: context, module: iam }
+  - { id: eventbridge, name: Amazon EventBridge（触发规则）, role: observed }
+  - { id: sqs, name: Amazon SQS（模块自带的失败队列与结果队列）, role: observed }
+  - { id: cloudwatch-logs, name: Amazon CloudWatch Logs（函数日志）, role: observed }
+modules: { target: [image-processing], start: [iam, storage], context: [], related: [queue, tagging, workflow] }
+prerequisites:
+  cards:
+    - { id: svc-storage, kind: soft }
+  knowledge: [事件驱动与异步调用的基本概念]
+
+startProfile:
+  provisions:
+    - { item: iam, kind: module, basis: credential, set: { IAM_CREDENTIALS: role },
+        reason: 平台约定除 svc-ec2、svc-iam 外起始状态都带实例角色（C3）；lambda 档本身也需要凭证 }
+    - { item: storage, kind: module, basis: closure, rule: DEP-003, set: { STORAGE_DRIVER: s3 },
+        reason: Lambda 读不到 EC2 的 EBS（DEP-003），原图必须先在 S3；storage 自身只需 iam，闭包到此为止 }
+    - { item: mgmt-channel, kind: platform, reason: 实验机挂只含 AmazonSSMManagedInstanceCore 的 CloudAlbumAppRole，是平台的管理通道，不是应用权限 }
+    - { item: workstation, kind: platform, reason: 每个会话一台工作台，用于运行 scripts/module、AWS CLI 与对比实验 }
+    - { item: preview-direct-https, kind: platform, reason: 预览使用方案 B 的 Let's Encrypt IP 证书；本卡不涉及 tls，保持开启 }
+  platform: { preview: { directHttps: 'on' } }
+  reason: lambda 档要求原图在 S3（DEP-003）；工具链栈（存放部署包）由平台的 base-deploy 创建（档位 atl/svc-image-processing/default）
+targetModules:
+  - { id: image-processing, driver: lambda, set: { IMAGE_RESULT_CHANNEL: queue }, wireStep: enable, adoptsExisting: false }
+expectedWarnings: []
+workstation: { required: true, tools: [aws-cli, node, jq], savingsMode: degraded }
+platform:
+  consoleLinks: [lambda.function, s3.bucket]
+provision: { class: A }
+
+variables:
+  functionName: { label: 缩略图函数, from: derived, fillFrom: stack.image-processing.InfoFunctionName }
+  ruleName: { label: EventBridge 规则, from: derived, fillFrom: stack.image-processing.InfoRuleName }
+  logGroup: { label: 函数日志组, from: derived, fillFrom: stack.image-processing.InfoLogGroup }
+  failureQueueUrl: { label: 失败队列 URL, from: derived, fillFrom: stack.image-processing.EnvImageFailureQueueUrl }
+
+cost:
+  currency: USD
+  tier: low
+  tierWithOptional: medium
+  mainDrivers: [Lambda 请求与 GB-秒, S3 请求, SQS 请求, CloudWatch Logs 摄取, 选做的预置并发]
+  basis:
+    - { ref: start-profile, note: 实验机 EC2、EBS、公网 IPv4；起始状态中的 S3 按量计费 }
+    - { ref: workstation, note: 工作台 EC2、EBS、公网 IPv4 }
+    - { key: lambda-requests, pricingKey: lambda.requests, billing: usage, quantity: 1, unit: requests,
+        assumedUsagePerHour: 2000, source: target, whenRetained: false }
+    - { key: lambda-duration, pricingKey: lambda.duration, billing: usage, quantity: 1, unit: GB-second,
+        assumedUsagePerHour: 2000, source: target, whenRetained: false, note: 1024 MB 内存、含 INIT 阶段 }
+    - { key: sqs-requests, pricingKey: sqs.requests, billing: usage, quantity: 1, unit: requests,
+        assumedUsagePerHour: 5000, source: target, whenRetained: true, note: 结果队列的长轮询 }
+    - { key: logs, pricingKey: logs.ingestion, billing: usage, quantity: 1, unit: GB,
+        assumedUsagePerHour: 0.01, source: target, whenRetained: false }
+    - { key: provisioned-concurrency, pricingKey: lambda.provisioned-concurrency, billing: hourly, quantity: 1,
+        source: learner-created, optional: true, whenRetained: false, note: 选做的冷启动对照临时配置预置并发，测完立即删除 }
+  assumptions:
+    - 按每小时约 2000 次调用、每次 1 秒估算；学习规模的调用量通常在免费额度内，以官方定价为准
+
+steps:
+  - id: baseline
+    type: experiment
+    title: 记录 before：inline 生成缩略图时的突发上传
+    manual: manual/10-baseline.md
+    experiment: { module: image-processing, id: upload-burst, label: before }
+    panel: terminal-workstation
+    estMinutes: 12
+    checks: [ip-inline-baseline, storage-s3-start, exp-before]
+
+  - id: enable
+    type: script
+    wire: true
+    title: 接入 Lambda：部署函数、事件规则与队列
+    manual: manual/20-enable.md
+    methods: [script]
+    requires: { steps: [baseline] }
+    panel: terminal-workstation
+    estMinutes: 12
+    startsBilling: { class: usage, pricingKeys: [lambda.requests, lambda.duration, sqs.requests], note: 按调用计费 }
+    wait: { typicalMinutes: 4, maxMinutes: 15, text: 打包上传到工具链桶、部署、先重启 worker 再重启 api、端到端探针 }
+    checks: [ip-wired, ip-path-seen, lambda-config, lambda-async-config, rule-enabled]
+
+  - id: inspect
+    type: console
+    title: 看懂触发、目标与权限
+    manual: manual/30-inspect.md
+    methods: [console, cli]
+    requires: { steps: [enable] }
+    panel: console
+    estMinutes: 10
+    checks: [rule-targets, why-two-buckets]
+
+  - id: after
+    type: experiment
+    title: 记录 after：同样的突发上传由 Lambda 生成缩略图
+    manual: manual/40-after.md
+    experiment: { module: image-processing, id: upload-burst, label: after }
+    requires: { steps: [enable] }
+    panel: terminal-workstation
+    estMinutes: 12
+    checks: [exp-pair]
+
+  - id: failures
+    type: experiment
+    title: 失败路径：永久错误与暂时错误分别去了哪里
+    manual: manual/50-failures.md
+    experiment: { module: image-processing, id: failures, label: after }
+    requires: { steps: [enable] }
+    panel: terminal-workstation
+    estMinutes: 15
+    wait: { typicalMinutes: 4, maxMinutes: 10, text: 异步重试 2 次，间隔约 1、2 分钟 }
+    checks: [exp-failures, lambda-no-fault-rate]
+
+  - id: throttle
+    type: cli
+    title: 紧急刹车：预留并发设为 0 会发生什么
+    manual: manual/60-throttle.md
+    requires: { steps: [enable] }
+    panel: terminal-workstation
+    estMinutes: 12
+    checks: [throttle-observed, concurrency-restored]
+
+  - id: cold-start
+    type: cli
+    title: （选做）冷启动与 Init Duration
+    manual: manual/70-cold-start.md
+    optional: { reason: 需要闲置 15 分钟；剩余时间不足 30 分钟时跳过 }
+    requires: { steps: [enable] }
+    estMinutes: 20
+    startsBilling: { class: hourly, pricingKeys: [lambda.provisioned-concurrency], note: 只在临时配置预置并发时计费 }
+    checks: [ { ref: cold-start-observed, required: false } ]
+
+finalChecks:
+  - no-world-ssh
+  - { ref: ip-wired, as: final-ip-wired }
+  - { ref: concurrency-restored, as: final-concurrency-restored }
+
+experiments:
+  - module: image-processing
+    id: upload-burst
+    labels:
+      - { id: before, role: baseline, requires: { image-processing: inline } }
+      - { id: after, role: treatment, requires: { image-processing: lambda } }
+    pairs: [[before, after]]
+    required: true
+    runner: workstation
+    allowSimulatedBaseline: false
+    corroboration: { minServerRatio: 0.9 }
+  - module: image-processing
+    id: failures
+    labels: [ { id: after, role: single } ]
+    required: true
+    runner: workstation
+    validity: functional
+    corroborateWith: [ip-wired, lambda-async-config]
+  - { module: image-processing, id: neighbor, labels: [before, after], required: false, runner: workstation }
+
+quiz: { file: quiz.yaml, draw: 3 }
+badge: { title: 事件驱动, icon: assets/badge.svg }
+tracks: [cost-optimized, performant, quick-compare, saa-main, serverless]
+
+cleanup:
+  summary: 结束实验后，平台删除本次会话创建的函数、事件规则、队列与日志组；原图与衍生图在 storage 的桶里，回收会清空后删桶。
+  autoReclaim: true
+  dataRisk: [上传的照片随桶删除；函数日志随日志组删除]
+  learnerCreatedHints: []
+  verify:
+    - function-gone
+
+saa:
+  domains: [performance, resilient, cost]
+  topics:
+    - { id: async-invoke, title: 异步调用的重试、最大事件年龄与失败目标, domain: resilient, relatesTo: failures }
+    - { id: choreography, title: S3 事件经 EventBridge 的编舞；输入输出分离避免递归, domain: cost, relatesTo: inspect }
+    - { id: concurrency, title: 预留并发与预置并发；账号并发配额, domain: performance, relatesTo: throttle }
+    - { id: cold-start, title: 冷启动、Init Duration 与内存和 CPU 的关系, domain: performance, relatesTo: cold-start }
+  confusables:
+    - { a: 预留并发, b: 预置并发, rule: 预留并发既是保底也是上限，设为 0 等于暂停函数；预置并发预先初始化执行环境、消除冷启动、按时长计费 }
+    - { a: 异步调用的失败目标, b: 事件源映射, rule: 失败目标处理 EventBridge / S3 等异步调用重试用尽后的事件；事件源映射由 Lambda 轮询 SQS 等来源 }
+
+tags: [image-processing, lambda, eventbridge, serverless, async]
+
+permissions:
+  learner:
+    - cloudformation:CreateChangeSet
+    - cloudformation:DescribeChangeSet
+    - cloudformation:ExecuteChangeSet
+    - cloudformation:DescribeStacks
+    - cloudformation:DescribeStackEvents
+    - lambda:CreateFunction
+    - lambda:UpdateFunctionConfiguration
+    - lambda:PutFunctionEventInvokeConfig
+    - lambda:PutFunctionConcurrency
+    - lambda:DeleteFunctionConcurrency
+    - lambda:PutProvisionedConcurrencyConfig
+    - lambda:DeleteProvisionedConcurrencyConfig
+    - lambda:AddPermission
+    - lambda:GetFunctionConfiguration
+    - events:PutRule
+    - events:PutTargets
+    - sqs:CreateQueue
+    - sqs:SetQueueAttributes
+    - logs:CreateLogGroup
+    - logs:PutRetentionPolicy
+    - iam:CreateRole
+    - iam:PutRolePolicy
+    - iam:PassRole
+    - iam:CreatePolicy
+    - iam:AttachRolePolicy
+    - s3:PutObject
+    - ssm:SendCommand
+  notes: 部署包由 scripts/module 打包上传到工具链栈的制品桶（平台 base-deploy 创建）；执行角色带 ATLWorkloadBoundary
+
+certificate: { enabled: false }
+owners: [cloudalbum-maintainers]

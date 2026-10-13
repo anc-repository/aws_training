@@ -1,0 +1,57 @@
+# labs/svc-vuln-scan/lab.yaml —— 目录占位（status: planned）：只有目录元数据，可在目录中显示但不能开始实验；
+# 取值来自 05 §4 与 cards/ 逐卡文档。步骤、手册、检查与小测在后续批次补齐，届时 status 改为 beta 并提升版本。
+schema: atl.lab/v2
+id: svc-vuln-scan
+kind: service
+version: 0.1.0
+status: planned
+service: Amazon Inspector
+function: 漏洞扫描
+title: Amazon Inspector：漏洞扫描
+summary: 本机每天一次的 dnf 安全公告与 npm audit，对比 Amazon Inspector 对 EC2 的持续扫描与集中覆盖视图（Lambda、ECR 扫描作为讲解）。
+difficulty: intermediate
+estimatedMinutes: 75
+timeLimitMinutes: 150
+extensions: {maxCount: 2, minutesEach: 30}
+retain: {allowed: true, maxHours: 24}
+regions:
+  supported: [ap-northeast-1]
+services:
+- {id: inspector, name: Amazon Inspector, role: primary, module: vuln-scan}
+- {id: iam, role: context, module: iam}
+modules:
+  target: [vuln-scan]
+  start: [iam]
+  context: []
+  related: [ami]
+prerequisites:
+  cards:
+  - {id: svc-shell-access, kind: soft}
+  - {id: svc-ami, kind: soft}
+  - {id: sc-threat-compliance, kind: soft}
+startProfile:
+  provisions:
+  - item: iam
+    kind: module
+    basis: credential
+    set: {IAM_CREDENTIALS: role}
+    reason: 平台约定除 svc-ec2、svc-iam 外起始状态都带实例角色（C3）
+  - {item: preview-direct-https, kind: platform, reason: 预览使用方案 B 的 Let's Encrypt IP 证书（03 §6.2）}
+  platform:
+    preview: {directHttps: 'on'}
+targetModules:
+- id: vuln-scan
+  driver: inspector
+  params: {ScanTypes: EC2}
+expectedWarnings: []
+platform:
+  accountImpact:
+  - {id: inspector-activation, scope: region, resource: Inspector 激活（本区域全部 EC2，含工作台）, revert: delete, note: 本会话激活的扫描类型回收时停用}
+cost: {tier: medium}
+provision: {class: A}
+badge: {title: 漏洞雷达}
+tracks: [saa-main, secure]
+saa:
+  domains: [secure]
+tags: [vuln-scan, inspector]
+certificate: {enabled: false}

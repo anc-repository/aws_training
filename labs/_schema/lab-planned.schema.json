@@ -1,0 +1,2145 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:atl:schema:lab:v2:planned",
+  "title": "ATL lab.yaml v2 — catalog placeholder (status: planned)",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "id",
+    "kind",
+    "version",
+    "status",
+    "title",
+    "summary",
+    "difficulty",
+    "estimatedMinutes",
+    "timeLimitMinutes",
+    "extensions",
+    "retain",
+    "services",
+    "modules",
+    "targetModules",
+    "provision",
+    "cost",
+    "badge",
+    "tracks",
+    "saa",
+    "tags"
+  ],
+  "properties": {
+    "schema": {
+      "const": "atl.lab/v2"
+    },
+    "id": {
+      "$ref": "#/$defs/cardId"
+    },
+    "kind": {
+      "enum": [
+        "service",
+        "scenario"
+      ]
+    },
+    "service": {
+      "type": "string",
+      "minLength": 3,
+      "maxLength": 40
+    },
+    "function": {
+      "type": "string",
+      "minLength": 2,
+      "maxLength": 20
+    },
+    "version": {
+      "$ref": "#/$defs/semver"
+    },
+    "status": {
+      "const": "planned"
+    },
+    "title": {
+      "type": "string",
+      "minLength": 2,
+      "maxLength": 48
+    },
+    "subtitle": {
+      "type": "string",
+      "maxLength": 60
+    },
+    "summary": {
+      "type": "string",
+      "minLength": 10,
+      "maxLength": 200
+    },
+    "story": {
+      "type": "string",
+      "maxLength": 1200
+    },
+    "scenario": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "question"
+      ],
+      "properties": {
+        "question": {
+          "type": "string",
+          "minLength": 20,
+          "maxLength": 400
+        },
+        "constraints": {
+          "type": "array",
+          "maxItems": 6,
+          "items": {
+            "type": "string",
+            "maxLength": 80
+          }
+        },
+        "antiPatterns": {
+          "type": "array",
+          "maxItems": 6,
+          "items": {
+            "type": "string",
+            "maxLength": 120
+          }
+        }
+      }
+    },
+    "objectives": {
+      "type": "array",
+      "maxItems": 6,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "text",
+          "domain"
+        ],
+        "properties": {
+          "text": {
+            "type": "string",
+            "maxLength": 80
+          },
+          "domain": {
+            "$ref": "#/$defs/saaDomain"
+          },
+          "relatesTo": {
+            "$ref": "#/$defs/stepId"
+          }
+        }
+      }
+    },
+    "difficulty": {
+      "enum": [
+        "intro",
+        "beginner",
+        "intermediate",
+        "advanced"
+      ]
+    },
+    "estimatedMinutes": {
+      "type": "integer",
+      "minimum": 15,
+      "maximum": 480,
+      "multipleOf": 15
+    },
+    "timeLimitMinutes": {
+      "type": "integer",
+      "minimum": 30,
+      "maximum": 480,
+      "multipleOf": 30
+    },
+    "extensions": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "maxCount",
+        "minutesEach"
+      ],
+      "properties": {
+        "maxCount": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 5
+        },
+        "minutesEach": {
+          "type": "integer",
+          "minimum": 10,
+          "maximum": 120
+        }
+      }
+    },
+    "retain": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "allowed"
+      ],
+      "properties": {
+        "allowed": {
+          "type": "boolean"
+        },
+        "maxHours": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 72
+        },
+        "reason": {
+          "type": "string",
+          "maxLength": 120
+        }
+      }
+    },
+    "regions": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "supported": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/region"
+          }
+        },
+        "alsoUses": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "global",
+              "us-east-1"
+            ]
+          }
+        },
+        "extra": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "const": "dr-region"
+          }
+        }
+      }
+    },
+    "services": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "role"
+        ],
+        "properties": {
+          "id": {
+            "$ref": "#/$defs/serviceId"
+          },
+          "name": {
+            "type": "string",
+            "maxLength": 60
+          },
+          "role": {
+            "enum": [
+              "primary",
+              "supporting",
+              "observed",
+              "context"
+            ]
+          },
+          "module": {
+            "$ref": "#/$defs/moduleId"
+          },
+          "featureOf": {
+            "$ref": "#/$defs/serviceId"
+          },
+          "optional": {
+            "type": "boolean",
+            "default": false
+          },
+          "creditBy": {
+            "type": "array",
+            "uniqueItems": true,
+            "items": {
+              "$ref": "#/$defs/stepId"
+            }
+          }
+        }
+      }
+    },
+    "modules": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "target",
+        "start"
+      ],
+      "properties": {
+        "target": {
+          "$ref": "#/$defs/moduleList"
+        },
+        "start": {
+          "$ref": "#/$defs/moduleList"
+        },
+        "context": {
+          "$ref": "#/$defs/moduleList"
+        },
+        "related": {
+          "$ref": "#/$defs/moduleList"
+        }
+      }
+    },
+    "prerequisites": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "cards": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "id",
+              "kind"
+            ],
+            "properties": {
+              "id": {
+                "$ref": "#/$defs/cardId"
+              },
+              "kind": {
+                "enum": [
+                  "soft",
+                  "hard"
+                ]
+              }
+            }
+          }
+        },
+        "learnerInputs": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "id"
+            ],
+            "properties": {
+              "id": {
+                "enum": [
+                  "domain",
+                  "hosted-zone",
+                  "ses-identity",
+                  "notify-email",
+                  "recipient-emails",
+                  "alert-email",
+                  "budget-amounts",
+                  "cost-tags-active"
+                ]
+              },
+              "required": {
+                "type": "boolean",
+                "default": true
+              }
+            }
+          }
+        },
+        "knowledge": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "maxLength": 60
+          }
+        }
+      }
+    },
+    "startProfile": {
+      "$ref": "#/$defs/startProfile"
+    },
+    "targetModules": {
+      "type": "array",
+      "maxItems": 6,
+      "items": {
+        "$ref": "#/$defs/targetModule"
+      }
+    },
+    "expectedWarnings": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "$ref": "#/$defs/ruleId"
+      }
+    },
+    "acceptedDrift": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "pattern": "^[a-z][a-z0-9-]*\\.[A-Za-z][A-Za-z0-9]*\\.[A-Za-z][A-Za-z0-9.]*$"
+      }
+    },
+    "workstation": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "required": {
+          "type": "boolean",
+          "default": true
+        },
+        "sshFromWorkstation": {
+          "type": "boolean",
+          "default": false
+        },
+        "savingsMode": {
+          "enum": [
+            "ok",
+            "degraded",
+            "unsupported"
+          ],
+          "default": "ok"
+        },
+        "tools": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "aws-cli",
+              "node",
+              "k6",
+              "git",
+              "jq",
+              "psql",
+              "redis-cli",
+              "session-manager-plugin"
+            ]
+          }
+        }
+      }
+    },
+    "platform": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "consoleLinks": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z0-9]+\\.[A-Za-z0-9]+$"
+          }
+        },
+        "accountImpact": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "id",
+              "scope",
+              "resource",
+              "revert"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "pattern": "^[a-z][a-z0-9-]{1,39}$"
+              },
+              "scope": {
+                "enum": [
+                  "account",
+                  "region"
+                ]
+              },
+              "resource": {
+                "type": "string",
+                "maxLength": 80
+              },
+              "preexisting": {
+                "enum": [
+                  "adopt-readonly",
+                  "not-applicable"
+                ],
+                "default": "not-applicable"
+              },
+              "revert": {
+                "enum": [
+                  "delete",
+                  "restore",
+                  "keep",
+                  "manual"
+                ]
+              },
+              "note": {
+                "type": "string",
+                "maxLength": 200
+              }
+            }
+          }
+        }
+      }
+    },
+    "cost": {
+      "$ref": "#/$defs/cost"
+    },
+    "provision": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "class"
+      ],
+      "properties": {
+        "class": {
+          "enum": [
+            "A",
+            "B",
+            "C",
+            "D"
+          ]
+        },
+        "budgetMinutes": {
+          "type": "integer",
+          "minimum": 5,
+          "maximum": 120
+        },
+        "cleanupBudgetMinutes": {
+          "type": "integer",
+          "minimum": 5,
+          "maximum": 180
+        }
+      }
+    },
+    "badge": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "title"
+      ],
+      "properties": {
+        "title": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 8
+        },
+        "short": {
+          "type": "string",
+          "maxLength": 6
+        },
+        "icon": {
+          "type": "string",
+          "pattern": "^assets/[a-z0-9-]+\\.svg$"
+        }
+      }
+    },
+    "tracks": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "$ref": "#/$defs/trackId"
+      }
+    },
+    "saa": {
+      "$ref": "#/$defs/saa"
+    },
+    "tags": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 12,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "pattern": "^[a-z0-9][a-z0-9-]{0,23}$"
+      }
+    },
+    "platformOps": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "op",
+          "module",
+          "title"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9-]{2,39}$"
+          },
+          "op": {
+            "enum": [
+              "enable",
+              "disable"
+            ]
+          },
+          "module": {
+            "$ref": "#/$defs/moduleId"
+          },
+          "args": {
+            "type": "object",
+            "additionalProperties": {
+              "type": [
+                "string",
+                "number",
+                "boolean"
+              ]
+            }
+          },
+          "title": {
+            "type": "string",
+            "maxLength": 40
+          },
+          "confirm": {
+            "type": "string",
+            "maxLength": 200
+          },
+          "optional": {
+            "type": "boolean",
+            "default": false
+          },
+          "interruptsManagementChannel": {
+            "type": "boolean",
+            "default": false
+          }
+        }
+      }
+    },
+    "keepablePrerequisites": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "enum": [
+          "route53-hosted-zone",
+          "ses-identity",
+          "acm-certificate"
+        ]
+      }
+    },
+    "extraStacks": {
+      "type": "array",
+      "maxItems": 4,
+      "items": {
+        "$ref": "#/$defs/extraStack"
+      }
+    },
+    "certificate": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "default": false
+        },
+        "title": {
+          "type": "string",
+          "maxLength": 40
+        },
+        "maxManualChecks": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "owners": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "required": [
+          "kind"
+        ],
+        "properties": {
+          "kind": {
+            "const": "service"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "service",
+          "function"
+        ],
+        "properties": {
+          "id": {
+            "pattern": "^svc-"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "required": [
+          "kind"
+        ],
+        "properties": {
+          "kind": {
+            "const": "scenario"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "scenario",
+          "story"
+        ],
+        "properties": {
+          "id": {
+            "pattern": "^sc-"
+          },
+          "difficulty": {
+            "enum": [
+              "intermediate",
+              "advanced"
+            ]
+          }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "cardId": {
+      "type": "string",
+      "pattern": "^(svc|sc)-[a-z0-9]+(-[a-z0-9]+)*$",
+      "maxLength": 28
+    },
+    "trackId": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]{1,31}$"
+    },
+    "stepId": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]{1,39}$"
+    },
+    "checkId": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]{1,47}$"
+    },
+    "checkKey": {
+      "type": "string",
+      "pattern": "^(svc|sc)-[a-z0-9-]+/[a-z][a-z0-9-]{1,47}$"
+    },
+    "moduleId": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]{1,23}$"
+    },
+    "moduleList": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "$ref": "#/$defs/moduleId"
+      }
+    },
+    "serviceId": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]{1,31}$"
+    },
+    "ruleId": {
+      "type": "string",
+      "pattern": "^[A-Z]{2,5}-[0-9]{3}$"
+    },
+    "labelId": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]{0,23}$"
+    },
+    "envKey": {
+      "type": "string",
+      "pattern": "^[A-Z][A-Z0-9_]{1,47}$"
+    },
+    "semver": {
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(-[0-9A-Za-z.-]+)?$"
+    },
+    "region": {
+      "type": "string",
+      "pattern": "^[a-z]{2}(-[a-z]+)+-[0-9]$"
+    },
+    "saaDomain": {
+      "enum": [
+        "secure",
+        "resilient",
+        "performance",
+        "cost"
+      ]
+    },
+    "guideRef": {
+      "type": "string",
+      "pattern": "^guide:[a-z][a-z0-9-]*#[a-z][a-z0-9-]*(/[A-Za-z0-9.\\-]+)*$"
+    },
+    "expr": {
+      "type": "string",
+      "maxLength": 200
+    },
+    "scalar": {
+      "type": [
+        "string",
+        "number",
+        "boolean"
+      ]
+    },
+    "envMap": {
+      "type": "object",
+      "propertyNames": {
+        "$ref": "#/$defs/envKey"
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/scalar"
+      }
+    },
+    "paramMap": {
+      "type": "object",
+      "propertyNames": {
+        "pattern": "^[A-Za-z][A-Za-z0-9]{1,63}$"
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/scalar"
+      }
+    },
+    "provisionItem": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "item",
+        "kind"
+      ],
+      "properties": {
+        "item": {
+          "type": "string",
+          "pattern": "^[A-Za-z][A-Za-z0-9._-]{1,63}$"
+        },
+        "kind": {
+          "enum": [
+            "module",
+            "local",
+            "runtime",
+            "seed",
+            "platform"
+          ]
+        },
+        "basis": {
+          "enum": [
+            "credential",
+            "closure",
+            "precursor",
+            "context"
+          ]
+        },
+        "set": {
+          "$ref": "#/$defs/envMap"
+        },
+        "params": {
+          "$ref": "#/$defs/paramMap"
+        },
+        "value": {
+          "$ref": "#/$defs/scalar"
+        },
+        "rule": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/ruleId"
+            },
+            {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "$ref": "#/$defs/ruleId"
+              }
+            }
+          ]
+        },
+        "contextKind": {
+          "enum": [
+            "https-entry",
+            "protected-data",
+            "shorten-wait",
+            "realism"
+          ]
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 4,
+          "maxLength": 240
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "module"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "basis"
+            ],
+            "properties": {
+              "item": {
+                "$ref": "#/$defs/moduleId"
+              }
+            }
+          },
+          "else": {
+            "not": {
+              "required": [
+                "basis"
+              ]
+            }
+          }
+        },
+        {
+          "if": {
+            "required": [
+              "basis"
+            ],
+            "properties": {
+              "basis": {
+                "const": "closure"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "rule"
+            ]
+          }
+        },
+        {
+          "if": {
+            "required": [
+              "basis"
+            ],
+            "properties": {
+              "basis": {
+                "const": "context"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "contextKind"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "local"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "set"
+            ],
+            "properties": {
+              "item": {
+                "$ref": "#/$defs/moduleId"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "runtime"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "value"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "platform"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "item": {
+                "enum": [
+                  "mgmt-channel",
+                  "workstation",
+                  "preview-direct-https",
+                  "ssh-from-workstation",
+                  "check-bundle"
+                ]
+              }
+            }
+          }
+        }
+      ]
+    },
+    "platformStart": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "preview"
+      ],
+      "properties": {
+        "preview": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "directHttps"
+          ],
+          "properties": {
+            "directHttps": {
+              "enum": [
+                "on",
+                "off"
+              ]
+            }
+          }
+        }
+      }
+    },
+    "branches": {
+      "type": "object",
+      "propertyNames": {
+        "$ref": "#/$defs/ruleId"
+      },
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "choose",
+          "reason"
+        ],
+        "properties": {
+          "choose": {
+            "$ref": "#/$defs/moduleId"
+          },
+          "reason": {
+            "type": "string",
+            "maxLength": 200
+          }
+        }
+      }
+    },
+    "startProfile": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "provisions",
+        "platform"
+      ],
+      "properties": {
+        "base": {
+          "const": "l0-ec2",
+          "default": "l0-ec2"
+        },
+        "provisions": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/provisionItem"
+          }
+        },
+        "branches": {
+          "$ref": "#/$defs/branches"
+        },
+        "platform": {
+          "$ref": "#/$defs/platformStart"
+        },
+        "variants": {
+          "type": "array",
+          "maxItems": 3,
+          "items": {
+            "$ref": "#/$defs/startVariant"
+          }
+        },
+        "reason": {
+          "type": "string",
+          "maxLength": 400
+        }
+      }
+    },
+    "startVariant": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "title",
+        "select",
+        "provisions",
+        "reason"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9-]{1,23}$",
+          "not": {
+            "const": "default"
+          }
+        },
+        "title": {
+          "type": "string",
+          "maxLength": 40
+        },
+        "select": {
+          "enum": [
+            "learner",
+            "preflight"
+          ]
+        },
+        "when": {
+          "$ref": "#/$defs/expr"
+        },
+        "provisions": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/provisionItem"
+          }
+        },
+        "branches": {
+          "$ref": "#/$defs/branches"
+        },
+        "platform": {
+          "$ref": "#/$defs/platformStart"
+        },
+        "targetModules": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/targetModule"
+          }
+        },
+        "reason": {
+          "type": "string",
+          "maxLength": 240
+        }
+      },
+      "if": {
+        "properties": {
+          "select": {
+            "const": "preflight"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "when"
+        ]
+      }
+    },
+    "targetModule": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "driver"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/moduleId"
+        },
+        "driver": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9-]{1,31}$"
+        },
+        "fromDriver": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9-]{1,31}$"
+        },
+        "set": {
+          "$ref": "#/$defs/envMap"
+        },
+        "params": {
+          "$ref": "#/$defs/paramMap"
+        },
+        "wireStep": {
+          "$ref": "#/$defs/stepId"
+        },
+        "adoptsExisting": {
+          "type": "boolean",
+          "default": false
+        },
+        "optional": {
+          "type": "boolean",
+          "default": false
+        }
+      }
+    },
+    "variable": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "label",
+        "from"
+      ],
+      "properties": {
+        "label": {
+          "type": "string",
+          "maxLength": 24
+        },
+        "from": {
+          "enum": [
+            "input",
+            "derived"
+          ]
+        },
+        "fillFrom": {
+          "type": "string",
+          "maxLength": 120
+        },
+        "pattern": {
+          "type": "string",
+          "maxLength": 200
+        },
+        "example": {
+          "type": "string"
+        },
+        "help": {
+          "type": "string",
+          "maxLength": 200
+        }
+      },
+      "if": {
+        "properties": {
+          "from": {
+            "const": "input"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "pattern"
+        ]
+      },
+      "else": {
+        "required": [
+          "fillFrom"
+        ]
+      }
+    },
+    "cost": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "tier"
+      ],
+      "properties": {
+        "currency": {
+          "const": "USD"
+        },
+        "tier": {
+          "enum": [
+            "low",
+            "medium",
+            "high"
+          ]
+        },
+        "tierWithOptional": {
+          "enum": [
+            "low",
+            "medium",
+            "high"
+          ]
+        },
+        "mainDrivers": {
+          "type": "array",
+          "maxItems": 6,
+          "items": {
+            "type": "string",
+            "maxLength": 40
+          }
+        },
+        "basis": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/costItem"
+          }
+        },
+        "assumptions": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "maxLength": 200
+          }
+        }
+      }
+    },
+    "costItem": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "ref"
+          ],
+          "properties": {
+            "ref": {
+              "enum": [
+                "start-profile",
+                "workstation",
+                "target-modules",
+                "extra-stacks"
+              ]
+            },
+            "note": {
+              "type": "string"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "key",
+            "pricingKey",
+            "billing",
+            "quantity",
+            "source"
+          ],
+          "properties": {
+            "key": {
+              "type": "string",
+              "pattern": "^[a-z][a-z0-9-]{1,31}$"
+            },
+            "pricingKey": {
+              "type": "string",
+              "pattern": "^[a-z0-9-]+(\\.[a-z0-9-]+)+$"
+            },
+            "billing": {
+              "enum": [
+                "hourly",
+                "monthly",
+                "usage",
+                "one-time"
+              ]
+            },
+            "quantity": {
+              "type": "number",
+              "exclusiveMinimum": 0
+            },
+            "unit": {
+              "type": "string",
+              "maxLength": 16
+            },
+            "assumedUsagePerHour": {
+              "type": "number",
+              "minimum": 0
+            },
+            "source": {
+              "enum": [
+                "start-profile",
+                "workstation",
+                "target",
+                "learner-created",
+                "extra-stack",
+                "platform"
+              ]
+            },
+            "optional": {
+              "type": "boolean",
+              "default": false
+            },
+            "whenRetained": {
+              "type": "boolean",
+              "default": true
+            },
+            "note": {
+              "type": "string",
+              "maxLength": 200
+            }
+          },
+          "allOf": [
+            {
+              "if": {
+                "properties": {
+                  "billing": {
+                    "const": "usage"
+                  }
+                }
+              },
+              "then": {
+                "required": [
+                  "assumedUsagePerHour",
+                  "unit"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    "step": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "type",
+        "title",
+        "manual",
+        "checks"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/stepId"
+        },
+        "type": {
+          "enum": [
+            "console",
+            "cli",
+            "script",
+            "code",
+            "observe",
+            "experiment"
+          ]
+        },
+        "title": {
+          "type": "string",
+          "maxLength": 60
+        },
+        "manual": {
+          "type": "string",
+          "pattern": "^manual/[0-9]{2}-[a-z0-9-]+\\.md$"
+        },
+        "from": {
+          "$ref": "#/$defs/guideRef"
+        },
+        "wire": {
+          "type": "boolean",
+          "default": false
+        },
+        "optional": {
+          "oneOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "reason"
+              ],
+              "properties": {
+                "reason": {
+                  "type": "string",
+                  "maxLength": 120
+                },
+                "when": {
+                  "$ref": "#/$defs/expr"
+                }
+              }
+            }
+          ]
+        },
+        "when": {
+          "$ref": "#/$defs/expr"
+        },
+        "requires": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "steps": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/stepId"
+              }
+            },
+            "runtime": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/moduleId"
+              }
+            }
+          }
+        },
+        "supersedes": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/stepId"
+          }
+        },
+        "estMinutes": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 120
+        },
+        "methods": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "console",
+              "cli",
+              "script",
+              "code"
+            ]
+          }
+        },
+        "panel": {
+          "enum": [
+            "terminal-lab",
+            "terminal-workstation",
+            "console",
+            "preview"
+          ]
+        },
+        "startsBilling": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "class",
+            "pricingKeys"
+          ],
+          "properties": {
+            "class": {
+              "enum": [
+                "hourly",
+                "usage",
+                "fixed-monthly"
+              ]
+            },
+            "pricingKeys": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "note": {
+              "type": "string"
+            }
+          }
+        },
+        "wait": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "typicalMinutes",
+            "maxMinutes"
+          ],
+          "properties": {
+            "typicalMinutes": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "maxMinutes": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 60
+            },
+            "text": {
+              "type": "string",
+              "maxLength": 120
+            }
+          }
+        },
+        "expectedOutage": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "channel",
+            "maxMinutes",
+            "reason"
+          ],
+          "properties": {
+            "channel": {
+              "enum": [
+                "lab",
+                "workstation",
+                "both"
+              ]
+            },
+            "maxMinutes": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 30
+            },
+            "reason": {
+              "type": "string",
+              "maxLength": 120
+            }
+          }
+        },
+        "checks": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/checkRef"
+          }
+        },
+        "experiment": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "module",
+            "id",
+            "label"
+          ],
+          "properties": {
+            "module": {
+              "$ref": "#/$defs/moduleId"
+            },
+            "id": {
+              "type": "string",
+              "pattern": "^[a-z][a-z0-9-]{1,31}$"
+            },
+            "label": {
+              "$ref": "#/$defs/labelId"
+            }
+          }
+        },
+        "pitfalls": {
+          "type": "array",
+          "items": {
+            "anyOf": [
+              {
+                "type": "object",
+                "required": [
+                  "ref"
+                ],
+                "properties": {
+                  "ref": {
+                    "$ref": "#/$defs/guideRef"
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "required": [
+                  "id",
+                  "symptom",
+                  "match",
+                  "cause",
+                  "fix"
+                ]
+              }
+            ]
+          }
+        },
+        "saa": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          }
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "experiment"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "experiment"
+            ]
+          }
+        },
+        {
+          "if": {
+            "required": [
+              "wire"
+            ],
+            "properties": {
+              "wire": {
+                "const": true
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "type": {
+                "enum": [
+                  "script",
+                  "cli",
+                  "console"
+                ]
+              }
+            }
+          }
+        }
+      ]
+    },
+    "checkRef": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/checkId"
+        },
+        {
+          "$ref": "#/$defs/checkKey"
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "ref"
+          ],
+          "properties": {
+            "ref": {
+              "oneOf": [
+                {
+                  "$ref": "#/$defs/guideRef"
+                },
+                {
+                  "$ref": "#/$defs/checkId"
+                },
+                {
+                  "$ref": "#/$defs/checkKey"
+                }
+              ]
+            },
+            "as": {
+              "$ref": "#/$defs/checkId"
+            },
+            "required": {
+              "type": "boolean"
+            },
+            "when": {
+              "$ref": "#/$defs/expr"
+            },
+            "timeoutMs": {
+              "type": "integer",
+              "minimum": 1000,
+              "maximum": 90000
+            },
+            "expectedWarnings": {
+              "type": "array",
+              "uniqueItems": true,
+              "items": {
+                "$ref": "#/$defs/ruleId"
+              }
+            },
+            "drift": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "policy": {
+                  "enum": [
+                    "must-hold",
+                    "once"
+                  ]
+                },
+                "monitor": {
+                  "type": "boolean"
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "experimentLabel": {
+      "oneOf": [
+        {
+          "enum": [
+            "before",
+            "after",
+            "run"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "id",
+            "role"
+          ],
+          "properties": {
+            "id": {
+              "$ref": "#/$defs/labelId"
+            },
+            "role": {
+              "enum": [
+                "baseline",
+                "treatment",
+                "single"
+              ]
+            },
+            "title": {
+              "type": "string",
+              "maxLength": 24
+            },
+            "requires": {
+              "type": "object",
+              "propertyNames": {
+                "$ref": "#/$defs/moduleId"
+              },
+              "additionalProperties": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "experiment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "module",
+        "id",
+        "labels",
+        "required"
+      ],
+      "properties": {
+        "module": {
+          "$ref": "#/$defs/moduleId"
+        },
+        "id": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9-]{1,31}$"
+        },
+        "labels": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 6,
+          "items": {
+            "$ref": "#/$defs/experimentLabel"
+          }
+        },
+        "pairs": {
+          "type": "array",
+          "items": {
+            "type": "array",
+            "minItems": 2,
+            "maxItems": 2,
+            "items": {
+              "$ref": "#/$defs/labelId"
+            }
+          }
+        },
+        "requiredLabels": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/labelId"
+          }
+        },
+        "required": {
+          "type": "boolean"
+        },
+        "runner": {
+          "enum": [
+            "workstation",
+            "browser"
+          ],
+          "default": "workstation"
+        },
+        "allowSimulatedBaseline": {
+          "type": "boolean",
+          "default": true
+        },
+        "validity": {
+          "enum": [
+            "traffic",
+            "functional"
+          ],
+          "default": "traffic"
+        },
+        "corroborateWith": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/checkId"
+          }
+        },
+        "compareAcross": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "instanceType",
+              "arch"
+            ]
+          }
+        },
+        "scenarios": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "corroboration": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "minServerRatio": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1,
+              "default": 0.9
+            }
+          }
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "required": {
+                "const": true
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "runner": {
+                "const": "workstation"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "required": [
+              "validity"
+            ],
+            "properties": {
+              "validity": {
+                "const": "functional"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "corroborateWith"
+            ]
+          }
+        }
+      ]
+    },
+    "extraStack": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "template",
+        "region",
+        "deploy",
+        "reclaim"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9-]{1,23}$"
+        },
+        "template": {
+          "type": "string",
+          "pattern": "^stacks/[a-z0-9-]+\\.ya?ml$"
+        },
+        "region": {
+          "enum": [
+            "app",
+            "us-east-1",
+            "dr-region"
+          ]
+        },
+        "deploy": {
+          "type": "string",
+          "pattern": "^(start|step:[a-z][a-z0-9-]{1,39})$"
+        },
+        "when": {
+          "$ref": "#/$defs/expr"
+        },
+        "optional": {
+          "type": "boolean",
+          "default": false
+        },
+        "params": {
+          "type": "object",
+          "propertyNames": {
+            "pattern": "^[A-Za-z][A-Za-z0-9]{1,63}$"
+          },
+          "additionalProperties": {
+            "type": "string",
+            "maxLength": 200
+          }
+        },
+        "outputs": {
+          "type": "object",
+          "propertyNames": {
+            "pattern": "^[A-Za-z][A-Za-z0-9]{1,63}$"
+          },
+          "additionalProperties": {
+            "type": "string",
+            "pattern": "^var\\.[a-z][A-Za-z0-9]{1,31}$"
+          }
+        },
+        "reclaim": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "phase"
+          ],
+          "properties": {
+            "phase": {
+              "enum": [
+                "before-modules",
+                "after-modules"
+              ]
+            },
+            "notes": {
+              "type": "string",
+              "maxLength": 200
+            }
+          }
+        }
+      }
+    },
+    "cleanup": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "summary",
+        "autoReclaim"
+      ],
+      "properties": {
+        "summary": {
+          "type": "string",
+          "maxLength": 400
+        },
+        "autoReclaim": {
+          "const": true
+        },
+        "dataRisk": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "learnerCreatedHints": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "resourceType",
+              "how"
+            ],
+            "properties": {
+              "resourceType": {
+                "type": "string",
+                "pattern": "^AWS::[A-Za-z0-9]+::[A-Za-z0-9]+$"
+              },
+              "how": {
+                "type": "string",
+                "maxLength": 200
+              }
+            }
+          }
+        },
+        "verify": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/checkRef"
+          }
+        }
+      }
+    },
+    "saa": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "domains"
+      ],
+      "properties": {
+        "domains": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/saaDomain"
+          }
+        },
+        "topics": {
+          "type": "array",
+          "items": {
+            "oneOf": [
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "ref"
+                ],
+                "properties": {
+                  "ref": {
+                    "$ref": "#/$defs/guideRef"
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "id",
+                  "title",
+                  "domain"
+                ],
+                "properties": {
+                  "id": {
+                    "type": "string"
+                  },
+                  "title": {
+                    "type": "string",
+                    "maxLength": 60
+                  },
+                  "domain": {
+                    "$ref": "#/$defs/saaDomain"
+                  },
+                  "relatesTo": {
+                    "$ref": "#/$defs/stepId"
+                  }
+                }
+              }
+            ]
+          }
+        },
+        "confusables": {
+          "type": "array",
+          "items": {
+            "oneOf": [
+              {
+                "type": "object",
+                "required": [
+                  "ref"
+                ],
+                "properties": {
+                  "ref": {
+                    "$ref": "#/$defs/guideRef"
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "required": [
+                  "a",
+                  "b",
+                  "rule"
+                ],
+                "properties": {
+                  "a": {
+                    "type": "string"
+                  },
+                  "b": {
+                    "type": "string"
+                  },
+                  "rule": {
+                    "type": "string"
+                  }
+                }
+              }
+            ]
+          }
+        }
+      }
+    }
+  }
+}

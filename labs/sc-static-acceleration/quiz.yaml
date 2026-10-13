@@ -1,0 +1,77 @@
+schema: atl.quiz/v1
+version: 1.0.0
+questions:
+  - id: sa-oac-kms
+    domain: secure
+    type: single
+    kind: scenario
+    services: [cloudfront, s3, kms]
+    stem: 照片桶使用 SSE-KMS（客户托管密钥）加密，要求用户只能经 CloudFront 读取对象。应该怎么配置？
+    options:
+      - { id: a, text: 创建 OAI，桶策略只允许该 OAI 读取 }
+      - { id: b, text: 创建 OAC，桶策略允许 cloudfront.amazonaws.com 读取并用 AWS:SourceArn 限定分配，KMS 密钥策略允许该服务主体解密 }
+      - { id: c, text: 开启 S3 静态网站托管，把网站端点作为源站 }
+      - { id: d, text: 把对象 ACL 设为 public-read，再用 CloudFront 地理限制保护 }
+    answer: [b]
+    explain: OAI 不支持 SSE-KMS；网站端点不能使用 OAC，且要求桶公开；公开 ACL 违背“只能经 CloudFront”的要求，BucketOwnerEnforced 下 ACL 也已被禁用。
+    relatesTo: private-bucket
+    difficulty: 2
+  - id: sa-acm-region
+    domain: secure
+    type: single
+    kind: scenario
+    services: [cloudfront, acm]
+    stem: 在 ap-northeast-1 申请的 ACM 证书状态已是 ISSUED，但在 CloudFront 分配的“自定义 SSL 证书”下拉框中选不到。最可能的原因是？
+    options:
+      - { id: a, text: 证书使用了 RSA 2048 密钥 }
+      - { id: b, text: CloudFront 只能使用 us-east-1 区域的 ACM 证书 }
+      - { id: c, text: CloudFront 只接受可导出的证书 }
+      - { id: d, text: 证书必须先上传到 IAM 证书存储 }
+    answer: [b]
+    explain: CloudFront 是全局服务，只读取 us-east-1 的 ACM 证书；RSA 2048 是受支持的算法；可导出证书与 IAM 证书存储都不是必需条件。
+    difficulty: 1
+  - id: sa-versioning
+    domain: cost
+    type: multi
+    kind: scenario
+    services: [cloudfront]
+    stem: 前端发布新版 app.js 后部分用户仍拿到旧文件。哪两项能让新版本尽快生效，并且长期运维成本最低？
+    options:
+      - { id: a, text: 构建时在文件名中加入内容哈希 }
+      - { id: b, text: 每次发布都对 /* 创建失效 }
+      - { id: c, text: 把 /assets/* 行为的最大 TTL 设为 0 }
+      - { id: d, text: index.html 使用 no-cache（或很短的 TTL），只在必要时失效它 }
+      - { id: e, text: 关闭 CloudFront 的自动压缩 }
+    answer: [a, d]
+    explain: 带哈希的文件名天然是新对象，index.html 不长期缓存就能立即引用新文件。全量失效会让所有对象回源，超出免费额度的失效路径还要收费；TTL 为 0 失去了缓存的意义；压缩与版本无关。
+    relatesTo: invalidation
+    difficulty: 2
+  - id: sa-global-design
+    domain: performance
+    type: single
+    kind: scenario
+    services: [cloudfront, s3, route53, acm]
+    stem: 一家图片社区把图片存放在 us-east-1 的 S3 桶中，全球用户反馈加载慢。要求降低全球访问延迟、桶不得公开、使用 media.example.com 与受信证书、运维工作量最少。哪个方案最合适？
+    options:
+      - { id: a, text: CloudFront 以 S3 REST 端点为源并使用 OAC；在 us-east-1 申请 ACM 证书；Route 53 创建 Alias 指向分配 }
+      - { id: b, text: 在多个区域建桶并配置跨区域复制，用 Route 53 延迟路由指向各区域的 S3 网站端点 }
+      - { id: c, text: 开启 S3 Transfer Acceleration，把加速端点 CNAME 到 media.example.com }
+      - { id: d, text: 用 AWS Global Accelerator 指向 S3 桶 }
+    answer: [a]
+    explain: 边缘缓存解决延迟，OAC 让桶保持私有，ACM 免费自动续期，Alias 可以用于任何层级的域名。网站端点只支持 HTTP 且要求公开；Transfer Acceleration 不缓存；Global Accelerator 不能直接指向 S3。
+    relatesTo: after
+    difficulty: 2
+  - id: sa-apex-alias
+    domain: cost
+    type: single
+    kind: scenario
+    services: [route53, cloudfront]
+    stem: 公司希望根域名 example.com 指向 CloudFront 分配，且 DNS 查询不要产生额外费用。应该怎么做？
+    options:
+      - { id: a, text: 在根域名创建 CNAME 记录指向分配域名 }
+      - { id: b, text: 在 Route 53 中创建 A/AAAA Alias 记录指向该分配 }
+      - { id: c, text: 创建 A 记录，值为 dig 查到的几个 CloudFront 边缘 IP }
+      - { id: d, text: 创建两个分配，用加权记录各分 50% 流量 }
+    answer: [b]
+    explain: 根域名不能有 CNAME；Alias 可用于根域名，指向 AWS 资源的 Alias 查询不收费；边缘 IP 会变化；同一备用域名同一时刻只能挂在一个分配上。
+    difficulty: 1

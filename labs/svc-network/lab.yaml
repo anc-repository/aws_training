@@ -1,0 +1,53 @@
+# labs/svc-network/lab.yaml —— 目录占位（status: planned）：只有目录元数据，可在目录中显示但不能开始实验；
+# 取值来自 05 §4 与 cards/ 逐卡文档。步骤、手册、检查与小测在后续批次补齐，届时 status 改为 beta 并提升版本。
+schema: atl.lab/v2
+id: svc-network
+kind: service
+version: 0.1.0
+status: planned
+service: Amazon VPC
+function: 网络隔离
+title: Amazon VPC：网络隔离
+summary: 把实验机从默认 VPC 迁进自己设计的分层 VPC：看懂公有、应用、数据三层子网与路由表，用 Flow Logs 看见被拒绝的流量；也亲眼确认“只换 VPC、不换放置”并不会减少攻击面。
+difficulty: intermediate
+estimatedMinutes: 90
+timeLimitMinutes: 150
+extensions: {maxCount: 2, minutesEach: 30}
+retain: {allowed: true, maxHours: 24}
+regions:
+  supported: [ap-northeast-1]
+services:
+- {id: vpc, name: Amazon VPC, role: primary, module: network}
+- {id: iam, role: context, module: iam}
+modules:
+  target: [network]
+  start: [iam]
+  context: []
+  related: [load-balancer, shell-access]
+prerequisites:
+  cards:
+  - {id: svc-ec2, kind: soft}
+  - {id: sc-private-network, kind: soft}
+startProfile:
+  provisions:
+  - item: iam
+    kind: module
+    basis: credential
+    set: {IAM_CREDENTIALS: role}
+    reason: 平台约定除 svc-ec2、svc-iam 外起始状态都带实例角色（C3）
+  - {item: preview-direct-https, kind: platform, reason: 预览使用方案 B 的 Let's Encrypt IP 证书（03 §6.2）}
+  platform:
+    preview: {directHttps: 'on'}
+targetModules:
+- id: network
+  driver: public
+  set: {NETWORK_NAT_MODE: none}
+expectedWarnings: []
+cost: {tier: low}
+provision: {class: A}
+badge: {title: 自定义 VPC}
+tracks: [cost-optimized, networking, saa-main, secure]
+saa:
+  domains: [secure, resilient, cost]
+tags: [network, vpc]
+certificate: {enabled: false}

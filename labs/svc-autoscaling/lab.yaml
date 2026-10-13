@@ -1,0 +1,74 @@
+# labs/svc-autoscaling/lab.yaml —— 目录占位（status: planned）：只有目录元数据，可在目录中显示但不能开始实验；
+# 取值来自 05 §4 与 cards/ 逐卡文档。步骤、手册、检查与小测在后续批次补齐，届时 status 改为 beta 并提升版本。
+schema: atl.lab/v2
+id: svc-autoscaling
+kind: service
+version: 0.1.0
+status: planned
+service: Amazon EC2 Auto Scaling
+function: 弹性伸缩
+title: Amazon EC2 Auto Scaling：弹性伸缩
+summary: 把单实例换成 ALB 后面的一组无状态实例：压测时自动扩容，终止一台几分钟内自动补齐，实例刷新几乎零错误。
+difficulty: advanced
+estimatedMinutes: 120
+timeLimitMinutes: 180
+extensions: {maxCount: 2, minutesEach: 30}
+retain: {allowed: true, maxHours: 12}
+regions:
+  supported: [ap-northeast-1]
+services:
+- {id: autoscaling, name: Amazon EC2 Auto Scaling, role: primary, module: autoscaling}
+- {id: iam, role: context, module: iam}
+- {id: s3, role: context, module: storage}
+- {id: rds, role: context, module: database}
+- {id: elb, role: context, module: load-balancer}
+modules:
+  target: [autoscaling]
+  start: [iam, storage, database, load-balancer]
+  context: []
+  related: [load-balancer, ami, shared-fs]
+prerequisites:
+  cards:
+  - {id: svc-load-balancer, kind: soft}
+  - {id: svc-iam, kind: soft}
+  - {id: svc-storage, kind: soft}
+  - {id: svc-database, kind: soft}
+startProfile:
+  provisions:
+  - item: iam
+    kind: module
+    basis: credential
+    set: {IAM_CREDENTIALS: role}
+    reason: 平台约定除 svc-ec2、svc-iam 外起始状态都带实例角色（C3）
+  - item: storage
+    kind: module
+    basis: closure
+    rule: ASG-001
+    set: {STORAGE_DRIVER: s3}
+  - item: database
+    kind: module
+    basis: closure
+    rule: ASG-002
+    set: {DB_DRIVER: postgres}
+  - item: load-balancer
+    kind: module
+    basis: closure
+    rule: DEP-007
+    set: {LB_MODE: alb}
+  platform:
+    preview: {directHttps: 'off'}
+  branches:
+    ASG-001: {choose: storage, reason: 与 l8-ha 一致；EFS 做法见 sc-ha-web 的 efs 变体}
+targetModules:
+- id: autoscaling
+  driver: asg
+  params: {MinSize: 2, DesiredCapacity: 2, MaxSize: 4}
+expectedWarnings: [ASG-009, ASG-010, ASG-011, ASG-012, ASG-013, SEC-002, DEP-011]
+cost: {tier: high}
+provision: {class: D}
+badge: {title: 弹性伸缩}
+tracks: [cost-optimized, resilient, saa-main]
+saa:
+  domains: [resilient, performance, cost]
+tags: [autoscaling]
+certificate: {enabled: false}

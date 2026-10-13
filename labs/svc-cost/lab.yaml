@@ -1,0 +1,66 @@
+# labs/svc-cost/lab.yaml —— 目录占位（status: planned）：只有目录元数据，可在目录中显示但不能开始实验；
+# 取值来自 05 §4 与 cards/ 逐卡文档。步骤、手册、检查与小测在后续批次补齐，届时 status 改为 beta 并提升版本。
+schema: atl.lab/v2
+id: svc-cost
+kind: service
+version: 0.1.0
+status: planned
+service: AWS Budgets
+function: 费用护栏与告警
+title: AWS Budgets：费用护栏与告警
+summary: 给项目装上费用护栏：本地计费资源清单“快而粗”，AWS Budgets 与 Cost Explorer“准而慢”，把两者并排看清。
+difficulty: beginner
+estimatedMinutes: 45
+timeLimitMinutes: 90
+extensions: {maxCount: 2, minutesEach: 30}
+retain: {allowed: true, maxHours: 24}
+regions:
+  supported: [ap-northeast-1]
+services:
+- {id: budgets, name: AWS Budgets, role: primary, module: cost}
+- {id: iam, role: context, module: iam}
+modules:
+  target: [cost]
+  start: [iam]
+  context: []
+  related: []
+prerequisites:
+  cards:
+  - {id: svc-ec2, kind: soft}
+  - {id: sc-cost-optimization, kind: soft}
+  learnerInputs:
+  - {id: cost-tags-active}
+  - {id: notify-email}
+  - {id: budget-amounts}
+startProfile:
+  provisions:
+  - item: iam
+    kind: module
+    basis: credential
+    set: {IAM_CREDENTIALS: role}
+    reason: 平台约定除 svc-ec2、svc-iam 外起始状态都带实例角色（C3）
+  - {item: preview-direct-https, kind: platform, reason: 预览使用方案 B 的 Let's Encrypt IP 证书（03 §6.2）}
+  platform:
+    preview: {directHttps: 'on'}
+targetModules:
+- {id: cost, driver: budgets}
+expectedWarnings: []
+platform:
+  accountImpact:
+  - {id: budgets, scope: account, resource: 预算, revert: delete}
+  - {id: cost-allocation-tags, scope: account, resource: 成本分配标签激活状态, revert: keep, note: 不撤销}
+cost: {tier: low}
+provision: {class: A}
+platformOps:
+- id: cost-activate-tags
+  op: enable
+  module: cost
+  args: {activateCostAllocationTags: true}
+  title: 激活成本分配标签
+  optional: true
+badge: {title: 费用护栏}
+tracks: [cost-optimized, saa-main]
+saa:
+  domains: [cost]
+tags: [cost, budgets]
+certificate: {enabled: false}

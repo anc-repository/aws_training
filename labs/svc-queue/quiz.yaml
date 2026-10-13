@@ -1,0 +1,61 @@
+schema: atl.quiz/v1
+version: 1.0.0
+questions:
+  - id: queue-visibility
+    domain: resilient
+    type: single
+    kind: scenario
+    services: [sqs]
+    stem: worker 处理一条消息最长需要 3 分钟，队列的可见性超时是 30 秒，结果同一任务经常被处理两次。应该怎么做？
+    options:
+      - { id: a, text: 改用短轮询 }
+      - { id: b, text: 把可见性超时调到大于最长处理时间，长任务处理中定期延长可见性 }
+      - { id: c, text: 把消息保留期调到 14 天 }
+      - { id: d, text: 把 maxReceiveCount 调到 1 }
+    answer: [b]
+    explain: 处理时间超过可见性超时，消息会重新可见并被其他消费者拿走；maxReceiveCount=1 会把正常的慢任务送进死信队列。
+    relatesTo: enable-sqs
+    difficulty: 1
+  - id: queue-fifo
+    domain: resilient
+    type: single
+    kind: scenario
+    services: [sqs]
+    stem: 订单事件必须对同一个客户严格按顺序、且只处理一次。应选择？
+    options:
+      - { id: a, text: SQS 标准队列 + 应用层去重 }
+      - { id: b, text: SQS FIFO 队列，以客户 ID 作为消息组 ID }
+      - { id: c, text: SNS 标准主题 }
+      - { id: d, text: 两个 SQS 标准队列分别承载奇偶订单 }
+    answer: [b]
+    explain: FIFO 在同一消息组内保证顺序，并提供去重；标准队列只尽力排序、至少一次投递。
+    difficulty: 1
+  - id: queue-poison
+    domain: resilient
+    type: multi
+    kind: concept
+    services: [sqs]
+    stem: 处理“毒消息”反复失败、阻塞消费的问题，哪两项做法正确？
+    options:
+      - { id: a, text: 配置重驱动策略，接收次数超过 maxReceiveCount 后移入死信队列 }
+      - { id: b, text: 让死信队列的消息保留期长于源队列 }
+      - { id: c, text: 把源队列改为短轮询 }
+      - { id: d, text: 给所有消息设置 900 秒的投递延迟 }
+    answer: [a, b]
+    explain: 标准队列的消息进入死信队列后，过期时间仍从最初入队时算起，所以死信队列保留期要更长；短轮询与延迟投递都解决不了毒消息。
+    relatesTo: poison
+    difficulty: 2
+  - id: queue-scaling
+    domain: performance
+    type: single
+    kind: scenario
+    services: [sqs]
+    stem: 一组 EC2 worker 从 SQS 拉取任务，高峰时积压越来越多。希望按积压自动扩容，最合适的指标是？
+    options:
+      - { id: a, text: 每个实例的积压消息数（ApproximateNumberOfMessagesVisible 除以实例数）作为目标跟踪指标 }
+      - { id: b, text: worker 实例的平均 CPU 利用率 }
+      - { id: c, text: 队列的 NumberOfEmptyReceives }
+      - { id: d, text: 死信队列的消息数 }
+    answer: [a]
+    explain: 按“每实例积压”扩缩容直接反映处理能力与待处理量的比例；CPU 不一定随积压上升，空接收数反映的是空闲。
+    difficulty: 2

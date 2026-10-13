@@ -1,0 +1,26 @@
+# 起始状态（before）断言：一律 drift once（C3、04 §3.5 第 9 条）
+checks:
+  - id: cdn-off
+    title: 起始状态：cdn 未启用，应用由 EC2 直出
+    type: capability
+    module: cdn
+    drift: { policy: once }
+    assert:
+      - { path: $.driver, op: eq, value: direct, label: 驱动 }
+      - { path: $.status, op: eq, value: 'off', label: 状态 }
+    explain: 启用 cdn 之前，应用的媒体与静态资源都由 EC2 的 Nginx 直接返回。
+
+  - id: entry-direct-baseline
+    title: 起始状态：直连弹性 IP 的响应没有 X-Cache，入口链只有 nginx
+    type: http-header
+    from: platform
+    target: public-ip
+    path: '/assets/{{ sample.assetPath }}'
+    method: HEAD
+    drift: { policy: once }
+    assert:
+      - { path: $.status, op: eq, value: 200, label: 状态码 }
+      - { path: $.headers.x-cache, op: absent, label: 没有 X-Cache }
+      - { path: $.pathSegments.entry, op: eq, value: nginx, label: 入口链 }
+    explain: 平台从公网请求实验机弹性 IP 上的一个静态资源，确认它由 Nginx 直接返回。
+    reproduce: { run: 'curl -skI "https://{{ target.publicIp }}/" | grep -iE "^(x-cache|x-cloudalbum-path):"', runsOn: workstation }

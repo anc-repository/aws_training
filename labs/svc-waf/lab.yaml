@@ -1,0 +1,62 @@
+# labs/svc-waf/lab.yaml —— 目录占位（status: planned）：只有目录元数据，可在目录中显示但不能开始实验；
+# 取值来自 05 §4 与 cards/ 逐卡文档。步骤、手册、检查与小测在后续批次补齐，届时 status 改为 beta 并提升版本。
+schema: atl.lab/v2
+id: svc-waf
+kind: service
+version: 0.1.0
+status: planned
+service: AWS WAF
+function: Web 应用防护
+title: AWS WAF：Web 应用防护
+summary: 同一套攻击脚本分别打向“只有 Nginx 限速”和“CloudFront + AWS WAF”：看被拦截的请求还会不会到达 EC2。
+difficulty: intermediate
+estimatedMinutes: 90
+timeLimitMinutes: 150
+extensions: {maxCount: 2, minutesEach: 30}
+retain: {allowed: true, maxHours: 24}
+regions:
+  supported: [ap-northeast-1]
+  alsoUses: [global, us-east-1]
+services:
+- {id: waf, name: AWS WAF, role: primary, module: waf}
+- {id: iam, role: context, module: iam}
+- {id: cloudfront, role: context, module: cdn}
+modules:
+  target: [waf]
+  start: [iam, cdn]
+  context: []
+  related: [cdn, threat-detection]
+prerequisites:
+  cards:
+  - {id: svc-cdn, kind: soft}
+startProfile:
+  provisions:
+  - item: iam
+    kind: module
+    basis: credential
+    set: {IAM_CREDENTIALS: role}
+    reason: 平台约定除 svc-ec2、svc-iam 外起始状态都带实例角色（C3）
+  - item: cdn
+    kind: module
+    basis: closure
+    rule: DEP-006
+    set: {CDN_DIRECT_ACCESS: open}
+    reason: WAF 不能直接关联 EC2，需要 CloudFront 或 ALB 作为挂载点
+  - {item: preview-direct-https, kind: platform, reason: 预览使用方案 B 的 Let's Encrypt IP 证书（03 §6.2）}
+  platform:
+    preview: {directHttps: 'on'}
+  branches:
+    DEP-006: {choose: cdn, reason: CLOUDFRONT 范围是边缘防护的考试形态；不引入按小时计费的 ALB}
+targetModules:
+- id: waf
+  driver: aws
+  params: {Scope: CLOUDFRONT}
+expectedWarnings: [DEP-018]
+cost: {tier: low}
+provision: {class: B}
+badge: {title: 边缘防护}
+tracks: [networking, saa-main, secure]
+saa:
+  domains: [secure, resilient]
+tags: [waf]
+certificate: {enabled: false}

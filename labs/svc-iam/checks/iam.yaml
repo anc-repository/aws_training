@@ -1,0 +1,136 @@
+checks:
+  # ---- 起始状态（before 一律 once）
+  - id: iam-none-baseline
+    title: 起始状态：应用不使用 AWS 凭证
+    type: capability
+    module: iam
+    drift: { policy: once }
+    assert:
+      - { path: $.driver, op: eq, value: none, label: 驱动 }
+      - { path: $.status, op: eq, value: 'off', label: 模块状态 }
+    explain: L0 的应用不调用任何 AWS API；/lab 的 iam 卡片显示“应用未使用 AWS 凭证”。
+
+  - id: imds-role-name
+    title: 实例上挂着平台的 CloudAlbumAppRole（只看角色名，不取凭证）
+    type: local
+    on: lab
+    checkId: imds-get
+    args: { path: 'iam/security-credentials/' }
+    drift: { policy: once }
+    assert:
+      - { path: $.status, op: eq, value: 200, label: IMDS 状态码 }
+      - { path: $.value, op: contains, value: CloudAlbumAppRole, label: 角色名 }
+    explain: 检查只读取角色名列表，从不请求 iam/security-credentials/<角色名>（那里才是临时凭证）。实例有角色，不代表应用在用它。
+
+  - id: cred-source-none
+    title: 起始状态：应用的凭证模式为空，环境文件中没有访问密钥
+    type: local
+    on: lab
+    checkId: aws-cred-source
+    drift: { policy: once }
+    assert:
+      - { path: $.appMode, op: in, value: [none, null], label: 应用的凭证模式 }
+      - { path: $.envHasKeys, op: eq, value: false, label: 环境文件中有访问密钥 }
+    explain: aws-cred-source 只报告“有没有”，从不返回密钥的值。
+
+  # ---- 启用实例角色
+  - id: iam-wired
+    title: iam 已切换到实例角色，且状态正常
+    type: capability
+    module: iam
+    drift: { policy: must-hold, monitor: true }
+    assert:
+      - { path: $.driver, op: eq, value: role, label: 驱动 }
+      - { path: $, op: healthy, label: 状态正常（本卡 expectedWarnings 为空，即必须是 ok） }
+    explain: 探针调用 sts:GetCallerIdentity 与受策略约束的 iam:GetRole；detail 中显示 assumed-role/CloudAlbumAppRole 与 ASIA 前缀。
+    reproduce: { run: 'curl -s http://127.0.0.1/api/capabilities | jq ".modules.iam | {driver, status, detail}"', runsOn: lab }
+
+  - id: cred-source-role
+    title: 应用改用实例配置文件的临时凭证，磁盘上没有访问密钥
+    type: local
+    on: lab
+    checkId: aws-cred-source
+    dependsOn: [iam-wired]
+    drift: { policy: must-hold }
+    assert:
+      - { path: $.appMode, op: eq, value: role, label: 应用的凭证模式 }
+      - { path: $.envHasKeys, op: eq, value: false, label: 环境文件中有访问密钥 }
+      - { path: $.credentialsFile, op: eq, value: false, label: 存在 credentials 文件 }
+      - { path: $.sdkSourceHint, op: eq, value: instance-profile, label: SDK 的凭证来源 }
+    explain: SDK 默认凭证链按顺序查找环境变量、共享凭证文件、实例配置文件；前两者都不存在，才会落到实例角色。
+
+  - id: app-role-policies
+    title: CloudAlbumAppRole 附加了本会话 iam 模块的只读策略与平台的 SSM 策略
+    type: aws-readonly
+    service: iam
+    action: ListAttachedRolePolicies
+    region: global
+    params: { RoleName: CloudAlbumAppRole }
+    ownership: { resource: '{{ var.readPolicyArn }}', mode: session, createdAfter: session.readyAt }
+    drift: { policy: must-hold }
+    assert:
+      - path: $.AttachedPolicies
+        op: some
+        label: 附加了 iam 模块的只读策略
+        value:
+          - { path: $.PolicyArn, op: eq, value: '{{ var.readPolicyArn }}' }
+      - path: $.AttachedPolicies
+        op: some
+        label: 附加了 AmazonSSMManagedInstanceCore（平台管理通道）
+        value:
+          - { path: $.PolicyName, op: eq, value: AmazonSSMManagedInstanceCore }
+    explain: 只读策略由本会话的 iam 模块栈创建（归属以栈成员为准）；每启用一个模块，scripts/module 再附加该模块自己的客户托管策略。
+    reproduce: { run: 'aws iam list-attached-role-policies --role-name CloudAlbumAppRole --query "AttachedPolicies[].PolicyName"', runsOn: workstation }
+    manualFallback:
+      where: { breadcrumb: [IAM, 角色, CloudAlbumAppRole, 权限], region: global }
+      observed:
+        question: 权限策略列表中有哪些策略？
+        options:
+          - { value: ok, label: 'AmazonSSMManagedInstanceCore 与 cloudalbum-{{ session.env }}-iam', expected: true }
+          - { value: ssm-only, label: 只有 AmazonSSMManagedInstanceCore, fixHint: 重新执行 scripts/module enable iam }
+
+  # ---- IMDSv2 与 SSRF
+  - id: imds-v1-rejected
+    title: 实例只接受 IMDSv2：不带会话令牌的请求被拒绝
+    type: local
+    on: lab
+    checkId: imds-get
+    args: { path: instance-id, checkV1Rejected: true }
+    drift: { policy: must-hold }
+    assert:
+      - { path: $.status, op: eq, value: 200, label: 带令牌的请求 }
+      - { path: $.v1Status, op: eq, value: 401, label: 不带令牌的请求 }
+    explain: IMDSv2 先要用 PUT 取会话令牌；只能让服务器发 GET 的 SSRF 拿不到令牌。
+
+  - id: ssrf-why
+    title: 说出 IMDSv2 挡住 SSRF 的两道关
+    type: manual
+    spec:
+      observed:
+        question: 一个只能让服务器代发 GET 请求的 SSRF 漏洞，为什么拿不到 IMDSv2 的临时凭证？
+        options:
+          - { value: put-token, label: 取会话令牌必须用 PUT 并带特定请求头；令牌响应的跳数限制还让它出不了实例, expected: true }
+          - { value: firewall, label: 安全组挡住了 169.254.169.254, fixHint: 安全组不过滤到 IMDS 的流量；关键在 PUT 取令牌与跳数限制 }
+
+  # ---- CloudTrail
+  - id: trail-identity
+    title: 说出 CloudTrail 中应用调用的身份类型与密钥前缀
+    type: manual
+    spec:
+      observed:
+        question: 应用（会话名是实例 ID）的事件里，userIdentity.type 与 accessKeyId 前缀分别是什么？
+        options:
+          - { value: assumed-asia, label: AssumedRole，ASIA 开头, expected: true }
+          - { value: user-akia, label: IAMUser，AKIA 开头, fixHint: 那是长期访问密钥的样子；实例角色签发的是临时凭证 }
+          - { value: none, label: 还查不到事件, fixHint: 事件历史通常有几分钟到十几分钟的延迟；先在预览中触发几次需要 AWS 的操作 }
+
+  # ---- 安全底线
+  - id: no-leaked-keys
+    title: 实验机上没有残留的长期访问密钥
+    type: local
+    on: lab
+    checkId: leaked-keys
+    drift: { policy: must-hold }
+    assert:
+      - { path: $.count, op: eq, value: 0, label: AKIA 命中数 }
+    explain: 扫描环境文件、进程环境与日志中的长期访问密钥（只报告位置与数量，从不返回值）。不要把访问密钥复制到实验机或工作台。

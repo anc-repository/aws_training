@@ -1,0 +1,233 @@
+checks:
+  # ---- 起始状态（before 一律 once）
+  - id: db-sqlite-baseline
+    title: 起始状态：数据库是 EBS 上的 SQLite 文件
+    type: capability
+    module: database
+    drift: { policy: once }
+    assert:
+      - { path: $.driver, op: eq, value: sqlite, label: 驱动 }
+    explain: SQLite 与 Node 同进程读写，数据文件在 EBS 数据卷上；EC2 一停，数据库跟着停。
+
+  # ---- 接入 RDS
+  - id: db-wired
+    title: database 已切换到 RDS for PostgreSQL，且状态正常
+    type: capability
+    module: database
+    drift: { policy: must-hold, monitor: true }
+    assert:
+      - { path: $.driver, op: eq, value: postgres, label: 驱动 }
+      - { path: $, op: healthy, label: 状态正常（本卡 expectedWarnings 为空，即必须是 ok） }
+    explain: 深度探针读取 rds:DescribeDBInstances，detail 中会显示 Multi-AZ 状态与主库所在 AZ。
+    reproduce: { run: 'curl -s http://127.0.0.1/api/capabilities | jq ".modules.database | {driver, status, detail}"', runsOn: lab }
+
+  - id: db-path-rds
+    title: 应用的查询实际发往 RDS
+    type: http-header
+    from: lab
+    target: self
+    path: /api/lab/probe/now
+    method: GET
+    dependsOn: [db-wired]
+    drift: { policy: must-hold }
+    assert:
+      - { path: $.status, op: eq, value: 200, label: 状态码 }
+      - { path: $.pathSegments.database, op: eq, value: 'postgres@rds', label: 路径段 database }
+    explain: 探测端点执行一次 select now()；路径段由应用按实际连接的主机生成（*.rds.amazonaws.com → rds）。
+    reproduce: { run: 'curl -s -o /dev/null -D - "http://127.0.0.1/api/feed?limit=1" | grep -i "^x-cloudalbum-path:"', runsOn: lab }
+
+  - id: db-instance
+    title: 数据库实例是本会话创建的：Multi-AZ、已加密、不可公开访问
+    type: aws-readonly
+    service: rds
+    action: DescribeDBInstances
+    region: app
+    params: { DBInstanceIdentifier: '{{ var.dbInstanceId }}' }
+    ownership: { resource: '{{ $.DBInstances[0].DBInstanceArn }}', mode: session, createdAfter: session.readyAt }
+    wait: { typicalMinutes: 20, maxMinutes: 45 }
+    pendingIf:
+      - { path: '$.DBInstances[0].DBInstanceStatus', op: in, value: [creating, backing-up, modifying, configuring-enhanced-monitoring] }
+    drift: { policy: must-hold }
+    assert:
+      - { path: '$.DBInstances[0].DBInstanceStatus', op: eq, value: available, label: 状态 }
+      - { path: '$.DBInstances[0].MultiAZ', op: eq, value: true, label: Multi-AZ }
+      - { path: '$.DBInstances[0].StorageEncrypted', op: eq, value: true, label: 静态加密 }
+      - { path: '$.DBInstances[0].PubliclyAccessible', op: eq, value: false, label: 不可公开访问 }
+      - { path: '$.DBInstances[0].DeletionProtection', op: eq, value: false, label: 未开启删除保护（回收需要） }
+    explain: 先确认实例由本会话的 database 模块栈创建，再核对部署形态与安全属性；加密只能在创建时开启。
+    reproduce: { run: 'aws rds describe-db-instances --db-instance-identifier "{{ var.dbInstanceId }}" --query "DBInstances[0].[DBInstanceStatus,MultiAZ,StorageEncrypted,PubliclyAccessible]"', runsOn: workstation }
+    pitfalls: [deletion-protection]
+    manualFallback:
+      where: { breadcrumb: [RDS, 数据库, '{{ var.dbInstanceId }}', 配置], region: app }
+      observed:
+        question: 实例的“多可用区”与“加密”分别显示什么？
+        options:
+          - { value: ok, label: 是、已启用, expected: true }
+          - { value: creating, label: 实例还在创建中, fixHint: Multi-AZ 实例创建通常需要 20 分钟左右，请稍后再检查 }
+          - { value: other, label: 其他 }
+
+  # ---- 看懂网络、加密与备份
+  - id: db-sg-rule
+    title: sg-db 的 5432 入站只放行实验机的安全组，没有 CIDR 来源
+    type: aws-readonly
+    service: ec2
+    action: DescribeSecurityGroupRules
+    region: app
+    params:
+      Filters:
+        - { Name: group-id, Values: ['{{$check.db-instance.DBInstances[0].VpcSecurityGroups[0].VpcSecurityGroupId}}'] }
+    dependsOn: [db-instance]
+    drift: { policy: must-hold }
+    assert:
+      - path: $.SecurityGroupRules
+        where: { IsEgress: false, FromPort: 5432 }
+        op: some
+        label: 5432 的来源是实验机安全组
+        value:
+          - { path: $.ReferencedGroupInfo.GroupId, op: eq, value: '{{ target.sgId }}' }
+      - path: $.SecurityGroupRules
+        where: { IsEgress: false, CidrIpv4: { op: exists } }
+        op: len_eq
+        value: 0
+        label: 以 IP 段为来源的入站规则
+    explain: sg-db 是实例的第一个 VPC 安全组（db-instance 已确认实例归属）；只有挂着实验机安全组的网卡能连到 5432。
+    reproduce: { run: 'aws ec2 describe-security-group-rules --filters Name=group-id,Values=<sg-db 的 ID> --query "SecurityGroupRules[?IsEgress==\`false\`].[FromPort,ReferencedGroupInfo.GroupId,CidrIpv4]" --output table', runsOn: workstation }
+    manualFallback:
+      where: { breadcrumb: [RDS, 数据库, '{{ var.dbInstanceId }}', 连接和安全性, VPC 安全组], region: app }
+      observed:
+        question: 安全组中 5432 端口入站规则的“源”是什么？
+        options:
+          - { value: sg, label: '实验机的安全组（{{ target.sgId }}）', expected: true }
+          - { value: cidr, label: 一个 IP 地址段, fixHint: 不要在控制台修改栈管理的安全组；重新执行 scripts/module enable database --param MultiAz=true }
+
+  - id: db-backup-az
+    title: 自动备份已开启，记录故障转移前主库所在的 AZ
+    type: aws-readonly
+    service: rds
+    action: DescribeDBInstances
+    region: app
+    params: { DBInstanceIdentifier: '{{ var.dbInstanceId }}' }
+    dependsOn: [db-instance]
+    drift: { policy: once }
+    evidence: { keep: ['$.DBInstances[0].AvailabilityZone', '$.DBInstances[0].SecondaryAvailabilityZone', '$.DBInstances[0].LatestRestorableTime'] }
+    assert:
+      - { path: '$.DBInstances[0].BackupRetentionPeriod', op: gte, value: 1, label: 自动备份保留天数 }
+      - { path: '$.DBInstances[0].LatestRestorableTime', op: exists, label: 最近可恢复时间 }
+      - { path: '$.DBInstances[0].AvailabilityZone', op: exists, label: 主库 AZ }
+      - { path: '$.DBInstances[0].SecondaryAvailabilityZone', op: exists, label: 备库 AZ }
+    explain: 这项检查只判定一次，它的证据保留了故障转移前的主库 AZ，供第 7 步比较。
+    reproduce: { run: 'aws rds describe-db-instances --db-instance-identifier "{{ var.dbInstanceId }}" --query "DBInstances[0].[AvailabilityZone,SecondaryAvailabilityZone,BackupRetentionPeriod,LatestRestorableTime]"', runsOn: workstation }
+    manualFallback:
+      where: { breadcrumb: [RDS, 数据库, '{{ var.dbInstanceId }}', 维护和备份], region: app }
+      observed:
+        question: “自动备份”与“最近的还原时间”分别显示什么？
+        options:
+          - { value: ok, label: 已启用（7 天），有最近的还原时间, expected: true }
+          - { value: other, label: 其他 }
+
+  - id: workstation-5432
+    title: 说出从工作台直接连 5432 的结果与原因
+    type: manual
+    spec:
+      observed:
+        question: 在工作台上测试到数据库端点 5432 端口的 TCP 连接，结果是什么？
+        options:
+          - { value: blocked, label: 超时（blocked）, expected: true }
+          - { value: open, label: 连上了, fixHint: 工作台与实验机同在默认 VPC，但 sg-db 只放行实验机的安全组；确认 db-sg-rule 通过 }
+
+  # ---- 故障转移
+  - id: failover-az-changed
+    title: 故障转移后主库换到了另一个 AZ，且实例可用
+    type: aws-readonly
+    service: rds
+    action: DescribeDBInstances
+    region: app
+    params: { DBInstanceIdentifier: '{{ var.dbInstanceId }}' }
+    dependsOn: [db-backup-az]
+    wait: { typicalMinutes: 3, maxMinutes: 10 }
+    pendingIf:
+      - { path: '$.DBInstances[0].DBInstanceStatus', op: in, value: [rebooting, modifying] }
+    drift: { policy: once }
+    assert:
+      - { path: '$.DBInstances[0].AvailabilityZone', op: neq, value: '{{$check.db-backup-az.DBInstances[0].AvailabilityZone}}', label: 主库 AZ 与故障转移前不同 }
+      - { path: '$.DBInstances[0].DBInstanceStatus', op: eq, value: available, label: 状态 }
+    explain: 与第 4 步记录的主库 AZ 比较；故障转移后原来的备库成为主库，端点的 DNS 指向新主库。
+    reproduce: { run: 'aws rds describe-db-instances --db-instance-identifier "{{ var.dbInstanceId }}" --query "DBInstances[0].[AvailabilityZone,SecondaryAvailabilityZone,DBInstanceStatus]"', runsOn: workstation }
+    pitfalls: [failover-not-run]
+    manualFallback:
+      where: { breadcrumb: [RDS, 数据库, '{{ var.dbInstanceId }}', 连接和安全性], region: app }
+      observed:
+        question: 现在的主库可用区与第 4 步记录的相比如何？
+        options:
+          - { value: changed, label: 换成了原来的备库可用区, expected: true }
+          - { value: same, label: 没有变化, fixHint: 确认运行器在第 30 秒执行了 rds-failover.sh（需要 DB_INSTANCE_ID） }
+
+  # ---- 选做：时间点恢复
+  - id: pitr-instance
+    title: 时间点恢复出的新实例是本步骤创建的，且已可用
+    type: aws-readonly
+    service: rds
+    action: DescribeDBInstances
+    region: app
+    params: { DBInstanceIdentifier: 'cloudalbum-{{ session.env }}-pitr' }
+    ownership: { resource: '{{ $.DBInstances[0].DBInstanceArn }}', mode: session, createdAfter: step.startedAt }
+    wait: { typicalMinutes: 15, maxMinutes: 40 }
+    pendingIf:
+      - { path: '$.DBInstances[0].DBInstanceStatus', op: in, value: [creating, backing-up, modifying] }
+    required: false
+    drift: { policy: once }
+    assert:
+      - { path: '$.DBInstances[0].DBInstanceStatus', op: eq, value: available, label: 状态 }
+      - { path: '$.DBInstances[0].PubliclyAccessible', op: eq, value: false, label: 不可公开访问 }
+    explain: 时间点恢复总是创建新实例（需要指定子网组与安全组）；归属以 CloudTrail 中本会话的创建事件为准。
+    reproduce: { run: 'aws rds describe-db-instances --db-instance-identifier cloudalbum-{{ session.env }}-pitr --query "DBInstances[0].DBInstanceStatus"', runsOn: workstation }
+    manualFallback:
+      where: { breadcrumb: [RDS, 数据库, 'cloudalbum-{{ session.env }}-pitr'], region: app }
+      observed:
+        question: 恢复出的实例状态是什么？
+        options:
+          - { value: available, label: 可用, expected: true }
+          - { value: creating, label: 正在创建, fixHint: 恢复通常需要 15 分钟以上 }
+
+  # ---- 回收验证
+  - id: db-gone
+    title: 本会话的数据库实例已删除
+    type: aws-readonly
+    service: rds
+    action: DescribeDBInstances
+    region: app
+    params: { DBInstanceIdentifier: 'cloudalbum-{{ session.env }}-database' }
+    expectError: DBInstanceNotFound
+    required: false
+    reproduce: { run: 'aws rds describe-db-instances --db-instance-identifier cloudalbum-{{ session.env }}-database', runsOn: workstation }
+    manualFallback:
+      where: { breadcrumb: [RDS, 数据库], region: app }
+      observed:
+        question: 列表中还能找到 cloudalbum-{{ session.env }}-database 吗？
+        options:
+          - { value: gone, label: 找不到, expected: true }
+          - { value: present, label: 还在 }
+
+  - id: pitr-gone
+    title: 时间点恢复出的实例已删除
+    type: aws-readonly
+    service: rds
+    action: DescribeDBInstances
+    region: app
+    params: { DBInstanceIdentifier: 'cloudalbum-{{ session.env }}-pitr' }
+    expectError: DBInstanceNotFound
+    required: false
+    reproduce: { run: 'aws rds describe-db-instances --db-instance-identifier cloudalbum-{{ session.env }}-pitr', runsOn: workstation }
+    manualFallback:
+      where: { breadcrumb: [RDS, 数据库], region: app }
+      observed:
+        question: 列表中还能找到 cloudalbum-{{ session.env }}-pitr 吗？
+        options:
+          - { value: gone, label: 找不到（或从未创建）, expected: true }
+          - { value: present, label: 还在, fixHint: 执行 aws rds delete-db-instance --skip-final-snapshot --delete-automated-backups }
+
+pitfalls:
+  - { id: deletion-protection, title: 实例开启了删除保护, match: [ { checkId: db-instance, result: fail } ],
+      cause: 删除保护会让平台回收失败，会话进入 CLEANUP_FAILED, fix: 不要在控制台修改栈管理的实例；重新执行 scripts/module enable database --param MultiAz=true }
+  - { id: failover-not-run, title: 主库 AZ 没有变化, match: [ { checkId: failover-az-changed, result: fail } ],
+      cause: 故障转移没有被触发（例如没有设置 DB_INSTANCE_ID，运行器跳过了故障脚本）, fix: 按本步骤的命令重新运行 failover 实验 }

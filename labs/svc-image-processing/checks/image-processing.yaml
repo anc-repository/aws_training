@@ -1,0 +1,248 @@
+checks:
+  # ---- 起始状态（before 一律 once）
+  - id: ip-inline-baseline
+    title: 起始状态：缩略图在“上传完成”请求内由 sharp 同步生成（inline）
+    type: capability
+    module: image-processing
+    drift: { policy: once }
+    assert:
+      - { path: $.driver, op: eq, value: inline, label: 驱动 }
+    explain: inline 是 L0 的实现：complete 接口要等 sharp 处理完才返回，批量上传时两个 vCPU 都被占满。
+
+  - id: storage-s3-start
+    title: 起始状态：原图已经在 S3（Lambda 读不到 EBS）
+    type: capability
+    module: storage
+    drift: { policy: once }
+    assert:
+      - { path: $.driver, op: eq, value: s3, label: 驱动 }
+      - { path: $, op: healthy, label: 状态正常 }
+    explain: DEP-003 要求 lambda 档的原图在 S3；起始状态已经预置了 storage(s3)，桶上只开了 EventBridge 投递。
+
+  # ---- 接入 Lambda
+  - id: ip-wired
+    title: image-processing 已切换到 Lambda，且状态正常
+    type: capability
+    module: image-processing
+    drift: { policy: must-hold, monitor: true }
+    assert:
+      - { path: $.driver, op: eq, value: lambda, label: 驱动 }
+      - { path: $, op: healthy, label: 状态正常（本卡 expectedWarnings 为空，即必须是 ok） }
+    explain: 探针会读函数配置、EventBridge 规则与失败队列深度；失败队列有消息或照片长时间停在 PROCESSING 时状态是 degraded。
+    reproduce: { run: 'curl -s http://127.0.0.1/api/capabilities | jq ".modules[\"image-processing\"] | {driver, status, detail}"', runsOn: lab }
+
+  - id: ip-path-seen
+    title: 最近的真实上传交给了 Lambda 异步处理
+    type: local
+    on: lab
+    checkId: path-seen
+    args: { segment: image-processing, pattern: 'lambda:async', window: 15m, minCount: 1, excludeProbe: true }
+    dependsOn: [ip-wired]
+    drift: { policy: once }
+    assert:
+      - { path: $.count, op: gte, value: 1, label: 出现 image-processing=lambda:async 的请求数 }
+    explain: 在应用预览里上传任意一张照片即可满足；路径签名由应用按实际调用的驱动生成，探测请求不计入。
+
+  - id: lambda-config
+    title: 缩略图函数是本会话创建的，nodejs22.x、arm64、已就绪
+    type: aws-readonly
+    service: lambda
+    action: GetFunctionConfiguration
+    region: app
+    params: { FunctionName: '{{ var.functionName }}' }
+    ownership: { resource: '{{ $.FunctionArn }}', mode: session, createdAfter: session.readyAt }
+    drift: { policy: must-hold }
+    assert:
+      - { path: $.Runtime, op: eq, value: nodejs22.x, label: 运行时 }
+      - { path: $.Architectures, op: contains, value: arm64, label: 架构 }
+      - { path: $.State, op: eq, value: Active, label: 函数状态 }
+      - { path: $.MemorySize, op: eq, value: 1024, label: 内存（MB；CPU 与内存成比例分配） }
+      - { path: $.Timeout, op: eq, value: 30, label: 超时（秒） }
+    explain: 函数由本会话的 image-processing 模块栈创建；部署包由 scripts/module 打包上传到工具链桶。
+    reproduce: { run: 'aws lambda get-function-configuration --function-name "{{ var.functionName }}" --query "{Runtime:Runtime,Arch:Architectures,State:State,Memory:MemorySize}"', runsOn: workstation }
+    manualFallback:
+      where: { breadcrumb: [Lambda, 函数, '{{ var.functionName }}', 配置, 常规配置], region: app }
+      observed:
+        question: 函数的运行时与架构是什么？
+        options:
+          - { value: ok, label: Node.js 22.x、arm64, expected: true }
+          - { value: other, label: 其他, fixHint: 不要在控制台修改栈管理的函数；重新执行 scripts/module enable image-processing }
+
+  - id: lambda-async-config
+    title: 异步调用：重试 2 次，失败事件送往本模块的失败队列
+    type: aws-readonly
+    service: lambda
+    action: GetFunctionEventInvokeConfig
+    region: app
+    params: { FunctionName: '{{ var.functionName }}' }
+    dependsOn: [lambda-config]
+    drift: { policy: must-hold }
+    assert:
+      - { path: $.MaximumRetryAttempts, op: eq, value: 2, label: 最大重试次数 }
+      - { path: $.MaximumEventAgeInSeconds, op: eq, value: 3600, label: 最大事件年龄（秒） }
+      - { path: $.DestinationConfig.OnFailure.Destination, op: endsWith, value: ':cloudalbum-{{ session.env }}-image-processing-failures', label: 失败目标 }
+    explain: EventBridge 对 Lambda 是异步调用：函数报错时 Lambda 自己重试（0～2 次），重试用尽或事件过期后送往失败目标。
+    reproduce: { run: 'aws lambda get-function-event-invoke-config --function-name "{{ var.functionName }}"', runsOn: workstation }
+    manualFallback:
+      where: { breadcrumb: [Lambda, 函数, '{{ var.functionName }}', 配置, 异步调用], region: app }
+      observed:
+        question: “重试次数”与“失败时的目标”分别是什么？
+        options:
+          - { value: ok, label: 重试 2 次，目标是 image-processing-failures 队列, expected: true }
+          - { value: other, label: 其他, fixHint: 异步调用配置由模块栈管理；重新执行 scripts/module enable image-processing }
+
+  - id: rule-enabled
+    title: EventBridge 规则已启用，只匹配原图桶 raw/ 前缀的 Object Created
+    type: aws-readonly
+    service: events
+    action: DescribeRule
+    region: app
+    params: { Name: '{{ var.ruleName }}' }
+    dependsOn: [lambda-config]
+    drift: { policy: must-hold }
+    assert:
+      - { path: $.State, op: eq, value: ENABLED, label: 规则状态 }
+      - { path: $.EventPattern, op: contains, value: 'Object Created', label: 事件类型 }
+      - { path: $.EventPattern, op: contains, value: 'raw/', label: 前缀过滤（避免递归） }
+    explain: 规则名与函数名来自同一个模块栈的输出（lambda-config 已确认该栈属于本会话）。
+    reproduce: { run: 'aws events describe-rule --name "{{ var.ruleName }}" --query "{State:State,Pattern:EventPattern}"', runsOn: workstation }
+    manualFallback:
+      where: { breadcrumb: [Amazon EventBridge, 规则, '{{ var.ruleName }}'], region: app }
+      observed:
+        question: 规则的状态是什么？
+        options:
+          - { value: enabled, label: 已启用, expected: true }
+          - { value: disabled, label: 已禁用, fixHint: 规则由模块栈管理；重新执行 scripts/module enable image-processing }
+
+  # ---- 看懂触发与权限
+  - id: rule-targets
+    title: 规则的目标是本函数，并配置了重试策略与死信队列
+    type: aws-readonly
+    service: events
+    action: ListTargetsByRule
+    region: app
+    params: { Rule: '{{ var.ruleName }}' }
+    dependsOn: [lambda-config, rule-enabled]
+    drift: { policy: once }
+    assert:
+      - { path: $.Targets, op: len_gte, value: 1, label: 目标数 }
+      - path: $.Targets
+        op: some
+        label: 目标是本函数、配置了 DLQ
+        value:
+          - { path: $.Arn, op: eq, value: '{{$check.lambda-config.FunctionArn}}' }
+          - { path: $.DeadLetterConfig.Arn, op: endsWith, value: ':cloudalbum-{{ session.env }}-image-processing-failures' }
+    explain: 规则目标上的 DLQ 处理“EventBridge 投递不到 Lambda”；函数上的失败目标处理“Lambda 执行失败”。两层失败都汇入同一个失败队列，由应用对账。
+    reproduce: { run: 'aws events list-targets-by-rule --rule "{{ var.ruleName }}"', runsOn: workstation }
+    manualFallback:
+      where: { breadcrumb: [Amazon EventBridge, 规则, '{{ var.ruleName }}', 目标], region: app }
+      observed:
+        question: 目标是哪个资源？是否配置了死信队列？
+        options:
+          - { value: ok, label: 目标是缩略图函数，死信队列是 image-processing-failures, expected: true }
+          - { value: other, label: 其他 }
+
+  - id: why-two-buckets
+    title: 说出缩略图为什么写到另一个桶
+    type: manual
+    spec:
+      observed:
+        question: 函数从原图桶的 raw/ 读，却把缩略图写到展示桶的 variants/。如果改成写回原图桶的 raw/，会发生什么？
+        options:
+          - { value: recursion, label: 写入再次触发规则，函数调用自己，形成递归并持续计费, expected: true }
+          - { value: nothing, label: 没有区别, fixHint: 看看规则的事件模式匹配了哪个桶、哪个前缀 }
+          - { value: faster, label: 少一次跨桶复制，更快, fixHint: 同区域的两个桶之间没有“复制”；问题在于输出会不会再次触发输入 }
+
+  # ---- 失败路径
+  - id: lambda-no-fault-rate
+    title: 函数环境变量中没有 FAULT_RATE（故障注入已还原）
+    type: aws-readonly
+    service: lambda
+    action: GetFunctionConfiguration
+    region: app
+    params: { FunctionName: '{{ var.functionName }}' }
+    dependsOn: [lambda-config]
+    drift: { policy: must-hold }
+    assert:
+      - { path: $.Environment.Variables.FAULT_RATE, op: absent, label: FAULT_RATE }
+    explain: 选读的“暂时错误”演示会临时给函数加 FAULT_RATE；结束前必须删除，否则一半照片会进入失败队列。
+    reproduce: { run: 'aws lambda get-function-configuration --function-name "{{ var.functionName }}" --query "Environment.Variables.FAULT_RATE"', runsOn: workstation }
+    pitfalls: [fault-rate-left]
+    manualFallback:
+      where: { breadcrumb: [Lambda, 函数, '{{ var.functionName }}', 配置, 环境变量], region: app }
+      observed:
+        question: 环境变量里有 FAULT_RATE 吗？
+        options:
+          - { value: absent, label: 没有, expected: true }
+          - { value: present, label: 有, fixHint: 重新执行 scripts/module enable image-processing，用栈的配置覆盖手工修改 }
+
+  # ---- 紧急刹车
+  - id: throttle-observed
+    title: 说出预留并发为 0 期间看到的现象
+    type: manual
+    spec:
+      observed:
+        question: 预留并发设为 0 的那段时间里上传了照片，函数“监控”页的 Throttles 或 AsyncEventsDropped 怎样？
+        options:
+          - { value: nonzero, label: 出现了非零值, expected: true }
+          - { value: zero, label: 都是 0, fixHint: 确认 get-function-concurrency 返回 0，并在此期间上传照片；指标约有 1～2 分钟延迟 }
+
+  - id: concurrency-restored
+    title: 函数没有残留的预留并发（没有一直处于暂停状态）
+    type: aws-readonly
+    service: lambda
+    action: GetFunctionConcurrency
+    region: app
+    params: { FunctionName: '{{ var.functionName }}' }
+    dependsOn: [lambda-config]
+    drift: { policy: must-hold }
+    assert:
+      - { path: $.ReservedConcurrentExecutions, op: absent, label: 预留并发（应为未设置） }
+    explain: 预留并发既是保底也是上限；设为 0 等于暂停函数。模块栈不设预留并发，演示结束后必须删除。
+    reproduce: { run: 'aws lambda get-function-concurrency --function-name "{{ var.functionName }}"', runsOn: workstation }
+    pitfalls: [throttle-left-on]
+    manualFallback:
+      where: { breadcrumb: [Lambda, 函数, '{{ var.functionName }}', 配置, 并发和递归检测], region: app }
+      observed:
+        question: “预留并发”显示什么？
+        options:
+          - { value: none, label: 未设置（使用账号的非预留并发）, expected: true }
+          - { value: set, label: 设置了数值, fixHint: 执行 aws lambda delete-function-concurrency }
+
+  # ---- 选做：冷启动
+  - id: cold-start-observed
+    title: 在 REPORT 行里找到 Init Duration
+    type: manual
+    required: false
+    spec:
+      observed:
+        question: 闲置 15 分钟后上传的第一张照片，对应的 REPORT 日志行里有 Init Duration 吗？紧接着的 5 张呢？
+        options:
+          - { value: first-only, label: 只有第一张有, expected: true }
+          - { value: all, label: 每张都有, fixHint: 连续上传时 Lambda 会复用执行环境；并发上传会创建多个环境，各自有一次冷启动 }
+          - { value: none, label: 都没有, fixHint: 闲置时间可能不够长，或者配置了预置并发 }
+
+  # ---- 回收验证
+  - id: function-gone
+    title: 本会话的缩略图函数已删除
+    type: aws-readonly
+    service: lambda
+    action: GetFunctionConfiguration
+    region: app
+    params: { FunctionName: 'cloudalbum-{{ session.env }}-image-processing-thumbnail' }
+    expectError: ResourceNotFoundException
+    required: false
+    reproduce: { run: 'aws lambda get-function-configuration --function-name cloudalbum-{{ session.env }}-image-processing-thumbnail', runsOn: workstation }
+    manualFallback:
+      where: { breadcrumb: [Lambda, 函数], region: app }
+      observed:
+        question: 列表中还能找到 cloudalbum-{{ session.env }}-image-processing-thumbnail 吗？
+        options:
+          - { value: gone, label: 找不到, expected: true }
+          - { value: present, label: 还在 }
+
+pitfalls:
+  - { id: throttle-left-on, title: 函数仍被“紧急刹车”, match: [ { checkId: concurrency-restored, result: fail } ],
+      cause: 预留并发为 0 时所有调用都被限流，新照片的事件被丢弃并进入失败队列, fix: 执行 aws lambda delete-function-concurrency，然后在预览中重新上传 }
+  - { id: fault-rate-left, title: 故障注入没有还原, match: [ { checkId: lambda-no-fault-rate, result: fail } ],
+      cause: 选读演示给函数加了 FAULT_RATE 环境变量, fix: 重新执行 scripts/module enable image-processing，用栈的配置覆盖手工修改 }

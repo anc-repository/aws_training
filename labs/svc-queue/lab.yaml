@@ -1,0 +1,214 @@
+# labs/svc-queue/lab.yaml —— Amazon SQS：异步任务队列与死信队列（cards/service-cards-2 svc-queue）
+# 实现核对（implementation-notes platform-content）：experiments/queue 只有 upload-burst 是可上传的 node 场景；
+# poison、dlq-replay 是手工实验，卡片改用 AWS CLI 直接投递坏消息与发起重放，并以 aws-readonly 检查判定。
+schema: atl.lab/v2
+id: svc-queue
+kind: service
+version: 1.0.0
+status: beta
+service: Amazon SQS
+function: 异步任务队列与死信队列
+title: Amazon SQS：异步任务队列与死信队列
+subtitle: 进程内队列 → SQS + DLQ
+summary: 把后台任务从 api 进程的内存队列换成 SQS + DLQ，在批量上传中途 kill -9 worker 看任务一个不丢，再把坏消息送进死信队列并重放。
+story: |
+  起始状态已经是“本地档异步”：任务放进 api 进程内的队列，接口立即返回，但处理仍和 API 抢 CPU；
+  进程一重启，排队和在途的任务全部丢失。这张卡片把任务放进 Amazon SQS，让“任务还在不在”与“哪个进程还活着”脱钩。
+objectives:
+  - { text: 用至少一次投递与幂等去重解释“重启不丢任务”, domain: resilient, relatesTo: after }
+  - { text: 说清可见性超时、长轮询与心跳, domain: resilient, relatesTo: enable-sqs }
+  - { text: 用死信队列隔离坏消息并重放, domain: resilient, relatesTo: poison }
+  - { text: 理解削峰填谷与按积压扩缩容, domain: performance, relatesTo: after }
+difficulty: beginner
+estimatedMinutes: 60
+timeLimitMinutes: 90
+extensions: { maxCount: 2, minutesEach: 30 }
+retain: { allowed: true, maxHours: 24, reason: 只有按请求计费的 SQS；保留后可以在 sc-decoupling 中继续 }
+regions:
+  supported: [ap-northeast-1]
+services:
+  - { id: sqs, name: Amazon SQS, role: primary, module: queue }
+  - { id: iam, name: AWS IAM（实例角色）, role: context, module: iam }
+  - { id: ec2, name: Amazon EC2（worker 进程）, role: observed, module: ec2 }
+  - { id: ssm-session-manager, name: AWS Systems Manager Session Manager（平台管理通道）, role: observed }
+modules: { target: [queue], start: [iam], context: [], related: [image-processing, notification, autoscaling] }
+prerequisites:
+  cards:
+    - { id: svc-ec2, kind: soft }
+    - { id: svc-iam, kind: soft }
+  knowledge: [进程与 systemd 服务, JSON]
+
+startProfile:
+  provisions:
+    - { item: iam, kind: module, basis: credential, set: { IAM_CREDENTIALS: role },
+        reason: 平台约定除 svc-ec2、svc-iam 外起始状态都带实例角色（C3）；queue 本身也是 credentials required（CRED-001） }
+    - { item: queue, kind: local, set: { QUEUE_DRIVER: memory },
+        reason: 本地档 memory 队列是“没有 SQS”的基线（目标模块的前驱取值 fromDriver=memory）；DEP-004 也不允许 worker + sync }
+    - { item: image-processing, kind: local, set: { IMAGE_PROCESSOR: worker },
+        reason: 缩略图交给独立的 worker 进程，批量上传才能看出队列的作用（与 profiles/single/queue.env 相同） }
+    - { item: mgmt-channel, kind: platform, reason: 实验机挂只含 AmazonSSMManagedInstanceCore 的 CloudAlbumAppRole，是平台的管理通道，不是应用权限 }
+    - { item: workstation, kind: platform, reason: 每个会话一台工作台，用于运行 scripts/module、AWS CLI 与对比实验 }
+    - { item: preview-direct-https, kind: platform, reason: 预览使用方案 B 的 Let's Encrypt IP 证书；本卡不涉及 tls，保持开启 }
+  platform: { preview: { directHttps: 'on' } }
+  reason: queue 的 requires 为空；起始状态是 L0 + 实例角色 + 两个本地档（档位 atl/svc-queue/default），不部署任何队列
+targetModules:
+  - { id: queue, driver: sqs, fromDriver: memory, wireStep: enable-sqs, adoptsExisting: false }
+expectedWarnings: []
+workstation: { required: true, tools: [aws-cli, node, jq], savingsMode: degraded }
+platform:
+  consoleLinks: [sqs.queue]
+provision: { class: A }
+
+variables:
+  queueUrl: { label: 任务队列 URL, from: derived, fillFrom: stack.queue.EnvSqsQueueUrl }
+  dlqUrl: { label: 死信队列 URL, from: derived, fillFrom: stack.queue.EnvSqsDlqUrl }
+  queueArn: { label: 任务队列 ARN, from: derived, fillFrom: stack.queue.InfoQueueArn }
+  dlqArn: { label: 死信队列 ARN, from: derived, fillFrom: stack.queue.InfoDlqArn }
+
+cost:
+  currency: USD
+  tier: low
+  mainDrivers: [SQS 请求（含空队列的长轮询）]
+  basis:
+    - { ref: start-profile, note: 实验机 EC2、EBS（根卷与数据卷）、公网 IPv4 }
+    - { ref: workstation, note: 工作台 EC2、EBS、公网 IPv4 }
+    - { key: sqs-requests, pricingKey: sqs.requests, billing: usage, quantity: 1, unit: requests,
+        assumedUsagePerHour: 20000, source: target, whenRetained: true, note: 每次 API 调用最多 10 条消息、每 64 KB 算一次；空队列的长轮询也计请求 }
+  assumptions:
+    - 两条队列都是标准队列；学习规模的请求量通常在免费额度内，以官方定价为准
+
+steps:
+  - id: orient
+    type: observe
+    title: 观察本地异步：memory 队列 + worker
+    manual: manual/10-orient.md
+    panel: preview
+    estMinutes: 5
+    checks: [queue-memory-baseline, worker-tier]
+
+  - id: baseline
+    type: experiment
+    title: 记录 before：突发上传 + 第 30 秒重启 api
+    manual: manual/20-baseline.md
+    experiment: { module: queue, id: upload-burst, label: before }
+    panel: terminal-workstation
+    estMinutes: 8
+    checks: [exp-before]
+
+  - id: enable-sqs
+    type: script
+    wire: true
+    title: 接入 SQS：部署任务队列与死信队列并切换驱动
+    manual: manual/30-enable-sqs.md
+    methods: [script]
+    requires: { steps: [baseline] }
+    panel: terminal-workstation
+    estMinutes: 8
+    startsBilling: { class: usage, pricingKeys: [sqs.requests], note: 按请求计费 }
+    wait: { typicalMinutes: 3, maxMinutes: 10, text: 排空内存队列、部署两条队列、先重启 worker 再重启 api }
+    checks: [queue-wired, queue-path-seen, queue-attributes]
+
+  - id: after
+    type: experiment
+    title: 记录 after：同样的突发上传 + 第 30 秒 kill -9 worker
+    manual: manual/40-after.md
+    experiment: { module: queue, id: upload-burst, label: after }
+    requires: { steps: [enable-sqs] }
+    panel: terminal-workstation
+    estMinutes: 8
+    checks: [exp-pair]
+
+  - id: poison
+    type: cli
+    title: 投一条坏消息，看它进入死信队列
+    manual: manual/50-poison.md
+    requires: { steps: [enable-sqs] }
+    panel: terminal-workstation
+    estMinutes: 10
+    wait: { typicalMinutes: 8, maxMinutes: 20, text: 接收 3 次、每次等可见性超时后才进入死信队列 }
+    checks: [dlq-has-message]
+
+  - id: dlq-replay
+    type: cli
+    title: 处理死信：重放回源队列
+    manual: manual/60-dlq-replay.md
+    requires: { steps: [poison] }
+    panel: terminal-workstation
+    estMinutes: 8
+    checks: [dlq-move-task, dlq-outcome]
+
+  - id: ab
+    type: experiment
+    title: （选做）运行时 A/B：同一时段一半请求绕过 SQS
+    manual: manual/70-ab.md
+    optional: { reason: 与 before/after 结论方向一致 }
+    experiment: { module: queue, id: upload-burst, label: after }
+    requires: { steps: [enable-sqs] }
+    estMinutes: 8
+    checks: [ { ref: exp-pair, as: exp-ab, required: false } ]
+
+finalChecks:
+  - no-world-ssh
+  - { ref: queue-wired, as: final-queue-wired }
+
+experiments:
+  - module: queue
+    id: upload-burst
+    labels:
+      - { id: l0, role: baseline, title: sync + inline（L0 参照） }
+      - { id: before, role: baseline, requires: { queue: memory, image-processing: worker } }
+      - { id: after, role: treatment, requires: { queue: sqs, image-processing: worker } }
+    pairs: [[before, after]]
+    requiredLabels: [before, after]
+    required: true
+    runner: workstation
+    allowSimulatedBaseline: false
+    corroboration: { minServerRatio: 0.9 }
+
+quiz: { file: quiz.yaml, draw: 3 }
+badge: { title: 削峰填谷, icon: assets/badge.svg }
+tracks: [quick-compare, resilient, saa-main, serverless]
+
+cleanup:
+  summary: 结束实验后，平台删除本次会话创建的任务队列与死信队列；队列中未处理的消息随队列一起删除。本地档设置随实验机删除。
+  autoReclaim: true
+  dataRisk: [死信队列中的消息随队列删除；不要往队列里写真实的个人数据]
+  learnerCreatedHints: []
+  verify:
+    - queue-gone
+
+saa:
+  domains: [resilient, performance, cost]
+  topics:
+    - { id: visibility-timeout, title: 可见性超时、心跳与长轮询, domain: resilient, relatesTo: enable-sqs }
+    - { id: dlq, title: 死信队列、maxReceiveCount 与重放, domain: resilient, relatesTo: poison }
+    - { id: at-least-once, title: 标准队列的至少一次投递与幂等去重, domain: resilient, relatesTo: after }
+    - { id: load-leveling, title: 削峰填谷与按积压扩缩容, domain: performance, relatesTo: after }
+  confusables:
+    - { a: SQS 标准队列, b: SQS FIFO 队列, rule: 标准队列至少一次、尽力排序；FIFO 在消息组内保证顺序并去重，吞吐有上限 }
+    - { a: SQS, b: SNS, rule: SQS 是拉取式队列，一条消息由一个消费者处理；SNS 是推送式发布订阅，一条消息扇出给多个订阅 }
+
+tags: [queue, sqs, dlq, decoupling, resilience]
+
+permissions:
+  learner:
+    - cloudformation:CreateChangeSet
+    - cloudformation:DescribeChangeSet
+    - cloudformation:ExecuteChangeSet
+    - cloudformation:DescribeStacks
+    - cloudformation:DescribeStackEvents
+    - sqs:CreateQueue
+    - sqs:SetQueueAttributes
+    - sqs:GetQueueAttributes
+    - sqs:TagQueue
+    - sqs:SendMessage
+    - sqs:StartMessageMoveTask
+    - sqs:ListMessageMoveTasks
+    - iam:CreatePolicy
+    - iam:AttachRolePolicy
+    - ssm:SendCommand
+    - ssm:GetCommandInvocation
+  notes: 平台模式下 scripts/module 给栈打 atl:component=env、atl:session-id、atl:lab-id 标签（C4(d)）；故障注入（重启 api、kill -9 worker）由运行器经 SSM 投递（06 PM-42）
+
+certificate: { enabled: false }
+owners: [cloudalbum-maintainers]

@@ -1,0 +1,65 @@
+# labs/svc-workflow/lab.yaml —— 目录占位（status: planned）：只有目录元数据，可在目录中显示但不能开始实验；
+# 取值来自 05 §4 与 cards/ 逐卡文档。步骤、手册、检查与小测在后续批次补齐，届时 status 改为 beta 并提升版本。
+schema: atl.lab/v2
+id: svc-workflow
+kind: service
+version: 0.1.0
+status: planned
+service: AWS Step Functions
+function: 照片处理流程编排
+title: AWS Step Functions：照片处理流程编排
+summary: 把“缩略图 → 决定 → 写回”的编排从 EC2 进程内搬到 Step Functions：每一步的重试都看得见，EC2 上的应用中断时流程照样跑完。
+difficulty: intermediate
+estimatedMinutes: 75
+timeLimitMinutes: 120
+extensions: {maxCount: 2, minutesEach: 30}
+retain: {allowed: true, maxHours: 24}
+regions:
+  supported: [ap-northeast-1]
+services:
+- {id: stepfunctions, name: AWS Step Functions, role: primary, module: workflow}
+- {id: iam, role: context, module: iam}
+- {id: s3, role: context, module: storage}
+modules:
+  target: [workflow]
+  start: [iam, storage]
+  context: []
+  related: [image-processing, queue]
+prerequisites:
+  cards:
+  - {id: svc-storage, kind: soft}
+  - {id: svc-image-processing, kind: soft}
+  - {id: sc-image-pipeline, kind: soft}
+startProfile:
+  provisions:
+  - item: iam
+    kind: module
+    basis: credential
+    set: {IAM_CREDENTIALS: role}
+    reason: 平台约定除 svc-ec2、svc-iam 外起始状态都带实例角色（C3）
+  - item: storage
+    kind: module
+    basis: closure
+    rule: DEP-034
+    set: {STORAGE_DRIVER: s3}
+  - item: image-processing
+    kind: local
+    set: {IMAGE_PROCESSOR: worker}
+  - item: queue
+    kind: local
+    set: {QUEUE_DRIVER: memory}
+  - {item: featureFlags.lab.faults, kind: runtime, value: true}
+  - {item: preview-direct-https, kind: platform, reason: 预览使用方案 B 的 Let's Encrypt IP 证书（03 §6.2）}
+  platform:
+    preview: {directHttps: 'on'}
+targetModules:
+- {id: workflow, driver: stepfunctions}
+expectedWarnings: []
+cost: {tier: low}
+provision: {class: A}
+badge: {title: 流程编排}
+tracks: [resilient, saa-main, serverless]
+saa:
+  domains: [resilient, performance]
+tags: [workflow, stepfunctions]
+certificate: {enabled: false}

@@ -1,0 +1,209 @@
+checks:
+  # ---- 起始状态
+  - id: storage-local-baseline
+    title: 起始状态：照片由 EC2 本地磁盘提供
+    type: capability
+    module: storage
+    drift: { policy: once }
+    assert:
+      - { path: $.driver, op: eq, value: local, label: 驱动 }
+      - { path: $.status, op: eq, value: 'off', label: 模块状态 }
+      - { path: $.localHealth, op: eq, value: ok, label: 本地实现健康 }
+    explain: 起始状态中 storage 尚未启用，上传字节写在 /var/lib/cloudalbum/uploads。
+
+  - id: data-volume-usage
+    title: 记录数据卷的使用率（只展示）
+    type: local
+    on: lab
+    checkId: disk-usage
+    args: { mount: /var/lib/cloudalbum }
+    required: false
+    drift: { policy: once }
+    assert:
+      - { path: $.usedPct, op: exists, label: 数据卷使用率, severity: warn }
+    explain: 只展示，不判定；ebs-growth 选做步骤会把它压到阈值附近。
+
+  # ---- 接入
+  - id: storage-wired
+    title: storage 已切换到 S3 并通过探针
+    type: capability
+    module: storage
+    drift: { policy: must-hold, monitor: true }
+    assert:
+      - { path: $.driver, op: eq, value: s3, label: 驱动 }
+      - { path: $, op: healthy, label: 状态正常（本卡 expectedWarnings 为空，即必须是 ok） }
+    reproduce: { run: 'curl -s http://127.0.0.1/api/capabilities | jq ".modules.storage | {driver, status, detail}"', runsOn: lab }
+
+  - id: media-url-s3
+    title: 应用签发的媒体 URL 是本环境 S3 桶的预签名地址
+    type: http-header
+    from: lab
+    target: self
+    path: /api/lab/probe/media-url
+    dependsOn: [storage-wired]
+    drift: { policy: must-hold }
+    assert:
+      - { path: $.status, op: eq, value: 200, label: 状态码 }
+      - { path: $.json.provider, op: eq, value: 'storage:s3', label: 签名方 }
+      - { path: $.json.signed, op: eq, value: true, label: 预签名 }
+      - { path: $.json.host, op: matches, value: '^cloudalbum-[a-z0-9]+-storage-(media|raw)-[0-9]{12}-[a-z0-9-]+\.s3\.', label: URL 的主机是本环境的桶 }
+      - { path: $.pathSegments.storage, op: startsWith, value: s3, label: 路径段 storage }
+    explain: 由实验机本地请求探测端点（引擎自动附带本机令牌 X-ATL-Probe-Token，06），不依赖浏览器；URL 的主机必须是本环境 storage 栈创建的桶。
+    reproduce: { run: 'curl -s -o /dev/null -D - "http://127.0.0.1/api/feed?limit=1" | grep -i "^x-cloudalbum-path:"', runsOn: lab }
+
+  - id: upload-presign-seen
+    title: 最近的真实上传请求走了 S3 预签名
+    type: local
+    on: lab
+    checkId: path-seen
+    args: { window: 15m, segment: storage, pattern: 's3:presign', excludeProbe: true, minCount: 1 }
+    dependsOn: [storage-wired]
+    drift: { policy: once }
+    assert:
+      - { path: $.count, op: gte, value: 1, label: 出现次数 }
+    explain: 在应用预览中上传任意一张照片即可满足；探测请求不计入。
+
+  # ---- 桶配置（ownership：本会话的 storage 模块栈）
+  - id: bucket-bpa
+    title: 原图桶的四项 Block Public Access 全部开启
+    type: aws-readonly
+    service: s3
+    action: GetPublicAccessBlock
+    region: app
+    params: { Bucket: '{{ var.rawBucket }}' }
+    ownership: { resource: '{{ var.rawBucketArn }}', mode: session, createdAfter: session.readyAt }
+    drift: { policy: must-hold, monitor: true }
+    assert:
+      - { path: $.PublicAccessBlockConfiguration.BlockPublicAcls, op: eq, value: true }
+      - { path: $.PublicAccessBlockConfiguration.IgnorePublicAcls, op: eq, value: true }
+      - { path: $.PublicAccessBlockConfiguration.BlockPublicPolicy, op: eq, value: true }
+      - { path: $.PublicAccessBlockConfiguration.RestrictPublicBuckets, op: eq, value: true }
+    reproduce: { run: 'aws s3api get-public-access-block --bucket {{ var.rawBucket }}', runsOn: workstation }
+    manualFallback:
+      where: { breadcrumb: [S3, '{{ var.rawBucket }}', 权限, 阻止公有访问], region: app }
+      observed:
+        question: “阻止所有公有访问”显示什么？
+        options:
+          - { value: 'on', label: 开启, expected: true }
+          - { value: 'off', label: 关闭, fixHint: 不要在控制台修改栈管理的配置；重新执行 scripts/module enable storage }
+
+  - id: bucket-versioning
+    title: 原图桶开启了版本控制
+    type: aws-readonly
+    service: s3
+    action: GetBucketVersioning
+    region: app
+    params: { Bucket: '{{ var.rawBucket }}' }
+    ownership: { resource: '{{ var.rawBucketArn }}', mode: session }
+    drift: { policy: must-hold }
+    assert:
+      - { path: $.Status, op: eq, value: Enabled, label: 版本控制 }
+    reproduce: { run: 'aws s3api get-bucket-versioning --bucket {{ var.rawBucket }}', runsOn: workstation }
+    manualFallback:
+      where: { breadcrumb: [S3, '{{ var.rawBucket }}', 属性, 存储桶版本控制], region: app }
+      observed:
+        question: “存储桶版本控制”显示什么？
+        options:
+          - { value: enabled, label: 已启用, expected: true }
+          - { value: other, label: 已暂停或已禁用 }
+
+  - id: bucket-encryption
+    title: 原图桶默认加密（SSE-S3 或 SSE-KMS）
+    type: aws-readonly
+    service: s3
+    action: GetBucketEncryption
+    region: app
+    params: { Bucket: '{{ var.rawBucket }}' }
+    ownership: { resource: '{{ var.rawBucketArn }}', mode: session }
+    drift: { policy: must-hold }
+    assert:
+      - path: '$.ServerSideEncryptionConfiguration.Rules[0].ApplyServerSideEncryptionByDefault.SSEAlgorithm'
+        op: in
+        value: [AES256, 'aws:kms', 'aws:kms:dsse']
+        label: 默认加密算法
+    reproduce: { run: 'aws s3api get-bucket-encryption --bucket {{ var.rawBucket }}', runsOn: workstation }
+    manualFallback:
+      where: { breadcrumb: [S3, '{{ var.rawBucket }}', 属性, 默认加密], region: app }
+      observed:
+        question: “加密类型”显示什么？
+        options:
+          - { value: sse, label: SSE-S3 或 SSE-KMS, expected: true }
+          - { value: none, label: 未加密 }
+
+  - id: bucket-notification-eventbridge-only
+    title: 原图桶只开启了 EventBridge 投递（MUTEX-004）
+    type: aws-readonly
+    service: s3
+    action: GetBucketNotificationConfiguration
+    region: app
+    params: { Bucket: '{{ var.rawBucket }}' }
+    ownership: { resource: '{{ var.rawBucketArn }}', mode: session }
+    drift: { policy: must-hold }
+    assert:
+      - { path: $.EventBridgeConfiguration, op: exists, label: EventBridge 投递 }
+      - { path: $.LambdaFunctionConfigurations, op: absent, label: 没有 Lambda 目标 }
+      - { path: $.QueueConfigurations, op: absent, label: 没有 SQS 目标 }
+      - { path: $.TopicConfigurations, op: absent, label: 没有 SNS 目标 }
+    reproduce: { run: 'aws s3api get-bucket-notification-configuration --bucket {{ var.rawBucket }}', runsOn: workstation }
+    manualFallback:
+      where: { breadcrumb: [S3, '{{ var.rawBucket }}', 属性, 事件通知], region: app }
+      observed:
+        question: “Amazon EventBridge”一栏显示什么？
+        options:
+          - { value: 'on', label: 开启, expected: true }
+          - { value: 'off', label: 关闭 }
+
+  # ---- 直传观察
+  - id: put-target-answer
+    title: 说出浏览器的上传 PUT 请求发往哪里
+    type: manual
+    spec:
+      observed:
+        question: 在 DevTools 的 Network 面板中，上传原图的 PUT 请求的主机是什么？
+        options:
+          - { value: s3, label: 本环境原图桶的 S3 区域端点（带 X-Amz-Signature）, expected: true }
+          - { value: ec2, label: 实验机的弹性 IP（/api/storage/upload）, fixHint: 这说明 storage 仍是 local；先完成接入步骤 }
+          - { value: cloudfront, label: CloudFront 分配, fixHint: 本卡没有启用 cdn；CloudFront 不缓存 PUT }
+
+  - id: lab-net-bytes
+    title: 记录实验机最近 5 分钟的网卡收发字节（只展示）
+    type: local
+    on: lab
+    checkId: net-bytes
+    args: { window: 5m }
+    required: false
+    drift: { policy: once }
+    assert:
+      - { path: $.available, op: eq, value: true, label: 采样可用, severity: warn }
+
+  - id: balloon-released
+    title: ebs-growth 结束后数据卷没有被占位文件占满
+    type: local
+    on: lab
+    checkId: disk-usage
+    args: { mount: /var/lib/cloudalbum }
+    required: false
+    drift: { policy: must-hold }
+    assert:
+      - { path: $.usedPct, op: lt, value: 85, label: 数据卷使用率 < 85% }
+    explain: 脚本中途被打断时，在实验机执行 sudo experiments/storage/faults/balloon.sh release 释放占位文件。
+    reproduce: { run: 'df -h /var/lib/cloudalbum', runsOn: lab }
+
+  # ---- 回收验证
+  - id: buckets-gone
+    title: 本会话的原图桶已删除
+    type: aws-readonly
+    service: s3
+    action: GetBucketLocation
+    region: app
+    params: { Bucket: '{{ var.rawBucket }}' }
+    expectError: NoSuchBucket
+    required: false
+    reproduce: { run: 'aws s3api get-bucket-location --bucket {{ var.rawBucket }}', runsOn: workstation }
+    manualFallback:
+      where: { breadcrumb: [S3, 存储桶], region: app }
+      observed:
+        question: 列表中还能找到原图桶吗？
+        options:
+          - { value: gone, label: 找不到, expected: true }
+          - { value: present, label: 还在 }

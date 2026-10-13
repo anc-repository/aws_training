@@ -1,0 +1,87 @@
+# labs/sc-backup-dr/lab.yaml —— 目录占位（status: planned）：只有目录元数据，可在目录中显示但不能开始实验；
+# 取值来自 05 §4 与 cards/ 逐卡文档。步骤、手册、检查与小测在后续批次补齐，届时 status 改为 beta 并提升版本。
+schema: atl.lab/v2
+id: sc-backup-dr
+kind: scenario
+version: 0.1.0
+status: planned
+title: 备份与灾备
+subtitle: AWS Backup + S3 跨区域复制 + Route 53 故障转移
+summary: 东京区域故障时数据还在、入口能切走：按标签集中备份并复制到大阪，原图实时复制到大阪的桶，Route 53 健康检查失败时把用户引到大阪的维护站点
+story: 一家面向全国用户的相册服务被客户问到灾备能力：“如果东京区域整体不可用，你们最多丢多少数据（RPO）、多久能恢复服务（RTO）？”现状是每天凌晨在同一块磁盘上做一次 SQLite 备份，从未演练过恢复。管理层给出的目标是：数据层任何一类数据（EBS、RDS、DynamoDB、S3）都在另一个区域有副本；新上传的原图几分钟内就出现在另一个区域；东京入口故障时，用户至少能看到一个说明情况的维护页而不是超时；整个方案先按“备份与恢复
+  + 静态降级”实施，成本要可控，并说明往 Pilot Light 演进还缺什么。
+scenario: {question: 一家公司要求关键业务的 RPO 为分钟级、RTO 不超过一小时，同时希望灾备区域平时的成本尽量低。应用由 EC2 与 RDS for PostgreSQL 组成。哪种策略最合适？}
+difficulty: advanced
+estimatedMinutes: 150
+timeLimitMinutes: 240
+extensions: {maxCount: 2, minutesEach: 30}
+retain: {allowed: true, maxHours: 12}
+regions:
+  supported: [ap-northeast-1]
+  alsoUses: [global, us-east-1]
+  extra: [dr-region]
+services:
+- {id: backup, role: primary, module: backup}
+- id: s3
+  role: supporting
+  module: storage
+  creditBy: [crr-rule]
+- {id: route53, role: supporting, module: dns, optional: true}
+- {id: rds, role: context, module: database}
+- {id: dynamodb, role: context, module: social-store}
+- {id: iam, role: context, module: iam}
+modules:
+  target: [backup, dns]
+  start: [iam]
+  context: [storage, database, social-store]
+  related: []
+prerequisites:
+  cards:
+  - {id: svc-backup, kind: soft}
+  - {id: svc-database, kind: soft}
+  - {id: svc-dns, kind: soft}
+  - {id: sc-ha-web, kind: soft}
+  learnerInputs:
+  - {id: domain, required: false}
+startProfile:
+  provisions:
+  - item: iam
+    kind: module
+    basis: credential
+    set: {IAM_CREDENTIALS: role}
+    reason: 平台约定除 svc-ec2、svc-iam 外起始状态都带实例角色（C3）
+  - item: storage
+    kind: module
+    basis: context
+    contextKind: protected-data
+    set: {STORAGE_DRIVER: s3}
+  - item: database
+    kind: module
+    basis: context
+    contextKind: protected-data
+    set: {DB_DRIVER: postgres}
+  - item: social-store
+    kind: module
+    basis: context
+    contextKind: protected-data
+    set: {SOCIAL_DRIVER: dynamodb}
+  - {item: preview-direct-https, kind: platform, reason: 预览使用方案 B 的 Let's Encrypt IP 证书（03 §6.2）}
+  platform:
+    preview: {directHttps: 'on'}
+targetModules:
+- id: backup
+  driver: aws
+  params: {DrRegion: '${atl:drRegion}'}
+- id: dns
+  driver: route53
+  set: {DNS_ROUTING: failover}
+  optional: true
+expectedWarnings: []
+cost: {tier: high}
+provision: {class: C}
+badge: {title: 备份与灾备, short: 灾备}
+tracks: [resilient, saa-main]
+saa:
+  domains: [resilient, cost, secure]
+tags: [backup, dns]
+certificate: {enabled: false}

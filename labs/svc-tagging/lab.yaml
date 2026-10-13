@@ -1,0 +1,54 @@
+# labs/svc-tagging/lab.yaml —— 目录占位（status: planned）：只有目录元数据，可在目录中显示但不能开始实验；
+# 取值来自 05 §4 与 cards/ 逐卡文档。步骤、手册、检查与小测在后续批次补齐，届时 status 改为 beta 并提升版本。
+schema: atl.lab/v2
+id: svc-tagging
+kind: service
+version: 0.1.0
+status: planned
+service: Amazon Rekognition
+function: 图片识别与审核
+title: Amazon Rekognition：图片识别与审核
+summary: 给照片加上 Rekognition 的内容标签与自动审核，用同一组 CC0 测试图并排比较“元数据标签”与“内容标签”的命中率，再看审核误判。
+difficulty: beginner
+estimatedMinutes: 45
+timeLimitMinutes: 90
+extensions: {maxCount: 2, minutesEach: 30}
+retain: {allowed: true, maxHours: 24}
+regions:
+  supported: [ap-northeast-1]
+services:
+- {id: rekognition, name: Amazon Rekognition, role: primary, module: tagging}
+- {id: iam, role: context, module: iam}
+modules:
+  target: [tagging]
+  start: [iam]
+  context: []
+  related: [image-processing]
+prerequisites:
+  cards:
+  - {id: svc-ec2, kind: soft}
+  - {id: svc-iam, kind: soft}
+  - {id: sc-image-pipeline, kind: soft}
+startProfile:
+  provisions:
+  - item: iam
+    kind: module
+    basis: credential
+    set: {IAM_CREDENTIALS: role}
+    reason: 平台约定除 svc-ec2、svc-iam 外起始状态都带实例角色（C3）
+  - {item: preview-direct-https, kind: platform, reason: 预览使用方案 B 的 Let's Encrypt IP 证书（03 §6.2）}
+  platform:
+    preview: {directHttps: 'on'}
+targetModules:
+- id: tagging
+  driver: rekognition
+  set: {TAGGER_INPUT: auto}
+expectedWarnings: []
+cost: {tier: low}
+provision: {class: A}
+badge: {title: 看懂图片}
+tracks: [saa-main, serverless]
+saa:
+  domains: [performance, secure]
+tags: [tagging, rekognition]
+certificate: {enabled: false}

@@ -1,0 +1,159 @@
+# labs/_catalog/taxonomy.yaml —— 卡片目录的分类法（手写；05 §8.2 是权威，本文件是它的数据形态）
+#
+# - services：40 个服务格（有 module，顺序即服务地图与卡片网格中的顺序）+ 附属服务（featureOf 或独立）。
+#   id 不直接用 IAM 前缀（shell-access 与 config 都是 ssm），iamPrefix 单独保存，供权限边界与回收器对照。
+# - consoleHome 只写 03 §5.4 深链接注册表中已登记、且不需要参数的 linkId（05 §8.7 C-14）。
+# - costTier / provisionSpeed / provisionClassRules：05 §3.3、§3.4 的费用档位与部署等级算法的参数（labs:derive DRV-11 使用）。
+schema: atl.taxonomy/v1
+version: 1.0.0
+
+categories:
+  - { id: base, label: 基础（EC2）, token: --cat-base, symbol: square }
+  - { id: A, label: 入口、网络与扩展, token: --cat-a, symbol: triangle }
+  - { id: B, label: 身份与安全, token: --cat-b, symbol: diamond }
+  - { id: C, label: 数据与存储, token: --cat-c, symbol: circle }
+  - { id: D, label: 计算、异步与通知, token: --cat-d, symbol: hexagon }
+  - { id: E, label: 运维与监控, token: --cat-e, symbol: plus }
+  - { id: F, label: 治理、成本与交付, token: --cat-f, symbol: bars }
+
+services:
+  # 基础
+  - { id: ec2, abbr: EC2, name: Amazon EC2, short: EC2, function: 运行整个应用, category: base, module: ec2, iamPrefix: ec2 }
+  # A 入口、网络与扩展
+  - { id: vpc, abbr: VPC, name: Amazon VPC, short: VPC, function: 网络隔离, category: A, module: network, iamPrefix: ec2 }
+  - { id: cloudfront, abbr: CF, name: Amazon CloudFront, short: CloudFront, function: 内容分发与边缘缓存, category: A, module: cdn, iamPrefix: cloudfront }
+  - { id: route53, abbr: R53, name: Amazon Route 53, short: Route 53, function: 域名解析, category: A, module: dns, iamPrefix: route53 }
+  - { id: acm, abbr: ACM, name: AWS Certificate Manager, short: ACM, function: HTTPS 证书, category: A, module: tls, iamPrefix: acm }
+  - { id: waf, abbr: WAF, name: AWS WAF, short: WAF, function: Web 应用防护, category: A, module: waf, iamPrefix: wafv2, consoleHome: wafv2.webAcls }
+  - { id: elb, abbr: ALB, name: Elastic Load Balancing, short: ALB, function: 负载均衡（ALB）, category: A, module: load-balancer, iamPrefix: elasticloadbalancing, consoleHome: ec2.loadBalancers }
+  - { id: autoscaling, abbr: ASG, name: Amazon EC2 Auto Scaling, short: Auto Scaling, function: 弹性伸缩, category: A, module: autoscaling, iamPrefix: autoscaling }
+  # B 身份与安全
+  - { id: iam, abbr: IAM, name: AWS IAM, short: IAM, function: 服务器访问 AWS 的凭证, category: B, module: iam, iamPrefix: iam }
+  - { id: cognito-user-pool, abbr: CUP, name: Amazon Cognito User Pool, short: User Pool, function: 用户注册登录, category: B, module: auth, iamPrefix: cognito-idp }
+  - { id: cognito-identity-pool, abbr: CIP, name: Amazon Cognito Identity Pool, short: Identity Pool, function: 终端用户直传 S3, category: B, module: identity-pool, iamPrefix: cognito-identity }
+  - { id: secretsmanager, abbr: SEC, name: AWS Secrets Manager, short: Secrets Manager, function: 密码与密钥管理, category: B, module: secrets, iamPrefix: secretsmanager }
+  - { id: ssm-parameter-store, abbr: PS, name: AWS Systems Manager Parameter Store, short: Parameter Store, function: 运行时配置, category: B, module: config, iamPrefix: ssm }
+  - { id: kms, abbr: KMS, name: AWS KMS, short: KMS, function: 数据加密密钥, category: B, module: kms, iamPrefix: kms }
+  # C 数据与存储
+  - { id: s3, abbr: S3, name: Amazon S3, short: S3, function: 照片对象存储, category: C, module: storage, iamPrefix: s3 }
+  - { id: efs, abbr: EFS, name: Amazon EFS, short: EFS, function: 多实例共享文件系统, category: C, module: shared-fs, iamPrefix: elasticfilesystem }
+  - { id: rds, abbr: RDS, name: Amazon RDS for PostgreSQL, short: RDS, function: 托管关系数据库, category: C, module: database, iamPrefix: rds }
+  - { id: elasticache, abbr: ELC, name: Amazon ElastiCache, short: ElastiCache, function: 共享缓存, category: C, module: cache, iamPrefix: elasticache }
+  - { id: dynamodb, abbr: DDB, name: Amazon DynamoDB, short: DynamoDB, function: 点赞、评论与分享链接, category: C, module: social-store, iamPrefix: dynamodb }
+  - { id: backup, abbr: BAK, name: AWS Backup, short: Backup, function: 盘外备份与恢复演练, category: C, module: backup, iamPrefix: backup }
+  - { id: firehose, abbr: FH, name: Amazon Data Firehose, short: Firehose, function: 点击流采集与投递, category: C, module: analytics, iamPrefix: firehose }
+  # D 计算、异步与通知
+  - { id: lambda, abbr: λ, name: AWS Lambda, short: Lambda, function: 缩略图生成, category: D, module: image-processing, iamPrefix: lambda }
+  - { id: sqs, abbr: SQS, name: Amazon SQS, short: SQS, function: 异步任务队列与死信队列, category: D, module: queue, iamPrefix: sqs }
+  - { id: sns, abbr: SNS, name: Amazon SNS, short: SNS, function: 通知扇出与订阅过滤, category: D, module: notification, iamPrefix: sns }
+  - { id: ses, abbr: SES, name: Amazon SES, short: SES, function: 真实发信与退信回流, category: D, module: email, iamPrefix: ses }
+  - { id: scheduler, abbr: SCH, name: Amazon EventBridge Scheduler, short: Scheduler, function: 不漏跑的定时任务, category: D, module: scheduler, iamPrefix: scheduler }
+  - { id: rekognition, abbr: REK, name: Amazon Rekognition, short: Rekognition, function: 图片识别与审核, category: D, module: tagging, iamPrefix: rekognition }
+  - { id: apigateway, abbr: APIG, name: Amazon API Gateway, short: API Gateway, function: 社交 API 托管入口, category: D, module: social-api, iamPrefix: apigateway }
+  # E 运维与监控
+  - { id: ssm-session-manager, abbr: SSM, name: AWS Systems Manager Session Manager, short: Session Manager, function: 运维登录, category: E, module: shell-access, iamPrefix: ssm, consoleHome: ssm.sessions }
+  - { id: cloudwatch-logs, abbr: CWL, name: Amazon CloudWatch Logs, short: CloudWatch Logs, function: 集中日志, category: E, module: logging, iamPrefix: logs }
+  - { id: cloudwatch, abbr: CW, name: Amazon CloudWatch, short: CloudWatch, function: 指标、告警与仪表板, category: E, module: monitoring, iamPrefix: cloudwatch }
+  - { id: xray, abbr: XR, name: AWS X-Ray, short: X-Ray, function: 分布式链路追踪, category: E, module: tracing, iamPrefix: xray }
+  - { id: cloudtrail, abbr: CT, name: AWS CloudTrail, short: CloudTrail, function: AWS API 操作审计, category: E, module: audit, iamPrefix: cloudtrail, consoleHome: cloudtrail.events }
+  - { id: guardduty, abbr: GD, name: Amazon GuardDuty, short: GuardDuty, function: 威胁检测, category: E, module: threat-detection, iamPrefix: guardduty }
+  # F 治理、成本与交付
+  - { id: config, abbr: CFG, name: AWS Config, short: Config, function: 配置合规与漂移检测, category: F, module: compliance, iamPrefix: config }
+  - { id: inspector, abbr: INS, name: Amazon Inspector, short: Inspector, function: 漏洞扫描, category: F, module: vuln-scan, iamPrefix: inspector2 }
+  - { id: budgets, abbr: BUD, name: AWS Budgets, short: Budgets, function: 费用护栏与告警, category: F, module: cost, iamPrefix: budgets, consoleHome: budgets.home }
+  - { id: rds-proxy, abbr: RDSP, name: Amazon RDS Proxy, short: RDS Proxy, function: 数据库连接池, category: F, module: db-proxy, iamPrefix: rds }
+  - { id: stepfunctions, abbr: SFN, name: AWS Step Functions, short: Step Functions, function: 照片处理流程编排, category: F, module: workflow, iamPrefix: states }
+  - { id: imagebuilder, abbr: IMB, name: EC2 Image Builder, short: Image Builder, function: 黄金 AMI 构建, category: F, module: ami, iamPrefix: imagebuilder }
+  # 附属服务（不单独计算掌握度）
+  - { id: ebs, abbr: EBS, name: Amazon EBS, short: EBS, featureOf: ec2, iamPrefix: ec2 }
+  - { id: nat-gateway, abbr: NAT, name: NAT Gateway, short: NAT, featureOf: vpc, iamPrefix: ec2 }
+  - { id: vpc-endpoint, abbr: VPCE, name: VPC Endpoint, short: VPC 终端节点, featureOf: vpc, iamPrefix: ec2 }
+  - { id: eventbridge, abbr: EB, name: Amazon EventBridge, short: EventBridge, iamPrefix: events }
+  - { id: athena, abbr: ATH, name: Amazon Athena, short: Athena, featureOf: firehose, iamPrefix: athena }
+  - { id: glue, abbr: GLU, name: AWS Glue, short: Glue, featureOf: firehose, iamPrefix: glue }
+  - { id: cost-explorer, abbr: CE, name: AWS Cost Explorer, short: Cost Explorer, featureOf: budgets, iamPrefix: ce }
+  - { id: shield, abbr: SHD, name: AWS Shield, short: Shield, featureOf: waf, iamPrefix: shield }
+  - { id: sts, abbr: STS, name: AWS STS, short: STS, featureOf: iam, iamPrefix: sts }
+
+domains:
+  - { id: secure, label: 设计安全的架构, weight: 30, track: secure }
+  - { id: resilient, label: 设计弹性的架构, weight: 26, track: resilient }
+  - { id: performance, label: 设计高性能的架构, weight: 24, track: performant }
+  - { id: cost, label: 设计成本优化的架构, weight: 20, track: cost-optimized }
+
+durationBuckets:
+  - { id: short, label: 1 小时以内, maxMinutes: 60 }
+  - { id: medium, label: 1～2 小时, maxMinutes: 120 }
+  - { id: long, label: 2 小时以上 }
+
+# 05 §3.3：只看计费结构，不看单价。weights 的键是 pricingKey 前缀（最长匹配），缺省权重 1；按月折算的小额固定项取 0。
+costTier:
+  highUnits: 2
+  weights:
+    kms.: 0
+    secretsmanager.: 0
+    route53.: 0
+    waf.: 0
+    dynamodb.provisioned: 0
+    cognito.: 0
+  accountScopedKeys: [guardduty., config., inspector.]
+  labels: { low: $ 低, medium: $$ 中, high: $$$ 高 }
+
+# 05 §3.4、02 §11.1：起始状态中模块栈的部署速度（卡内创建的慢资源不影响部署等级）
+provisionSpeed:
+  ec2: base
+  iam: fast
+  storage: fast
+  secrets: fast
+  config: fast
+  kms: fast
+  queue: fast
+  social-store: fast
+  notification: fast
+  email: fast
+  scheduler: fast
+  tagging: fast
+  logging: fast
+  monitoring: fast
+  tracing: fast
+  audit: fast
+  cost: fast
+  compliance: fast
+  threat-detection: fast
+  vuln-scan: fast
+  analytics: fast
+  backup: fast
+  workflow: fast
+  shell-access: fast
+  social-api: fast
+  dns: fast
+  image-processing: medium
+  auth: medium
+  identity-pool: medium
+  load-balancer: medium
+  waf: medium
+  tls: medium
+  network: medium
+  cdn: slow
+  shared-fs: slow
+  autoscaling: slow
+  ami: slow
+  database: slow
+  cache: slow
+  db-proxy: slow
+
+# 05 §3.4：C = 含 RDS / ElastiCache 之一；D = 再叠加 ALB、另一个 RDS / ElastiCache 或实例替换
+provisionClassRules:
+  heavy: [database, cache, db-proxy]
+  replacement: [load-balancer, autoscaling, network]
+
+provisionClasses:
+  - { id: A, label: 环境准备较快, hint: 只有 L0 与快速创建的模块（IAM、S3、SQS 等） }
+  - { id: B, label: 环境准备中等, hint: 含 CloudFront 分配、ALB、Cognito 用户池或实例替换中的一两项 }
+  - { id: C, label: 环境准备较慢, hint: 含 RDS 或 ElastiCache 之一 }
+  - { id: D, label: 环境准备很慢, hint: RDS / ElastiCache 再叠加 ALB、另一个数据库或实例替换 }
+
+# 06 的种子登记表（PM-43）：provisions 中 kind: seed 的 id
+seeds:
+  - { id: cognito-test-users, title: 已验证邮箱、密码已知的测试账号 }
+  - { id: gps-sample-photos, title: 带 GPS 信息的示例照片 }

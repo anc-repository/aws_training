@@ -1,0 +1,75 @@
+# labs/sc-observability/lab.yaml —— 目录占位（status: planned）：只有目录元数据，可在目录中显示但不能开始实验；
+# 取值来自 05 §4 与 cards/ 逐卡文档。步骤、手册、检查与小测在后续批次补齐，届时 status 改为 beta 并提升版本。
+schema: atl.lab/v2
+id: sc-observability
+kind: scenario
+version: 0.1.0
+status: planned
+title: 可观测性
+subtitle: CloudWatch Logs + 指标与告警 + X-Ray + SNS
+summary: 日志、指标、链路三件套各回答一个问题——发生了什么、坏到什么程度、慢在哪一段；告警由 AWS 侧评估、经 SNS 送达，实例宕机也不会沉默
+story: 上周五晚上相册有一段时间上传很慢，周一才有人发现：日志在一台已经被替换的实例上找不到了；本地告警评估器跑在出问题的进程里，进程挂了它也跟着沉默；只知道“慢”，不知道慢在数据库、S3 还是队列。值班负责人要求：日志集中保留，实例没了也能查；关键故障几分钟内通过邮件通知到人，与实例是否存活无关；一次慢请求能顺着链路定位到具体的那一段。
+scenario: {question: 一个微服务应用部署在多台 EC2 与 Lambda 上，用户反馈某些请求偶发变慢，日志分散在各处。团队需要快速定位延迟发生在哪个服务调用上，并且尽量少改代码。最合适的是？}
+difficulty: intermediate
+estimatedMinutes: 120
+timeLimitMinutes: 180
+extensions: {maxCount: 2, minutesEach: 30}
+retain: {allowed: true, maxHours: 24}
+regions:
+  supported: [ap-northeast-1]
+services:
+- {id: cloudwatch-logs, role: primary, module: logging}
+- {id: cloudwatch, role: primary, module: monitoring}
+- {id: xray, role: primary, module: tracing}
+- {id: sns, role: supporting}
+- {id: iam, role: context, module: iam}
+modules:
+  target: [logging, monitoring, tracing]
+  start: [iam]
+  context: [storage, queue]
+  related: []
+prerequisites:
+  cards:
+  - {id: svc-logging, kind: soft}
+  - {id: svc-monitoring, kind: soft}
+  - {id: svc-tracing, kind: soft}
+  learnerInputs:
+  - {id: alert-email}
+startProfile:
+  provisions:
+  - item: iam
+    kind: module
+    basis: credential
+    set: {IAM_CREDENTIALS: role}
+    reason: 平台约定除 svc-ec2、svc-iam 外起始状态都带实例角色（C3）
+  - item: storage
+    kind: module
+    basis: context
+    contextKind: realism
+    set: {STORAGE_DRIVER: s3}
+    reason: 让链路中出现 S3 调用
+  - item: queue
+    kind: module
+    basis: context
+    contextKind: realism
+    set: {QUEUE_DRIVER: sqs}
+    reason: 让链路中出现异步任务
+  - item: image-processing
+    kind: local
+    set: {IMAGE_PROCESSOR: worker}
+  - {item: preview-direct-https, kind: platform, reason: 预览使用方案 B 的 Let's Encrypt IP 证书（03 §6.2）}
+  platform:
+    preview: {directHttps: 'on'}
+targetModules:
+- {id: logging, driver: cloudwatch}
+- {id: monitoring, driver: cloudwatch}
+- {id: tracing, driver: xray}
+expectedWarnings: []
+cost: {tier: low}
+provision: {class: A}
+badge: {title: 可观测性, short: 可观测}
+tracks: [operations, saa-main]
+saa:
+  domains: [resilient, performance]
+tags: [logging, monitoring, tracing]
+certificate: {enabled: false}

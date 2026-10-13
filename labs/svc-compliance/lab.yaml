@@ -1,0 +1,58 @@
+# labs/svc-compliance/lab.yaml —— 目录占位（status: planned）：只有目录元数据，可在目录中显示但不能开始实验；
+# 取值来自 05 §4 与 cards/ 逐卡文档。步骤、手册、检查与小测在后续批次补齐，届时 status 改为 beta 并提升版本。
+schema: atl.lab/v2
+id: svc-compliance
+kind: service
+version: 0.1.0
+status: planned
+service: AWS Config
+function: 配置合规与漂移检测
+title: AWS Config：配置合规与漂移检测
+summary: 本地自检只看得到本机，AWS Config 只看得到 AWS 资源：用覆盖矩阵、SSH 金丝雀与主机漂移三个实验看清两者的互补。
+difficulty: intermediate
+estimatedMinutes: 75
+timeLimitMinutes: 120
+extensions: {maxCount: 2, minutesEach: 30}
+retain: {allowed: true, maxHours: 24}
+regions:
+  supported: [ap-northeast-1]
+services:
+- {id: config, name: AWS Config, role: primary, module: compliance}
+- {id: iam, role: context, module: iam}
+modules:
+  target: [compliance]
+  start: [iam]
+  context: []
+  related: [audit]
+prerequisites:
+  cards:
+  - {id: svc-shell-access, kind: soft}
+  - {id: svc-audit, kind: soft}
+  - {id: sc-security-baseline, kind: soft}
+  - {id: sc-threat-compliance, kind: soft}
+  learnerInputs:
+  - {id: notify-email}
+startProfile:
+  provisions:
+  - item: iam
+    kind: module
+    basis: credential
+    set: {IAM_CREDENTIALS: role}
+    reason: 平台约定除 svc-ec2、svc-iam 外起始状态都带实例角色（C3）
+  - {item: preview-direct-https, kind: platform, reason: 预览使用方案 B 的 Let's Encrypt IP 证书（03 §6.2）}
+  platform:
+    preview: {directHttps: 'on'}
+targetModules:
+- {id: compliance, driver: config}
+expectedWarnings: []
+platform:
+  accountImpact:
+  - {id: config-recorder, scope: region, resource: Config 记录器与投递通道, preexisting: adopt-readonly, revert: delete, note: 本会话创建的回收时停止并删除}
+cost: {tier: medium}
+provision: {class: A}
+badge: {title: 合规守门}
+tracks: [operations, saa-main, secure]
+saa:
+  domains: [secure]
+tags: [compliance, config]
+certificate: {enabled: false}

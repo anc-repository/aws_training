@@ -1,0 +1,39 @@
+# 跨卡片共享的检查（04 §2.1 labs/_shared/checks）：每张卡片的 finalChecks 都引用 no-world-ssh。
+# 旧名 lab-no-world-ssh、lab2-no-world-ssh 作为别名，labs:lint 给出警告。
+checks:
+  - id: no-world-ssh
+    title: 实验机安全组没有对全网开放 22 端口
+    type: aws-readonly
+    service: ec2
+    action: DescribeSecurityGroupRules
+    region: app
+    params:
+      Filters:
+        - { Name: group-id, Values: ['{{ target.sgId }}'] }
+    ownership: { resource: 'arn:aws:ec2:{{ session.region }}:{{ session.accountId }}:security-group/{{ target.sgId }}', mode: session-or-start }
+    drift: { policy: must-hold }
+    assert:
+      - path: $.SecurityGroupRules
+        where: { IsEgress: false, FromPort: 22, CidrIpv4: 0.0.0.0/0 }
+        op: len_eq
+        value: 0
+        label: 22 端口对 0.0.0.0/0 开放的入站规则
+      - path: $.SecurityGroupRules
+        where: { IsEgress: false, FromPort: 22, CidrIpv6: '::/0' }
+        op: len_eq
+        value: 0
+        label: 22 端口对 ::/0 开放的入站规则
+      - path: $.SecurityGroupRules
+        where: { IsEgress: false, IpProtocol: '-1', CidrIpv4: 0.0.0.0/0 }
+        op: len_eq
+        value: 0
+        label: 对 0.0.0.0/0 放行全部流量的入站规则
+    explain: 安全底线：运维登录走工作台或 Session Manager，实验机的 22 端口不能对全网开放（端口范围跨过 22 的规则请在控制台自查）。
+    reproduce: { run: 'aws ec2 describe-security-group-rules --filters Name=group-id,Values={{ target.sgId }} --query "SecurityGroupRules[?IsEgress==\`false\`].[IpProtocol,FromPort,ToPort,CidrIpv4,CidrIpv6]" --output table', runsOn: workstation }
+    manualFallback:
+      where: { breadcrumb: [EC2, 安全组, '{{ target.sgId }}', 入站规则], region: app }
+      observed:
+        question: 入站规则里是否有“端口 22（或全部流量）、来源 0.0.0.0/0 或 ::/0”的条目？
+        options:
+          - { value: none, label: 没有, expected: true }
+          - { value: present, label: 有, fixHint: 删除这条规则；运维登录请使用工作台终端或 Session Manager }

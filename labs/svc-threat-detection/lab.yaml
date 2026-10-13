@@ -1,0 +1,58 @@
+# labs/svc-threat-detection/lab.yaml —— 目录占位（status: planned）：只有目录元数据，可在目录中显示但不能开始实验；
+# 取值来自 05 §4 与 cards/ 逐卡文档。步骤、手册、检查与小测在后续批次补齐，届时 status 改为 beta 并提升版本。
+schema: atl.lab/v2
+id: svc-threat-detection
+kind: service
+version: 0.1.0
+status: planned
+service: Amazon GuardDuty
+function: 威胁检测
+title: Amazon GuardDuty：威胁检测
+summary: 在主机内的 fail2ban 旁边启用 GuardDuty：用覆盖矩阵看清两者各自能发现什么、谁能阻断、谁不怕实例宕机。
+difficulty: intermediate
+estimatedMinutes: 45
+timeLimitMinutes: 90
+extensions: {maxCount: 2, minutesEach: 30}
+retain: {allowed: true, maxHours: 24}
+regions:
+  supported: [ap-northeast-1]
+services:
+- {id: guardduty, name: Amazon GuardDuty, role: primary, module: threat-detection}
+- {id: iam, role: context, module: iam}
+modules:
+  target: [threat-detection]
+  start: [iam]
+  context: []
+  related: [audit]
+prerequisites:
+  cards:
+  - {id: svc-shell-access, kind: soft}
+  - {id: svc-audit, kind: soft}
+  - {id: sc-edge-protection, kind: soft}
+  - {id: sc-threat-compliance, kind: soft}
+  learnerInputs:
+  - {id: notify-email}
+startProfile:
+  provisions:
+  - item: iam
+    kind: module
+    basis: credential
+    set: {IAM_CREDENTIALS: role}
+    reason: 平台约定除 svc-ec2、svc-iam 外起始状态都带实例角色（C3）
+  - {item: preview-direct-https, kind: platform, reason: 预览使用方案 B 的 Let's Encrypt IP 证书（03 §6.2）}
+  platform:
+    preview: {directHttps: 'on'}
+targetModules:
+- {id: threat-detection, driver: guardduty}
+expectedWarnings: []
+platform:
+  accountImpact:
+  - {id: guardduty-detector, scope: region, resource: GuardDuty 检测器, preexisting: adopt-readonly, revert: delete, note: 本会话创建的回收时删除}
+cost: {tier: medium}
+provision: {class: A}
+badge: {title: 威胁瞭望}
+tracks: [saa-main, secure]
+saa:
+  domains: [secure]
+tags: [threat-detection, guardduty]
+certificate: {enabled: false}

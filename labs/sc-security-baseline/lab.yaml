@@ -1,0 +1,74 @@
+# labs/sc-security-baseline/lab.yaml —— 目录占位（status: planned）：只有目录元数据，可在目录中显示但不能开始实验；
+# 取值来自 05 §4 与 cards/ 逐卡文档。步骤、手册、检查与小测在后续批次补齐，届时 status 改为 beta 并提升版本。
+schema: atl.lab/v2
+id: sc-security-baseline
+kind: scenario
+version: 0.1.0
+status: planned
+title: 安全基线
+subtitle: IAM + KMS + Secrets Manager + CloudTrail + Config
+summary: 从“机密和主密钥都躺在数据卷上”出发，依次建立临时凭证、客户托管密钥、集中的机密管理、不可篡改的操作审计与持续的配置合规检查
+story: 公司准备接受客户的安全审查，问卷里有五个问题：服务器用什么身份访问 AWS，密钥会不会泄露？数据库密码、JWT 签名密钥放在哪里，多久轮换一次？敏感字段的加密密钥由谁保管，能否一键吊销？谁在什么时候删除了哪个资源，日志能否被篡改？安全组有没有对全网开放 22，发现了多久能知道？目前的答案几乎全是“在服务器上的一个文件里”。
+scenario: {question: 审计要求：所有 S3 中的敏感数据必须使用公司自己控制的密钥加密，能够审计每一次解密，并在发生安全事件时立即让所有数据不可读。最合适的是？}
+difficulty: intermediate
+estimatedMinutes: 120
+timeLimitMinutes: 180
+extensions: {maxCount: 2, minutesEach: 30}
+retain: {allowed: true, maxHours: 24}
+regions:
+  supported: [ap-northeast-1]
+services:
+- {id: kms, role: primary, module: kms}
+- {id: secretsmanager, role: primary, module: secrets}
+- {id: cloudtrail, role: primary, module: audit}
+- {id: config, role: primary, module: compliance}
+- {id: iam, role: context, module: iam}
+modules:
+  target: [kms, secrets, audit, compliance]
+  start: [iam]
+  context: []
+  related: []
+prerequisites:
+  cards:
+  - {id: svc-iam, kind: soft}
+  - {id: svc-kms, kind: soft}
+  - {id: svc-secrets, kind: soft}
+  learnerInputs:
+  - {id: alert-email}
+startProfile:
+  provisions:
+  - item: iam
+    kind: module
+    basis: credential
+    set: {IAM_CREDENTIALS: role}
+    reason: 平台约定除 svc-ec2、svc-iam 外起始状态都带实例角色（C3）
+  - {item: preview-direct-https, kind: platform, reason: 预览使用方案 B 的 Let's Encrypt IP 证书（03 §6.2）}
+  platform:
+    preview: {directHttps: 'on'}
+targetModules:
+- {id: kms, driver: kms}
+- {id: secrets, driver: secretsmanager}
+- {id: audit, driver: cloudtrail}
+- {id: compliance, driver: config}
+expectedWarnings: []
+cost: {tier: medium}
+provision: {class: A}
+platformOps:
+- id: iam-keys-on
+  op: enable
+  module: iam
+  args: {keysModeOn: true}
+  title: 演示长期访问密钥
+  optional: true
+- id: iam-keys-off
+  op: enable
+  module: iam
+  args: {keysModeOff: true}
+  title: 删除演示用访问密钥
+  optional: true
+badge: {title: 安全基线, short: 安全基线}
+tracks: [saa-main, secure]
+saa:
+  domains: [secure]
+tags: [audit, compliance, kms, secrets]
+certificate: {enabled: false}

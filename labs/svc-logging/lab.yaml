@@ -1,0 +1,53 @@
+# labs/svc-logging/lab.yaml —— 目录占位（status: planned）：只有目录元数据，可在目录中显示但不能开始实验；
+# 取值来自 05 §4 与 cards/ 逐卡文档。步骤、手册、检查与小测在后续批次补齐，届时 status 改为 beta 并提升版本。
+schema: atl.lab/v2
+id: svc-logging
+kind: service
+version: 0.1.0
+status: planned
+service: Amazon CloudWatch Logs
+function: 集中日志
+title: Amazon CloudWatch Logs：集中日志
+summary: 把只躺在 EBS 文件里的日志批量送进 CloudWatch Logs：跨实例检索、Logs Insights 聚合、指标过滤器把日志变成指标。
+difficulty: beginner
+estimatedMinutes: 45
+timeLimitMinutes: 90
+extensions: {maxCount: 2, minutesEach: 30}
+retain: {allowed: true, maxHours: 24}
+regions:
+  supported: [ap-northeast-1]
+services:
+- {id: cloudwatch-logs, name: Amazon CloudWatch Logs, role: primary, module: logging}
+- {id: iam, role: context, module: iam}
+modules:
+  target: [logging]
+  start: [iam]
+  context: []
+  related: [monitoring]
+prerequisites:
+  cards:
+  - {id: svc-iam, kind: soft}
+  - {id: svc-monitoring, kind: soft}
+  - {id: sc-observability, kind: soft}
+startProfile:
+  provisions:
+  - item: iam
+    kind: module
+    basis: credential
+    set: {IAM_CREDENTIALS: role}
+    reason: 平台约定除 svc-ec2、svc-iam 外起始状态都带实例角色（C3）
+  - {item: featureFlags.lab.faults, kind: runtime, value: true}
+  - {item: preview-direct-https, kind: platform, reason: 预览使用方案 B 的 Let's Encrypt IP 证书（03 §6.2）}
+  platform:
+    preview: {directHttps: 'on'}
+targetModules:
+- {id: logging, driver: cloudwatch}
+expectedWarnings: []
+cost: {tier: low}
+provision: {class: A}
+badge: {title: 日志不随实例消失}
+tracks: [operations, saa-main]
+saa:
+  domains: [resilient, secure]
+tags: [logging, cloudwatch-logs]
+certificate: {enabled: false}

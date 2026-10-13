@@ -1,0 +1,206 @@
+# labs/svc-auth/lab.yaml —— Amazon Cognito User Pool：用户注册登录（cards/service-cards-1 第 11 节）
+# 实现核对（implementation-notes platform-content）：
+# - 实现按总纲：SPA 公有客户端 cloudalbum-spa（无密钥，只允许 SRP），浏览器经 Amplify 直连 User Pool；卡片中的“BFF 机密客户端”与
+#   SECRET_HASH 改为选读。experiments/auth 的 cognito 登录用 USER_PASSWORD_AUTH（客户端不允许），运行器在 cognito 下也只会本地登录，
+#   因此 after 侧的 login-storm / brute-force / revoke / token-claims / feature-matrix 本版不设步骤；after 的证据来自 capability、
+#   探测端点、DescribeUserPool / DescribeUserPoolClient 与手动观察（注册验证码、JWKS 的 alg）。
+# - 托管登录（COGNITO_LOGIN_MODE=managed）需要受信 HTTPS 域名，本卡不设步骤（见 sc-user-identity）。
+schema: atl.lab/v2
+id: svc-auth
+kind: service
+version: 1.0.0
+status: beta
+service: Amazon Cognito User Pool
+function: 用户注册登录
+title: Amazon Cognito User Pool：用户注册登录
+subtitle: EC2 上的本地账号 → Cognito User Pool
+summary: 把“EC2 自己存密码哈希、自己签 JWT”的登录换成 Cognito User Pool：功能更多、代码更少，但令牌的签发者、登出语义与责任划分都变了。
+story: |
+  L0 的登录全部由 EC2 实现：argon2id 密码哈希、ES256 JWT、邮箱验证、锁定、找回密码、可选 TOTP。
+  启用 Cognito 后，密码与认证流程交给 User Pool：浏览器经 Amplify 直接与 User Pool 交互，EC2 不再经手密码，只用 JWKS 在本地验签。
+objectives:
+  - { text: 区分 User Pool（认证）与 Identity Pool（换 AWS 凭证）, domain: secure, relatesTo: enable }
+  - { text: 说清 ID token、access token、refresh token 的用途与校验要点, domain: secure, relatesTo: tokens }
+  - { text: 理解无状态校验的代价：登出后 access token 在过期前仍然有效, domain: secure, relatesTo: tokens }
+  - { text: 用共享责任模型解释“密码交给 AWS 后还剩什么是我们的事”, domain: secure, relatesTo: inspect-client }
+difficulty: intermediate
+estimatedMinutes: 75
+timeLimitMinutes: 150
+extensions: { maxCount: 2, minutesEach: 30 }
+retain: { allowed: true, maxHours: 24, reason: User Pool 按月活跃用户计费；保留后可以在 svc-identity-pool 中继续 }
+regions:
+  supported: [ap-northeast-1]
+services:
+  - { id: cognito-user-pool, name: Amazon Cognito User Pool, role: primary, module: auth }
+  - { id: iam, name: AWS IAM（实例角色）, role: context, module: iam }
+  - { id: lambda, name: AWS Lambda（触发器，本卡不使用）, role: observed }
+modules: { target: [auth], start: [iam], context: [], related: [identity-pool, email, load-balancer] }
+prerequisites:
+  cards:
+    - { id: svc-iam, kind: soft }
+  knowledge: [HTTP Cookie 与 JWT 的基本结构, 一个能收信的邮箱（注册验证码会真实发出）]
+
+startProfile:
+  provisions:
+    - { item: iam, kind: module, basis: credential, set: { IAM_CREDENTIALS: role },
+        reason: 平台约定除 svc-ec2、svc-iam 外起始状态都带实例角色（C3）；auth 本身也是 credentials required（Admin* API、bulk 迁移、探针） }
+    - { item: cognito-test-users, kind: seed,
+        reason: 本地阶段建 3 个已验证邮箱、密码已知的测试账号，作为 bulk 迁移的对象；Cognito 阶段由 enable 时的钩子 cognito-passwords 设置已知密码 }
+    - { item: mgmt-channel, kind: platform, reason: 实验机挂只含 AmazonSSMManagedInstanceCore 的 CloudAlbumAppRole，是平台的管理通道，不是应用权限 }
+    - { item: workstation, kind: platform, reason: 每个会话一台工作台，用于运行 scripts/module、AWS CLI 与对比实验 }
+    - { item: preview-direct-https, kind: platform, reason: 预览使用方案 B 的 Let's Encrypt IP 证书，Amplify 在 https 页面中运行；本卡不涉及 tls }
+  platform: { preview: { directHttps: 'on' } }
+  reason: auth 自身没有模块硬依赖；sdk 子模式不触发 DEP-029，bulk 迁移不触发 DEP-031（档位 atl/svc-auth/default）
+targetModules:
+  - { id: auth, driver: cognito, set: { COGNITO_LOGIN_MODE: sdk, AUTH_MIGRATION: bulk, COGNITO_TRIGGERS: 'off', AUTH_DUAL_STACK: 'off' },
+      wireStep: enable, adoptsExisting: false }
+expectedWarnings: [DEP-013]
+workstation: { required: true, tools: [aws-cli, node, jq], savingsMode: degraded }
+platform:
+  consoleLinks: [cognito.userPool]
+provision: { class: A }
+
+variables:
+  userPoolId: { label: User Pool ID, from: derived, fillFrom: stack.auth.InfoUserPoolId }
+  clientId: { label: 应用客户端 ID, from: derived, fillFrom: stack.auth.EnvCognitoClientId }
+  issuer: { label: 令牌签发者, from: derived, fillFrom: stack.auth.InfoIssuer }
+
+cost:
+  currency: USD
+  tier: low
+  mainDrivers: [Cognito 月活跃用户（Essentials 层级，有免费额度）, 实验机上 argon2 运算消耗的 CPU 积分]
+  basis:
+    - { ref: start-profile, note: 实验机 EC2、EBS（根卷与数据卷）、公网 IPv4 }
+    - { ref: workstation, note: 工作台 EC2、EBS、公网 IPv4 }
+    - { key: cognito-mau, pricingKey: cognito.mau, billing: usage, quantity: 1, unit: MAU, assumedUsagePerHour: 0.5, source: target, whenRetained: true,
+        note: 迁移的测试账号与你注册的账号 }
+  assumptions:
+    - 默认由 Cognito 发送邮件（每日额度很低）；学习规模的月活跃用户通常在免费额度内，以官方定价为准
+
+steps:
+  - id: before-features
+    type: experiment
+    title: before：本地账号的功能矩阵
+    manual: manual/10-before-features.md
+    experiment: { module: auth, id: feature-matrix, label: before }
+    panel: terminal-workstation
+    estMinutes: 8
+    checks: [auth-local-baseline, exp-features-before]
+
+  - id: before-lockout
+    type: experiment
+    title: before：本地账号的暴力破解防护
+    manual: manual/20-before-lockout.md
+    experiment: { module: auth, id: brute-force, label: before }
+    requires: { steps: [before-features] }
+    panel: terminal-workstation
+    estMinutes: 8
+    checks: [exp-brute-before]
+
+  - id: enable
+    type: script
+    wire: true
+    title: 启用 Cognito：部署 User Pool 并迁移账号
+    manual: manual/30-enable.md
+    methods: [script]
+    requires: { steps: [before-features] }
+    panel: terminal-workstation
+    estMinutes: 12
+    startsBilling: { class: usage, pricingKeys: [cognito.mau], note: 按月活跃用户计费 }
+    wait: { typicalMinutes: 4, maxMinutes: 15, text: 部署 User Pool、只读窗口内 bulk 迁移、写 auth.env 并重启、设置测试账号密码 }
+    checks: [auth-wired, auth-probe-cognito, user-pool]
+
+  - id: inspect-client
+    type: cli
+    title: 看懂应用客户端：谁能改哪些属性
+    manual: manual/40-inspect-client.md
+    requires: { steps: [enable] }
+    panel: terminal-workstation
+    estMinutes: 10
+    checks: [spa-client, why-not-write-plan]
+
+  - id: signup
+    type: observe
+    title: 注册新账号：验证码由 Cognito 发出
+    manual: manual/50-signup.md
+    requires: { steps: [enable] }
+    panel: preview
+    estMinutes: 10
+    checks: [dep013-observed, signup-code]
+
+  - id: tokens
+    type: cli
+    title: 令牌：签发者、算法与登出语义
+    manual: manual/60-tokens.md
+    requires: { steps: [enable] }
+    panel: terminal-workstation
+    estMinutes: 12
+    checks: [jwks-alg, revoke-semantics]
+
+finalChecks:
+  - no-world-ssh
+  - { ref: auth-wired, as: final-auth-wired }
+  - { ref: spa-client, as: final-spa-client }
+
+experiments:
+  - module: auth
+    id: feature-matrix
+    labels: [ { id: before, role: baseline, requires: { auth: local } } ]
+    required: true
+    runner: workstation
+    validity: functional
+    corroborateWith: [auth-local-baseline]
+  - module: auth
+    id: brute-force
+    labels: [ { id: before, role: baseline, requires: { auth: local } } ]
+    required: true
+    runner: workstation
+    validity: functional
+    corroborateWith: [auth-local-baseline]
+
+quiz: { file: quiz.yaml, draw: 3 }
+badge: { title: 托管身份, icon: assets/badge.svg }
+tracks: [quick-compare, saa-main, secure]
+
+cleanup:
+  summary: 结束实验后，平台删除本次会话的 auth 栈；User Pool 设置了 Retain 与删除保护，回收器先关闭删除保护再删除。
+  autoReclaim: true
+  dataRisk: [User Pool 中的账号随回收删除；Cognito 已发到邮箱的邮件无法撤回]
+  learnerCreatedHints: []
+  verify:
+    - user-pool-gone
+
+saa:
+  domains: [secure, resilient]
+  topics:
+    - { id: pools, title: User Pool 与 Identity Pool 的分工, domain: secure, relatesTo: enable }
+    - { id: tokens, title: ID、access、refresh token；token_use 与 client_id 校验, domain: secure, relatesTo: tokens }
+    - { id: clients, title: 公有客户端与机密客户端、授权码 + PKCE, domain: secure, relatesTo: inspect-client }
+    - { id: stateless, title: 无状态会话是 Auto Scaling 水平扩展的前提, domain: resilient, relatesTo: tokens }
+  confusables:
+    - { a: Cognito User Pool, b: IAM Identity Center, rule: User Pool 面向应用的终端用户注册登录；IAM Identity Center 面向员工访问 AWS 账号与企业应用 }
+    - { a: Cognito User Pool, b: Cognito Identity Pool, rule: User Pool 负责认证（你是谁）；Identity Pool 把已认证身份换成 AWS 临时凭证 }
+
+tags: [auth, cognito, jwt, identity, security]
+
+permissions:
+  learner:
+    - cloudformation:CreateChangeSet
+    - cloudformation:DescribeChangeSet
+    - cloudformation:ExecuteChangeSet
+    - cloudformation:DescribeStacks
+    - cloudformation:DescribeStackEvents
+    - cognito-idp:CreateUserPool
+    - cognito-idp:CreateUserPoolClient
+    - cognito-idp:CreateGroup
+    - cognito-idp:DescribeUserPool
+    - cognito-idp:DescribeUserPoolClient
+    - cognito-idp:AdminCreateUser
+    - cognito-idp:AdminSetUserPassword
+    - iam:CreatePolicy
+    - iam:AttachRolePolicy
+    - ssm:SendCommand
+  notes: 测试账号的已知密码由工作台上的钩子 cognito-passwords 以学员身份设置（应用策略刻意不含 AdminSetUserPassword）；密码只在工作台本地使用，不进入手册与证据
+
+certificate: { enabled: false }
+owners: [cloudalbum-maintainers]

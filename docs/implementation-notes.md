@@ -1476,3 +1476,62 @@ npx vitest run --project module-cli                         # 含 platform、tem
 npx vitest run --project experiments
 npm run smoke:l0 && npm run smoke:selfhost
 ```
+
+## platform-content
+
+ATL 内容部分（labs/**、scripts/labs/**）：把 docs/platform/cards/ 转成 `atl.lab/v2` 内容，并实现 `labs:schema / lint / derive / build / catalog / policy`。
+不调用任何 AWS API；start-state 推导调用本仓库的 `scripts/module plan --start-of`（只读，不部署）。
+
+### 实现范围
+
+| 范围 | 位置 |
+|---|---|
+| 第一批 10 张完整卡片：lab.yaml、manual/*.md（00 overview / 步骤 / 90 wrap-up / 95 cleanup）、checks/*.yaml、quiz.yaml、assets/badge.svg、CHANGELOG.md | labs/{svc-ec2,svc-iam,svc-storage,svc-cdn,svc-queue,svc-image-processing,svc-cache,svc-database,svc-auth,sc-static-acceleration}/ |
+| 其余 46 张：只有目录元数据的 lab.yaml，`status: planned`（目录可见、不可开始），版本 0.1.0 | labs/<id>/lab.yaml，schema 由 `plannedLabSchema()` 从 LAB_SCHEMA_V2 派生 |
+| 学习路径 9 条（tracks-and-catalog §4）、目录分类与费用档位权重、计费维度（不写单价）、跨卡共享检查 no-world-ssh | labs/_tracks/*.yaml、labs/_catalog/{taxonomy,catalog}.yaml、labs/_pricing/dimensions.yaml、labs/_shared/checks/ |
+| 工具：lint（04 §3.5 A1–A20、B21–B25，05 C-1–C-15，ajv JSON Schema）、derive（DRV-1…11，先用 `scripts/module plan --start-of`，再用 `plan --profile` 交叉核对；不可用时退回内置参考推导）、build、catalog、policy、schema | scripts/labs/src/**，CLI `npx tsx scripts/labs/src/cli.ts <cmd>`（`npm run labs:*`） |
+| build 产物（dist/content/<catalogVersion>/）：index.json 与 catalog/index.json（atl.catalog-index/v2）、catalog/cards/<id>.json、labs/<id>.json（展开后的 v2 + checks / checkSources / checkHashes / pitfalls / manuals{frontMatter, ast(atl.mdast/v1), source} / startProfileDigests）、tracks/<id>.json、profiles/atl/<card>/<variant>.env、assets/、private/quiz/<id>.json（答案不进公开文档）、manifest.json（files sha256、contentDigest） | scripts/labs/src/build.ts |
+
+### 有歧义处的取舍
+
+- 学习路径放在 `labs/_tracks/`（04 §2.1，dev-server 也从这里读），没有另建根目录 `tracks/`。
+- 未完成的卡片用 `status: planned` + 精简 schema（无 steps / checks / quiz），目录显示“即将推出”；`catalog.yaml` 不含 planDigest / gitCommit / contentDigest（构建期才有）。
+- 计费维度在 05 的基础上增加 `base`、`workstation`、`modules` 三段与 `scaleBy {key, values, default}`（Multi-AZ、NAT 模式），只写 Price List 过滤条件，不写金额。
+- 摘要与 `scripts/module` 完全一致：`registryVersion = <version>+<sha256(RFC 8785 registry)[0..12]>`，模块项总带 `value`（null）；参考推导与 CLI 推导的 10 张卡摘要逐一相同。
+- lint 放宽：A3 接受 iam 的凭证证据（aws-cred-source + 带 ownership 的 aws-readonly）；C-10 对 group 放宽；A9 去掉规则 ③；可选步骤只在它是某必需标签的唯一记录者时报 A11 警告；B24 接受 `service` 与服务 id 相同的 aws-readonly 检查。
+- 跨卡引用 `<card>/<check>`：被引用检查的 dependsOn 与 pitfalls 在来源卡中解析（refFromOwner），本卡检查可以 dependsOn 被引用检查的本地 id。
+- 检查引擎的 gt / lt 只比较数值：涉及时间先后的断言（SSM Agent 启动时间晚于演练开始、Throttles 指标时间窗）改为 CloudTrail 事件、配置状态或手动观察。
+- 手工实验（`scenario.tool: manual`）与离线 shell 实验不能上传结果：改为 cli / console 步骤，以 aws-readonly、local、manual 检查判定。
+- 逐卡差异（文件头注释也写了）：
+  - svc-ec2：仓库没有 experiments/ec2 与 `rebuild-instance`，不声明实验；单点故障演练以 CloudTrail StopInstances / StartInstances、EIP 关联与恢复后的 capability 判定。
+  - svc-iam：平台模式下 iam keys 一律被 scripts/module 拒绝，keys 反面教材不设步骤；撤销会话是 module 命令，而 v2 `platformOps.op` 只允许 enable / disable，无法声明，不设步骤。
+  - svc-auth：模板是公有 SPA 客户端（只允许 SRP），experiments/auth 的 cognito 登录要 USER_PASSWORD_AUTH，运行器在 cognito 下也只会本地登录 → after 实验不设步骤，after 侧以 capability、探测端点、DescribeUserPool / DescribeUserPoolClient 与手动观察判定；预期警告 DEP-013。
+  - svc-cache：起始状态不含 `LB_LOCAL_WORKERS=2`（SINGLE_LOCAL_SETTINGS 只有 queue，服务卡声明的 local 预置不被采用），memory 对照改为选做，stale-read 不设步骤；卡片中的 `lab:seed` 在 backend CLI 中不存在，改为观察步骤。
+  - svc-database：同样没有 `lab:seed`；pitr 改为选做 cli 步骤（restore-db-instance-to-point-in-time → 检查 → 删除）；故障转移前主库 AZ 用 once 检查保留证据，故障转移后以 `{{$check…}}` 比较。
+  - svc-image-processing：throttle / cold-start 改为 cli 步骤；`FAULT_RATE` 暂时错误改为选读，保留 must-hold 检查“环境变量中没有 FAULT_RATE”。
+  - svc-queue：poison、dlq-replay 改为 AWS CLI 步骤。
+  - sc-static-acceleration：tls、dns 模块未实现，v1 只保留 cdn（S3 媒体源站 + OAC），预览方案 B 保持开启；cdn 公共检查引用 svc-cdn。
+
+### 需要其他部分配合
+
+- 06（scripts/module）：`parseAtlProfile` 只按 ownsEnv 归属 PROFILE_DRIVERS 的键，`STORAGE_DRIVER`（storage / shared-fs 共用的开关变量）被丢弃，`plan --profile` 的摘要与 `plan --start-of` 不同 → svc-image-processing、sc-static-acceleration 在运行器中会报 PROFILE_DIGEST_MISMATCH。修法：解析时也按 `switch.var` 归属。labs:derive 以 DRV-10 警告报告。
+- 06：`SINGLE_LOCAL_SETTINGS` / registry `singleLocalSettings` 加入 cache 的 `LB_LOCAL_WORKERS=2`；tls、dns 模块；backend CLI `lab:seed`（卡片文档引用）。
+- 04 / shared：`platformOps.op` 需要允许 module 命令（如 `revoke-older-sessions`），svc-iam 才能声明撤销会话步骤。
+- experiments：auth 的 cognito 登录改用 SRP 或由 infra 给客户端开 `ALLOW_USER_PASSWORD_AUTH`，运行器在 cognito 下需要取得管理员令牌；experiments/ec2 未实现。
+- API：`status: planned` 的卡片应像 LAB_DEPRECATED 一样拒绝开始会话；dev-server 应从 build 产物（展开后的 checks）播种。
+- 03：控制台深链接注册表还没有落到 platform/api/contracts，scripts/labs/src/console-links.ts 暂存 03 的表。
+
+### 依赖
+
+scripts/labs 使用根 node_modules 中的 `ajv`（2020 方言）与 `yaml`；`ajv` 未写入 scripts/labs/package.json（并行阶段不运行 npm install，避免锁文件不同步），集成阶段补上。
+
+### 如何测试
+
+```bash
+npx tsx scripts/labs/src/cli.ts lint                  # 56 张卡片，0 error / 0 warning
+npx tsx scripts/labs/src/cli.ts derive                # 10 张完整卡片；scripts/module 推导 + plan --profile 交叉核对
+npx tsx scripts/labs/src/cli.ts derive --deriver reference
+npx tsx scripts/labs/src/cli.ts catalog --check && npx tsx scripts/labs/src/cli.ts build
+npx vitest run --project atl-labs-tools
+npx tsc -b scripts/labs && npx eslint scripts/labs/src scripts/labs/test
+```

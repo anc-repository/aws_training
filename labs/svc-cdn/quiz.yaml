@@ -1,0 +1,63 @@
+# 小测（atl.quiz/v1，04 §3.2.11）：答案只保存在平台端；成绩只记录在徽章上，不影响完成
+schema: atl.quiz/v1
+version: 1.0.0
+questions:
+  - id: cdn-global-latency
+    domain: performance
+    type: single
+    kind: scenario
+    services: [cloudfront]
+    stem: 全球用户访问部署在东京 EC2 上的图片与静态资源时延迟高，团队同时希望降低 EC2 的出网流量费用。最合适的方案是？
+    options:
+      - { id: a, text: 创建以该 EC2 为自定义源站的 CloudFront 分配 }
+      - { id: b, text: 使用 AWS Global Accelerator }
+      - { id: c, text: 换成更大的实例类型 }
+      - { id: d, text: 开启 S3 Transfer Acceleration }
+    answer: [a]
+    explain: CloudFront 在边缘缓存内容，命中时不回源，从 AWS 源站回源到 CloudFront 的流量不收出网费；Global Accelerator 提供静态 Anycast IP 与骨干网加速，但不缓存内容；Transfer Acceleration 用于加速上传到 S3。
+    relatesTo: after
+    difficulty: 1
+  - id: cdn-oac-kms
+    domain: secure
+    type: single
+    kind: scenario
+    services: [cloudfront, s3]
+    stem: 只允许 CloudFront 读取 S3 源站中的对象，且桶使用 SSE-KMS 加密。推荐做法是？
+    options:
+      - { id: a, text: '使用 Origin Access Control（OAC），桶策略只允许 cloudfront.amazonaws.com 且 AWS:SourceArn 为该分配' }
+      - { id: b, text: 把桶设为公开读 }
+      - { id: c, text: 使用 Origin Access Identity（OAI） }
+      - { id: d, text: 为每个对象生成预签名 URL 写进页面 }
+    answer: [a]
+    explain: OAC 支持 SSE-KMS 与所有区域，OAI 不支持 SSE-KMS；此外 KMS 密钥策略要允许 CloudFront 服务主体解密。
+    difficulty: 2
+  - id: cdn-versioned-assets
+    domain: performance
+    type: single
+    kind: concept
+    services: [cloudfront]
+    stem: 发布新版前端后，部分用户仍拿到旧的 JS 文件。团队希望今后发布无需等待失效、也不消耗失效配额。应该怎么做？
+    options:
+      - { id: a, text: '静态文件名带内容哈希（版本化），index.html 设置 no-cache' }
+      - { id: b, text: '每次发布都创建 /* 失效' }
+      - { id: c, text: 把所有行为的 TTL 设为 0 }
+      - { id: d, text: 关闭边缘压缩 }
+    answer: [a]
+    explain: 版本化文件名让新版本成为“新对象”，立即生效；失效需要时间，超出免费配额要收费；TTL 全设为 0 会失去缓存收益。
+    relatesTo: invalidation
+    difficulty: 1
+  - id: cdn-auth-api
+    domain: secure
+    type: multi
+    kind: concept
+    services: [cloudfront]
+    stem: 关于把动态 API 放在 CloudFront 后面，下列哪两项说法正确？
+    options:
+      - { id: a, text: 需要登录的个性化接口应放在 CachingDisabled 的行为中 }
+      - { id: b, text: 匿名、可短暂陈旧的公共接口可以用很短的 s-maxage 做微缓存 }
+      - { id: c, text: 只要源站返回 Cache-Control private，任何缓存策略都不会缓存它 }
+      - { id: d, text: 缓存键中包含全部 Cookie 可以提高命中率 }
+    answer: [a, b]
+    explain: 缓存策略的最小 TTL 大于 0 时，CloudFront 会无视源站的 private / no-cache；把 Cookie 放进缓存键会让命中率显著下降。
+    relatesTo: observe-edge-cache
+    difficulty: 2

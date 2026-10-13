@@ -1,0 +1,62 @@
+schema: atl.quiz/v1
+version: 1.0.0
+questions:
+  - id: auth-user-pool
+    domain: secure
+    type: single
+    kind: scenario
+    services: [cognito-user-pool]
+    stem: 网页应用需要用户注册、登录、MFA 与社交登录，团队不想自己保存密码哈希。应使用？
+    options:
+      - { id: a, text: Amazon Cognito User Pool }
+      - { id: b, text: Amazon Cognito Identity Pool }
+      - { id: c, text: 为每个用户创建 IAM 用户 }
+      - { id: d, text: IAM Identity Center }
+    answer: [a]
+    explain: User Pool 负责认证（你是谁）；Identity Pool 负责把已认证身份换成 AWS 临时凭证；IAM Identity Center 面向员工访问 AWS 账号与企业应用，而不是面向终端用户的应用注册。
+    relatesTo: enable
+    difficulty: 1
+  - id: auth-alb
+    domain: secure
+    type: single
+    kind: scenario
+    services: [cognito-user-pool, elb]
+    stem: 想在 ALB 上直接要求访问 /admin* 的用户先通过 Cognito 登录，前提是？
+    options:
+      - { id: a, text: 使用 HTTPS 监听器 }
+      - { id: b, text: 改用 NLB }
+      - { id: c, text: 目标组类型为 Lambda }
+      - { id: d, text: 开启粘性会话 }
+    answer: [a]
+    explain: authenticate-cognito 动作只能用于 HTTPS 监听器，App Client 需要客户端密钥，回调地址为 /oauth2/idpresponse。
+    difficulty: 2
+  - id: auth-tokens
+    domain: secure
+    type: multi
+    kind: concept
+    services: [cognito-user-pool]
+    stem: 关于在后端使用 Cognito 令牌，正确的是哪两项？
+    options:
+      - { id: a, text: 服务器端的机密客户端可以有客户端密钥，调用相关 API 时要计算 SECRET_HASH }
+      - { id: b, text: 校验 access token 时要同时校验 token_use 与 client_id }
+      - { id: c, text: 运行在浏览器里的 SPA 公有客户端也应保存客户端密钥 }
+      - { id: d, text: 本地验签的 access token 在 GlobalSignOut 后立即失效 }
+    answer: [a, b]
+    explain: 公有客户端无法保密，不能有密钥；GlobalSignOut 让 refresh token 失效，但本地验签的 access token 在过期前仍然有效。
+    relatesTo: tokens
+    difficulty: 2
+  - id: auth-write-attributes
+    domain: secure
+    type: single
+    kind: scenario
+    services: [cognito-user-pool]
+    stem: 应用把用户的付费套餐保存在 Cognito 的自定义属性 custom:plan 中。为防止用户自行升级套餐，应该怎么做？
+    options:
+      - { id: a, text: 在应用客户端的可写属性中去掉 custom:plan，只由后端用管理员 API 修改 }
+      - { id: b, text: 开启 MFA }
+      - { id: c, text: 缩短 access token 的有效期 }
+      - { id: d, text: 开启用户池的删除保护 }
+    answer: [a]
+    explain: 用户可以用自己的 access token 调用 UpdateUserAttributes 修改客户端允许写入的属性；业务敏感属性只能由后端以管理员身份修改。
+    relatesTo: inspect-client
+    difficulty: 2

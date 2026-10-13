@@ -1,0 +1,32 @@
+checks:
+  - id: exp-before
+    title: upload-burst 的 before（上传经过 EC2）有一条有效结果
+    type: experiment
+    module: storage
+    experiment: upload-burst
+    label: before
+    accept: [valid]
+
+  - id: exp-pair
+    title: upload-burst 的 before 与 after 都有效且可比
+    type: experiment
+    module: storage
+    experiment: upload-burst
+    pair: [before, after]
+    accept: [valid]
+
+  - id: exp-sidebyside
+    title: upload-sidebyside 有一条有效结果
+    type: experiment
+    module: storage
+    experiment: upload-sidebyside
+    label: after
+    required: false
+
+  - id: exp-ebs-growth
+    title: ebs-growth 有一条有效结果
+    type: experiment
+    module: storage
+    experiment: ebs-growth
+    label: after
+    required: false

@@ -1,0 +1,69 @@
+# labs/svc-tls/lab.yaml —— 目录占位（status: planned）：只有目录元数据，可在目录中显示但不能开始实验；
+# 取值来自 05 §4 与 cards/ 逐卡文档。步骤、手册、检查与小测在后续批次补齐，届时 status 改为 beta 并提升版本。
+schema: atl.lab/v2
+id: svc-tls
+kind: service
+version: 0.1.0
+status: planned
+service: AWS Certificate Manager
+function: HTTPS 证书
+title: AWS Certificate Manager：HTTPS 证书
+summary: 从浏览器拦截页到地址栏的锁：用 ACM 的 ACME 端点把受信任证书装到 Nginx，并分清“考试结论”和“2026 新能力”。
+difficulty: intermediate
+estimatedMinutes: 75
+timeLimitMinutes: 120
+extensions: {maxCount: 2, minutesEach: 30}
+retain: {allowed: true, maxHours: 24}
+regions:
+  supported: [ap-northeast-1]
+  alsoUses: [global, us-east-1]
+services:
+- {id: acm, name: AWS Certificate Manager, role: primary, module: tls}
+- {id: iam, role: context, module: iam}
+modules:
+  target: [tls]
+  start: [iam]
+  context: []
+  related: [dns, cdn]
+prerequisites:
+  cards:
+  - {id: svc-dns, kind: soft}
+  - {id: svc-cdn, kind: soft}
+  learnerInputs:
+  - {id: domain}
+startProfile:
+  provisions:
+  - &id001
+    item: iam
+    kind: module
+    basis: credential
+    set: {IAM_CREDENTIALS: role}
+    reason: 平台约定除 svc-ec2、svc-iam 外起始状态都带实例角色（C3）
+  platform:
+    preview: {directHttps: 'off'}
+  variants:
+  - id: acme-off
+    title: ACME 端点不可用时的回退档
+    select: preflight
+    when: preflight.tlsAcme == 'off'
+    provisions:
+    - *id001
+    - item: cdn
+      kind: module
+      basis: closure
+      rule: DEP-005
+      set: {CDN_DIRECT_ACCESS: open}
+    reason: ACME 端点不可用时，证书改为挂在 CloudFront 上的 us-east-1 集成证书
+targetModules:
+- id: tls
+  driver: acm
+  set: {TLS_ACME: 'on'}
+expectedWarnings: []
+cost: {tier: low}
+provision: {class: A}
+badge: {title: 受信 HTTPS}
+tracks: [networking, saa-main, secure]
+saa:
+  domains: [secure, performance]
+tags: [tls, acm]
+certificate: {enabled: false}

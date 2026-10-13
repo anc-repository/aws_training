@@ -1,0 +1,66 @@
+# labs/sc-edge-protection/lab.yaml —— 目录占位（status: planned）：只有目录元数据，可在目录中显示但不能开始实验；
+# 取值来自 05 §4 与 cards/ 逐卡文档。步骤、手册、检查与小测在后续批次补齐，届时 status 改为 beta 并提升版本。
+schema: atl.lab/v2
+id: sc-edge-protection
+kind: scenario
+version: 0.1.0
+status: planned
+title: 边缘纵深防护
+subtitle: CloudFront + WAF（+ Shield Standard 讲解，GuardDuty 选做）
+summary: 把撞库、扫描和恶意载荷挡在 CloudFront 边缘，锁死源站让攻击者无法绕过，并弄清 Shield 与 GuardDuty 各管什么
+story: 相册上线一个月后，登录接口每天收到成千上万次撞库尝试，访问日志里满是 `/wp-login.php`、`/.env` 之类的扫描，偶尔还有一个 IP 用脚本反复刷首页。现在只有一台 t4g.small，Nginx 的 `limit_req` 能挡住一部分，但每个恶意请求都已经消耗了实例的连接、TLS 与带宽。CTO
+  要求：不扩容服务器，在流量进入东京区域之前就把它挡住，并且要证明攻击者不能直接打 EC2 绕过防护；同时想知道“是不是还要买 Shield Advanced、开 GuardDuty”。
+scenario: {question: 一个电商网站部署在 ALB 后面的 EC2 Auto Scaling 组中，前面有 CloudFront。登录接口遭受大量来自少数 IP 的撞库请求，同时有人直接访问 ALB 的 DNS 名称。要求在边缘限制每个 IP 的登录频率，并确保所有流量都经过防护。最合适的组合是？}
+difficulty: intermediate
+estimatedMinutes: 90
+timeLimitMinutes: 150
+extensions: {maxCount: 2, minutesEach: 30}
+retain: {allowed: true, maxHours: 24}
+regions:
+  supported: [ap-northeast-1]
+  alsoUses: [global, us-east-1]
+services:
+- {id: cloudfront, role: primary, module: cdn}
+- {id: waf, role: primary, module: waf}
+- {id: ec2, role: supporting, module: ec2}
+- {id: guardduty, role: supporting, module: threat-detection, optional: true}
+- {id: shield, role: observed}
+- {id: iam, role: context, module: iam}
+modules:
+  target: [cdn, waf, threat-detection]
+  start: [iam]
+  context: []
+  related: []
+prerequisites:
+  cards:
+  - {id: svc-cdn, kind: soft}
+  - {id: svc-waf, kind: soft}
+  learnerInputs:
+  - {id: alert-email, required: false}
+startProfile:
+  provisions:
+  - item: iam
+    kind: module
+    basis: credential
+    set: {IAM_CREDENTIALS: role}
+    reason: 平台约定除 svc-ec2、svc-iam 外起始状态都带实例角色（C3）
+  - {item: preview-direct-https, kind: platform, reason: 预览使用方案 B 的 Let's Encrypt IP 证书（03 §6.2）}
+  platform:
+    preview: {directHttps: 'on'}
+targetModules:
+- id: cdn
+  driver: cloudfront
+  set: {CDN_DIRECT_ACCESS: admin-ip}
+- id: waf
+  driver: aws
+  params: {Scope: CLOUDFRONT}
+- {id: threat-detection, driver: guardduty, optional: true}
+expectedWarnings: []
+cost: {tier: low, tierWithOptional: medium}
+provision: {class: A}
+badge: {title: 边缘纵深防护, short: 边缘防护}
+tracks: [networking, saa-main, secure]
+saa:
+  domains: [secure, resilient, cost]
+tags: [cdn, threat-detection, waf]
+certificate: {enabled: false}

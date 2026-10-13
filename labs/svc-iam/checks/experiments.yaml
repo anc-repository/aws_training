@@ -1,0 +1,16 @@
+checks:
+  - id: exp-whoami-before
+    title: whoami 的 before（应用不用凭证）有一条有效结果
+    type: experiment
+    module: iam
+    experiment: whoami
+    label: before
+    accept: [valid]
+
+  - id: exp-whoami-pair
+    title: whoami 的 before 与 after 都有效且可比
+    type: experiment
+    module: iam
+    experiment: whoami
+    pair: [before, after]
+    accept: [valid]

@@ -1,0 +1,54 @@
+# labs/svc-ami/lab.yaml —— 目录占位（status: planned）：只有目录元数据，可在目录中显示但不能开始实验；
+# 取值来自 05 §4 与 cards/ 逐卡文档。步骤、手册、检查与小测在后续批次补齐，届时 status 改为 beta 并提升版本。
+schema: atl.lab/v2
+id: svc-ami
+kind: service
+version: 0.1.0
+status: planned
+service: EC2 Image Builder
+function: 黄金 AMI 构建
+title: EC2 Image Builder：黄金 AMI 构建
+summary: 把“公共 AMI + 开机现场安装”换成 Image Builder 烘焙、测试、晋升的黄金 AMI：开机更快、启动不再依赖外部仓库，但镜像会老化。
+difficulty: intermediate
+estimatedMinutes: 135
+timeLimitMinutes: 210
+extensions: {maxCount: 2, minutesEach: 30}
+retain: {allowed: true, maxHours: 24}
+regions:
+  supported: [ap-northeast-1]
+services:
+- {id: imagebuilder, name: EC2 Image Builder, role: primary, module: ami}
+- {id: iam, role: context, module: iam}
+modules:
+  target: [ami]
+  start: [iam]
+  context: []
+  related: [autoscaling, vuln-scan]
+prerequisites:
+  cards:
+  - {id: svc-ec2, kind: soft}
+  - {id: svc-shell-access, kind: soft}
+  - {id: svc-autoscaling, kind: soft}
+  - {id: svc-vuln-scan, kind: soft}
+  - {id: sc-ha-web, kind: soft}
+startProfile:
+  provisions:
+  - item: iam
+    kind: module
+    basis: credential
+    set: {IAM_CREDENTIALS: role}
+    reason: 平台约定除 svc-ec2、svc-iam 外起始状态都带实例角色（C3）
+  - {item: preview-direct-https, kind: platform, reason: 预览使用方案 B 的 Let's Encrypt IP 证书（03 §6.2）}
+  platform:
+    preview: {directHttps: 'on'}
+targetModules:
+- {id: ami, driver: golden}
+expectedWarnings: []
+cost: {tier: medium}
+provision: {class: A}
+badge: {title: 黄金镜像}
+tracks: [operations, resilient, saa-main]
+saa:
+  domains: [resilient, performance, secure]
+tags: [ami, imagebuilder]
+certificate: {enabled: false}

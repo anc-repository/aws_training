@@ -1,0 +1,48 @@
+schema: atl.quiz/v1
+version: 1.0.0
+questions:
+  - id: ec2-data-volume
+    domain: resilient
+    type: single
+    kind: scenario
+    services: [ec2, ebs]
+    stem: 一台 EC2 上的应用需要在“换实例类型、换 AMI、重建实例”之后保留上传文件与配置，并且能单独做快照。最合适的做法是？
+    options:
+      - { id: a, text: 把数据放在实例存储上 }
+      - { id: b, text: 放在单独的 EBS 数据卷上，并让它的 DeleteOnTermination=false }
+      - { id: c, text: 放在根卷上并保持 DeleteOnTermination=true }
+      - { id: d, text: 放在 /tmp }
+    answer: [b]
+    explain: 实例存储在实例停止、终止或硬件故障时丢失；根卷默认随实例终止而删除；独立 EBS 卷的生命周期与实例无关，可以改挂到新实例、单独快照与扩容。EBS 卷绑定 AZ，跨 AZ 只能经快照。
+    relatesTo: host-inspect
+    difficulty: 1
+  - id: ec2-imdsv2
+    domain: secure
+    type: single
+    kind: scenario
+    services: [ec2]
+    stem: 安全团队担心 Web 应用的 SSRF 漏洞被用来读取实例角色凭证。下列哪项措施最直接？
+    options:
+      - { id: a, text: 强制使用 IMDSv2（HttpTokens=required） }
+      - { id: b, text: 关闭安全组的全部出站规则 }
+      - { id: c, text: 用 NACL 拒绝 169.254.169.254 }
+      - { id: d, text: 把实例换到更大的实例类型 }
+    answer: [a]
+    explain: IMDSv2 要求先用 PUT 请求取得会话令牌并在请求头中携带，典型的 SSRF 只能让服务器发出 GET 请求。实例元数据服务是实例本地的链路地址，NACL 与安全组都控制不了它。
+    relatesTo: imds
+    difficulty: 1
+  - id: ec2-eip
+    domain: cost
+    type: multi
+    kind: concept
+    services: [ec2]
+    stem: 关于弹性 IP 与公网 IPv4，正确的是哪两项？
+    options:
+      - { id: a, text: 没有 EIP 的实例停止再启动后，自动分配的公网 IPv4 通常会改变 }
+      - { id: b, text: 未关联到运行中实例的 EIP 不收费 }
+      - { id: c, text: 公网 IPv4 地址（包括 EIP）按小时计费 }
+      - { id: d, text: EIP 可以直接迁移到另一个区域使用 }
+    answer: [a, c]
+    explain: AWS 对所有公网 IPv4 地址按小时计费，未关联的 EIP 同样计费；EIP 是区域资源，不能跨区域使用。
+    relatesTo: spof
+    difficulty: 1

@@ -1,0 +1,83 @@
+# 边缘命中与认证接口不缓存（04 §11.3）：平台自己发请求，并用源站日志、对端 IP 段、证书 SAN 佐证
+checks:
+  - id: edge-cache-observed
+    title: 经 CloudFront 的同一请求先 Miss 后 Hit，命中的那次没有回源
+    type: http-header
+    from: platform
+    target: cdn
+    path: '/api/public/now?atlprobe={{ sample.nonce }}'
+    method: GET
+    repeat: 2
+    intervalMs: 1500
+    timeoutMs: 10000
+    dependsOn: [distribution-deployed]
+    wait: { typicalMinutes: 3, maxMinutes: 15 }
+    drift: { policy: must-hold }
+    assert:
+      - { path: $.first.status, op: eq, value: 200, label: 第 1 次状态码 }
+      - { path: $.first.headers.x-amz-cf-id, op: exists, label: 第 1 次带 X-Amz-Cf-Id }
+      - { path: $.first.headers.x-cache, op: icontains, value: 'miss from cloudfront', label: 第 1 次 X-Cache }
+      - { path: $.first.pathSegments.entry, op: startsWith, value: cloudfront, label: 入口链 }
+      - { path: $.last.status, op: eq, value: 200, label: 第 2 次状态码 }
+      - { path: $.last.headers.x-cache, op: icontains, value: 'hit from cloudfront', label: 第 2 次 X-Cache }
+      - { path: $.last.headers.age, op: exists, label: 第 2 次带 Age }
+      - { path: $.last.json.now, op: eq, value: '{{$.first.json.now}}', label: 两次时间戳相同（同一份缓存） }
+    corroborate:
+      - id: edge-network
+        via: builtin
+        name: ip-in-aws-ranges
+        args: { service: CLOUDFRONT, addresses: ['{{$.first.peer.address}}', '{{$.last.peer.address}}'] }
+      - id: edge-tls
+        via: builtin
+        name: tls-san
+        args: { expect: '*.cloudfront.net', san: '{{$.first.tls.subjectAltNames}}' }
+      - id: origin-log
+        via: local
+        checkId: nginx-log-summary
+        args:
+          window: 10m
+          nonce: '{{ sample.nonce }}'
+          cfIds: ['{{$.first.headers.x-amz-cf-id}}', '{{$.last.headers.x-amz-cf-id}}']
+        assert:
+          - { path: $.nonce.count, op: eq, value: 1, label: 源站收到带本次 nonce 的请求数 }
+          - { path: '$.nonce.ports[0]', op: eq, value: 8080, label: 回源端口 }
+          - { path: '$.cfIds[1].seen', op: eq, value: false, label: 命中的那次没有回源 }
+          - { path: '$.cfIds[0].seen', op: eq, value: true, label: Miss 那次的 Cf-Id 出现在源站日志, severity: warn }
+      - id: origin-clean
+        via: local
+        checkId: http-probe
+        args: { target: self, path: '/api/public/now?atlprobe={{ sample.nonce }}-direct', method: GET }
+        assert:
+          - { path: '$.responses[0].headers.x-amz-cf-id', op: absent, label: 直连响应不带 X-Amz-Cf-Id }
+          - { path: '$.responses[0].headers.x-cache', op: absent, label: 直连响应不带 X-Cache }
+    explain: 平台自己请求本会话分配的域名两次，再到源站日志里核对：nonce 只出现一次，说明第二次由边缘返回。
+    reproduce: { run: 'curl -sI "https://{{ var.cdnDomain }}/api/public/now?atlprobe=$(date +%s)"', runsOn: workstation }
+    pitfalls: [micro-cache-missing, spoofed-headers]
+
+  - id: api-not-cached
+    title: 认证类接口经 CloudFront 两次都不命中缓存
+    type: http-header
+    from: platform
+    target: cdn
+    path: /api/lab/probe/now
+    method: GET
+    repeat: 2
+    intervalMs: 1500
+    dependsOn: [distribution-deployed]
+    drift: { policy: must-hold }
+    assert:
+      - { path: $.first.headers.cache-control, op: icontains, value: no-store, label: 源站声明不可缓存 }
+      - { path: $.first.headers.x-cache, op: icontains, value: 'miss from cloudfront', label: 第 1 次 X-Cache }
+      - { path: $.last.headers.x-cache, op: icontains, value: 'miss from cloudfront', label: 第 2 次 X-Cache }
+      - { path: $.last.json.now, op: neq, value: '{{$.first.json.now}}', label: 两次时间戳不同 }
+    explain: 个性化 API 必须放在不缓存的行为里；探测端点代表“需要登录的接口”，两次都应回源（一次性探测令牌由引擎自动取得）。
+    reproduce: { run: 'curl -sI "https://{{ var.cdnDomain }}/api/lab/probe/now" | grep -iE "^(x-cache|cache-control):"', runsOn: workstation }
+    pitfalls: [api-in-cached-behavior]
+
+pitfalls:
+  - { id: micro-cache-missing, title: /api/public/* 没有微缓存, match: [ { checkId: edge-cache-observed, assertionLabel: 第 2 次 X-Cache } ],
+      cause: 请求落进了 /api/*（CachingDisabled）行为，没有 /api/public/* 的微缓存行为, fix: 重新执行 scripts/module enable cdn，让模板补齐 cloudalbum-<env>-api-micro 缓存策略 }
+  - { id: spoofed-headers, title: 源站自己写出了 CDN 专属响应头, match: [ { checkId: edge-cache-observed, errorCode: CORROBORATION_FAILED } ],
+      cause: 源站 Nginx 自行添加了 X-Cache / X-Amz-Cf-Id，或两次请求都回源了, fix: 删除 Nginx 中相关的 add_header；结果按 SPOOF_SUSPECTED 记录 }
+  - { id: api-in-cached-behavior, title: 认证接口被缓存, match: [ { checkId: api-not-cached, assertionLabel: 第 2 次 X-Cache } ],
+      cause: 认证类接口被放进了会缓存的行为（个性化数据会串号）, fix: 检查 /api/* 行为是否为 CachingDisabled；不要在控制台修改模块管理的分配 }

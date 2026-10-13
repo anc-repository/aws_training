@@ -1,0 +1,188 @@
+# labs/svc-iam/lab.yaml —— AWS IAM：服务器访问 AWS 的凭证（cards/service-cards-1 第 10 节）
+# 实现核对（implementation-notes platform-content）：
+# - 反面教材 keys 模式（平台动作 iam-keys-on / iam-keys-off）本版不设步骤：scripts/module 在平台模式下对 iam keys 一律拒绝
+#   （PLATFORM_ACTION_REQUIRED），runner 也走同一段代码；对照表与小测保留 keys 的内容。
+# - 撤销会话（iam revoke-older-sessions / refresh-instance-credentials）是 module 命令，而 lab v2 的 platformOps.op 只允许
+#   enable / disable，无法声明；本版不设步骤。
+# - leak-scan、imds-ssrf 是实验机上的离线 shell 实验（运行器不上传离线结果），改为实验机终端的 CLI 步骤，以 local 检查判定。
+schema: atl.lab/v2
+id: svc-iam
+kind: service
+version: 1.0.0
+status: beta
+service: AWS IAM
+function: 服务器访问 AWS 的凭证
+title: AWS IAM：服务器访问 AWS 的凭证
+subtitle: 应用不用凭证 → 实例角色的临时凭证
+summary: 让应用第一次拥有 AWS 身份：比较“不用凭证”与“实例角色临时凭证”，看清 IMDSv2、ASIA 临时密钥与 CloudTrail 中的 AssumedRole。
+story: |
+  L0 的应用不调用任何 AWS API。从这张卡开始，应用通过实例配置文件从 IMDSv2 取得小时级、自动轮换、不落盘的临时凭证，
+  其他模块才能调用 AWS。反面教材是把长期访问密钥（AKIA）写在磁盘上：它永不过期，会随快照和备份扩散。
+objectives:
+  - { text: 比较实例配置文件与长期访问密钥；区分 AKIA 与 ASIA, domain: secure, relatesTo: whoami }
+  - { text: 理解“最小权限随模块增减”：每个模块一条客户托管策略, domain: secure, relatesTo: enable }
+  - { text: 说清 IMDSv2 如何挡住只能发 GET 的 SSRF, domain: secure, relatesTo: imds }
+  - { text: 读懂 CloudTrail 中的 userIdentity, domain: secure, relatesTo: cloudtrail }
+difficulty: beginner
+estimatedMinutes: 60
+timeLimitMinutes: 90
+extensions: { maxCount: 2, minutesEach: 30 }
+retain: { allowed: true, maxHours: 24, reason: IAM、STS 与 CloudTrail 事件历史查询不收费；保留后可以继续其他需要实例角色的卡片 }
+regions:
+  supported: [ap-northeast-1]
+services:
+  - { id: iam, name: AWS IAM（角色、实例配置文件、客户托管策略）, role: primary, module: iam }
+  - { id: sts, name: AWS STS（临时凭证、GetCallerIdentity）, role: observed }
+  - { id: cloudtrail, name: AWS CloudTrail（事件历史，只读）, role: observed }
+  - { id: ec2, name: Amazon EC2（IMDSv2）, role: observed, module: ec2 }
+modules: { target: [iam], start: [], context: [], related: [storage, queue, secrets, kms] }
+prerequisites:
+  cards:
+    - { id: svc-ec2, kind: soft }
+  knowledge: [AWS CLI 的基本用法]
+
+startProfile:
+  provisions:
+    - { item: mgmt-channel, kind: platform, reason: 实验机从一开始就挂着只含 AmazonSSMManagedInstanceCore 的 CloudAlbumAppRole（平台管理通道）；本卡的“没有”是应用 IAM_CREDENTIALS=none、根本不读它 }
+    - { item: workstation, kind: platform, reason: 每个会话一台工作台，用于运行 scripts/module、AWS CLI 与对比实验 }
+    - { item: preview-direct-https, kind: platform, reason: 预览使用方案 B 的 Let's Encrypt IP 证书；本卡不涉及 tls，保持开启 }
+  platform: { preview: { directHttps: 'on' } }
+  reason: C3 例外：本卡的目标就是 iam，起始状态只有 L0（档位 atl/svc-iam/default）；iam 没有硬依赖，它就是凭证提供方
+targetModules:
+  - { id: iam, driver: role, wireStep: enable, adoptsExisting: false }
+expectedWarnings: []
+workstation: { required: true, tools: [aws-cli, node, jq], savingsMode: degraded }
+platform:
+  consoleLinks: [iam.role, cloudtrail.events]
+provision: { class: A }
+
+variables:
+  readPolicyArn: { label: iam 模块的只读策略, from: derived, fillFrom: stack.iam.InfoReadPolicyArn }
+
+cost:
+  currency: USD
+  tier: low
+  mainDrivers: [无（IAM、STS 与 CloudTrail 事件历史查询不收费）]
+  basis:
+    - { ref: start-profile, note: 实验机 EC2、EBS（根卷与数据卷）、公网 IPv4 }
+    - { ref: workstation, note: 工作台 EC2、EBS、公网 IPv4 }
+  assumptions:
+    - 本卡不创建按量或按小时计费的资源
+
+steps:
+  - id: orient
+    type: cli
+    title: 实例有角色 ≠ 应用在用
+    manual: manual/10-orient.md
+    panel: terminal-lab
+    estMinutes: 8
+    checks: [iam-none-baseline, imds-role-name, cred-source-none]
+
+  - id: baseline
+    type: experiment
+    title: 记录 before：应用的身份对照（不用凭证）
+    manual: manual/20-baseline.md
+    experiment: { module: iam, id: whoami, label: before }
+    requires: { steps: [orient] }
+    panel: terminal-workstation
+    estMinutes: 5
+    checks: [exp-whoami-before]
+
+  - id: enable
+    type: script
+    wire: true
+    title: 启用实例角色：附加 iam 模块的只读策略
+    manual: manual/30-enable.md
+    methods: [script]
+    requires: { steps: [baseline] }
+    panel: terminal-workstation
+    estMinutes: 8
+    wait: { typicalMinutes: 2, maxMinutes: 10, text: 部署策略栈、附加到 CloudAlbumAppRole、写 IAM_CREDENTIALS=role 并重启 }
+    checks: [iam-wired, cred-source-role, app-role-policies]
+
+  - id: whoami
+    type: experiment
+    title: 记录 after：身份对照（实例角色）
+    manual: manual/40-whoami.md
+    experiment: { module: iam, id: whoami, label: after }
+    requires: { steps: [enable] }
+    panel: terminal-workstation
+    estMinutes: 5
+    checks: [exp-whoami-pair]
+
+  - id: imds
+    type: cli
+    title: IMDSv2 与 SSRF
+    manual: manual/50-imds.md
+    requires: { steps: [enable] }
+    panel: terminal-lab
+    estMinutes: 10
+    checks: [imds-v1-rejected, ssrf-why]
+
+  - id: cloudtrail
+    type: cli
+    title: CloudTrail 中的身份
+    manual: manual/60-cloudtrail.md
+    requires: { steps: [whoami] }
+    panel: terminal-workstation
+    estMinutes: 10
+    wait: { typicalMinutes: 10, maxMinutes: 20, text: 事件出现在 CloudTrail 事件历史中通常有几分钟到十几分钟的延迟 }
+    checks: [trail-identity]
+
+finalChecks:
+  - no-world-ssh
+  - { ref: iam-wired, as: final-iam-wired }
+  - { ref: no-leaked-keys, as: final-no-leaked-keys }
+
+experiments:
+  - module: iam
+    id: whoami
+    labels:
+      - { id: before, role: baseline, requires: { iam: none } }
+      - { id: after, role: treatment, requires: { iam: role } }
+    pairs: [[before, after]]
+    required: true
+    runner: workstation
+    validity: functional
+    corroborateWith: [cred-source-role]
+
+quiz: { file: quiz.yaml, draw: 3 }
+badge: { title: 临时凭证, icon: assets/badge.svg }
+tracks: [saa-main, secure]
+
+cleanup:
+  summary: 结束实验后，平台删除 iam 模块栈（只读策略），回收器复位 CloudAlbumAppRole：分离非平台附加的策略、删除内联策略。
+  autoReclaim: true
+  dataRisk: []
+  learnerCreatedHints: []
+  verify: []
+
+saa:
+  domains: [secure]
+  topics:
+    - { id: instance-profile, title: 实例配置文件、iam:PassRole 与 STS 临时凭证的自动轮换, domain: secure, relatesTo: enable }
+    - { id: imdsv2, title: IMDSv2 的会话令牌、跳数限制与 SSRF, domain: secure, relatesTo: imds }
+    - { id: caller-identity, title: GetCallerIdentity 不需要权限、显式 Deny 也挡不住, domain: secure, relatesTo: whoami }
+    - { id: trail-identity, title: CloudTrail userIdentity：AssumedRole 与 IAMUser, domain: secure, relatesTo: cloudtrail }
+  confusables:
+    - { a: AKIA 访问密钥, b: ASIA 临时凭证, rule: AKIA 是 IAM 用户的长期密钥，永不过期；ASIA 是 STS 签发的临时凭证，必须带 SessionToken，到期自动失效 }
+    - { a: 身份策略, b: 权限边界, rule: 身份策略授予权限；权限边界只设上限，本身不授予任何权限 }
+
+tags: [iam, sts, credentials, imdsv2, cloudtrail]
+
+permissions:
+  learner:
+    - cloudformation:CreateChangeSet
+    - cloudformation:DescribeChangeSet
+    - cloudformation:ExecuteChangeSet
+    - cloudformation:DescribeStacks
+    - cloudformation:DescribeStackEvents
+    - iam:CreatePolicy
+    - iam:AttachRolePolicy
+    - iam:ListAttachedRolePolicies
+    - cloudtrail:LookupEvents
+    - ssm:SendCommand
+  notes: 平台模式下 enable iam 走 AppRoleMode=existing：只创建并附加 iam 自己的只读策略，CloudAlbumAppRole 与实例配置文件属于平台
+
+certificate: { enabled: false }
+owners: [cloudalbum-maintainers]

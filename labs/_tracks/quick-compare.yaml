@@ -1,0 +1,21 @@
+# labs/_tracks/quick-compare.yaml —— 点名对比快速路径（tracks-and-catalog §4.4、§7.3 完整示例）
+schema: atl.track/v2
+id: quick-compare
+version: 1.0.0
+title: 点名对比快速路径
+summary: 七个服务的“有 vs 没有”：Cognito、SQS、CloudFront、Lambda、ElastiCache、S3、RDS
+audience: 已经熟悉 L0、只想看这七组对比的学员
+stages:
+  - id: compare
+    title: 七项对比（按费用从低到高）
+    items:
+      - { card: svc-ec2, role: optional, note: 熟悉 L0 可以跳过 }
+      - { card: svc-storage, role: required }
+      - { card: svc-cdn, role: required }
+      - { card: svc-queue, role: required }
+      - { card: svc-image-processing, role: required }
+      - { card: svc-auth, role: required }
+      - { card: svc-cache, role: required, note: 按小时计费，做完立即结束 }
+      - { card: svc-database, role: required, note: 按小时计费，做完立即结束 }
+completion: { allowManual: true, minAutoRatio: 0.8, excludeSelfReported: true }
+certificate: { enabled: true, title: 七项点名对比证书 }

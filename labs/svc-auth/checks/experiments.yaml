@@ -1,0 +1,16 @@
+checks:
+  - id: exp-features-before
+    title: feature-matrix 的 before（本地账号的功能矩阵）有一条有效结果
+    type: experiment
+    module: auth
+    experiment: feature-matrix
+    label: before
+    accept: [valid]
+
+  - id: exp-brute-before
+    title: brute-force 的 before（本地锁定与限速）有一条有效结果
+    type: experiment
+    module: auth
+    experiment: brute-force
+    label: before
+    accept: [valid]

@@ -1,0 +1,169 @@
+checks:
+  # ---- 起始状态（before 一律 once）
+  - id: cache-none-baseline
+    title: 起始状态：时间线没有缓存，每次都查库
+    type: capability
+    module: cache
+    drift: { policy: once }
+    assert:
+      - { path: $.driver, op: eq, value: none, label: 驱动 }
+    explain: none 档每次时间线请求都会执行若干次数据库查询；性能徽章显示“未缓存 · DB n 次”。
+
+  # ---- 选做：本地档 memory
+  - id: cache-memory
+    title: 缓存切换到了进程内 LRU（本地档 memory）
+    type: capability
+    module: cache
+    drift: { policy: once }
+    assert:
+      - { path: $.driver, op: eq, value: memory, label: 驱动 }
+    explain: 只判定驱动，不判定状态：本地档不是 AWS 实现。
+
+  # ---- 接入 ElastiCache
+  - id: cache-wired
+    title: cache 已切换到 ElastiCache，且状态正常
+    type: capability
+    module: cache
+    drift: { policy: must-hold, monitor: true }
+    assert:
+      - { path: $.driver, op: eq, value: redis, label: 驱动 }
+      - { path: $, op: healthy, label: 状态正常（本卡 expectedWarnings 为空，即必须是 ok） }
+    explain: 探针每 15 秒执行 PING 与 INFO replication；连接失败时模块是 degraded，请求按未命中处理。
+    reproduce: { run: 'curl -s http://127.0.0.1/api/capabilities | jq ".modules.cache | {driver, status, detail}"', runsOn: lab }
+
+  - id: cache-hit-probe
+    title: 同一探测请求第 2 次命中 ElastiCache
+    type: http-header
+    from: lab
+    target: self
+    path: /api/lab/probe/now
+    method: GET
+    repeat: 2
+    intervalMs: 500
+    dependsOn: [cache-wired]
+    drift: { policy: must-hold }
+    assert:
+      - { path: $.last.status, op: eq, value: 200, label: 第 2 次状态码 }
+      - { path: $.last.pathSegments.cache, op: eq, value: 'redis@elasticache:hit', label: 第 2 次的 cache 段 }
+    explain: 探测端点按 cache-aside 读写键 probe:now:<实例>（30 秒）；第 1 次可能未命中并回填，第 2 次必须命中，且主机类别是 elasticache。
+    reproduce: { run: 'for i in 1 2; do curl -s -o /dev/null -D - "http://127.0.0.1/api/feed?limit=1" | grep -i "^x-cloudalbum-path:"; done', runsOn: lab }
+
+  - id: cache-replication-group
+    title: 复制组是本会话创建的，已可用，传输与静态加密开启
+    type: aws-readonly
+    service: elasticache
+    action: DescribeReplicationGroups
+    region: app
+    params: { ReplicationGroupId: '{{ var.replicationGroupId }}' }
+    ownership: { resource: '{{ $.ReplicationGroups[0].ARN }}', mode: session, createdAfter: session.readyAt }
+    wait: { typicalMinutes: 10, maxMinutes: 25 }
+    pendingIf:
+      - { path: '$.ReplicationGroups[0].Status', op: in, value: [creating, modifying] }
+    drift: { policy: must-hold }
+    assert:
+      - { path: '$.ReplicationGroups[0].Status', op: eq, value: available, label: 状态 }
+      - { path: '$.ReplicationGroups[0].TransitEncryptionEnabled', op: eq, value: true, label: 传输加密（TLS） }
+      - { path: '$.ReplicationGroups[0].AtRestEncryptionEnabled', op: eq, value: true, label: 静态加密 }
+      - { path: '$.ReplicationGroups[0].CacheNodeType', op: eq, value: cache.t4g.micro, label: 节点类型 }
+    explain: 先确认复制组由本会话的 cache 模块栈创建，再核对状态与加密；单节点、无副本，所以没有自动故障转移。
+    reproduce: { run: 'aws elasticache describe-replication-groups --replication-group-id "{{ var.replicationGroupId }}" --query "ReplicationGroups[0].[Status,TransitEncryptionEnabled,AtRestEncryptionEnabled,CacheNodeType]"', runsOn: workstation }
+    manualFallback:
+      where: { breadcrumb: [ElastiCache, Valkey 缓存, '{{ var.replicationGroupId }}'], region: app }
+      observed:
+        question: 复制组的状态与“传输中加密”分别是什么？
+        options:
+          - { value: ok, label: 可用、已启用, expected: true }
+          - { value: creating, label: 正在创建, fixHint: 节点创建通常需要 10 分钟左右，请稍后再检查 }
+          - { value: other, label: 其他 }
+
+  # ---- 谁能连到缓存
+  - id: cache-cluster
+    title: 缓存节点挂的是本模块的 sg-cache
+    type: aws-readonly
+    service: elasticache
+    action: DescribeCacheClusters
+    region: app
+    params: { CacheClusterId: '{{$check.cache-replication-group.ReplicationGroups[0].MemberClusters[0]}}' }
+    dependsOn: [cache-replication-group]
+    drift: { policy: once }
+    assert:
+      - { path: '$.CacheClusters[0].SecurityGroups', op: len_eq, value: 1, label: 安全组数 }
+      - { path: '$.CacheClusters[0].CacheSubnetGroupName', op: exists, label: 子网组 }
+    explain: 节点 ID 取自复制组的成员（cache-replication-group 已确认归属）；它的安全组就是模块栈创建的 sg-cache。
+    reproduce: { run: 'aws elasticache describe-cache-clusters --cache-cluster-id "{{ var.replicationGroupId }}-001" --query "CacheClusters[0].SecurityGroups"', runsOn: workstation }
+    manualFallback:
+      where: { breadcrumb: [ElastiCache, Valkey 缓存, '{{ var.replicationGroupId }}', 节点], region: app }
+      observed:
+        question: 节点的安全组是哪一个？
+        options:
+          - { value: ok, label: 'cloudalbum-{{ session.env }}-cache', expected: true }
+          - { value: other, label: 其他 }
+
+  - id: cache-sg-rule
+    title: sg-cache 的 6379 入站只放行实验机的安全组
+    type: aws-readonly
+    service: ec2
+    action: DescribeSecurityGroupRules
+    region: app
+    params:
+      Filters:
+        - { Name: group-id, Values: ['{{$check.cache-cluster.CacheClusters[0].SecurityGroups[0].SecurityGroupId}}'] }
+    dependsOn: [cache-cluster]
+    drift: { policy: must-hold }
+    assert:
+      - path: $.SecurityGroupRules
+        where: { IsEgress: false, FromPort: 6379 }
+        op: some
+        label: 6379 的来源是实验机安全组
+        value:
+          - { path: $.ReferencedGroupInfo.GroupId, op: eq, value: '{{ target.sgId }}' }
+      - path: $.SecurityGroupRules
+        where: { IsEgress: false, CidrIpv4: 0.0.0.0/0 }
+        op: len_eq
+        value: 0
+        label: 对 0.0.0.0/0 开放的入站规则
+    explain: 安全组的来源可以是另一个安全组：只有挂着实验机安全组的网卡能连到 6379。fail-open 演示结束后这条规则必须恢复。
+    reproduce: { run: 'aws ec2 describe-security-group-rules --filters Name=group-id,Values=<sg-cache 的 ID> --query "SecurityGroupRules[?IsEgress==\`false\`].[FromPort,ReferencedGroupInfo.GroupId,CidrIpv4]" --output table', runsOn: workstation }
+    pitfalls: [sg-not-restored]
+    manualFallback:
+      where: { breadcrumb: [EC2, 安全组, 'cloudalbum-{{ session.env }}-cache', 入站规则], region: app }
+      observed:
+        question: 6379 端口入站规则的“源”是什么？
+        options:
+          - { value: sg, label: '实验机的安全组（{{ target.sgId }}）', expected: true }
+          - { value: none, label: 没有 6379 的规则, fixHint: fail-open 演示后没有恢复；执行 revoke-sg.sh restore }
+          - { value: cidr, label: 一个 IP 地址段, fixHint: 不要在控制台修改栈管理的安全组；重新执行 scripts/module enable cache }
+
+  - id: who-can-connect
+    title: 说出两处连接测试的结果与原因
+    type: manual
+    spec:
+      observed:
+        question: 实验机上的 PING 与工作台上的 TCP 测试分别得到什么？
+        options:
+          - { value: pong-blocked, label: 实验机得到 PONG，工作台 blocked, expected: true }
+          - { value: both-ok, label: 两边都能连上, fixHint: 工作台和实验机同在默认 VPC，但 sg-cache 只放行实验机的安全组 }
+          - { value: both-blocked, label: 两边都连不上, fixHint: 实验机上要用 TLS（openssl s_client）；确认 cache-sg-rule 通过 }
+
+  # ---- 回收验证
+  - id: cache-gone
+    title: 本会话的复制组已删除
+    type: aws-readonly
+    service: elasticache
+    action: DescribeReplicationGroups
+    region: app
+    params: { ReplicationGroupId: 'cloudalbum-{{ session.env }}-cache' }
+    expectError: ReplicationGroupNotFoundFault
+    required: false
+    reproduce: { run: 'aws elasticache describe-replication-groups --replication-group-id cloudalbum-{{ session.env }}-cache', runsOn: workstation }
+    manualFallback:
+      where: { breadcrumb: [ElastiCache, Valkey 缓存], region: app }
+      observed:
+        question: 列表中还能找到 cloudalbum-{{ session.env }}-cache 吗？
+        options:
+          - { value: gone, label: 找不到, expected: true }
+          - { value: present, label: 还在 }
+
+pitfalls:
+  - { id: sg-not-restored, title: sg-cache 的 6379 规则没有恢复, match: [ { checkId: cache-sg-rule, result: fail } ],
+      cause: fail-open 演示的恢复脚本没有执行（例如运行器被中断），实验机连不上缓存，时间线一直走 error-bypass, fix: '在工作台执行 bash experiments/cache/faults/revoke-sg.sh restore（带上 CACHE_SG_ID 与 APP_SG_ID）' }

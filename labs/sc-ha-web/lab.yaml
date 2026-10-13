@@ -1,0 +1,95 @@
+# labs/sc-ha-web/lab.yaml —— 目录占位（status: planned）：只有目录元数据，可在目录中显示但不能开始实验；
+# 取值来自 05 §4 与 cards/ 逐卡文档。步骤、手册、检查与小测在后续批次补齐，届时 status 改为 beta 并提升版本。
+schema: atl.lab/v2
+id: sc-ha-web
+kind: scenario
+version: 0.1.0
+status: planned
+title: 高可用 Web 层
+subtitle: ALB + Auto Scaling + S3 或 EFS + RDS Multi-AZ
+summary: 从“一台手工维护的 EC2”走到“跨两个 AZ、坏了自动替换、负载高了自动扩容”的无状态机群，数据层由 S3 与 RDS Multi-AZ 承担；扩展练习用黄金 AMI 缩短扩容时间
+story: 相册的日活翻了几倍。现在的 EC2 只有一台：每次发布重启都会有几秒 502；上个月一次底层硬件故障让全站停了四十分钟；晚高峰 CPU 打满时只能停机换更大的实例。业务方给出的目标是：单台实例故障或发布时用户无感；晚高峰自动扩容、深夜自动缩回；数据库主节点故障时自动切换。数据库已经迁到了 RDS（Multi-AZ），照片在
+  S3，现在轮到 Web 层。
+scenario: {question: 一个 Web 应用运行在单台 EC2 上，数据库在同一台实例里。要求：任意单个 AZ 故障时应用仍可用；负载变化时自动调整容量；改造尽量少。哪个方案最合适？}
+difficulty: advanced
+estimatedMinutes: 150
+timeLimitMinutes: 240
+extensions: {maxCount: 2, minutesEach: 30}
+retain: {allowed: true, maxHours: 12}
+regions:
+  supported: [ap-northeast-1]
+services:
+- {id: elb, role: primary, module: load-balancer}
+- {id: autoscaling, role: primary, module: autoscaling}
+- {id: rds, role: supporting, module: database}
+- {id: s3, role: context, module: storage}
+- {id: imagebuilder, role: supporting, module: ami, optional: true}
+- {id: iam, role: context, module: iam}
+modules:
+  target: [load-balancer, autoscaling, ami]
+  start: [iam, storage, database]
+  context: []
+  related: []
+prerequisites:
+  cards:
+  - {id: svc-load-balancer, kind: soft}
+  - {id: svc-autoscaling, kind: soft}
+  - {id: svc-database, kind: soft}
+startProfile:
+  provisions:
+  - &id001
+    item: iam
+    kind: module
+    basis: credential
+    set: {IAM_CREDENTIALS: role}
+    reason: 平台约定除 svc-ec2、svc-iam 外起始状态都带实例角色（C3）
+  - item: storage
+    kind: module
+    basis: closure
+    rule: ASG-001
+    set: {STORAGE_DRIVER: s3}
+  - item: database
+    kind: module
+    basis: closure
+    rule: ASG-002
+    set: {DB_DRIVER: postgres}
+    params: {MultiAz: true}
+  platform:
+    preview: {directHttps: 'off'}
+  branches:
+    ASG-001: {choose: storage, reason: 与 l8-ha 一致；EFS 做法见 efs 变体}
+  variants:
+  - id: efs
+    title: 用 EFS 作共享存储
+    select: learner
+    provisions:
+    - *id001
+    - item: shared-fs
+      kind: module
+      basis: closure
+      rule: ASG-001
+      set: {STORAGE_DRIVER: efs}
+    - item: database
+      kind: module
+      basis: closure
+      rule: ASG-002
+      set: {DB_DRIVER: postgres}
+      params: {MultiAz: true}
+    branches:
+      ASG-001: {choose: shared-fs, reason: 对照 S3 与 EFS 两种共享存储}
+    reason: 共享存储换成 EFS，其余相同
+targetModules:
+- {id: load-balancer, driver: alb}
+- id: autoscaling
+  driver: asg
+  params: {MinSize: 2, DesiredCapacity: 2, MaxSize: 4, AzCount: 2}
+- {id: ami, driver: golden, optional: true}
+expectedWarnings: [SEC-002, ASG-009, ASG-010, ASG-011, ASG-012, ASG-013]
+cost: {tier: high}
+provision: {class: C}
+badge: {title: 高可用 Web, short: 高可用}
+tracks: [resilient, saa-main]
+saa:
+  domains: [resilient, performance, cost]
+tags: [ami, autoscaling, load-balancer]
+certificate: {enabled: false}

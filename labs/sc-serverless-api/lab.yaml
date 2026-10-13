@@ -1,0 +1,59 @@
+# labs/sc-serverless-api/lab.yaml —— 目录占位（status: planned）：只有目录元数据，可在目录中显示但不能开始实验；
+# 取值来自 05 §4 与 cards/ 逐卡文档。步骤、手册、检查与小测在后续批次补齐，届时 status 改为 beta 并提升版本。
+schema: atl.lab/v2
+id: sc-serverless-api
+kind: scenario
+version: 0.1.0
+status: planned
+title: Serverless API
+subtitle: API Gateway + Lambda + DynamoDB
+summary: 把点赞、评论、分享链接整体搬到网关 + 函数 + 按需表上：停掉 EC2 上的 API 进程，社交功能照常可用
+story: 相册的点赞与评论流量在晚上集中爆发，白天几乎没有；每次发布重启 EC2 上的 API 进程，点赞都会失败几秒；热门照片的点赞计数在高并发下偶尔算错；过期的分享链接要靠定时任务清理，任务一停表就越来越大。产品希望社交功能“永不下线”，并且只为实际请求付费。
+scenario: {question: 一家初创公司的投票 API 流量极不均匀：活动期间每秒数千请求，平时几乎为零。要求：无需容量规划、为空闲时间付费最少、每个用户每题只能投一次。最合适的架构是？}
+difficulty: intermediate
+estimatedMinutes: 90
+timeLimitMinutes: 150
+extensions: {maxCount: 2, minutesEach: 30}
+retain: {allowed: true, maxHours: 24}
+regions:
+  supported: [ap-northeast-1]
+services:
+- {id: apigateway, role: primary, module: social-api}
+- {id: dynamodb, role: primary, module: social-store}
+- {id: lambda, role: supporting}
+- {id: sqs, role: supporting, module: queue, optional: true}
+- {id: iam, role: context, module: iam}
+modules:
+  target: [social-store, social-api, queue]
+  start: [iam]
+  context: []
+  related: []
+prerequisites:
+  cards:
+  - {id: svc-social-store, kind: soft}
+  - {id: svc-social-api, kind: soft}
+startProfile:
+  provisions:
+  - item: iam
+    kind: module
+    basis: credential
+    set: {IAM_CREDENTIALS: role}
+    reason: 平台约定除 svc-ec2、svc-iam 外起始状态都带实例角色（C3）
+  - {item: preview-direct-https, kind: platform, reason: 预览使用方案 B 的 Let's Encrypt IP 证书（03 §6.2）}
+  platform:
+    preview: {directHttps: 'on'}
+targetModules:
+- {id: social-store, driver: dynamodb}
+- id: social-api
+  driver: apigw
+  set: {SOCIAL_API_INTEGRATION: lambda, SOCIAL_API_AUTHORIZER: lambda}
+- {id: queue, driver: sqs, optional: true}
+expectedWarnings: []
+cost: {tier: low}
+provision: {class: A}
+badge: {title: 无服务器 API, short: 无服务器}
+tracks: [performant, saa-main, serverless]
+saa:
+  domains: [performance, resilient, cost]
+tags: [queue, social-api, social-store]
+certificate: {enabled: false}

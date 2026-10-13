@@ -1,0 +1,25 @@
+# 对比实验结果（04 §5.2.5）：experiments/cdn/experiment.json 的 media-load、compression
+checks:
+  - id: exp-media-before
+    title: media-load 的 before（EC2 直出）有一条有效结果
+    type: experiment
+    module: cdn
+    experiment: media-load
+    label: before
+    accept: [valid, simulated]
+
+  - id: exp-media-pair
+    title: media-load 的 before 与 after 都有效且可比
+    type: experiment
+    module: cdn
+    experiment: media-load
+    pair: [before, after]
+    accept: [valid, simulated]
+
+  - id: exp-compression
+    title: compression 的 after 有一条有效结果
+    type: experiment
+    module: cdn
+    experiment: compression
+    label: after
+    required: false

@@ -1,0 +1,59 @@
+# labs/sc-event-fanout/lab.yaml —— 目录占位（status: planned）：只有目录元数据，可在目录中显示但不能开始实验；
+# 取值来自 05 §4 与 cards/ 逐卡文档。步骤、手册、检查与小测在后续批次补齐，届时 status 改为 beta 并提升版本。
+schema: atl.lab/v2
+id: sc-event-fanout
+kind: scenario
+version: 0.1.0
+status: planned
+title: 事件扇出与通知
+subtitle: SNS + SQS + SES
+summary: 一条“有新评论”事件只发布一次，由 SNS 按订阅过滤分发给邮件和队列；事务性邮件改由 SES 真正发出，并把退信与投诉安全地送回应用
+story: 相册新增“有人评论你的照片就通知你”。最初的实现是 EC2 逐个给关注者发邮件：一张热门照片有几十个关注者时，发表评论的接口要等几十次邮件调用；邮件只写进 outbox，用户根本收不到；有人只想要站内信、有人想要邮件，以后还要接短信和数据分析。邮箱验证链接也必须真的发到用户的收件箱里，退信的地址要自动停止发送。
+scenario: {question: 一家 SaaS 公司的应用部署在私有子网中，没有任何入站端口。需要接收 SES 的退信与投诉事件，并在应用中把对应地址加入抑制名单，且应用停机期间事件不能丢。最合适的方案是？}
+difficulty: intermediate
+estimatedMinutes: 75
+timeLimitMinutes: 120
+extensions: {maxCount: 2, minutesEach: 30}
+retain: {allowed: true, maxHours: 24}
+regions:
+  supported: [ap-northeast-1]
+services:
+- {id: sns, role: primary, module: notification}
+- {id: ses, role: primary, module: email}
+- {id: sqs, role: supporting}
+- {id: iam, role: context, module: iam}
+modules:
+  target: [email, notification]
+  start: [iam]
+  context: []
+  related: []
+prerequisites:
+  cards:
+  - {id: svc-notification, kind: soft}
+  - {id: svc-email, kind: soft}
+  learnerInputs:
+  - {id: ses-identity}
+  - {id: recipient-emails}
+startProfile:
+  provisions:
+  - item: iam
+    kind: module
+    basis: credential
+    set: {IAM_CREDENTIALS: role}
+    reason: 平台约定除 svc-ec2、svc-iam 外起始状态都带实例角色（C3）
+  - {item: preview-direct-https, kind: platform, reason: 预览使用方案 B 的 Let's Encrypt IP 证书（03 §6.2）}
+  platform:
+    preview: {directHttps: 'on'}
+targetModules:
+- {id: email, driver: ses}
+- {id: notification, driver: sns}
+expectedWarnings: []
+cost: {tier: low}
+provision: {class: A}
+keepablePrerequisites: [ses-identity]
+badge: {title: 事件扇出, short: 扇出}
+tracks: [resilient, saa-main, serverless]
+saa:
+  domains: [resilient, secure]
+tags: [email, notification]
+certificate: {enabled: false}

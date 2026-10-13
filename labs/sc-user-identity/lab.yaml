@@ -1,0 +1,78 @@
+# labs/sc-user-identity/lab.yaml —— 目录占位（status: planned）：只有目录元数据，可在目录中显示但不能开始实验；
+# 取值来自 05 §4 与 cards/ 逐卡文档。步骤、手册、检查与小测在后续批次补齐，届时 status 改为 beta 并提升版本。
+schema: atl.lab/v2
+id: sc-user-identity
+kind: scenario
+version: 0.1.0
+status: planned
+title: 用户身份全链路
+subtitle: Cognito User Pool + Identity Pool + S3 + API Gateway
+summary: 用户在 Cognito 托管登录页登录，拿到的令牌既能直接调用 API Gateway（网关验签），又能换成只允许写自己 S3 前缀的临时凭证
+story: 相册准备开放给合作伙伴的员工使用。安全团队提出四点：应用不应再保存任何密码哈希；登录要支持 MFA，以后还要接企业 SAML；浏览器上传大文件时不应经过 EC2，但只能写自己的目录，绝不能覆盖别人的照片；社交接口要在网关层就拒绝未登录或伪造的令牌，而不是等请求打到服务器上才返回 401。
+scenario: {question: 一个 SPA 需要让用户登录后调用后端 API，并支持将来接入企业 SAML。团队希望在网关层完成令牌校验，后端尽量不写认证代码，并且费用随请求量变化。最合适的方案是？}
+difficulty: advanced
+estimatedMinutes: 120
+timeLimitMinutes: 180
+extensions: {maxCount: 2, minutesEach: 30}
+retain: {allowed: true, maxHours: 24}
+regions:
+  supported: [ap-northeast-1]
+  alsoUses: [global, us-east-1]
+services:
+- {id: cognito-user-pool, role: primary, module: auth}
+- {id: cognito-identity-pool, role: primary, module: identity-pool}
+- {id: apigateway, role: primary, module: social-api}
+- {id: s3, role: supporting, module: storage}
+- {id: cloudfront, role: context, module: cdn}
+- {id: iam, role: context, module: iam}
+modules:
+  target: [auth, identity-pool, social-api]
+  start: [iam, storage]
+  context: [cdn]
+  related: []
+prerequisites:
+  cards:
+  - {id: svc-auth, kind: soft}
+  - {id: svc-identity-pool, kind: soft}
+  - {id: sc-static-acceleration, kind: soft}
+  learnerInputs:
+  - {id: recipient-emails}
+startProfile:
+  provisions:
+  - item: iam
+    kind: module
+    basis: credential
+    set: {IAM_CREDENTIALS: role}
+    reason: 平台约定除 svc-ec2、svc-iam 外起始状态都带实例角色（C3）
+  - item: storage
+    kind: module
+    basis: closure
+    rule: DEP-002
+    set: {STORAGE_DRIVER: s3}
+  - item: cdn
+    kind: module
+    basis: context
+    contextKind: https-entry
+    set: {CDN_MEDIA_ORIGIN: s3}
+    reason: 托管登录需要受信 HTTPS 入口
+  - {item: cognito-test-users, kind: seed, reason: 已确认、密码已知的 Cognito 测试用户}
+  - {item: preview-direct-https, kind: platform, reason: 预览使用方案 B 的 Let's Encrypt IP 证书（03 §6.2）}
+  platform:
+    preview: {directHttps: 'on'}
+targetModules:
+- id: auth
+  driver: cognito
+  set: {COGNITO_LOGIN_MODE: managed}
+- {id: identity-pool, driver: cognito}
+- id: social-api
+  driver: apigw
+  set: {SOCIAL_API_AUTHORIZER: jwt}
+expectedWarnings: []
+cost: {tier: low}
+provision: {class: B}
+badge: {title: 身份全链路, short: 身份链路}
+tracks: [saa-main, secure, serverless]
+saa:
+  domains: [secure, resilient]
+tags: [auth, identity-pool, social-api]
+certificate: {enabled: false}

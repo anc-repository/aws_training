@@ -1,0 +1,34 @@
+# labs/_tracks/performant.yaml —— 高性能专项（tracks-and-catalog §4.3）
+schema: atl.track/v2
+id: performant
+version: 1.0.0
+title: 高性能专项
+summary: 补强“设计高性能的架构”：对象存储与边缘、事件驱动处理、托管 API、缓存与数据库提速、分析。
+audience: 想补强 SAA“设计高性能的架构”领域的学员
+domain: performance
+stages:
+  - id: s1-edge
+    title: 存储、边缘与事件驱动
+    items:
+      - { card: svc-storage, role: required }
+      - { card: svc-cdn, role: required }
+      - { card: svc-image-processing, role: required }
+      - { card: sc-image-pipeline, role: required }
+      - { card: sc-static-acceleration, role: optional }
+  - id: s2-api
+    title: 托管 API
+    items:
+      - { card: svc-social-store, role: required }
+      - { group: g-api, title: API, pick: 1, cards: [svc-social-api, sc-serverless-api] }
+  - id: s3-data
+    title: 数据提速与分析
+    items:
+      - { card: svc-cache, role: required }
+      - { card: svc-database, role: required }
+      - { card: sc-db-performance, role: required }
+      - { group: g-analytics, title: 分析, pick: 1, cards: [svc-analytics, sc-analytics] }
+      - { card: svc-db-proxy, role: optional }
+      - { card: svc-tracing, role: optional }
+      - { card: svc-shared-fs, role: optional }
+completion: { allowManual: true, minAutoRatio: 0.8, excludeSelfReported: true }
+certificate: { enabled: true, title: 高性能架构专项证书 }

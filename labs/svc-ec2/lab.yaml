@@ -1,0 +1,161 @@
+# labs/svc-ec2/lab.yaml —— Amazon EC2：运行整个应用（cards/service-cards-1 第 2 节、附录 A）
+# 实现核对（implementation-notes platform-content）：仓库没有 experiments/ec2（smoke、single-point-of-failure、imds-probe、
+# rebuild-drill、cpu-credits 均未实现），scripts/module 也没有 rebuild-instance；本版不声明实验，单点故障演练改为控制台步骤，
+# 以 CloudTrail 的 StopInstances / StartInstances 事件、EIP 关联与恢复后的 capability 判定；选做的重建演练不设步骤。
+# 检查引擎的 gt / lt 只比较数值，附录 A 中“SSM Agent 启动时间晚于演练开始”的时间比较改用 CloudTrail 事件。
+schema: atl.lab/v2
+id: svc-ec2
+kind: service
+version: 2.0.0
+status: beta
+service: Amazon EC2
+function: 运行整个应用
+title: Amazon EC2：运行整个应用
+subtitle: 只有一台 EC2 的 CloudAlbum（L0 基线）
+summary: 只有一台 EC2 时 CloudAlbum 的全部功能就能运行。认识实例、独立数据卷、弹性 IP 与 IMDSv2，亲手体会“实例可替换”与“单点故障”。
+story: |
+  你的相册目前只跑在一台 EC2 上：网页、接口、数据库文件和照片都在这台机器里。
+  它能用，而且换实例时数据和密钥不会丢——但只要停掉它，整个网站就打不开了。
+objectives:
+  - { text: 说清根卷与独立 EBS 数据卷的生命周期差别, domain: resilient, relatesTo: host-inspect }
+  - { text: 用 IMDSv2 的会话令牌解释 SSRF 为何读不到凭证, domain: secure, relatesTo: imds }
+  - { text: 区分平台管理通道的角色与应用自己的 AWS 身份, domain: secure, relatesTo: orient }
+  - { text: 亲测单点：停机即中断，EIP 让地址保持不变, domain: resilient, relatesTo: spof }
+  - { text: 知道公网 IPv4（含 EIP）与 EBS 的计费方式, domain: cost, relatesTo: orient }
+difficulty: intro
+estimatedMinutes: 60
+timeLimitMinutes: 90
+extensions: { maxCount: 2, minutesEach: 30 }
+retain: { allowed: true, maxHours: 24, reason: L0 成本低，保留后可直接接着做其他 svc 卡片 }
+regions:
+  supported: [ap-northeast-1]
+services:
+  - { id: ec2, name: Amazon EC2, role: primary, module: ec2 }
+  - { id: ebs, name: Amazon EBS（根卷与数据卷）, role: supporting, module: ec2 }
+  - { id: ssm-session-manager, name: AWS Systems Manager Session Manager（平台管理通道）, role: observed }
+  - { id: cloudtrail, name: AWS CloudTrail（事件历史，只读）, role: observed }
+modules: { target: [], start: [], context: [], related: [iam, network, load-balancer, autoscaling, backup] }
+prerequisites:
+  cards: []
+  learnerInputs: []
+  knowledge: [Linux 命令行基础, HTTP 请求与响应头]
+
+startProfile:
+  provisions:
+    - { item: mgmt-channel, kind: platform,
+        reason: 实验机挂只含 AmazonSSMManagedInstanceCore 的 CloudAlbumAppRole，是平台的管理通道；应用仍是 IAM_CREDENTIALS=none }
+    - { item: workstation, kind: platform, reason: 每个会话一台工作台，用于运行 AWS CLI 与对比实验 }
+    - { item: check-bundle, kind: platform, reason: 检查包随 CloudAlbum 发布包安装在实验机上（06） }
+    - { item: preview-direct-https, kind: platform,
+        reason: 方案 B 的 Let's Encrypt IP 证书，供预览面板嵌入；本卡不涉及证书，保持开启 }
+  platform: { preview: { directHttps: 'on' } }
+  reason: ec2 是基础模块，起始状态就是 L0（档位 atl/svc-ec2/default）；按 C3 的例外不预置 iam——本卡要展示“没有任何 AWS 模块”的基线
+targetModules: []
+expectedWarnings: []
+
+workstation: { required: true, tools: [aws-cli, node, jq], savingsMode: ok }
+platform:
+  consoleLinks: [ec2.instance, ec2.securityGroup, cloudtrail.events]
+provision: { class: A }
+
+variables: {}
+
+cost:
+  currency: USD
+  tier: low
+  mainDrivers: [EC2 按需实例小时, EBS gp3 根卷与数据卷, 公网 IPv4 小时]
+  basis:
+    - { ref: start-profile, note: 实验机 EC2、EBS（根卷与数据卷）、公网 IPv4 }
+    - { ref: workstation, note: 工作台 EC2、EBS、公网 IPv4 }
+  assumptions:
+    - 停止实例期间不收实例费用，EBS 与公网 IPv4 照常计费；以官方定价为准
+
+steps:
+  - id: orient
+    type: console
+    title: 认识实验机：卷、地址、元数据与实例角色
+    manual: manual/10-orient.md
+    methods: [console, cli]
+    panel: console
+    estMinutes: 8
+    checks: [instance-shape, data-volume-shape, mgmt-role-understood]
+
+  - id: tour
+    type: observe
+    title: 用一遍相册：看懂 X-CloudAlbum-Path
+    manual: manual/20-tour.md
+    panel: preview
+    estMinutes: 12
+    checks: [entry-direct, cap-ec2-healthy, cap-iam-none]
+
+  - id: host-inspect
+    type: cli
+    title: 主机巡检：数据、机密与端口在哪里
+    manual: manual/30-host-inspect.md
+    panel: terminal-lab
+    estMinutes: 10
+    checks: [data-volume-mounted, secrets-file-mode, api-loopback-only]
+
+  - id: imds
+    type: cli
+    title: IMDSv2：不带令牌的请求为什么被拒绝
+    manual: manual/40-imds.md
+    panel: terminal-lab
+    estMinutes: 7
+    checks: [imdsv2-enforced]
+
+  - id: spof
+    type: console
+    title: 单点故障演练：停止再启动实例
+    manual: manual/50-spof.md
+    methods: [console, cli]
+    requires: { steps: [tour] }
+    panel: console
+    estMinutes: 15
+    wait: { typicalMinutes: 10, maxMinutes: 20, text: 实例停止与启动各需要一到数分钟；CloudTrail 事件历史还有几分钟到十几分钟的延迟 }
+    expectedOutage: { channel: lab, maxMinutes: 15, reason: 学员亲手停止实验机，停机期间实验机终端与本地检查不可用 }
+    checks: [spof-observed, stop-start-events, eip-unchanged, { ref: cap-ec2-healthy, as: cap-ec2-healthy-after-spof }]
+
+finalChecks:
+  - no-world-ssh
+  - { ref: cap-ec2-healthy, as: final-ec2-healthy }
+
+experiments: []
+
+quiz: { file: quiz.yaml, draw: 3 }
+badge: { title: EC2 基线, icon: assets/badge.svg }
+tracks: [cost-optimized, quick-compare, resilient, saa-main]
+
+cleanup:
+  summary: 结束实验后平台删除基础栈与工作台。停止过实例的话请先确认它已重新启动。
+  autoReclaim: true
+  dataRisk:
+    - 数据卷设置了 DeletionPolicy=Retain，栈删除后作为保留资源进入台账，由回收器删除
+  learnerCreatedHints: []
+  verify: []
+
+saa:
+  domains: [resilient, secure, cost]
+  topics:
+    - { id: ebs-lifecycle, title: EBS 卷与实例生命周期、DeleteOnTermination、绑定 AZ, domain: resilient, relatesTo: host-inspect }
+    - { id: instance-store, title: 实例存储与 EBS 的持久性差异, domain: resilient, relatesTo: host-inspect }
+    - { id: imdsv2, title: IMDSv2 会话令牌、跳数与 SSRF, domain: secure, relatesTo: imds }
+    - { id: eip-billing, title: 弹性 IP 与公网 IPv4 计费, domain: cost, relatesTo: orient }
+    - { id: cpu-credits, title: T 系列 CPU 积分 standard 与 unlimited, domain: cost }
+    - { id: spof, title: 高可用与“有备份”的区别, domain: resilient, relatesTo: spof }
+  confusables:
+    - { a: 实例存储, b: EBS, rule: 实例存储随实例停止或终止丢失，只放缓存与临时文件 }
+    - { a: 自动分配的公网 IPv4, b: 弹性 IP, rule: 前者停止再启动会变，后者固定；两者都按小时计费 }
+
+tags: [ec2, ebs, eip, imds, baseline]
+
+permissions:
+  learner:
+    - ec2:StopInstances
+    - ec2:StartInstances
+    - ec2:ModifyInstanceMetadataOptions
+    - cloudtrail:LookupEvents
+  notes: 停止实例期间由 expectedOutage 把实验机通道的中断显示为“预期中断”；学员边界放行对实验机的停止与启动，工作台与平台实例受标签保护
+
+certificate: { enabled: false }
+owners: [cloudalbum-maintainers]

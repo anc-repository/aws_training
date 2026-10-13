@@ -1,0 +1,32 @@
+checks:
+  - id: exp-before
+    title: feed-read 的 before（无缓存）有一条有效结果
+    type: experiment
+    module: cache
+    experiment: feed-read
+    label: before
+    accept: [valid]
+
+  - id: exp-memory
+    title: feed-read 的 memory（进程内 LRU）有一条有效结果
+    type: experiment
+    module: cache
+    experiment: feed-read
+    label: memory
+    accept: [valid]
+
+  - id: exp-pair
+    title: feed-read 的 before 与 after 都有效且可比
+    type: experiment
+    module: cache
+    experiment: feed-read
+    pair: [before, after]
+    accept: [valid]
+
+  - id: exp-fail-open
+    title: fail-open 的 after（缓存故障期间错误率为 0）有一条有效结果
+    type: experiment
+    module: cache
+    experiment: fail-open
+    label: after
+    accept: [valid]

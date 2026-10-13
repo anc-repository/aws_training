@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="80" height="80" viewBox="0 0 80 80" role="img" aria-label="全球加速">
+  <path d="M40 3 L72 21.5 L72 58.5 L40 77 L8 58.5 L8 21.5 Z" fill="#F4F2EE" stroke="#2B2B2B" stroke-width="2"/>
+  <text x="40" y="45" text-anchor="middle" font-family="system-ui, sans-serif" font-size="13" font-weight="700" fill="#2B2B2B">全球加速</text>
+  <circle cx="28" cy="60" r="2.5" fill="#2F6690"/><circle cx="36" cy="60" r="2.5" fill="#2F6690"/><circle cx="44" cy="60" r="2.5" fill="#2F6690"/><circle cx="52" cy="60" r="2.5" fill="#2F6690"/>
+</svg>
