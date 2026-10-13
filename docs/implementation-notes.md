@@ -2043,3 +2043,77 @@ P02-T 路径详情、P03 卡片简介页（P03-D 开始对话框、报价与费�
 
 - **web 集成**：`routeTable.ts` 改为 `pages/setup/SetupPage`、`pages/login/{LoginPage,AuthCallbackPage,SignedOutPage}`、`pages/labs/CatalogPage`、`pages/card/CardIntroPage`、`pages/quiz/QuizPage`、`pages/tracks/TrackPage`、`pages/learning/LearningPage`、`pages/settings/SettingsPage`（都是 default export），删除对应的 `features/*` 桩；可选：把各 `strings.ts` 并入 i18n。环境条的“取消… / 延长… / 结束实验…”依赖 SessionActions 注册的对话框。
 - **api**：`GET /labs` 条目带最近一次会话的时间；`/me/mastery` 返回分数分项；`GET /sessions` 列表项带 `attemptStatus` 与费用摘要（§9.2 #15）；小测的剩余次数与读取作答；报价接受 `workstation`；`GET /audit-events` 对助教去掉 `sourceIp`；`POST /platform/preflight`（§9.2 #5）。
+
+## platform-web-workspace
+
+`/workspace/:sid` 的 P04 准备模式与 P05 分屏工作台，以及 P06 对比实验的抽屉形态（08 P04、P05、P06；03 全文；04 §4、§5.6、§8）。全程没有调用真实的 AWS API，
+也没有部署任何东西；终端在 dev 联调中连接 `platform/ssm-client` 的本地模拟服务器。
+
+### 1. 实现范围
+
+| 部分 | 位置 | 内容 |
+|---|---|---|
+| 路由组件 | `src/pages/workspace/WorkspacePage.tsx` | 订阅会话视图（SessionSync），视图未到时骨架，4 秒后直接读一次拿错误码（404“没有找到这个实验会话”）；之后交给 `workspace/Workspace` |
+| 画面主体 | `src/workspace/Workspace.tsx` | 按 §2.4 表 2 渲染 P04 / P05；03 §2.1 的 Workbench 上下文（focusTab、pasteToTerminal、openConsole、runStepCheck……）；前导键 `Ctrl+.`（可换 `Ctrl+\``、`Ctrl+Shift+.`）的 03 §8.2 全表；分隔条与断点（≥ 1280 / 1024～1279 / 768～1023 分段 / < 768）；T-5 提醒（终端有焦点时先显示 2 秒提示条）、到期覆盖层（alertdialog、背后 inert、焦点到主按钮、2 分钟后“补触发”说明）、到期 / 结束时自动关闭延长、结束、T-5 对话框；T-15 / T-5 浏览器通知（页面隐藏且已授权时本地定时器兜底）；就绪后 3 秒的“✓ 环境已就绪（用时 …），倒计时 … 已开始”；心跳（沿用 `WorkbenchHeartbeat`）；`?step=`、`?panel=`、`?check=`、`?exp=` |
+| 数据 | `workspace/data/` | 卡片内容 `/content/<v>/labs/<labId>.json` 与目录索引（服务缩写方块）；`/vars`、`/steps`、`/progress`、`/workspace`（60 秒，准备阶段 provision.ssm 之后 15 秒）、`/experiment-runs`、`/cost`（L A，5 分钟）、`/module-ops`；按 §7.4 的事件刷新 |
+| 手册 | `workspace/manual/` | mdast 渲染器（不用 dangerouslySetInnerHTML；指令 why / tip / warning / danger / method 标签组 / expected / wait / reveal / saa / code-ref / checks / check / console-link / open-tab / var-input / platform-action / experiment，行内 kbd / term）；变量代入（04 §4.4 的命名空间与过滤器，未解析红色虚线，密钥占位）；变量条（来源标签、刚更新 2 秒高亮、input 变量编辑与 pattern 校验、账号 ID 打码）；步骤下拉 StepRail 与底栏、J / K / R；步骤卡（计费提示、预期中断说明、常见错误与命中、选做跳过、阅读型“我已读完”）；本步检测（CheckResultRow、核验中、等待型检查按 15 / 30 / 45 / 60 秒之后每 60 秒由浏览器重测、命令结束建议条、漂移提示与“我是有意改动的”）；证据抽屉；手动确认；提交实验（先 final-preview）；平台动作；实验卡 |
+| 命令块 | `manual/ManualCommand.tsx`、`model/paste.ts`、`workbench/PasteDialogs.tsx` | 复制（scaffold 的 CommandBlock）；“粘贴到终端”按 03 §7.1 / 08 P05.4 的确认矩阵：单行普通直接粘贴；粘贴并执行确认（可“本卡片内不再询问”）；多行在 bracketed paste 下确认 N 行、否则拒绝；危险命令红色确认、不允许执行；未解析变量拒绝并定位变量条；密钥占位拒绝并给出读取命令；终端正忙提供“在新的终端子标签中粘贴”；tmux 不判断忙闲；目标与 runsOn 不一致提示；目标终端未打开时先打开并等 Ready（15 秒），超时则复制并提示；超过 16KB 只能复制；粘贴后焦点到终端、标签闪 150ms、播报；上报 `workspace.command_pasted`（只有 textSha256） |
+| 终端 | `workspace/terminal/` | `TerminalController` 建在 ssm-client 的 `SsmTerminalConnection` 上（open / resume 回调走 `POST …/terminals`、`…/resume`；握手超时与连不上时 `DELETE`；access_revoked 立即关闭；OSC 133 忙闲与退出码、OSC 7 当前目录）；`TerminalView`（按需加载 xterm 6 + fit，等容器有宽度后再 fit 并接上连接，避免先发出过小的尺寸；拖动分隔条时不重算）；`TerminalPane`（子标签 #1 #2 +，每实例最多 3 个；身份条；覆盖层 15 种；状态栏；< 768px 按键条，Ctrl / Alt 粘滞；终端菜单：复制选中、清屏、新子标签、结束会话；ENDED 时列出本会话的终端）；dev 模式（config `auth: dev` 且本机地址）传 `streamUrlPolicy.allowLoopback`，生产传 `region` |
+| 控制台 | `workspace/console/ConsoleLauncher.tsx` | 点击时同步 `window.open('about:blank', 'atl-aws-console-<随机>')` 并置 `opener = null`，再 `POST …/console-link` 取 form 以 POST 提交到该窗口；被拦截时内联提示，10 分钟内 `target=_blank` 提交同一表单、之后重新获取；签发 / 到期时间取 `/workspace` 的 `console.*`；剩余 ≤ 10 分钟琥珀 + 续期；“最长 1 小时，到期后需要续期”；深链列表；50 分钟内签发过且知道深链 URL 时直接新标签页；错误码文案 |
+| 预览 | `workspace/preview/PreviewFrame.tsx` | 懒加载 `/preview`（60 秒）；只把 `embeddable=true` 的 URL 设为 iframe（03 §6.4 的 sandbox、no-referrer、title）；没有受信 HTTPS（MIXED_CONTENT、UNTRUSTED_CERT、FRAME_ANCESTORS_MISSING、X_FRAME_OPTIONS、UNREACHABLE）时改为“在新标签页打开”卡片；< 768px 默认新标签页；入口选择存 sessionStorage；视口 375 / 768 / 自适应；管理员账号对话框（遮盖、显示 10 秒、关闭即清除） |
+| 倒计时、延长、结束 | `workspace/timer/`、`model/expiry.ts`、`model/cost.ts` | ExtendDialog（打开与提交前检查 allowedActions 与剩余 > 30 秒；报价 15 分钟倒计时，过期主按钮“重新计算费用”；预算 WARN 追加勾选；If-Match + 同一 Idempotency-Key；409 / 412 / 422 各自处理；“这是最后一次延长”按剩余次数与 maxDeadlineAt 计算）；EndDialog（释放 / 保留 1、4、12、24 小时（上限 min(会话上限, retain.maxHours)）、现在 / 到期时；释放分支给出“回收完成前仍计费 + 本次已产生 ≈ x”；保留置灰原因 6 种；KEEP 报价与勾选；requiresTypedConfirm 时输入卡片 id；前置资源；now → `/sessions/:sid/end`）；CancelDialog（P04）；ExpiryDialog（T-5）；ExpiredOverlay |
+| P04 | `workspace/provision/ProvisionPanel.tsx`、`model/phases.ts`、`model/failure.ts` | 6 个可见阶段（名称前缀匹配，未知 phase 进当前阶段的细节行；开始时间取事件时间戳或上一阶段完成时间；排队、重试、80% 部署预算、慢资源提示；阶段完成时播报）；等级说明；计费与“可以离开这个页面”；浏览器通知开关；取消；补偿中 / 已取消（已删除 n/m）；FailurePanel（02 §13.2 码表 → 标题、说明、操作；诊断；复制诊断信息前提示含原文；“这次尝试不计入次数”） |
+| P06 | `workspace/experiments/ExperimentCompare.tsx`、`model/experiments.ts` | 变体列（任意标签与角色、记录选择、四段上传进度）、指标对照（服务端值优先、客户端与服务端差异 > 10% 标注）、条形对照 / 数据表切换、差异方向（噪声带 10%）、成对可比性、有效性校验、功能型实验的检查、运行命令（只对学员）、跨会话对比、省钱模式与 ENDING 提示 |
+| 其他 | `workbench/` | SessionBar（卡片标识、状态、倒计时 / 已用、费用计（O 只显示每小时估算）、延长（原因节点总在）/ 结束 / 取消、⋯ 菜单：快捷键、终端设置（字号、读屏模式、前导键、粘贴并执行开关）、主题、会话详情、管理员账号）、横幅（T-15、到期预检、保留中、释放未完成、只读存档、环境异常、预算 end-active、平台动作进行中、提交结果）、CostDrawer、Splitter、事件上报器（10 秒或页面隐藏时批量） |
+| 样式 | `workspace/workspace.css` | 原型的工作台规则已在 `ui/styles/screens.css`；这里只补实现需要的规则（只用 token；手册栏用容器查询：< 400px 做法标签改下拉，< 640px 检查行改两行） |
+
+### 2. 如何运行
+
+```bash
+npm run test -w @atl/web            # 含 workspace/model、workspace/terminal、pages/workspace 的测试
+npm run lint -w @atl/web && npm run build -w @atl/web
+# 本地联调（路由表接入前用 vite alias 把 ../features/workspace/WorkspacePage 指到 pages/workspace/WorkspacePage）：
+npx tsx platform/ssm-client/src/mock/cli.ts --port 8790          # 终端模拟服务器（dev-server 的工作台提供者经 ATL_DEV_SSM_MOCK_URL 使用它）
+```
+
+### 3. 自测结果（2026-10-14，Windows 11 / Node 22.14.0 / Docker 28）
+
+| 自测 | 结果 |
+|---|---|
+| 类型检查与构建 | `tsc -p platform/web/tsconfig.json` 通过；`npm run build -w @atl/web` 通过；另用 alias 把工作台接入路由后 vite build 通过（WorkspacePage 214 kB、xterm 329 kB、ssm-client 38 kB，均按需加载） |
+| ESLint | `platform/web/src/workspace`、`src/pages/workspace` 0 个问题 |
+| Vitest | 新增 3 个文件 56 个测试：模型 33（变量、确认矩阵、阶段、到期与延长 / 保留、分隔条、检查行、实验对比、失败码、费用）、终端控制器 6（打开参数、API 拒绝 → 覆盖层、协议层缺失、握手超时后 DELETE、重连 n/5、空闲断开、OSC 133、收回）、画面 17（P04 阶段与取消、失败面板、P05 心跳与检测、按需打开终端后粘贴、危险命令确认、延长、结束释放、到期保留、T-15 与 T-5、到期覆盖层、观察者只读、`?exp=` / `?check=` 抽屉、404、控制台同步开窗与表单、弹窗被拦截、预览嵌入与原因、降级手动确认、分隔条键盘与前导键）；atl-web 全部 450 个测试通过 |
+| 联调 | 独立的 DynamoDB Local + dev-server（noop 运行器，`ATL_DEV_SSM_MOCK_URL` 指向自己启动的 ssm-client 模拟服务器）+ vite（alias 接入）+ 系统 Chrome 无头，29/29 项通过、无控制台错误：P04 六个阶段、倒计时未开始、手册可读而粘贴禁用、取消对话框、就绪 3 秒过渡 → P05、心跳 READY → RUNNING、取消后的补偿视图（10 项）；P05 工作台终端经 API → 模拟服务器连上（`stty size` = 49 109、回显正确）、命令块粘贴、`⌃. M` 回到手册、控制台标签、预览（HTTP 入口 → 新标签页卡片）、检测与证据抽屉、延长与结束对话框、P06 抽屉、375px 无横向滚动、暗色（15 项）；控制台按钮先开命名空白窗口、POST 表单把它导航到 dev 的联合登录桩、签发时间显示，实验机终端提示符与 `whoami`（4 项）。dev-server 没有工作台提供者时，`POST …/terminals` 返回 501，终端显示“终端暂时不可用” |
+
+### 4. 设计有歧义时的取舍
+
+1. **路由未接入**：路由表仍指向脚手架的 `features/workspace/WorkspacePage`（不在本任务路径内）。接入只需把 `/workspace/:sid` 的组件改为 `pages/workspace/WorkspacePage`。
+2. **协议层的加载**：`@atl/ssm-client` 还不是 web 的依赖（根 workspaces、web 的 tsconfig paths 与 vite alias 都未登记），`terminal/channel.ts` 用 `import.meta.glob('../../../../ssm-client/src/index.ts')`
+   按需加载、按结构类型使用；包不存在时构建照常，终端显示“终端暂时不可用”。登记依赖后改为直接 import 即可。`clientVersion` 取包内默认值。
+3. **步骤级预期中断的“开始本步骤”不显示**：§9.2 #25 的路由未登记，按回写前的降级在步骤卡写“检测会显示通道不可达，属预期”；窗口来自 `/workspace` 的 `expectedOutage` 或会话视图的 `outageWindow`，
+   窗口内 `CHANNEL_DOWN` 显示为“预期中断”，实验机终端覆盖层为“预期中断”并每 15 秒自动重试。
+4. **“重启实验机”不提供**：没有登记的路由；Agent 不在线的覆盖层给 [重试] [查看排障步骤] [修复环境]（`POST /environments/{envId}/repair`）。
+5. **到截止时间与访问收回分开**：本地到期只出覆盖层（终端区 inert、只读），收到 `session.access_revoked` 或会话离开 READY～EXPIRING 才断开终端；浏览器不调用“结束”，只立即补拉视图。
+6. **T-15 不重复播报**：全局 `useExpiryAnnouncements` 已在 15 / 5 / 1 分钟与 0 播报，横幅不再带 `role="status"`。
+7. **阶段时间**：lifecycle 的 `phases[]` 只保留最近一次状态变化的 `at`；开始时间取 `session.phase_changed` 事件的时间，没有事件时取上一阶段的完成时间（第一阶段取 createdAt）。部署预算按 02 §11.1 的等级默认值（A 30、B 45、C 90、D 120 分钟）只用于“比通常更久”提示，不显示分钟数。
+8. **费用**：只显示服务端给的数（会话视图 `env.hourlyEstimate`、`/cost` 的 `estimate`、报价的 `hourly.completed` / `retainHourly`）；字符串估算或取不到时写“未提供 / 单价暂不可得”。界面没有任何价格常量。
+9. **手动确认的证据**：04 §8.8 写 ≤ 256 KB，API 当前 `evidence` 上限 4096 字符，按 API 校验。复核状态：`kind = degraded` 且未复核时显示“等待助教复核”（API 只为降级确认建复核队列）。
+10. **差异的噪声带**取相对 10%（与 `npm run exp:report` 的默认 `--noise 0.1` 及原型 deltaCell 一致）；变体角色显示为 baseline / treatment / single。
+11. **控制台深链直开**：50 分钟内签发过登录且本标签页已知该 linkId 的深链 URL（console-link 响应的 `deepLink`）时直接新标签页打开，否则走联合登录。
+12. **终端会话清理**：组件卸载与 `pagehide` 时尽力 `DELETE`（不等待）；03 §3.5.9 的“新页面按 clientId 清理残留”依赖 `GET …/terminals` 返回 clientId，未实现。
+13. **xterm 与 CSP**：xterm 6 运行时注入 `<style>`（08 V-4、03 §3.7.6）仍未处理；分隔条比例经 CSSOM 设置 `--split`（不受 `style-src 'self'` 限制），组件不写 style 属性。
+14. **未做**：右栏“拆分”（P2，按钮置灰）；前导键首次自检；终端读屏模式以外的高对比度主题；子标签重命名；web-links / search / unicode11 / webgl / clipboard 插件（未安装）；漂移提示中的“跳回第 k 步”；
+    “查看部署日志”（§9.2 #11 未登记，按降级不显示）；CloudShell 引导环境变量（§9.2 #29，只给打开控制台的说明）。
+15. **i18n**：工作台文案写在各组件内（`i18n/zh-CN.ts` 不在本任务路径内），之后可以统一迁入。
+
+### 5. 需要其他部分配合
+
+- **web 集成**：路由表 `/workspace/:sid` 改为 `pages/workspace/WorkspacePage`，删除 `features/workspace/WorkspacePage.tsx` 桩（`features/workspace/terminal/xterm.ts` 仍被使用）；`@atl/ssm-client` 登记为依赖并加 vite alias / tsconfig paths 后，把 `terminal/channel.ts` 的 glob 改为直接 import；
+  `scripts/dev.mjs` 同时启动 ssm-client 模拟服务器；SessionActions 的取消 / 延长 / 结束对话框目前只在工作台内使用，若要在会话胶囊菜单中复用，需要把 `timer/` 的三个对话框包成脱离 WorkspaceContext 的版本。
+- **api**：`GET …/terminals` 返回 `clientId`（新页面清理本标签页的残留终端）；§9.2 #25 的步骤级预期中断入口；
+  重启实验机的路由（03 §3.9）；会话视图 `phases[]` 带开始时间；KEEP 报价返回 `requiresTypedConfirm`（§9.2 #7）。
+- **infra**：CSP 的 `form-action` 需允许 `https://signin.aws.amazon.com`、`https://*.signin.aws.amazon.com`（控制台 POST 表单，03 §5.5）；xterm 样式与 `style-src 'self'` 的处理（03 §3.7.6 PoC）。
+
+### 6. 依赖
+
+没有运行 npm install，没有新增依赖：用到的 `@xterm/xterm`、`@xterm/addon-fit` 已由脚手架加入；`@atl/ssm-client` 按源码路径按需加载。缺少：03 §3.7.1 列出的 xterm 插件（web-links、search、unicode11、webgl、clipboard）、axe-core（无障碍自动检查）、Storybook。

@@ -1,0 +1,142 @@
+/*
+ * 工作台 P04 / P05 / P06 抽屉的补充样式。基础布局（.ws-root、.wsbar、.wsban、.wsseg、.wsbody、.mpane、.splitter、.rpane、.rtabs、
+ * .idchip、.term、.tstatus、.keybar、.stepcard、.varstrip、.vchip、.steprail、.resbar、.preview-frame、.chart、.track4）取自原型，
+ * 在 ui/styles/screens.css 中；这里只补实现需要、原型中没有的规则。只用 token，不写颜色常量；不使用 style 属性
+ *（分隔条比例经 CSSOM 设置 --split，CSP style-src 'self' 不拦截）。
+ */
+
+/* ---------- 画面骨架 ---------- */
+.ws-main{position:relative; flex:1 1 auto; min-height:0; display:flex; flex-direction:column}
+.ws-loading{padding:16px; display:grid; gap:12px}
+.wsbans{flex:none; display:grid}
+.wsbar{position:relative}
+.wsbar .bar-acts{gap:6px}
+.wsbar-targets{flex-basis:100%; padding-left:4px}
+.narrow-only{display:none}
+@media (max-width:767px){
+  .wsbar .wide-only{display:none}
+  .wsbar .narrow-only{display:inline}
+  .wsbar .ttl{flex:1 1 120px}
+  .wsbar-targets{display:none}
+}
+.wsbody[data-seg="right"] .mpane{display:none}
+@media (min-width:1024px){ .wsbody[data-seg] .mpane{display:flex} }
+@media (max-width:1023px){
+  .wsbody[data-seg="manual"] .rpane,.wsbody[data-seg="manual"] .prov-pane{display:none}
+  .wsbody[data-seg="right"] .rpane,.wsbody[data-seg="right"] .prov-pane{display:flex}
+}
+@media (max-width:767px){ .wsbody .mpane .mscroll{padding-inline:16px} }
+html[data-ws-drag="1"] iframe{pointer-events:none}
+html[data-ws-drag="1"]{cursor:col-resize; user-select:none}
+.collapsed-strip .btn{writing-mode:horizontal-tb}
+
+/* ---------- 手册 ---------- */
+.mpane{container-type:inline-size; container-name:manual}
+.mhead-row{gap:8px}
+.mhead-row>b{margin-right:auto}
+.railpop .popover{width:min(440px,calc(100vw - 32px)); padding:4px}
+.mbody p{line-height:1.7}
+.mbody .mh{font-size:14px; margin-top:4px}
+.mbody h4.mh{font-size:13px}
+.mlist{display:grid; gap:2px}
+.mlist li{overflow-wrap:anywhere}
+code.ic{white-space:normal}
+.vsub{border-bottom:1px dotted var(--accent)}
+.unres{border:1px dashed var(--st-fail); color:var(--st-fail); padding:0 2px; border-radius:2px}
+.mnote>div{min-width:0}
+.mwait>div{min-width:0}
+.expected{border-left:3px solid var(--border-strong); padding-left:10px}
+.coderef .mono{overflow-wrap:anywhere}
+.snippet{background:var(--surface-2); padding:8px 10px; border-radius:4px; overflow:auto; margin:0; white-space:pre}
+.mtabs-row{display:flex; align-items:center; gap:8px; flex-wrap:wrap}
+.mtabs-row .mselect{display:none; width:auto}
+@container manual (max-width:399px){
+  .mtabs-row .mtabs{display:none}
+  .mtabs-row .mselect{display:inline-block}
+  .cmd .cbar .btn{font-size:11.5px}
+  .kv{grid-template-columns:minmax(0,1fr)}
+}
+.chksec .chkline{border-bottom:1px solid var(--border)}
+.chksec .chkline:last-child{border-bottom:0}
+.chksec .chkline .chkrow{border-bottom:0}
+.chk-act{padding:0 8px 6px 34px}
+.varstrip .vchip.unset{border:1px dashed var(--st-fail); color:var(--st-fail)}
+.varstrip .vchip.flash{box-shadow:0 0 0 2px var(--st-fail)}
+.varin{display:inline-flex; gap:4px; align-items:center; flex-wrap:wrap}
+.varin .input{width:auto; min-width:140px; max-width:100%}
+.varin.inline{display:flex}
+.expcard .explines{list-style:none; padding:0; display:grid; gap:2px}
+.pact{gap:6px}
+.overview>div{padding-top:6px}
+.steprail .tag{margin-left:4px}
+
+/* ---------- 右栏 ---------- */
+.rpane{position:relative}
+.rtabs .st-short{display:none}
+@media (max-width:1279px){ .rtabs .st-short{display:inline} }
+.rpanel{position:relative}
+.tpane{flex:1 1 auto; min-height:0; display:flex; flex-direction:column}
+.term-stack{flex:1 1 auto; min-height:0; display:flex; flex-direction:column; background:var(--term-bg)}
+.term-stack>.term{flex:1 1 auto}
+.term.blank{min-height:220px}
+.xterm-host{position:absolute; inset:0; padding:6px 0 0 8px}
+.xterm-mount{width:100%; height:100%}
+.xterm-host:focus-within{box-shadow:inset 0 0 0 2px var(--term-cursor)}
+.term-fail{color:var(--term-fg); padding:8px}
+.term .ovl .ob .btn{color:var(--text)}
+.term .ovl .ob details{color:var(--term-fg)}
+.idchip .termmenu{color:var(--term-fg)}
+.idchip .pop-anchor .popover{color:var(--text)}
+.keybar button[aria-pressed="true"]{background:var(--term-dim); color:var(--term-bg)}
+.cpane{padding:12px 14px; overflow:auto}
+.pv{flex:1 1 auto; min-height:0; display:flex; flex-direction:column}
+.pvbar{padding:8px 10px; border-bottom:1px solid var(--border)}
+.pvbar select.input{width:auto; max-width:100%}
+.pvbar .pvpath{width:140px}
+.preview-frame iframe{flex:1 1 auto; width:100%; min-height:360px; border:0; background:var(--bg)}
+.preview-frame.vp-375{max-width:375px}
+.preview-frame.vp-768{max-width:768px}
+.pvnote{padding:0 10px 8px}
+.pv-empty,.ro-empty{margin:12px}
+
+/* ---------- P04 准备进度 ---------- */
+.prov-pane{overflow:auto}
+.prov-body{padding:14px 16px}
+.prov-ready{margin:16px}
+.phrow .tm{color:var(--text-2)}
+
+/* ---------- 到期 / 结束覆盖层（alertdialog） ---------- */
+.ws-ovl{position:absolute; inset:0; z-index:30; display:grid; place-items:center; padding:16px; background:var(--scrim)}
+.ws-ovl-box{background:var(--surface); border:1px solid var(--border-strong); border-radius:6px; box-shadow:var(--shadow); padding:18px 20px; max-width:520px; width:100%}
+.ws-ovl-box h2{display:flex; gap:8px; align-items:center}
+.leader-hint{position:absolute; right:16px; bottom:16px; z-index:35; background:var(--surface); border:1px solid var(--border-strong); border-radius:4px; padding:4px 10px; font-size:12px; box-shadow:var(--shadow)}
+
+/* ---------- 抽屉与对话框 ---------- */
+.drawer-body{padding-bottom:16px}
+.evjson{background:var(--surface-2); padding:8px 10px; border-radius:4px; overflow:auto; max-height:320px; white-space:pre-wrap; overflow-wrap:anywhere; margin:0}
+.enddlg fieldset{border:0; padding:0; margin:0; min-width:0}
+.enddlg legend{font-weight:600; font-size:13px; padding:0; margin-bottom:4px}
+.enddlg .indent{padding-left:26px}
+.enddlg .optrow select.input{width:auto}
+
+/* ---------- P06 对比实验 ---------- */
+.expcmp .vcols{display:grid; gap:10px; grid-template-columns:repeat(2,minmax(0,1fr))}
+.expcmp .vcols.n1{grid-template-columns:minmax(0,1fr)}
+.expcmp .vcols.n3,.expcmp .vcols.n4{grid-template-columns:repeat(auto-fit,minmax(200px,1fr))}
+@media (max-width:767px){ .expcmp .vcols{grid-template-columns:minmax(0,1fr)} }
+.expcmp .vhead select.input{width:auto}
+.cmptable td .st{display:block; font-size:11.5px}
+.chart rect.a,.chart rect.b,.chart rect.t3{shape-rendering:crispEdges}
+.xterm-mount-inner{width:100%; height:100%}
+
+/* 检查结果行在手册栏较窄时（左栏 < 640px）同样用两行布局：判定方式与来源仍显示（08 §5.3 CheckResultRow） */
+@container manual (max-width:639px){
+  .chkrow.cr{grid-template-columns:20px minmax(0,1fr) auto; grid-template-areas:"sh ttl res" ". meta tm"; row-gap:2px; align-items:start; padding-block:6px}
+  .chkrow.cr .meta{display:flex; grid-area:meta; gap:4px; align-items:center; flex-wrap:wrap; min-width:0}
+  .chkrow.cr .meta .how::after{content:"·"; margin-left:4px; color:var(--text-3)}
+  .chkrow.cr .res{text-align:right; max-width:14em} .chkrow.cr .tm{text-align:right}
+  .chk-act{padding-left:28px}
+}
+@media (max-width:767px){ .wsbar .clock .row>.small{display:none} .wsbar .clock{flex-basis:100%} }
+.popover .mi-group{border-top:1px solid var(--border); border-bottom:1px solid var(--border); margin:2px 0; padding:2px 0}
+.popover .mi[aria-pressed="true"]{font-weight:600}
