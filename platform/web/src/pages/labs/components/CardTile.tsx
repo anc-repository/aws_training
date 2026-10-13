@@ -1,0 +1,207 @@
+/**
+ * CardTile（目录中的完整卡片）与 CardRowCompact（紧凑行）（08 §5.1；05 §2.4、§2.8、§2.9、§2.13）。
+ * - 卡片整体是拉伸链接到 /labs/:labId，卡片上没有“开始”按钮；唯一独立按钮“回到工作台”只在本卡持有环境时出现，可单独聚焦；
+ * - 状态、难度、费用全部“形状 + 文字”；搜索命中高亮（mark）；只命中原 Lab 编号或考点时底部写出命中内容；
+ * - 持有环境的卡片每秒刷新剩余时间（只有这一张卡片计时）。
+ */
+import { Fragment, type ReactNode } from 'react';
+import { Link } from 'react-router-dom';
+import { useServices } from '../../../app/context';
+import { pillTarget } from '../../../app/sessionRouting';
+import { t } from '../../../i18n/zh-CN';
+import { CostTierMark, Skeleton, useSecondTick } from '../../../ui';
+import {
+  cardStateOf,
+  catClass,
+  categoryLabel,
+  estimateText,
+  isPlanned,
+  limitText,
+  searchHint,
+  serviceCategory,
+  serviceOf,
+  servicesCount,
+  type Holder,
+} from '../model';
+import { COST_TIER_HINT, DIFFICULTY_TEXT, FLAG_TEXT, PROVISION_HINT, PROVISION_TEXT, S } from '../strings';
+import type { BadgeView, CatalogCard, LabItem, Taxonomy } from '../types';
+import { BadgeMark, badgeStateOf, badgeStateText, DifficultyBar, ServiceAbbr, StateText } from './Marks';
+
+/** 把文本中与搜索词相同的片段包进 <mark>（不区分大小写；原 Lab 编号查询不高亮）。 */
+export function highlight(text: string, q: string): ReactNode {
+  const s = q.trim();
+  if (!s || /^lab[\s-]?\d/i.test(s)) return text;
+  const lower = text.toLowerCase();
+  const needle = s.toLowerCase();
+  const out: ReactNode[] = [];
+  let i = 0;
+  let k = 0;
+  for (;;) {
+    const j = lower.indexOf(needle, i);
+    if (j < 0) break;
+    if (j > i) out.push(<Fragment key={k++}>{text.slice(i, j)}</Fragment>);
+    out.push(<mark key={k++}>{text.slice(j, j + needle.length)}</mark>);
+    i = j + needle.length;
+  }
+  if (!out.length) return text;
+  out.push(<Fragment key={k++}>{text.slice(i)}</Fragment>);
+  return out;
+}
+
+export function kindLine(card: CatalogCard, tax: Taxonomy): string {
+  return card.kind === 'service' ? t(S.card.kindService, { cat: categoryLabel(tax, card.category) }) : t(S.card.kindScenario, { n: servicesCount(card) });
+}
+
+export function badgeLabel(card: CatalogCard, tax: Taxonomy): string {
+  if (card.kind === 'scenario') return (card.badge?.short ?? card.badge?.title ?? card.title).slice(0, 4);
+  const primary = card.services.find((s) => s.role === 'primary')?.id;
+  return (primary ? serviceOf(tax, primary)?.abbr : null) ?? card.id.replace(/^svc-/, '').slice(0, 4).toUpperCase();
+}
+
+export function CardBadge({ card, tax, badge, size = 24 }: { card: CatalogCard; tax: Taxonomy; badge: BadgeView | null | undefined; size?: 24 | 40 }) {
+  return <BadgeMark kind={card.kind} label={badgeLabel(card, tax)} state={badgeStateOf(badge)} title={card.badge?.title ?? card.id} size={size} />;
+}
+
+/** 场景卡的服务方块（primary 在前、supporting 在后，最多 5 个，超出显示 +N；选做为虚线框）。 */
+export function ServiceStrip({ card, tax, max = 5 }: { card: CatalogCard; tax: Taxonomy; max?: number }) {
+  const ordered = [...card.services].sort((a, b) => (a.role === b.role ? 0 : a.role === 'primary' ? -1 : 1));
+  const names = ordered.map((s) => serviceOf(tax, s.id)?.name ?? s.id);
+  return (
+    <div className="row svs">
+      {ordered.slice(0, max).map((s) => {
+        const sv = serviceOf(tax, s.id);
+        const cat = serviceCategory(tax, s.id);
+        return (
+          <ServiceAbbr
+            key={s.id}
+            abbr={sv?.abbr ?? s.id.toUpperCase()}
+            category={cat}
+            size={20}
+            optional={s.optional}
+            title={`${sv?.name ?? s.id} · ${categoryLabel(tax, cat)}${s.optional ? S.card.scenarioOptional : ''}`}
+          />
+        );
+      })}
+      {ordered.length > max ? <span className="small">+{ordered.length - max}</span> : null}
+      <span className="sr">{t(S.card.services, { list: names.join('、') })}</span>
+    </div>
+  );
+}
+
+export interface CardTileProps {
+  card: CatalogCard;
+  tax: Taxonomy;
+  item: LabItem | null | undefined;
+  holder: Holder | null;
+  /** 个人进度：loading 显示骨架；failed 显示“状态暂不可用”。 */
+  personal: 'ok' | 'loading' | 'failed';
+  query: string;
+  flags: string[];
+}
+
+export function CardTile({ card, tax, item, holder, personal, query, flags }: CardTileProps) {
+  const { clock } = useServices();
+  const isHolder = !!holder && holder.labId === card.id;
+  useSecondTick(isHolder && (holder.state === 'READY' || holder.state === 'RUNNING' || holder.state === 'EXPIRING'));
+  const state = cardStateOf(card.id, holder, item, clock.now());
+  const planned = isPlanned(card);
+  const hint = searchHint(card, query);
+  const primary = card.services.find((s) => s.role === 'primary')?.id;
+  const abbr = primary ? serviceOf(tax, primary)?.abbr : null;
+  const titleId = `t-${card.id}`;
+  const cls = ['ctile', card.kind === 'service' ? `svc ${catClass(card.category)}` : 'sc', isHolder ? 'holder' : '']
+    .filter(Boolean)
+    .join(' ');
+  const badge = item?.badge ?? null;
+  const target = isHolder ? pillTarget({ sessionId: holder.sessionId, state: holder.state }) : null;
+  return (
+    <article className={cls} aria-labelledby={titleId} data-card={card.id}>
+      <div className="kindline">
+        <span>{kindLine(card, tax)}</span>
+        <span className="d">
+          <DifficultyBar value={card.difficulty} />
+        </span>
+      </div>
+      <div className="row top nowrap-row">
+        {card.kind === 'service' && abbr ? <ServiceAbbr abbr={abbr} category={card.category} title={`${card.service ?? ''} · ${categoryLabel(tax, card.category)}`} /> : null}
+        <h3 id={titleId}>
+          <Link to={`/labs/${card.id}`}>
+            {highlight(card.kind === 'service' ? (card.service ?? card.title) : card.title, query)}
+            <span className="fn">{highlight((card.kind === 'service' ? card.function : card.subtitle) ?? '', query)}</span>
+          </Link>
+        </h3>
+      </div>
+      {card.kind === 'scenario' ? <ServiceStrip card={card} tax={tax} /> : null}
+      <p className="sum" title={card.summary}>
+        {highlight(card.summary, query)}
+      </p>
+      <div className="meta">
+        {estimateText(card.estimatedMinutes)} · {t(S.card.limit, { t: limitText(card.timeLimitMinutes) })}
+        <br />
+        <span title={COST_TIER_HINT[card.costTier.required]}>
+          <CostTierMark tier={card.costTier.required} withOptional={card.costTier.withOptional} sources={(card.mainDrivers ?? []).join('、') || undefined} />
+        </span>{' '}
+        · <span title={PROVISION_HINT[card.provisionClass]}>{t(S.card.provision, { t: PROVISION_TEXT[card.provisionClass] ?? card.provisionClass })}</span>{' '}
+        {planned ? <span className="tag planned">{S.card.planned}</span> : null}{' '}
+        {flags.slice(0, 3).map((f) => (
+          <span key={f} className={f === 'beta' ? 'tag info' : 'tag'} title={flags.map((x) => FLAG_TEXT[x] ?? x).join('、')}>
+            {FLAG_TEXT[f] ?? f}
+          </span>
+        ))}
+        {hint ? <span className="lab-hit">{hint.kind === 'lab' ? t(S.card.legacy, { n: hint.n }) : `考点：${hint.text}`}</span> : null}
+      </div>
+      <div className="foot">
+        {personal === 'loading' ? (
+          <span className="grow">
+            <Skeleton lines={1} slowAfterMs={60_000} />
+          </span>
+        ) : personal === 'failed' ? (
+          <span className="small muted">{S.catalog.statusUnavailable}</span>
+        ) : (
+          <>
+            <StateText meta={state} />
+            <span className="faint small">{item?.attempts ? t(S.card.attempts, { n: item.attempts }) : S.card.noAttempts}</span>
+          </>
+        )}
+        <span className="bdg">
+          <CardBadge card={card} tax={tax} badge={badge} />
+          <span aria-hidden="true">{badgeStateText(badgeStateOf(badge))}</span>
+        </span>
+      </div>
+      {target && state.action ? (
+        <Link className="btn sm wsbtn" to={target}>
+          {state.action === 'progress' ? S.card.viewProgress : S.card.backToWorkspace}
+        </Link>
+      ) : null}
+    </article>
+  );
+}
+
+export interface CardRowCompactProps {
+  card: CatalogCard;
+  item?: LabItem | null;
+  holder?: Holder | null;
+  extra?: ReactNode;
+  current?: boolean;
+}
+
+/** 紧凑行（高 40px）：`[状态形状] svc-queue  Amazon SQS：异步任务队列与死信队列 · 初级 · 60 分钟 · $ 低`。 */
+export function CardRowCompact({ card, item, holder = null, extra, current }: CardRowCompactProps) {
+  const { clock } = useServices();
+  const state = cardStateOf(card.id, holder, item, clock.now());
+  return (
+    <div className={current ? 'crow cur' : 'crow'} data-card={card.id}>
+      <StateText meta={state} hideText />
+      <Link className="id" to={`/labs/${card.id}`}>
+        {card.id}
+      </Link>
+      <span className="wrap-any">{card.title}</span>
+      <span className="faint small">
+        · {DIFFICULTY_TEXT[card.difficulty]} · {card.estimatedMinutes} 分钟 · <CostTierMark tier={card.costTier.required} withOptional={card.costTier.withOptional} />
+        {isPlanned(card) ? ` · ${S.card.planned}` : ''}
+      </span>
+      {extra}
+    </div>
+  );
+}
+

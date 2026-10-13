@@ -1994,3 +1994,52 @@ npx tsx platform/ssm-client/src/mock/cli.ts --port 8790                         
 没有运行 npm install。`package.json` 声明的 `@noble/hashes` ^1.8.0（@atl/workflows 已在用）、`ws` ^8.18.0（lockfile 里是 jsdom 的依赖，8.22.0），以及开发依赖
 `@xterm/xterm` ^6.0.0（只用于类型兼容检查），都已经提升到根目录的 node_modules。lockfile 里还没有 `@atl/ssm-client` 这个 workspace 条目。
 缺少：@types/ws（目前用本地声明代替）；Go 工具链和插件源码（用于生成互操作黄金样本）。
+
+## platform-web-catalog
+
+`platform/web/src/pages/{setup,login,labs,tracks,card,quiz,learning,settings}`：P00 首次设置、P01 登录、P02 卡片目录（网格 / 服务地图 / 路径、筛选）、
+P02-T 路径详情、P03 卡片简介页（P03-D 开始对话框、报价与费用确认）、P03-Q 小测、P10 我的学习、P12 设置（含升级、卸载三步）。
+全程没有调用真实的 AWS API，没有部署；dev 联调只用本机的 DynamoDB Local 与 dev-server。
+
+### 1. 实现范围
+
+| 画面 | 位置 | 要点 |
+|---|---|---|
+| 共用 | `pages/labs/{types,model,data,strings,keys}.ts`、`components/`、`catalog.css` | 静态内容（index.json、cards/<id>.json）按地址缓存；`useResource`（可见时轮询、失败保留旧数据）；纯函数：查询串 ⇄ 目录状态、卡片状态（05 §2.9）、筛选与计数（同维并集、跨维交集、“其他维度不变”的计数）、搜索（原 Lab 编号精确匹配）、排序、分组、路径进度与证书条件（与 api `trackProgress` 同规则）、`recommendNext`（05 §2.11）、服务格、几何方向键；组件 CardTile / CardRowCompact、EnvironmentBar、ContinueStrip、FacetBar、ServiceMap + ServiceCellPanel、TrackHead / TrackStageList / TrackNode、BadgeMark、ProgressRing、SegmentedProgress（全部内联 SVG，不写 style 属性） |
+| P00 | `pages/setup/` | 学员 7 步、助教 / 观察者 2 步；体检项映射（`preflight.ts`）；只复制的修复命令、危险命令放在“我确认要删除”折叠区；完成 = PATCH /me（显示名、证书署名、当前路径）+ `markOnboarded`，去 next / 当前会话 / 目录；跳过同样写入完成并让目录页提示一次 |
+| P01 | `pages/login/` | 从脚手架移植并补齐：原因提示（形状 + 文字）、全宽按钮、回调的“登录未完成”三种失败、已退出页 |
+| P02 | `pages/labs/CatalogPage.tsx` | 查询串是唯一状态，URL 没有参数时恢复 localStorage `atl.catalog.v1`；`/` 聚焦搜索、Esc 清空；结果数 3 秒合并播报；个人进度失败时卡片照常显示、“状态”维度置灰；服务地图掌握度失败时只画格子；planned 卡片显示“即将推出”标签 |
+| P02-T | `pages/tracks/` | 证书条件表、领取对话框（422 原因回显，REAUTH 交给全局对话框重放）、阶段列表、历史证书 |
+| P03 / P03-D | `pages/card/` | 开始按钮由 `startModel`（startability + 本地预判：维护 / 卸载 / 预算 / 其他会话 / 回收中 / 保留环境 / 残留 ack-block-ignore）决定；概览 mdast 按二级标题放入对应区块（链接只允许站内与 AWS 文档）；生成区块按 05 §7.3 句式；开始对话框：打开即报价、选项变化重新报价并清除勾选、报价倒计时（≤ 2 分钟琥珀、过期“重新计算费用”）、未估算 / 预算 WARN / 残留各自的额外勾选、学员输入即时校验与草稿、`POST /sessions` 同一操作复用 Idempotency-Key、202 立即进入工作台、错误按 08 P03-D 表处理；`?start=1` 打开后移除；“释放后全新开始”与“计算当前价格” |
+| P03-Q | `pages/quiz/` | 抽题、每次选择自动保存、交卷后只给正确率与按领域正确率，焦点到结果标题；单选是 radiogroup |
+| P10 | `pages/learning/` | 四个页签（链接 + aria-current，窄屏下拉）；路径进度行、服务地图、徽章墙（等级 / 状态筛选、详情抽屉）、最近实验；收到 badge./track./certificate./mastery. 事件时刷新 |
+| P12 | `pages/settings/` | 9 个页签按角色裁剪，卸载中只读；平台设置只 PATCH 变化字段并带 If-Match（412 刷新提示、字段错误回填）；成员邀请 / 删除；内容版本“标记为有缺陷”；审计（来源 IP 学员打码可还原、助教不显示）；升级四步；卸载：导出（同一键每 10 秒重试，最多 10 分钟）+ 清单 Markdown / JSON、阻塞项每 10 秒、输入 atl 确认后 prepare、ready 且终止保护关闭后出现第 3 步 |
+
+### 2. 偏离设计与取舍
+
+1. 页面按本阶段的分工放在 `src/pages/<area>/`（08 §2.6 写的是 `src/features/*`）；`src/app/routeTable.ts` 仍指向脚手架的 `features/*` 桩，本阶段不能改它。
+2. 文案放在各目录的 `strings.ts`（`labs/`、`card/`、`learning/`、`settings/`、`setup/`），没有并入 `src/i18n/zh-CN.ts`（不在本阶段范围）；共用文案仍取 zh-CN.ts。
+3. 跨画面的目录组件放在 `pages/labs/components/`（08 §5 写的是 `src/components/`）；`ClaimCertificateDialog` 放在 `pages/tracks/`，P09 可直接复用。
+4. 报价：API 的报价请求不接受工作台模式，选 CloudShell 时不重新报价，只把“工作台”一行改为“—”；`perSession` 缺失时构建行写“未提供”，Price List 不可用时写“未知”；`pricing: fixture`（dev 示例单价）在明细上方注明“不是 AWS 价格”；服务端说明里提到内部组件名的句子不显示（§1.6）。
+5. “最近尝试”排序另读 `GET /sessions?limit=100`（`GET /labs` 的条目没有时间）。
+6. 服务格侧栏不拆“单服务 60 / 场景 25 / 小测 15”：`/me/mastery` 不返回分项，改为显示徽章等级、计入的场景卡数与小测正确率。窄屏的服务地图是按类别分行的单列列表（没有折叠）。
+7. 小测：没有“今日剩余次数”与读取作答的路由，剩余次数不显示（429 时说明用完）；本标签页的作答存 sessionStorage `atl.quiz.v1.<labId>`，`?attempt=` 只用于本标签页刷新后继续。“回看步骤”有本卡进行中的会话时去工作台 `?step=`，否则去简介页步骤概览。
+8. P10 最近实验没有“尝试结果”列（列表项没有 `attemptStatus`，§9.2 #15）。
+9. P12 个人资料：终端偏好写入工作台使用的 `atl.ws.terminal.v1`（`{fontSize, screenReader, leader}`），浏览器通知只保存偏好 `atl.notify.v1` 并申请权限（发送尚无人实现，§3.9）；邮件偏好不显示（§9.2 #24）。
+10. P00：infra 写入的体检项是 `{id, status: ok|warn|info|unknown, detail, hint}`；`default-vpc`、`residual-stacks` 的 warn 视为“需处理”，其余 warn / info 为“提示”；未知 id 显示 detail。“重新体检”不显示（§9.2 #5）。
+11. 维护或卸载中，目录页环境条位置只显示“平台维护中 / 正在卸载”（与原型一致，进行中的会话仍在顶栏胶囊里）。
+12. 没有 Storybook 与 axe（缺依赖）：组件状态由 RTL 测试与无头 Chrome 检查覆盖。
+
+### 3. 自测结果（2026-10-14）
+
+| 自测 | 结果 |
+|---|---|
+| `npm run lint -w @atl/web` | 0 个问题 |
+| `npm run test -w @atl/web` | 450 个通过（本组 11 个文件 119 个：纯函数、开始按钮与报价、设置模型、各画面的 RTL 测试） |
+| `npm run build -w @atl/web` | 通过 |
+| dev 联调（私有 DynamoDB Local + dev-server + Vite，临时入口把本组画面挂进与 App 相同的框架，系统 Chrome 无头） | 25/25：首次设置 → 目录 56 张（46 张“即将推出”）、搜索 lab 10、筛选、服务地图 40 格与侧栏、路径视图、简介页、开始对话框（dev 报价“未知”）→ 202 进入工作台、环境条、其他卡片置灰、小测交卷焦点、路径证书条件、我的学习四页签、设置九页签、375px 无横向滚动、暗色、观察者无开始按钮且设置受限；控制台只有一条 404（临时入口没有 favicon） |
+
+### 4. 需要别人配合
+
+- **web 集成**：`routeTable.ts` 改为 `pages/setup/SetupPage`、`pages/login/{LoginPage,AuthCallbackPage,SignedOutPage}`、`pages/labs/CatalogPage`、`pages/card/CardIntroPage`、`pages/quiz/QuizPage`、`pages/tracks/TrackPage`、`pages/learning/LearningPage`、`pages/settings/SettingsPage`（都是 default export），删除对应的 `features/*` 桩；可选：把各 `strings.ts` 并入 i18n。环境条的“取消… / 延长… / 结束实验…”依赖 SessionActions 注册的对话框。
+- **api**：`GET /labs` 条目带最近一次会话的时间；`/me/mastery` 返回分数分项；`GET /sessions` 列表项带 `attemptStatus` 与费用摘要（§9.2 #15）；小测的剩余次数与读取作答；报价接受 `workstation`；`GET /audit-events` 对助教去掉 `sourceIp`；`POST /platform/preflight`（§9.2 #5）。

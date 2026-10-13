@@ -1,0 +1,134 @@
+/*
+ * 目录、路径、简介页、小测、我的学习、设置与首次设置的画面样式补充（08 §6；视觉以 docs/platform/prototype/index.html 为准）。
+ * src/ui/styles/screens.css 已移植原型的画面样式；这里只补原型中写在 style 属性或未移植的规则（CSP style-src 'self'：
+ * 画面不写 style 属性，全部用类）。颜色一律取 tokens.css 的变量。
+ */
+
+/* ---------- 难度条、类别符号、徽章、进度环、分段条 ---------- */
+.diff{display:inline-flex; gap:1px; vertical-align:-1px}
+.diff i{width:4px; height:10px; background:var(--text-2); display:inline-block}
+.diff i.off{background:transparent; border:1px solid var(--text-3)}
+.diff-wrap{white-space:nowrap}
+.cs .cs-fill{fill:currentColor}
+.bm-shape{fill:var(--surface-2); stroke:var(--accent)}
+.bm-shape.s-none{stroke:var(--border-strong)}
+.bm-shape.s-pending{stroke:var(--st-pending)}
+.bm-shape.s-withdrawn{stroke:var(--text-3)}
+.bm-shape.spin{transform-box:fill-box; transform-origin:50% 50%; animation:spin 8s linear infinite}
+.bm-hatch{fill:var(--text-3); opacity:.45}
+.bm-text{fill:var(--text); font-family:var(--font-mono)}
+.bm-text.off{fill:var(--text-3)}
+@media (prefers-reduced-motion: reduce){ .bm-shape.spin{animation:none} }
+.ring-bg{stroke:var(--border)}
+.ring-fg{stroke:var(--accent)}
+.segbar-svg{display:block; width:160px; max-width:100%; height:8px; border:1px solid var(--border-strong); border-radius:2px; flex:none; background:var(--surface)}
+.seg-bg{fill:var(--surface)}
+.seg-a{fill:var(--st-pass)}
+.seg-m{fill:var(--st-manual-soft)}
+.seg-m-stripe{fill:var(--st-manual)}
+.seg-p{fill:var(--st-pending-soft)}
+
+/* ---------- 通用补充 ---------- */
+.nowrap-row{flex-wrap:nowrap}
+.grow{flex:1 1 auto; min-width:0}
+.mt-8{margin-top:8px} .mt-12{margin-top:12px} .mt-16{margin-top:16px} .mb-12{margin-bottom:12px} .mb-16{margin-bottom:16px}
+.maxw-520{max-width:520px} .maxw-560{max-width:560px} .maxw-640{max-width:640px} .maxw-760{max-width:760px} .maxw-320{max-width:320px}
+.input.auto{width:auto}
+.input.inline{width:auto; min-height:26px; padding:0 6px; font-size:12.5px}
+.tag.accent{border-color:var(--accent); color:var(--accent)}
+.tag.planned{border-style:dashed; color:var(--text-2)}
+.tag.red{border-color:var(--st-fail); color:var(--st-fail)}
+.hit{color:var(--accent)}
+.h1-sub{display:block; font-weight:400; font-size:12px; color:var(--text-2)}
+.crumbs-nav{margin-bottom:8px}
+.crumbs-nav ol{list-style:none; padding:0; margin:0; display:flex; gap:6px; flex-wrap:wrap; font-size:12px; color:var(--text-2)}
+.crumbs-nav li+li::before{content:"›"; margin-right:6px; color:var(--text-3)}
+.crumbs-nav a{color:var(--text-2)}
+.only-sm{display:none!important}
+@media (max-width:767px){ .only-sm{display:inline-flex!important} .hide-sm{display:none!important} }
+.stack-row{display:flex; gap:8px; flex-wrap:wrap; align-items:center}
+.right-actions{justify-content:flex-end; border-top:1px solid var(--border); padding-top:12px}
+.kv.compact{font-size:12.5px}
+fieldset.plain{border:0; padding:0; margin:0; min-width:0}
+fieldset.plain>legend{padding:0}
+.linkbtn.small{font-size:12px}
+.amt{font-family:var(--font-mono); font-variant-numeric:tabular-nums; white-space:nowrap}
+
+/* ---------- P02 目录 ---------- */
+.ph.center{align-items:center}
+.ctile .meta .tag{margin-left:2px}
+.ctile .lab-hit{font-size:12px; color:var(--accent)}
+.ctile .svs{display:flex; gap:4px; flex-wrap:wrap; align-items:center}
+.cgrid-empty{margin-top:16px}
+.facets .fr .count{margin-left:auto}
+.envbar .eb-btns{display:flex; gap:6px; flex-wrap:wrap; align-items:center}
+.envbar .st{white-space:normal}
+.contstrip .rec{display:inline-flex; gap:6px; flex-wrap:wrap; align-items:center}
+.setup-skipped{margin-bottom:8px}
+@media (max-width:767px){
+  .ph.center .search{flex-basis:100%; max-width:none}
+  .toolbar .seg{max-width:100%}
+}
+
+/* ---------- 服务地图 ---------- */
+.scell .ring{position:absolute; right:6px; top:44px}
+.scell .rv{color:var(--st-drift); font-weight:600}
+.scell.na .ring{display:none}
+.smap-panel .crow{border-bottom:1px solid var(--border)}
+@media (max-width:767px){ .scell .ring{top:8px} }
+
+/* ---------- 路径 ---------- */
+.tnode .note{font-size:12px; color:var(--text-3)}
+.stage .stage-note{font-size:12px; color:var(--text-2)}
+.track-head{display:flex; gap:10px; flex-wrap:wrap; align-items:center}
+.reuse-hint{font-size:12px; color:var(--text-2); padding-left:32px}
+.box.cur{border-color:var(--accent)}
+
+/* ---------- P03 简介页 ---------- */
+.cardhead{border-left:3px solid var(--cat, var(--border-strong))}
+.cardhead.sc{border-left-color:var(--border-strong)}
+.cardhead .head-top{flex-wrap:nowrap}
+@media (max-width:767px){ .cardhead .head-top{flex-wrap:wrap} .cardhead .head-ver{flex-basis:100%} }
+.cardhead .actions{display:flex; gap:8px; flex-wrap:wrap; align-items:center}
+.cardhead .start-why{flex-basis:100%; font-size:12px}
+.md p+p,.md ul,.md ol{margin-top:6px}
+.md h3{font-size:13.5px; margin-top:10px}
+.md pre{background:var(--code-bg); border:1px solid var(--border); border-radius:4px; padding:8px 10px; overflow-x:auto; font-size:12.5px}
+.md pre code{background:none; padding:0}
+.md blockquote{margin:6px 0; padding-left:10px; border-left:3px solid var(--border); color:var(--text-2)}
+.md table{border-collapse:collapse; font-size:13px}
+.md th,.md td{border:1px solid var(--border); padding:4px 8px}
+.obj-list li+li{margin-top:4px}
+.attempt-row{display:flex; gap:8px; flex-wrap:wrap; align-items:center; font-size:12px}
+.quote-head{display:flex; gap:8px; align-items:center; flex-wrap:wrap}
+.quote-exp{font-weight:400}
+.qtbl td.qamt .unknown{color:var(--text-2)}
+.dsec .flabel{min-width:72px}
+.dsec .inputs{display:grid; gap:10px; max-width:420px}
+.reuse-plan ul{margin-top:4px}
+
+/* ---------- P03-Q 小测 ---------- */
+.qz{margin:0; display:grid; gap:8px}
+.qz legend{font-weight:600}
+.qz-opt{padding:4px 0}
+.qz-res .box+.box{margin-top:8px}
+
+/* ---------- P10 我的学习、徽章墙 ---------- */
+.bwall{display:grid; gap:16px}
+.bwall .bw-row{display:flex; gap:10px; flex-wrap:wrap}
+.bwbtn{flex-direction:column; height:auto; padding:6px; gap:2px; min-width:76px; white-space:normal; text-align:center}
+.bwbtn .small{max-width:96px}
+
+/* ---------- P00 首次设置 ---------- */
+.stepper .skip-btn{justify-content:flex-start}
+.pfrow{grid-template-columns:90px minmax(0,1fr)!important}
+.pfrow.amber{background:var(--st-drift-soft)}
+.trkpick{display:grid; gap:4px; cursor:pointer}
+.trkpick.on{border-color:var(--accent); background:var(--accent-soft)}
+
+/* ---------- P12 设置 ---------- */
+.set-field-row{display:grid; gap:4px}
+.blockers{display:grid; gap:4px}
+.u-steps{display:grid; gap:16px}
+.member-invite{display:flex; gap:8px; flex-wrap:wrap; align-items:flex-end}
+.member-invite .input{max-width:280px}

@@ -1,0 +1,3 @@
+/* P01 登录（08 §4 P01、§8.8：单列，按钮全宽）；卡片样式 .login/.pubcard 取自 screens.css（原型 loginCard）。 */
+.login .btn.block{width:100%}
+.login .note .ico{flex:none; margin-top:2px}
