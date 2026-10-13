@@ -1,0 +1,101 @@
+/*
+ * P06～P11 画面的补充样式（结果类画面：对比实验、结束与回收、待人工处理、报告、证书、会话历史）。
+ * 通用组件样式在 src/ui/styles/（取自原型）；这里只有原型中按画面内联写的规则，改成类名（CSP style-src 'self'，不写 style 属性）。
+ */
+
+/* 页头右侧的操作区 */
+.ph .acts{display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-left:auto}
+.ph .acts select.input{width:auto; max-width:100%}
+/* 锚点定位时不被吸顶的顶栏挡住（#manual 等） */
+section.sec[id]{scroll-margin-top:calc(var(--topbar-h, 48px) + 12px)}
+.ph .ttl{display:grid; gap:4px; min-width:0}
+.ph .sub .mono{font-size:12.5px}
+.crumbs-row{font-size:12px; color:var(--text-2); display:flex; gap:6px; flex-wrap:wrap; margin-bottom:6px}
+.crumbs-row a{color:var(--text-2)}
+
+/* 结论卡片（与验证页同一套 .vres） */
+.vres .vbody{display:grid; gap:4px; min-width:0}
+.vres .vt{font-weight:600}
+
+/* 结束阶段 */
+ol.prov{list-style:none; padding:0; margin:0}
+
+/* 回收阶段 S0～S6 */
+details.rstage{border-top:1px solid var(--border); padding-block:8px}
+details.rstage>summary{display:flex; gap:10px; align-items:center; flex-wrap:wrap; color:var(--text); font-size:13px}
+details.rstage[open]>summary{margin-bottom:8px}
+.rtable td{font-size:12.5px}
+@media (max-width:767px){
+  .rtable thead{display:none}
+  .rtable,.rtable tbody,.rtable tr,.rtable td{display:block; width:auto}
+  .rtable tr{border-bottom:1px solid var(--border); padding:6px 8px}
+  .rtable td{border:0; padding:2px 0; display:grid; grid-template-columns:64px minmax(0,1fr); gap:8px}
+  .rtable td::before{content:attr(data-label); color:var(--text-2); font-size:12px}
+}
+
+/* 复扫时间线、事件时间线的筛选 */
+.timeline li .what{min-width:0; overflow-wrap:anywhere}
+.filters{display:flex; gap:10px; align-items:center; flex-wrap:wrap}
+.filters select.input{width:auto; max-width:100%}
+
+/* 页签（会改变 URL 的页签：nav + 链接 + aria-current，08 §8.2）；窄屏改为下拉 */
+.tabs-select{display:none}
+@media (max-width:767px){ .tabs.collapse-sm{display:none} .tabs-select{display:block} }
+
+/* 报告：目录、分享链接、导出对话框 */
+.toc{display:flex; gap:12px; flex-wrap:wrap; font-size:13px; align-items:center}
+.sharelist{display:grid; gap:0; border:1px solid var(--border); border-radius:4px; background:var(--surface)}
+.sharerow{display:flex; gap:8px 12px; align-items:center; flex-wrap:wrap; padding:8px 10px; border-bottom:1px solid var(--border); font-size:13px; min-width:0}
+.sharerow:last-child{border-bottom:0}
+.sharerow .url{flex:1 1 280px; min-width:0; overflow-wrap:anywhere}
+.stepev{display:grid; gap:6px; padding-block:8px; border-bottom:1px dashed var(--border); min-width:0}
+.stepev:last-child{border-bottom:0}
+.stepev>.row b{font-weight:600}
+.statgrid .stat .v{overflow-wrap:anywhere}
+
+/* 对比实验 */
+.chart path.ln{fill:none; stroke-width:2}
+.chart path.ln.b{stroke:var(--viz-before)} .chart path.ln.a{stroke:var(--viz-after)} .chart path.ln.t3{stroke:var(--viz-third)}
+.chart path.dash{stroke-dasharray:6 3}
+.chart circle.b{fill:var(--viz-before)} .chart circle.a{fill:var(--viz-after)} .chart circle.t3{fill:var(--viz-third)}
+.legend-sw{display:inline-block; width:10px; height:10px; border-radius:2px; vertical-align:-1px}
+.legend-sw.b{background:var(--viz-before)} .legend-sw.a{background:var(--viz-after)} .legend-sw.t3{background:var(--viz-third)}
+.varcol{display:grid; gap:8px; align-content:start}
+.metric-cards{display:none}
+@media (max-width:767px){ .compare-tbl{display:none} .metric-cards{display:grid; gap:8px} }
+.metric-card{border:1px solid var(--border); border-radius:4px; background:var(--surface); padding:8px 10px; display:grid; gap:4px; font-size:13px}
+.checklist{list-style:none; padding:0; margin:0; display:grid; gap:2px; font-size:13px}
+
+/* 证书与徽章 */
+.badgewall{display:grid; gap:12px}
+.badgewall .bw-row{display:flex; gap:10px; flex-wrap:wrap}
+.bw-item{display:grid; justify-items:center; gap:2px; min-width:84px; max-width:120px; padding:6px; border:1px solid transparent; border-radius:4px; background:none; color:var(--text); text-align:center}
+.bw-item:hover{border-color:var(--border)}
+.bw-item .bw-name{font-size:12px; line-height:1.3}
+.bw-item.off{color:var(--text-3)}
+.kv dd .btn{vertical-align:middle}
+@media print{
+  .no-print,.acts,.toc{display:none!important}
+  .statgrid,.tbl-wrap,.stepev,figure{break-inside:avoid}
+}
+.block-line{display:block}
+.plain-fieldset{border:0; padding:0; margin:0; min-width:0}
+.print-only{display:none}
+@media print{ .print-only{display:block} }
+/* 徽章图形（05 §2.10，自绘） */
+.bglyph{display:block; flex:none}
+.bglyph .bg-shape{fill:var(--cat, var(--cat-base)); fill-opacity:.16; stroke:var(--cat, var(--cat-base)); stroke-width:2.2}
+.bglyph.l-attested .bg-shape,.bglyph.pending .bg-shape{stroke-dasharray:4 3}
+.bglyph.l-self .bg-shape{stroke-dasharray:1 3.2; stroke-linecap:round}
+.bglyph.off .bg-shape{fill:none; stroke:var(--border-strong); stroke-width:1.4}
+.bglyph.withdrawn .bg-shape{fill:none; stroke:var(--text-3)}
+.bglyph .slash{stroke:var(--text-3); stroke-width:2}
+.bglyph text{font:600 10px var(--font-mono); fill:var(--text)}
+.bglyph.off text,.bglyph.withdrawn text{fill:var(--text-3)}
+.bglyph.pending .bg-shape{animation:spin 6s linear infinite; transform-origin:50% 50%; transform-box:fill-box}
+@media (prefers-reduced-motion: reduce){ .bglyph.pending .bg-shape{animation:none} }
+/* 长的状态文字允许换行（.st 默认 nowrap） */
+h2.st,.checklist .st,[data-section="validity"] .st,[data-section="pair"] .st,.varcol .st{white-space:normal; align-items:flex-start}
+h2.st .shp,.checklist .st .shp,[data-section="validity"] .st .shp,.varcol .st .shp{margin-top:5px}
+.filters .fi{display:inline-flex; gap:6px; align-items:center; min-width:0}
+@media (max-width:767px){ .tbl-wrap.cardify .tbl td>.pill,.tbl-wrap.cardify .tbl td>.st{justify-self:start} }

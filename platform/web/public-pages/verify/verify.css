@@ -1,0 +1,119 @@
+/*
+ * 公开验证页 P09-V 的样式（08 §6.11、D-UI-7）：CSP atl-web-verify 没有 style-src（回落到 default-src 'self'），
+ * 所以 token 与页面样式放在这个同源外部样式表里，页面不写内联 <style> 与 style 属性。
+ * token 取值与 SPA 的 src/ui/styles/tokens.css 相同（亮、暗两套；默认跟随系统），组件规则取自原型的 .pub / .pubcard / .vres。
+ * 不加载任何网络字体（01 §10.6）。
+ */
+:root{
+  --bg:#F6F6F4; --surface:#FFFFFF; --surface-2:#EFEEE8; --border:#DAD8D0; --border-strong:#8A867B;
+  --text:#1C1D1F; --text-2:#4A4D55; --text-3:#63666E; --ink:#1C1D1F; --on-ink:#FFFFFF;
+  --accent:#0F6E6E; --accent-soft:#DDEFEC;
+  --st-pass:#1B703F; --st-pass-soft:#E2F2E7; --st-fail:#B3261E; --st-fail-soft:#FBE5E3;
+  --st-drift:#A8380A; --st-drift-soft:#FCE9DD; --st-pending:#1F5FAD; --st-pending-soft:#E3ECF8;
+  --font-sans:"PingFang SC","Hiragino Sans GB","Microsoft YaHei UI","Microsoft YaHei","Noto Sans SC","Source Han Sans SC",system-ui,sans-serif;
+  --font-mono:"JetBrains Mono","Cascadia Mono","SFMono-Regular",Consolas,"Noto Sans Mono CJK SC",Menlo,monospace;
+  --gutter:16px;
+  color-scheme:light;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#141517; --surface:#1B1C1F; --surface-2:#232428; --border:#34363B; --border-strong:#6E7179;
+    --text:#E9E7E2; --text-2:#B6B4AE; --text-3:#96948F; --ink:#E9E7E2; --on-ink:#141517;
+    --accent:#4FB3A9; --accent-soft:#16302D;
+    --st-pass:#4CB97A; --st-pass-soft:#163222; --st-fail:#F0716A; --st-fail-soft:#3A1C1A;
+    --st-drift:#F08A4B; --st-drift-soft:#3A2214; --st-pending:#6FA3E6; --st-pending-soft:#172A40;
+    color-scheme:dark;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#141517; --surface:#1B1C1F; --surface-2:#232428; --border:#34363B; --border-strong:#6E7179;
+  --text:#E9E7E2; --text-2:#B6B4AE; --text-3:#96948F; --ink:#E9E7E2; --on-ink:#141517;
+  --accent:#4FB3A9; --accent-soft:#16302D;
+  --st-pass:#4CB97A; --st-pass-soft:#163222; --st-fail:#F0716A; --st-fail-soft:#3A1C1A;
+  --st-drift:#F08A4B; --st-drift-soft:#3A2214; --st-pending:#6FA3E6; --st-pending-soft:#172A40;
+  color-scheme:dark;
+}
+@media (min-width:768px){ :root{ --gutter:24px } }
+
+*,*::before,*::after{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%}
+body{margin:0; background:var(--bg); color:var(--text); font-family:var(--font-sans); font-size:14px; line-height:1.6}
+h1,h2{margin:0; font-weight:600; text-wrap:balance}
+h1{font-size:20px; line-height:1.4} h2{font-size:15px; line-height:1.5}
+p{margin:0}
+a{color:var(--accent); text-underline-offset:2px}
+button,input,textarea{font:inherit; color:inherit}
+button{cursor:pointer}
+.mono{font-family:var(--font-mono)}
+:focus-visible{outline:2px solid var(--accent); outline-offset:2px; border-radius:2px}
+form[tabindex="-1"]:focus{outline:none}
+[hidden]{display:none!important}
+.sr{position:absolute!important; width:1px; height:1px; overflow:hidden; clip:rect(0 0 0 0); white-space:nowrap}
+.small{font-size:12px} .muted{color:var(--text-2)} .faint{color:var(--text-3)}
+.row{display:flex; align-items:center; gap:8px; flex-wrap:wrap; min-width:0}
+.skip{position:absolute; left:-9999px; top:8px; z-index:10; background:var(--ink); color:var(--on-ink); padding:6px 10px; border-radius:4px}
+.skip:focus{left:16px}
+
+.pub{max-width:880px; margin-inline:auto; padding:24px var(--gutter) 48px; display:grid; gap:16px; min-width:0}
+.pubcard{background:var(--surface); border:1px solid var(--border); border-radius:6px; padding:20px; display:grid; gap:14px; min-width:0}
+.pubcard>*{min-width:0}
+@media (max-width:767px){ .pubcard{padding:14px} }
+.nature{font-size:13px; color:var(--text-2); border:1px solid var(--border); border-left:4px solid var(--st-drift); border-radius:4px; padding:10px 12px; background:var(--surface)}
+
+/* 结果卡片（08 P09-V 的 12 种结果；形状 + 文字 + 颜色） */
+.vres{display:flex; gap:12px; align-items:flex-start; border:1px solid var(--border); border-left-width:4px; border-radius:4px; padding:12px 14px; min-width:0}
+.vres.ok{border-left-color:var(--st-pass); background:var(--st-pass-soft)}
+.vres.bad{border-left-color:var(--st-fail); background:var(--st-fail-soft)}
+.vres.warn{border-left-color:var(--st-drift); background:var(--st-drift-soft)}
+.vres.grey{border-left-color:var(--text-2); background:var(--surface-2)}
+.vres.pend{border-left-color:var(--st-pending); background:var(--st-pending-soft)}
+.vres .vshape{padding-top:5px; flex:none; display:inline-flex}
+.vres.ok .vshape{color:var(--st-pass)} .vres.bad .vshape{color:var(--st-fail)} .vres.warn .vshape{color:var(--st-drift)}
+.vres.grey .vshape{color:var(--text-2)} .vres.pend .vshape{color:var(--st-pending)}
+.vres-body{display:grid; gap:4px; min-width:0}
+.vres .big{font-size:18px; font-weight:600}
+.vres-act{display:flex; gap:8px; flex-wrap:wrap}
+.shp{width:14px; height:14px; display:inline-block}
+.shp .inv{stroke:var(--surface)} .shp .invf{fill:var(--surface)}
+.vshape.spin .shp{animation:spin 1.2s linear infinite; transform-origin:50% 50%}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+.kv{display:grid; grid-template-columns:max-content minmax(0,1fr); gap:4px 14px; font-size:13px; margin:0}
+.kv dt{color:var(--text-2)} .kv dd{margin:0; min-width:0; overflow-wrap:anywhere}
+@media (max-width:480px){ .kv{grid-template-columns:minmax(0,1fr)} .kv dd{padding-bottom:4px} }
+
+.vlabs{display:grid; gap:8px}
+.vlab-list{list-style:none; margin:0; padding:0; display:grid; gap:0; border:1px solid var(--border); border-radius:4px}
+.vlab{display:flex; flex-wrap:wrap; gap:6px 10px; align-items:center; padding:8px 10px; border-bottom:1px solid var(--border); font-size:13px; min-width:0}
+.vlab:last-child{border-bottom:0}
+.vlab-text{flex:1 1 320px; min-width:0; overflow-wrap:anywhere}
+.vlab-res{flex-basis:100%}
+.vlab-res:empty{display:none}
+.vlab-res.ok{color:var(--st-pass)} .vlab-res.bad{color:var(--st-fail)} .vlab-res.pend{color:var(--st-pending)}
+
+/* 控件 */
+.btn{display:inline-flex; align-items:center; justify-content:center; gap:6px; min-height:32px; padding:4px 12px; border:1px solid var(--border-strong);
+  background:var(--surface); color:var(--text); border-radius:4px; text-decoration:none; white-space:nowrap; line-height:1.3}
+.btn:hover{background:var(--surface-2)}
+.btn.primary{background:var(--ink); color:var(--on-ink); border-color:var(--ink)}
+.btn.sm{min-height:26px; padding:2px 8px; font-size:12.5px}
+label.btn:focus-within{outline:2px solid var(--accent); outline-offset:2px}
+.linkbtn{background:none; border:0; padding:0; color:var(--accent); text-decoration:underline; text-underline-offset:2px; justify-self:start}
+.field{display:grid; gap:4px; min-width:0}
+.field label{font-size:12.5px; color:var(--text-2)}
+.input{width:100%; min-height:32px; border:1px solid var(--border-strong); border-radius:4px; background:var(--surface); padding:4px 8px}
+textarea.input{min-height:88px; resize:vertical; font-size:12.5px; overflow-wrap:anywhere}
+.ferr{font-size:12px; color:var(--st-fail)}
+@media (pointer:coarse){ .btn,.btn.sm{min-height:44px; min-width:44px} .linkbtn{display:inline-flex; align-items:center; min-height:44px} }
+
+.foot-note{text-align:left}
+
+@media (prefers-reduced-motion: reduce){
+  *,*::before,*::after{animation-duration:0s!important; animation-iteration-count:1!important; transition:none!important}
+  .vshape.spin .shp{animation:none!important}
+}
+@media print{
+  body{background:#fff; color:#000}
+  #vpaste,.btn,.linkbtn,.skip{display:none!important}
+  .pubcard{border-color:#999}
+}

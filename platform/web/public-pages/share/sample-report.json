@@ -1,0 +1,106 @@
+{
+  "schema": "atl.report/v1",
+  "sessionId": "s4k7m2q9x1abc",
+  "revision": 2,
+  "generatedAt": "2026-10-13T10:48:00Z",
+  "learner": { "displayName": "张三", "ref": "sha256:2c4f0a" },
+  "lab": {
+    "id": "svc-cdn",
+    "kind": "service",
+    "version": "1.0.0",
+    "title": "Amazon CloudFront：内容分发与边缘缓存",
+    "catalogVersion": "2026.10.1",
+    "contentDigest": "sha256:9a07c1e2",
+    "variant": "default",
+    "startProfile": { "name": "atl/svc-cdn/default", "planDigest": "sha256:71f2e9c0", "provisions": [{ "item": "ec2", "kind": "module", "reason": "应用由实验机直出" }] }
+  },
+  "session": {
+    "ref": "sha256:5d1e",
+    "region": "ap-northeast-1",
+    "accountIdMasked": "••••3333",
+    "readyAt": "2026-10-13T08:31:00Z",
+    "endedAt": "2026-10-13T10:02:00Z",
+    "endReason": "USER_ENDED",
+    "submitted": true,
+    "extensionsUsed": 1,
+    "environment": { "envRef": "sha256:e7k2", "reused": false, "chain": [] }
+  },
+  "outcome": { "attemptStatus": "completed", "completedAt": "2026-10-13T09:58:00Z", "checks": { "auto": 14, "manual": 0, "failed": 0 }, "driftEvents": 1, "trustSummary": { "high": 12, "medium": 2, "low": 0 } },
+  "timing": { "totalMinutes": 91, "activeMinutes": 72, "steps": [] },
+  "steps": [
+    {
+      "stepId": "observe-direct",
+      "title": "观察直连源站",
+      "type": "observe",
+      "state": "done",
+      "checks": [
+        {
+          "checkKey": "svc-cdn/entry-direct-baseline",
+          "title": "入口直连源站",
+          "source": "PROBE",
+          "effective": "pass",
+          "trust": "high",
+          "provenance": "this-session",
+          "evidenceDigest": "sha256:1e5f0c9a7b3d2e11",
+          "keyAssertions": [{ "label": "入口", "expected": "direct", "actual": "http://203.0.113.61:8080", "ok": true }]
+        }
+      ]
+    },
+    {
+      "stepId": "enable-cdn",
+      "title": "启用 CloudFront 并接入应用",
+      "type": "script",
+      "state": "done",
+      "checks": [
+        {
+          "checkKey": "svc-cdn/distribution-deployed",
+          "title": "分配已部署",
+          "source": "AWS",
+          "effective": "pass",
+          "trust": "high",
+          "provenance": "this-session",
+          "ownershipConfirmedLate": true,
+          "evidenceDigest": "sha256:9c4e1f2a00aa",
+          "keyAssertions": [
+            { "label": "状态", "expected": "Deployed", "actual": "Deployed", "ok": true },
+            { "label": "分配", "expected": "arn:aws:cloudfront::111122223333:distribution/E2QWABCDEFG7K", "actual": "d1234abcd.cloudfront.net", "ok": true }
+          ],
+          "manual": { "observed": "已在控制台看到 cloudalbum-e7k2m9qx-cdn", "note": "这是一条不该出现在副本里的备注 zhang@example.com", "at": "2026-10-13T09:10:00Z" }
+        },
+        {
+          "checkKey": "svc-cdn/console-session",
+          "title": "控制台会话 atl-s4k7m2q9x1abc-console 已收回",
+          "source": "LOCAL",
+          "effective": "manual",
+          "keyAssertions": []
+        }
+      ]
+    },
+    { "stepId": "lock-origin", "title": "（选做）锁定源站", "type": "script", "state": "skipped", "checks": [] }
+  ],
+  "checkHistory": [{ "at": "2026-10-13T09:05:00Z", "checkKey": "svc-cdn/distribution-deployed", "result": "pass", "trigger": "learner" }],
+  "experiments": [
+    {
+      "module": "cdn",
+      "experiment": "media-load",
+      "variants": [{ "label": "before", "role": "baseline" }, { "label": "after", "role": "treatment" }],
+      "pairs": [{ "a": "before", "b": "after", "comparable": true, "reasons": [] }],
+      "metrics": [
+        { "id": "server.requests", "label": "源站收到的请求数", "unit": "count", "values": { "before": 1200, "after": 96 }, "better": "lower", "source": "server" },
+        { "id": "client.ttfb.p50", "label": "首字节时间 p50（毫秒）", "unit": "ms", "values": { "before": 182, "after": 41 }, "better": "lower", "source": "client" },
+        { "id": "client.ttfb.p95", "label": "首字节时间 p95（毫秒）", "unit": "ms", "values": { "before": 214, "after": 198 }, "better": "lower", "source": "client" },
+        { "id": "client.cdnHitRatio", "label": "CDN 命中率", "unit": "ratio", "values": { "after": 0.92 }, "better": "higher", "source": "client" }
+      ],
+      "charts": [{ "kind": "bars", "svg": "<svg><script>alert(1)</script></svg>" }]
+    }
+  ],
+  "cost": { "quote": { "quoteId": "01JA0000000000000000000000" }, "resources": [], "notes": ["估算，以账单为准"] },
+  "badge": { "title": "边缘缓存", "level": "verified", "status": "valid", "evidenceScore": 0.97 },
+  "cleanup": {
+    "status": "clean",
+    "reclaimed": 23,
+    "pendingManual": [],
+    "verify": [{ "checkKey": "svc-cdn/dist-gone", "result": "pass" }]
+  },
+  "integrity": { "canonicalization": "RFC8785", "digest": "sha256:5d1e8b3f02ac" }
+}

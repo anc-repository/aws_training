@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<meta name="robots" content="noindex">
+<meta name="referrer" content="no-referrer">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; connect-src 'self'; img-src 'self' data:; script-src 'self'; base-uri 'none'; form-action 'none'">
+<title>ATL 证书验证（非 AWS 官方）</title>
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="/verify/verify.css">
+<script src="/verify/verify.js" defer></script>
+</head>
+<body>
+<a class="skip" href="#main">跳到主要内容</a>
+<main class="pub" id="main">
+  <section class="pubcard" aria-labelledby="vh">
+    <h1 id="vh">ATL 证书验证</h1>
+    <p class="nature" id="vnature">本证明由部署在学员自己 AWS 账号中的自托管 AWS Training Lab 实例自动签发，表示该实例记录到持有人完成了所列实验，签名可用于确认内容未被篡改、且出自该实例的签名密钥。它不是 AWS 官方认证，也不代表 AWS Certified Solutions Architect – Associate 或任何 AWS 认证资格；签发者与持有人可能是同一人，平台的数据与密钥由账号所有者控制。验证结果只说明“该实例签发了此内容”，不说明签发过程的独立性。</p>
+    <div id="vres" class="vres pend" role="status" aria-live="polite" aria-busy="true" data-result="verifying">
+      <span id="vres-shape" class="vshape spin"><svg class="shp" viewBox="0 0 12 12" aria-hidden="true" focusable="false"><circle cx="6" cy="6" r="4.6" fill="none" stroke="currentColor" stroke-width="1.3"/><path d="M6 3.4V6l1.8 1.2" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg></span>
+      <div class="vres-body">
+        <span class="big" id="vres-title">正在验证签名…</span>
+        <span class="small" id="vres-detail" hidden></span>
+        <span class="vres-act">
+          <button type="button" class="btn sm" id="vres-retry" hidden>重试</button>
+          <button type="button" class="linkbtn small" id="vres-paste" hidden>粘贴证书</button>
+        </span>
+      </div>
+    </div>
+    <dl class="kv" id="vdetails" hidden></dl>
+    <section class="vlabs" id="vlabs" aria-labelledby="vlabs-title" hidden>
+      <h2 id="vlabs-title">包含的卡片</h2>
+      <ul class="vlab-list" id="vlabs-list"></ul>
+      <p class="small muted">核对报告：选择持有人提供的报告 JSON，浏览器按 RFC 8785 规范化后计算 SHA-256 并与证书中的报告摘要比较，文件不会上传。请使用持有人在证书详情中下载的“核验用报告 JSON”；打码导出的报告或更新过的版本会显示不一致。</p>
+    </section>
+    <section aria-labelledby="vhow">
+      <h2 id="vhow">如何独立核对</h2>
+      <p class="small">把上面的公钥指纹与持有人在其公开主页（例如 GitHub 个人页）上公布的指纹对照。验证完全在你的浏览器中完成，不需要登录：页面读取本实例的公钥与签名的吊销列表，用浏览器内置的 WebCrypto 验证 ES256 签名。</p>
+    </section>
+  </section>
+  <form class="pubcard" id="vpaste" tabindex="-1" novalidate aria-labelledby="vpaste-h">
+    <h2 id="vpaste-h">粘贴证书或选择文件</h2>
+    <div class="field">
+      <label for="vjws">证书（JWS）</label>
+      <textarea class="input mono" id="vjws" rows="4" spellcheck="false" autocomplete="off" placeholder="eyJhbGciOiJFUzI1NiIs…" aria-describedby="vpaste-hint vpaste-err"></textarea>
+      <span class="small muted" id="vpaste-hint">也可以选择证书文件（.jws）或离线验证包（.json）。</span>
+      <span class="ferr" id="vpaste-err" hidden></span>
+    </div>
+    <div class="row">
+      <button type="submit" class="btn primary" id="vsubmit">验证</button>
+      <label class="btn"><input type="file" class="sr" id="vfile" accept=".jws,.json,.txt,application/jose,application/json,text/plain"><span>选择文件…</span></label>
+    </div>
+  </form>
+  <noscript><p class="pubcard">验证需要启用 JavaScript；也可以使用证书持有人提供的离线验证包中的脚本（node verify.mjs）。</p></noscript>
+  <p class="small faint foot-note">自托管 ATL 实验平台（非 AWS 官方）。平台卸载后，本页与公开证书文件随之失效；请使用证书页提供的离线验证包。</p>
+</main>
+</body>
+</html>

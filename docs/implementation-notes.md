@@ -2117,3 +2117,75 @@ npx tsx platform/ssm-client/src/mock/cli.ts --port 8790          # 终端模拟�
 ### 6. 依赖
 
 没有运行 npm install，没有新增依赖：用到的 `@xterm/xterm`、`@xterm/addon-fit` 已由脚手架加入；`@atl/ssm-client` 按源码路径按需加载。缺少：03 §3.7.1 列出的 xterm 插件（web-links、search、unicode11、webgl、clipboard）、axe-core（无障碍自动检查）、Storybook。
+
+## platform-web-results
+
+`platform/web/src/pages/{experiments,end,manual,report,share,certificates,verify,sessions,errors}` 与 `platform/web/public-pages/`：P06 对比实验独立页、
+P07 回收进度 / P07-K 保留环境 / P07-M 待人工处理清单、P08 实验报告（导出、分享、撤销、到期）、P09 证书与徽章 / P09-C 证书详情 / P09-V 公开验证页、
+P11 / P11-D 会话历史与费用、P13 就地错误与 404。全程没有调用真实的 AWS API，没有部署；联调只用本机 DynamoDB Local 与 dev-server（noop 运行器）。
+
+### 1. 实现范围
+
+| 画面 | 位置 | 要点 |
+|---|---|---|
+| 共用 | `sessions/{data,sessionText,eventText,download}.ts`、`sessions/pages.css`、`errors/{problems.ts,InlineProblem.tsx,useAction.ts}` | `useSessionView`（GET 会话后交给 SessionSync，未到结论时 watch）、`useApiData`（可见时轮询、失败保留旧数据）、静态内容缓存（先取会话自己的 catalogVersion，读不到退回当前版本）、带令牌的下载（401 刷新一次）；`describeProblem` 把 ApiError 分为网络 / 不可用 / 限流 / 角色 / 重新登录 / 状态冲突 / 前置条件等类并给出重试倒计时；`useAction`：同一操作重试复用 Idempotency-Key、409 / 412 后刷新视图、REAUTH 后 `takeReauthReplay` 重放；金额只显示 API 给出的数字，缺失写“未知” |
+| P06 | `experiments/` | `ExperimentPage`（`?a=&b=&across=`）与 `ExperimentCompare`（页面 / 抽屉 / 报告三种模式）：按实验声明列出各 label 的运行，默认取最近一条有效运行；上传四段进度；指标表（优先用 compare API，否则对比数值叶子；10% 内视为噪声，形状 + 文字）与窄屏指标卡；SVG 柱图与 p50 / p95 / p99 阶梯图（`compareModel.ts` 纯函数，分享副本复用）；可比性与 validity 原因、客户端 / 服务端不一致提示；运行命令只对学员且会话进行中显示；跨会话对比 |
+| P07 | `end/` | 按 `endRender` 重定向 / 回收进度 / P07-K；`phases[]` → 7（+1 保留分支）个可见阶段（`phases.ts`，未知 phase 写入当前阶段细节）；复扫时间线（取 `reclaim.rescanAt[]`）；按阶段分组的资源（打码，“显示”30 秒）；清理清单导出 md / json；“立即重试回收”；观察者只读；清理每 30 / 60 秒轮询并在事件到达时刷新 |
+| P07-K | `end/KeptView.tsx`、`KeepDialogs.tsx` | 保留中的环境与费用；延长保留（KEEP 报价、确认项含“未估算”与预算 WARN、报价过期“重新计算费用”、`extendKeep {hours, quoteId}`）；释放（alertdialog，初始焦点在“取消”） |
+| P07-M | `manual/` | `ManualList`：每项控制台链接 + 逐项 CLI + “我已处理，重新核对”（resolve 202 后每 4 秒读 cleanup，90 秒仍无变化提示“仍在核对”，已确认项留到下次刷新）；`ManualResourcesPage`：`?severity` / `?billing` 筛选、按会话分组、逐会话导出 |
+| P08 | `report/` | 无报告 / 生成中 / 失败 / 预览 / 就绪；摘要、目录、逐步证据（内容 + listSteps，`CheckResultRow`）、检查历史（listCheckRuns，按结果筛选）、必做实验（报告模式的对比）、小测、费用、清理、附录、打印页脚；导出对话框（json / html，mask on / off，关闭打码需确认，rendering 时轮询）；分享（7 / 30 / 90 天 / 永不，发布中 5 秒轮询，复制 / 打开 / 撤销，publishing / active / revoked / expired） |
+| P09 / P09-C | `certificates/` | 路径证书（可领取在前）、历史证书、领取对话框（证书署名有改动先 PATCH /me；422 原因逐条显示；REAUTH 重放）、徽章墙（按目录分类分组，详情抽屉，事件到达时刷新）；证书详情：卡片表与报告链接、验证链接、公开开关（PATCH 202 后轮询）、复制 JWS / kid、离线验证包、撤销（三种原因） |
+| P09-V | `verify/`、`public-pages/verify/` | 独立静态页，不加载 SPA、不访问 API：读 `/.well-known/atl/jwks.json`、`/public/revocations.jws`、`/public/certs/<id>.jws`；WebCrypto ES256（P1363）+ RFC 8785；kid、密钥有效期与用途、issuer.origin 校验；吊销列表验签与 seq 防回滚（localStorage `atl.verify.revocations-seq.v1`）；14 种结果（含“未公开 → 粘贴证书”“浏览器不支持”“吊销列表不可用 / 回滚”“来源不符”）；粘贴 JWS、选择 .jws 或离线验证包 JSON；逐卡片在本地核对报告 JSON 的摘要；显示前对账号 ID、IP、ARN 打码；04 §10.1 自签名说明；只改 textContent 与类名 |
+| 分享副本 | `share/` | `renderShareHtml(report, meta)` → 独立 HTML（CSP meta、noindex、内联样式、亮 / 暗色）与 `shareReportJson`（`redactedCopy: true`）；share 级打码（邮箱、CloudFront / ELB / API Gateway / EC2 域名、实例与分发 ID、会话 ID 等），手动备注清空，图表用 `compareModel` 重新生成（不用报告内的 svg） |
+| P11 / P11-D | `sessions/` | 列表：状态 / 卡片筛选走服务端，时间范围 `?range=` 在前端，概览，加载更多；详情页签 时间线 / 资源 / 费用 / 平台动作 / 审计（`?tab=`），时间线按页读事件（最多 25 × 200 条，截断提示）；观察者打开学员 / 助教专属页签时页内说明 |
+| P13 | `errors/` | `NotFoundPage`（显示路径 + 两个出口）、`Missing`（会话 / 证书不存在）、`InlineProblem`（就地错误 + 重试倒计时） |
+
+`public-pages/build.mjs`（vite 程序化构建，不读 vite.config）→ `public-pages/dist/`（被 .gitignore 忽略）：`verify/{index.html,verify.js,verify.css}`、
+`share/render-share.mjs`（ESM，导出 `renderShareHtml` / `shareReportJson`）、`share/sample/`；构建后检查没有内联脚本、style 属性与外部地址。
+
+### 2. 如何运行
+
+```bash
+npm run test -w @atl/web            # 本组测试在 src/pages/{experiments,end,manual,report,share,certificates,verify,sessions,errors}
+node platform/web/public-pages/build.mjs
+node platform/web/public-pages/build.mjs --share <report.json> --out <dir> [--published-at ISO] [--expires-at ISO|none]
+```
+
+### 3. 自测结果（2026-10-14）
+
+| 自测 | 结果 |
+|---|---|
+| `tsc -p platform/web`、`npm run build -w @atl/web`、`node platform/web/public-pages/build.mjs` | 通过；verify.js 18.9 KB、render-share.mjs 32.4 KB |
+| `npx eslint .`（platform/web） | 0 个问题 |
+| `npm run test -w @atl/web` | 37 个文件 452 个测试通过；本组 11 个文件 86 个 |
+| 模拟 API 的临时入口（与 App 相同的框架）+ 系统 Chrome 无头 | 23 个画面状态 × 亮 / 暗 / 375px：无横向滚动、无控制台错误（只有临时入口没有 favicon 的 404）、组件不写 style 属性 |
+| 验证页与分享副本（本机静态服务器模拟 CloudFront 的 verify/ 改写与 CSP 头，现签证书） | 有效、已吊销、未公开 → 粘贴、篡改、无输入、报告摘要一致 / 不一致、打码、暗色、375px、CSP 下无报错；19/20（余下 1 条是未公开证书预期的 403 控制台记录） |
+| 真实 API（本机 dev-server，svc-storage 开始 → 结束 / 保留） | 13 个画面经真实 API 渲染；发现并修复：发布内容中步骤的检查可以是 `{ref, required, as}`，原实现只认字符串，报告页崩溃 |
+
+### 4. 偏离设计与取舍
+
+1. 页面放在 `src/pages/<area>/`（08 §2.6 写 `src/features/*`）；`routeTable.ts` 不在本组范围，仍指向脚手架的桩。
+2. P09-V 与分享副本不进 atl-web.zip（与 platform-web-scaffold 第 4 节第 8 条一致），单独构建后交给 atl-certs 发布；发布路径与 `static-site.ts` 相同，
+   另加 `verify/verify.css`（infra 的验证页 CSP 没有 style-src，内联 `<style>` 会被拦）。
+3. 验证页不做 API 交叉核对（公开页不访问 API）；“来源不符”（issuer.origin 既不在 jwks.origins 也不是本页来源）单列为一种结果；不支持 WebCrypto 时提示改用离线验证包。
+4. 导出只有“打码 / 不打码”：API 只接受 `mask=on|off`，账号 ID 与公网 IP 不能分开，08 的“隐藏手动备注”“包含历史”不显示。
+5. 报告页只显示最新版（getReport 不支持 `?version=`，§9.2 #12）；正文取自会话数据，完整报告用下载的 HTML。
+6. P11 列表的“尝试结果”“费用”列显示“—”（列表项没有 attemptStatus / 费用，§9.2 #15）；时间范围筛选在前端。
+7. P07-M 的会话分组标题逐个 getSession 取得（清单条目没有 labId 与会话时间）。
+8. 分享副本用本组的打码器与重新生成的图表，没有用 api 的 `renderReportHtml(…, { share: true })`；两者需要择一（见第 5 节）。
+9. 结束阶段：没有 `end.workstation-down` 等记录时，后面的阶段已开始即视为完成。实验命令格式 `npm run exp -- <module> <id> --label <label> --upload`。
+10. 没有 Storybook、axe-core、user-event（缺依赖），组件状态由 RTL 测试与无头 Chrome 覆盖。
+
+### 5. 需要别人配合
+
+- **web 集成**：`routeTable.ts` 改为 `pages/sessions/{SessionsPage,SessionDetailPage}`、`pages/end/EndPage`、`pages/report/ReportPage`、`pages/experiments/ExperimentPage`、
+  `pages/manual/ManualResourcesPage`、`pages/certificates/{CertificatesPage,CertificateDetailPage}`（default export），`*` → `pages/errors/NotFoundPage`，删除对应桩；
+  package.json 增加 `build:public`（`node public-pages/build.mjs`）并在打包时执行。
+- **atl-certs / api**：`publishVerifyPage` 发布构建产物 `verify/index.html`、`verify.js`、`verify.css`（替换 `verifyPageHtml` / `VERIFY_PAGE_JS`）；CreateShare 改用
+  `render-share.mjs`（或保留 `renderReportHtml`，则删除本组的分享渲染）；getReport `?version=`；listSessions 带 attemptStatus 与费用；manual 条目带 labId 与会话时间；
+  resolve 的结果事件；导出时账号 ID 与 IP 分开打码。
+- **infra**：WebDeploy 把 `verify/` 与 `share/` 列为受保护前缀。
+
+### 6. 依赖
+
+没有新增依赖。
