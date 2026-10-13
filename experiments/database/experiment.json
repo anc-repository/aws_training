@@ -1,0 +1,119 @@
+{
+  "$schema": "../_lib/schema/experiment.schema.json",
+  "module": "database",
+  "title": "database：SQLite / 自建 PostgreSQL / RDS（docs/modules/03-data-storage.md#database 第 5 节）",
+  "default": "mixed-rw",
+  "experiments": [
+    {
+      "module": "database",
+      "id": "mixed-rw",
+      "title": "混合读写：时间线读 + 发评论 / 建相册，事件循环延迟与长尾",
+      "kind": "before-after",
+      "doc": "docs/modules/03-data-storage.md#database",
+      "description": "先用 node dist/cli.js lab:seed 准备数据。--vus 10,50,200 依次跑三个并发阶段；sqlite（before）、自建 PG（selfhost）、RDS（after）各一次。",
+      "requires": {
+        "before": { "database.driver": "sqlite" },
+        "selfhost": { "database.driver": "postgres", "database.status": "off" },
+        "after": { "database.driver": "postgres", "database.status": ["ok", "degraded"] }
+      },
+      "labels": {
+        "before": { "title": "SQLite（EBS 文件）", "role": "baseline" },
+        "selfhost": { "title": "EC2 自建 PostgreSQL（本地档）", "role": "treatment" },
+        "after": { "title": "Amazon RDS for PostgreSQL", "role": "treatment" }
+      },
+      "scenario": { "tool": "node", "script": "mixed-rw.ts", "vus": 10, "duration": "60s", "warmup": "10s" },
+      "params": {
+        "writeRatio": { "type": "number", "default": 0.3, "min": 0, "max": 1, "description": "写请求占比（发评论、建相册）" },
+        "commentShare": { "type": "number", "default": 0.25, "min": 0, "max": 1, "description": "写请求中评论的占比（评论按用户限速，超限的 429 单独计数）" }
+      },
+      "metrics": [
+        "client.http_req_duration{route:/api/feed}.p50",
+        "client.http_req_duration{route:/api/feed}.p95",
+        "client.http_req_duration{route:POST /api/albums}.p95",
+        "client.timing.database.p95",
+        "client.timing.database.calls_per_request",
+        "host.event_loop_delay.p99",
+        "host.cpu.p95",
+        "client.error_rate"
+      ],
+      "expect": [
+        { "metric": "host.event_loop_delay.p99", "direction": "down", "note": "SQLite 同步驱动在事件循环上执行查询；PG / RDS 是异步 I/O，不阻塞事件循环" },
+        { "metric": "client.timing.database.p95", "direction": "up-or-flat", "note": "低负载时 RDS 每次查询多一次网络往返（亚毫秒到毫秒级），不要指望“换成 RDS 就变快”" },
+        { "metric": "client.error_rate", "direction": "down-or-flat", "note": "高并发写时 SQLite 可能出现 busy 等待（跨进程时）" }
+      ]
+    },
+    {
+      "module": "database",
+      "id": "failover",
+      "title": "故障转移：每 200 ms 写一行再读回，记录写失败区间",
+      "kind": "fault",
+      "doc": "docs/modules/03-data-storage.md#database",
+      "description": "after：RDS 以 MultiAz=true 部署，第 30 秒在运维机上执行 faults/rds-failover.sh（aws rds reboot-db-instance --force-failover，需要 DB_INSTANCE_ID 与部署者凭证）。before：第 30 秒重启 api 作为基线。",
+      "requires": {
+        "before": { "database.driver": "sqlite" },
+        "selfhost": { "database.driver": "postgres", "database.status": "off" },
+        "after": { "database.driver": "postgres", "database.status": ["ok", "degraded"] }
+      },
+      "scenario": { "tool": "node", "script": "failover.ts", "vus": 1, "duration": "180s" },
+      "params": {
+        "intervalMs": { "type": "number", "default": 200, "min": 50, "max": 5000 }
+      },
+      "faults": [
+        { "at": "30s", "script": "faults/restart-api.sh", "onlyFor": ["before", "selfhost"], "description": "systemctl restart cloudalbum-api（基线：整站短暂不可用）" },
+        { "at": "30s", "script": "faults/rds-failover.sh", "via": "local", "onlyFor": ["after"], "description": "aws rds reboot-db-instance --force-failover（运维机执行）" }
+      ],
+      "metrics": ["scenario.longestOutageMs", "scenario.failures", "scenario.attempts", "biz.write_outage_ms"],
+      "expect": [
+        { "metric": "scenario.longestOutageMs", "direction": "nonzero", "note": "两档都有写失败区间：RDS Multi-AZ 自动切换（通常一两分钟量级），应用丢弃坏连接后自动恢复；SQLite 跟着进程 / 实例一起停摆" }
+      ]
+    },
+    {
+      "module": "database",
+      "id": "replica-read",
+      "title": "只读副本：GET /api/feed 交替带 / 不带 X-Compare-Bypass: replica",
+      "kind": "runtime-ab",
+      "doc": "docs/modules/03-data-storage.md#database",
+      "description": "需要 CreateReadReplica=true。A = 旁路（只读查询改走主库），B = 正常（走副本）。",
+      "requires": {
+        "after": { "database.driver": "postgres", "database.status": ["ok", "degraded"] }
+      },
+      "ab": { "bypass": "replica", "note": "A = 主库，B = 只读副本" },
+      "scenario": { "tool": "node", "script": "replica-read.ts", "vus": 10, "duration": "60s", "warmup": "10s" },
+      "metrics": ["client.http_req_duration{route:/api/feed}.p95", "client.timing.database.p95", "client.outcome_ratio.database.replica"],
+      "expect": [
+        { "metric": "client.outcome_ratio.database.replica", "direction": "up", "note": "B 变体的路径头为 database=postgres@rds:replica" }
+      ]
+    },
+    {
+      "module": "database",
+      "id": "replica-lag",
+      "title": "复制滞后：主库写入后立即从副本读，统计读不到的比例",
+      "kind": "functional",
+      "doc": "docs/modules/03-data-storage.md#database",
+      "requires": {
+        "after": { "database.driver": "postgres", "database.status": ["ok", "degraded"] }
+      },
+      "scenario": { "tool": "node", "script": "replica-lag.ts", "vus": 1, "duration": "60s" },
+      "params": {
+        "intervalMs": { "type": "number", "default": 200, "min": 20, "max": 10000 }
+      },
+      "metrics": ["scenario.notVisibleRatio", "scenario.lagMsP95"]
+    },
+    {
+      "module": "database",
+      "id": "conn-storm",
+      "title": "连接数：逐步调大 DB_POOL_MAX 与进程数，直到 too many connections",
+      "kind": "fault",
+      "doc": "docs/modules/03-data-storage.md#database",
+      "scenario": { "tool": "manual" }
+    },
+    {
+      "module": "database",
+      "id": "pitr",
+      "title": "时间点恢复：restore-db-instance-to-point-in-time 到新实例并比对行数",
+      "kind": "functional",
+      "doc": "docs/modules/03-data-storage.md#database",
+      "scenario": { "tool": "manual" }
+    }
+  ]
+}

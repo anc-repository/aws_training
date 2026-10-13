@@ -1,0 +1,13 @@
+{
+  "//": "测试与场景脚本的类型检查（不输出）：npm run typecheck -w @cloudalbum/experiments。@cloudalbum/contracts 解析到已构建的 dist（先 npm run build）。",
+  "extends": "../tsconfig.base.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "composite": false,
+    "declaration": false,
+    "declarationMap": false,
+    "sourceMap": false
+  },
+  "include": ["_lib/**/*.ts", "*/**/*.ts", "test/**/*.ts"],
+  "exclude": ["dist", "node_modules", "_results", "_reports"]
+}

@@ -1,0 +1,137 @@
+{
+  "$schema": "../_lib/schema/experiment.schema.json",
+  "module": "auth",
+  "title": "auth：有 / 无 Cognito User Pool（docs/modules/02-identity-security.md#auth 第 5 节）",
+  "default": "login-storm",
+  "experiments": [
+    {
+      "module": "auth",
+      "id": "login-storm",
+      "title": "登录压力：登录接口 p50 / p95、EC2 CPU（argon2）、已认证请求的 auth 段耗时",
+      "kind": "before-after",
+      "doc": "docs/modules/02-identity-security.md#auth",
+      "description": "测试账号由 scripts/admin seed-users 预先创建，--param users=<csv>（每行 email,password）或 EXP_USERS_FILE。local：POST /api/auth/login；cognito：浏览器直连 User Pool，脚本用 InitiateAuth（USER_PASSWORD_AUTH，App Client 需允许该流程）模拟。每次登录后用拿到的令牌请求一次 GET /api/me，统计 Server-Timing 的 auth 段。",
+      "requires": {
+        "before": { "auth.driver": "local" },
+        "after": { "auth.driver": "cognito", "auth.status": ["ok", "degraded"] }
+      },
+      "labels": {
+        "before": { "title": "本地账号（argon2id + ES256）", "role": "baseline" },
+        "after": { "title": "Amazon Cognito User Pool", "role": "treatment" }
+      },
+      "scenario": { "tool": "node", "script": "login-storm.ts", "vus": 10, "duration": "60s" },
+      "params": {
+        "users": { "type": "string", "default": "", "description": "测试账号 CSV（email,password）；缺省用 EXP_USERS_FILE，再缺省用管理员账号（会很快触发限速）" },
+        "verify": { "type": "boolean", "default": true, "description": "登录后用令牌请求 GET /api/me" }
+      },
+      "metrics": [
+        "client.http_req_duration{route:POST /api/auth/login}.p50",
+        "client.http_req_duration{route:POST /api/auth/login}.p95",
+        "client.http_req_duration{route:POST cognito:InitiateAuth}.p95",
+        "client.timing.auth.p95",
+        "host.cpu.p95",
+        "scenario.rateLimited",
+        "scenario.loginFailures"
+      ],
+      "expect": [
+        { "metric": "host.cpu.p95", "direction": "down", "note": "local 档登录的 argon2 哈希消耗 EC2 CPU；cognito 档 EC2 基本不受登录压力影响" }
+      ]
+    },
+    {
+      "module": "auth",
+      "id": "token-claims",
+      "title": "Token 声明：alg / iss / token_use / client_id / 组，以及 JWKS",
+      "kind": "functional",
+      "doc": "docs/modules/02-identity-security.md#auth",
+      "requires": {
+        "before": { "auth.driver": "local" },
+        "after": { "auth.driver": "cognito" }
+      },
+      "scenario": { "tool": "node", "script": "token-claims.ts", "vus": 1, "duration": "10s" },
+      "params": {
+        "user": { "type": "string", "default": "", "description": "email:password（缺省：检查运行器自己的管理员令牌）" }
+      },
+      "metrics": ["scenario.lifetimeSec", "scenario.jwks.keys"]
+    },
+    {
+      "module": "auth",
+      "id": "feature-matrix",
+      "title": "功能矩阵：MFA、托管登录、密码策略、F1～F4 / F12 子功能的提供方",
+      "kind": "functional",
+      "doc": "docs/modules/02-identity-security.md#auth",
+      "requires": {
+        "before": { "auth.driver": "local" },
+        "after": { "auth.driver": "cognito" }
+      },
+      "scenario": { "tool": "node", "script": "feature-matrix.ts", "vus": 1, "duration": "5s" },
+      "metrics": ["scenario.enabledFeatures"]
+    },
+    {
+      "module": "auth",
+      "id": "cloc",
+      "title": "自写代码量：本地实现与 Cognito 适配器的行数（不含空行与注释）",
+      "kind": "functional",
+      "doc": "docs/modules/02-identity-security.md#auth",
+      "scenario": { "tool": "node", "script": "cloc.ts", "offline": true },
+      "metrics": ["scenario.local.code", "scenario.cognito.code"]
+    },
+    {
+      "module": "auth",
+      "id": "brute-force",
+      "title": "暴力破解：对测试账号连续提交错误密码，记录响应码序列",
+      "kind": "before-after",
+      "doc": "docs/modules/02-identity-security.md#auth",
+      "requires": {
+        "before": { "auth.driver": "local" },
+        "after": { "auth.driver": "cognito" }
+      },
+      "scenario": { "tool": "node", "script": "brute-force.ts", "vus": 1, "duration": "120s" },
+      "params": {
+        "email": { "type": "string", "default": "victim@example.test", "description": "被测试账号（不要用管理员）" },
+        "attempts": { "type": "number", "default": 30, "min": 1, "max": 500 },
+        "intervalMs": { "type": "number", "default": 200, "min": 0, "max": 60000 }
+      },
+      "metrics": ["scenario.firstRejectAttempt", "scenario.accepted"]
+    },
+    {
+      "module": "auth",
+      "id": "revoke",
+      "title": "撤销：登出后旧 access token 还能用多久",
+      "kind": "before-after",
+      "doc": "docs/modules/02-identity-security.md#auth",
+      "description": "必须用测试账号（--param user=email:password）：登出会让该账号的所有令牌失效，不能用运行器自己的管理员账号。",
+      "requires": {
+        "before": { "auth.driver": "local" },
+        "after": { "auth.driver": "cognito" }
+      },
+      "scenario": { "tool": "node", "script": "revoke.ts", "vus": 1, "duration": "16m" },
+      "params": {
+        "user": { "type": "string", "default": "", "description": "email:password（测试账号）" },
+        "intervalSec": { "type": "number", "default": 30, "min": 1, "max": 600 }
+      },
+      "metrics": ["scenario.stillValidMs", "scenario.rejected"],
+      "expect": [
+        { "metric": "scenario.stillValidMs", "direction": "up", "note": "local：tv 检查让旧 access token 立即失效；cognito：本地验签的 access token 在过期前仍然有效" }
+      ]
+    },
+    {
+      "module": "auth",
+      "id": "cross-instance",
+      "title": "跨实例：经 ALB 反复请求，按 inst= 段统计各实例的认证成功率",
+      "kind": "functional",
+      "doc": "docs/modules/02-identity-security.md#auth",
+      "requires": {
+        "before": { "auth.driver": "local" },
+        "after": { "auth.driver": "cognito" }
+      },
+      "scenario": { "tool": "node", "script": "cross-instance.ts", "vus": 4, "duration": "60s" },
+      "params": {
+        "n": { "type": "number", "default": 200, "min": 1, "max": 100000 }
+      },
+      "metrics": ["scenario.successRate", "scenario.instanceCount"],
+      "expect": [
+        { "metric": "scenario.successRate", "direction": "up-or-flat", "note": "local 档要求共享签名密钥与数据库（ASG-007、ASG-002/003）；cognito 无状态，任何实例都能校验" }
+      ]
+    }
+  ]
+}

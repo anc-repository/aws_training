@@ -6,7 +6,21 @@
     "outDir": "dist",
     "tsBuildInfoFile": "dist/.tsbuildinfo"
   },
-  "include": ["_lib/**/*.ts", "*/**/*.ts"],
-  "exclude": ["dist", "node_modules", "_results", "_reports", "**/*.test.ts"],
-  "references": [{ "path": "../packages/contracts" }]
+  "include": [
+    "_lib/**/*.ts",
+    "*/**/*.ts"
+  ],
+  "exclude": [
+    "dist",
+    "node_modules",
+    "_results",
+    "_reports",
+    "test",
+    "**/*.test.ts"
+  ],
+  "references": [
+    {
+      "path": "../packages/contracts"
+    }
+  ]
 }

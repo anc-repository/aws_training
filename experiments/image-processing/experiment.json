@@ -1,0 +1,130 @@
+{
+  "$schema": "../_lib/schema/experiment.schema.json",
+  "module": "image-processing",
+  "title": "image-processing：有 / 无 Lambda（docs/modules/04-compute-async.md#image-processing 第 5 节）",
+  "default": "upload-burst",
+  "experiments": [
+    {
+      "module": "image-processing",
+      "id": "upload-burst",
+      "title": "上传突发（4000×3000 JPEG）：complete 延迟、缩略图就绪时间、EC2 CPU",
+      "kind": "before-after",
+      "doc": "docs/modules/04-compute-async.md#image-processing",
+      "description": "inline → worker（memory / sqs）→ lambda 各跑一次；--ab（仅 after）用 X-Compare-Bypass: image 让一半照片在 API 进程内当场处理，Lambda 随后的结果被幂等忽略。",
+      "requires": {
+        "before": { "image-processing.driver": "inline" },
+        "worker-memory": { "image-processing.driver": "worker", "queue.driver": "memory" },
+        "worker-sqs": { "image-processing.driver": "worker", "queue.driver": "sqs" },
+        "after": { "image-processing.driver": "lambda", "image-processing.status": ["ok", "degraded"], "storage.driver": "s3" }
+      },
+      "labels": {
+        "before": { "title": "inline（API 进程内同步）", "role": "baseline" },
+        "worker-memory": { "title": "worker + memory 队列（本地档）", "role": "treatment" },
+        "worker-sqs": { "title": "worker + SQS（本地档）", "role": "treatment" },
+        "after": { "title": "AWS Lambda", "role": "treatment" }
+      },
+      "ab": { "bypass": "image", "note": "A = 本次上传在 API 进程内同步处理，B = 正常（Lambda）" },
+      "scenario": { "tool": "node", "script": "upload-burst.ts", "vus": 20, "duration": "60s", "warmup": "10s" },
+      "params": {
+        "width": { "type": "number", "default": 4000, "min": 16, "max": 8000 },
+        "height": { "type": "number", "default": 3000, "min": 16, "max": 8000 },
+        "count": { "type": "number", "default": 0, "min": 0, "max": 5000, "description": "上传张数上限（0 = 直到时长用尽）" },
+        "drainTimeoutSec": { "type": "number", "default": 300, "min": 1, "max": 3600 },
+        "feedRps": { "type": "number", "default": 0, "min": 0, "max": 100, "description": "同时以该速率读时间线（邻居流量）" }
+      },
+      "metrics": [
+        "client.http_req_duration{route:/api/photos/complete}.p50",
+        "client.http_req_duration{route:/api/photos/complete}.p95",
+        "client.timing.image-processing.p95",
+        "biz.photo_time_to_ready.p50",
+        "biz.photo_time_to_ready.p95",
+        "biz.photo_time_to_ready.max",
+        "biz.cold_starts",
+        "host.cpu.p95",
+        "host.event_loop_delay.p99",
+        "biz.jobs_lost"
+      ],
+      "expect": [
+        { "metric": "client.http_req_duration{route:/api/photos/complete}.p95", "direction": "down", "note": "inline 的接口耗时 = sharp 处理时间（数百毫秒到秒级）；worker / lambda 只含入队或一次数据库更新" },
+        { "metric": "host.cpu.p95", "direction": "down", "note": "lambda 档 EC2 CPU 几乎不动（只处理回调）；worker 档 CPU 仍被打满，只是换了进程" },
+        { "metric": "biz.jobs_lost", "direction": "zero", "note": "所有照片都应在排空时限内 READY" }
+      ]
+    },
+    {
+      "module": "image-processing",
+      "id": "neighbor",
+      "title": "邻居影响：上传突发期间以 5 rps 读时间线，看 GET /api/feed 的 p95",
+      "kind": "before-after",
+      "doc": "docs/modules/04-compute-async.md#image-processing",
+      "requires": {
+        "before": { "image-processing.driver": "inline" },
+        "worker-memory": { "image-processing.driver": "worker", "queue.driver": "memory" },
+        "worker-sqs": { "image-processing.driver": "worker", "queue.driver": "sqs" },
+        "after": { "image-processing.driver": "lambda", "image-processing.status": ["ok", "degraded"], "storage.driver": "s3" }
+      },
+      "scenario": { "tool": "node", "script": "neighbor.ts", "vus": 20, "duration": "60s", "warmup": "10s" },
+      "params": {
+        "width": { "type": "number", "default": 4000, "min": 16, "max": 8000 },
+        "height": { "type": "number", "default": 3000, "min": 16, "max": 8000 },
+        "feedRps": { "type": "number", "default": 5, "min": 0.1, "max": 100 },
+        "drainTimeoutSec": { "type": "number", "default": 300, "min": 1, "max": 3600 }
+      },
+      "metrics": [
+        "client.http_req_duration{route:/api/feed}.p95",
+        "client.http_req_duration{route:/api/feed}.p99",
+        "client.http_req_duration{route:/api/photos/complete}.p95",
+        "host.cpu.p95",
+        "host.event_loop_delay.p99"
+      ],
+      "expect": [
+        { "metric": "client.http_req_duration{route:/api/feed}.p95", "direction": "down", "note": "inline 下浏览接口一起变慢到秒级；worker+sqs 因 CPUWeight / Nice 明显减轻；lambda 基本不受影响" }
+      ]
+    },
+    {
+      "module": "image-processing",
+      "id": "failures",
+      "title": "失败路径：损坏的 JPEG 应很快变成 FAILED（永久错误，不重试）",
+      "kind": "functional",
+      "doc": "docs/modules/04-compute-async.md#image-processing",
+      "requires": {
+        "before": { "image-processing.driver": "inline" },
+        "worker-memory": { "image-processing.driver": "worker", "queue.driver": "memory" },
+        "worker-sqs": { "image-processing.driver": "worker", "queue.driver": "sqs" },
+        "after": { "image-processing.driver": "lambda", "image-processing.status": ["ok", "degraded"] }
+      },
+      "scenario": { "tool": "node", "script": "failures.ts", "vus": 1, "duration": "120s" },
+      "params": {
+        "count": { "type": "number", "default": 1, "min": 1, "max": 50 },
+        "timeoutSec": { "type": "number", "default": 120, "min": 5, "max": 1800 }
+      },
+      "metrics": ["scenario.failed", "scenario.notFailed", "scenario.timeToFailedMsP95"],
+      "expect": [
+        { "metric": "scenario.notFailed", "direction": "zero", "note": "永久错误直接回写 FAILED，不进失败队列、不重试" }
+      ]
+    },
+    {
+      "module": "image-processing",
+      "id": "cold-start",
+      "title": "冷启动：闲置 15 分钟后上传 1 张、再连续 5 张，用 Logs Insights 查 Init Duration",
+      "kind": "functional",
+      "doc": "docs/modules/04-compute-async.md#image-processing",
+      "scenario": { "tool": "manual" }
+    },
+    {
+      "module": "image-processing",
+      "id": "throttle",
+      "title": "限流：预留并发设为 0（暂停）再恢复，观察 Throttles 与异步队列重试",
+      "kind": "fault",
+      "doc": "docs/modules/04-compute-async.md#image-processing",
+      "scenario": { "tool": "manual" }
+    },
+    {
+      "module": "image-processing",
+      "id": "cost",
+      "title": "费用：按 REPORT 日志的计费时长与内存计算每千张图片的费用（单价由学员填入）",
+      "kind": "functional",
+      "doc": "docs/modules/04-compute-async.md#image-processing",
+      "scenario": { "tool": "manual" }
+    }
+  ]
+}

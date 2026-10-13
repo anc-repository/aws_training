@@ -1,0 +1,133 @@
+{
+  "$schema": "../_lib/schema/experiment.schema.json",
+  "module": "cdn",
+  "title": "cdn：有 / 无 CloudFront（docs/modules/01-edge-network-scaling.md#cdn 第 5 节）",
+  "default": "ttfb",
+  "experiments": [
+    {
+      "module": "cdn",
+      "id": "ttfb",
+      "title": "首字节时间：直连 EC2 与经 CloudFront 各请求 N 次（每次新建连接）",
+      "kind": "runtime-ab",
+      "doc": "docs/modules/01-edge-network-scaling.md#cdn",
+      "description": "按 URL 的 A/B：两条路径同时在线（CDN_ORIGIN_DIRECT_URL 直连、CDN_BASE_URL 经 CloudFront），脚本分别请求。在 us-east-1、eu-west-1、ap-southeast-2、ap-northeast-1 的 CloudShell 各跑一次（--upload）。直连地址需要 CDN_DIRECT_ACCESS=open 或 admin-ip 包含实验机。",
+      "requires": {
+        "before": { "cdn.driver": "direct" },
+        "after": { "cdn.driver": "cloudfront", "cdn.status": ["ok", "degraded"] }
+      },
+      "scenario": { "tool": "node", "script": "ttfb.ts", "vus": 1, "duration": "120s" },
+      "params": {
+        "samples": { "type": "number", "default": 20, "min": 1, "max": 500, "description": "每条路径的请求次数" },
+        "path": { "type": "string", "default": "", "description": "被测资源（缺省：首页引用的第一个 /assets/*.js）" },
+        "direct": { "type": "string", "default": "", "description": "直连源站基址（缺省：capabilities 中的 originDirectUrl 或 --target）" },
+        "cdn": { "type": "string", "default": "", "description": "CloudFront 基址（缺省：capabilities 中 cdn 的 baseUrl）" }
+      },
+      "metrics": [
+        "scenario.direct.ttfbP50",
+        "scenario.direct.ttfbP95",
+        "scenario.cdn.ttfbP50",
+        "scenario.cdn.ttfbP95",
+        "scenario.cdn.hitRatio",
+        "scenario.cdnVsDirectTtfbRatio"
+      ],
+      "expect": [
+        { "metric": "scenario.cdnVsDirectTtfbRatio", "direction": "down", "note": "远离源站的区域命中缓存时，首字节从数百毫秒降到数十毫秒；在源站区域内两者差别很小" }
+      ]
+    },
+    {
+      "module": "cdn",
+      "id": "media-load",
+      "title": "源站负载：每次迭代加载相册 JSON + 30 张缩略图 + 1 张展示图",
+      "kind": "runtime-ab",
+      "doc": "docs/modules/01-edge-network-scaling.md#cdn",
+      "description": "target=both 时奇数次迭代用 X-Compare-Bypass: cdn 取源站 URL（直连），偶数次用 CDN URL；也可以 target=direct / target=cdn 各跑 5 分钟。观察 /lab 的源站负载面板与结果中的 server.origin。",
+      "requires": {
+        "before": { "cdn.driver": "direct" },
+        "after": { "cdn.driver": "cloudfront", "cdn.status": ["ok", "degraded"] }
+      },
+      "scenario": { "tool": "node", "script": "media-load.ts", "vus": 5, "duration": "300s", "warmup": "20s" },
+      "params": {
+        "target": { "type": "string", "default": "both", "enum": ["both", "direct", "cdn"] },
+        "thumbs": { "type": "number", "default": 30, "min": 1, "max": 100 },
+        "scope": { "type": "string", "default": "public", "enum": ["public", "mine"] },
+        "direct": { "type": "string", "default": "" },
+        "cdn": { "type": "string", "default": "" }
+      },
+      "metrics": [
+        "server.origin.requests",
+        "server.origin.via_cloudfront",
+        "server.origin.direct",
+        "host.net_tx_bytes",
+        "host.cpu.p95",
+        "scenario.cdn.hitRatio"
+      ],
+      "expect": [
+        { "metric": "host.net_tx_bytes", "direction": "down", "note": "命中率提高后，源站请求数和 EC2 出网字节基本只剩回源那部分" }
+      ]
+    },
+    {
+      "module": "cdn",
+      "id": "origin-requests",
+      "title": "源站请求统计：最近 15 分钟按“是否经 CloudFront”拆分（Nginx 访问日志 → lab_origin_samples）",
+      "kind": "functional",
+      "doc": "docs/modules/01-edge-network-scaling.md#cdn",
+      "requires": {
+        "before": { "cdn.driver": "direct" },
+        "after": { "cdn.driver": "cloudfront" }
+      },
+      "scenario": { "tool": "node", "script": "origin-requests.ts", "vus": 1, "duration": "10s" },
+      "params": {
+        "windowMin": { "type": "number", "default": 15, "min": 1, "max": 1440 }
+      },
+      "metrics": ["scenario.requests", "scenario.viaCloudfront", "scenario.direct", "scenario.bytes"]
+    },
+    {
+      "module": "cdn",
+      "id": "api-nocache",
+      "title": "动态 API：/api/lab/now 两次都 Miss；/api/public/now 在 s-maxage 内第二次 Hit",
+      "kind": "functional",
+      "doc": "docs/modules/01-edge-network-scaling.md#cdn",
+      "requires": {
+        "after": { "cdn.driver": "cloudfront", "cdn.status": ["ok", "degraded"] }
+      },
+      "scenario": { "tool": "node", "script": "api-nocache.ts", "vus": 1, "duration": "30s" },
+      "params": {
+        "samples": { "type": "number", "default": 5, "min": 1, "max": 100 },
+        "direct": { "type": "string", "default": "" },
+        "cdn": { "type": "string", "default": "" }
+      },
+      "metrics": ["scenario.labNow.cached", "scenario.publicNow.cached", "scenario.labNowTtfb.cdnP50", "scenario.labNowTtfb.directP50"],
+      "expect": [
+        { "metric": "scenario.labNow.cached", "direction": "zero", "note": "认证 API（private, no-store）永远是 Miss，两次时间戳不同" }
+      ]
+    },
+    {
+      "module": "cdn",
+      "id": "compression",
+      "title": "压缩：主 JS、CSS 与一个 API JSON 在两条路径上的 Content-Encoding 与传输字节",
+      "kind": "functional",
+      "doc": "docs/modules/01-edge-network-scaling.md#cdn",
+      "requires": {
+        "before": { "cdn.driver": "direct" },
+        "after": { "cdn.driver": "cloudfront", "cdn.status": ["ok", "degraded"] }
+      },
+      "scenario": { "tool": "node", "script": "compression.ts", "vus": 1, "duration": "30s" },
+      "params": {
+        "direct": { "type": "string", "default": "" },
+        "cdn": { "type": "string", "default": "" }
+      },
+      "metrics": ["scenario.totalBytes.direct", "scenario.totalBytes.cdn"],
+      "expect": [
+        { "metric": "scenario.totalBytes.cdn", "direction": "down-or-flat", "note": "直连返回 gzip，CloudFront 对 JS / CSS 返回 br，传输字节更少；图片大小不变" }
+      ]
+    },
+    {
+      "module": "cdn",
+      "id": "invalidation",
+      "title": "缓存失效：覆盖同名缩略图 → TTL 内仍是旧图 → 创建失效 / 版本化键",
+      "kind": "functional",
+      "doc": "docs/modules/01-edge-network-scaling.md#cdn",
+      "scenario": { "tool": "manual" }
+    }
+  ]
+}

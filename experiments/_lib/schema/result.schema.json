@@ -1,0 +1,159 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://cloudalbum.local/schema/result.schema.json",
+  "title": "CloudAlbum experiment result (experiments/_results/<module>/<UTC>__<label>__<runId>.json)",
+  "description": "总纲 §8.2 的结果 JSON。--upload 时原样 POST /api/lab/results。",
+  "type": "object",
+  "required": [
+    "schemaVersion", "runId", "module", "experiment", "label", "forced", "startedAt", "finishedAt",
+    "target", "params", "environment", "client", "server", "faults", "notes"
+  ],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "runId": { "type": "string", "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$" },
+    "module": { "type": "string", "pattern": "^[a-z][a-z0-9-]{0,47}$" },
+    "experiment": { "type": "string", "pattern": "^[a-z][a-z0-9-]{0,47}$" },
+    "label": { "type": "string", "pattern": "^[a-z][a-z0-9-]{0,23}$" },
+    "variant": { "type": "string" },
+    "forced": { "type": "boolean" },
+    "startedAt": { "type": "string", "format": "date-time" },
+    "finishedAt": { "type": "string", "format": "date-time" },
+    "target": { "type": "string" },
+    "params": {
+      "type": "object",
+      "required": ["vus", "duration", "repeat", "ab"],
+      "properties": {
+        "vus": { "anyOf": [{ "type": "integer", "minimum": 1 }, { "type": "array", "items": { "type": "integer", "minimum": 1 } }] },
+        "duration": { "type": "string" },
+        "warmup": { "type": "string" },
+        "repeat": { "type": "integer", "minimum": 1 },
+        "ab": { "type": "boolean" },
+        "extra": { "type": "object" }
+      }
+    },
+    "environment": {
+      "type": "object",
+      "required": ["drivers", "capabilitiesHash"],
+      "properties": {
+        "profile": { "type": "string" },
+        "deployMode": { "type": "string" },
+        "instanceType": { "type": "string" },
+        "region": { "type": "string" },
+        "drivers": { "type": "object", "additionalProperties": { "type": "string" } },
+        "statuses": { "type": "object", "additionalProperties": { "type": "string" } },
+        "capabilitiesHash": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$|^none$" }
+      }
+    },
+    "requiresCheck": {
+      "type": "object",
+      "required": ["label", "ok", "mismatches"],
+      "properties": {
+        "label": { "type": "string" },
+        "ok": { "type": "boolean" },
+        "mismatches": { "type": "array", "items": { "type": "object", "required": ["key"] } }
+      }
+    },
+    "spec": { "type": "object" },
+    "client": { "$ref": "#/definitions/clientSummary" },
+    "server": {
+      "type": "object",
+      "required": ["available", "routes", "ports", "host", "business"],
+      "properties": {
+        "available": { "type": "boolean" },
+        "error": { "type": "string" },
+        "routes": { "type": "object", "additionalProperties": { "$ref": "#/definitions/serverStats" } },
+        "paths": { "type": "object", "additionalProperties": { "$ref": "#/definitions/serverStats" } },
+        "ports": { "type": "object", "additionalProperties": { "$ref": "#/definitions/serverStats" } },
+        "host": { "type": "object", "required": ["samples"], "properties": { "samples": { "type": "integer", "minimum": 0 } } },
+        "origin": { "type": "object" },
+        "business": { "type": "object", "additionalProperties": { "type": "number" } }
+      }
+    },
+    "scenario": { "type": "object", "properties": { "findings": { "type": "object" } } },
+    "repeats": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["index", "startedAt", "finishedAt", "client"],
+        "properties": {
+          "index": { "type": "integer", "minimum": 1 },
+          "startedAt": { "type": "string" },
+          "finishedAt": { "type": "string" },
+          "client": { "$ref": "#/definitions/clientSlice" },
+          "business": { "type": "object", "additionalProperties": { "type": "number" } }
+        }
+      }
+    },
+    "faults": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["at", "via", "exitCode"],
+        "properties": {
+          "at": { "type": "string" },
+          "script": { "type": "string" },
+          "via": { "type": "string" },
+          "exitCode": { "type": ["integer", "null"] },
+          "skipped": { "type": "boolean" }
+        }
+      }
+    },
+    "notes": { "type": "string" },
+    "warnings": { "type": "array", "items": { "type": "string" } },
+    "runner": { "type": "object" }
+  },
+  "definitions": {
+    "latency": {
+      "type": "object",
+      "required": ["count", "errors"],
+      "properties": {
+        "count": { "type": "integer", "minimum": 0 },
+        "errors": { "type": "integer", "minimum": 0 },
+        "p50": { "type": "number" },
+        "p95": { "type": "number" },
+        "p99": { "type": "number" },
+        "max": { "type": "number" },
+        "mean": { "type": "number" }
+      }
+    },
+    "clientSlice": {
+      "type": "object",
+      "required": ["requests", "errors", "latencyMs"],
+      "properties": {
+        "requests": { "type": "integer", "minimum": 0 },
+        "errors": { "type": "integer", "minimum": 0 },
+        "errorRate": { "type": "number" },
+        "latencyMs": { "type": "object", "additionalProperties": { "$ref": "#/definitions/latency" } },
+        "statusCodes": { "type": "object", "additionalProperties": { "type": "integer" } },
+        "serverTiming": { "type": "object" },
+        "paths": { "type": "object", "additionalProperties": { "type": "integer" } },
+        "outcomes": { "type": "object" }
+      }
+    },
+    "clientSummary": {
+      "allOf": [
+        { "$ref": "#/definitions/clientSlice" },
+        {
+          "type": "object",
+          "properties": {
+            "byVariant": { "type": "object", "additionalProperties": { "$ref": "#/definitions/clientSlice" } },
+            "byTarget": { "type": "object", "additionalProperties": { "$ref": "#/definitions/clientSlice" } },
+            "byStage": { "type": "object", "additionalProperties": { "$ref": "#/definitions/clientSlice" } }
+          }
+        }
+      ]
+    },
+    "serverStats": {
+      "type": "object",
+      "required": ["count", "errors"],
+      "properties": {
+        "count": { "type": "number", "minimum": 0 },
+        "errors": { "type": "number", "minimum": 0 },
+        "calls": { "type": "number" },
+        "p50": { "type": "number" },
+        "p95": { "type": "number" },
+        "p99": { "type": "number" }
+      }
+    }
+  }
+}

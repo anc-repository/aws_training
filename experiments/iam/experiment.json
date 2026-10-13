@@ -1,0 +1,107 @@
+{
+  "$schema": "../_lib/schema/experiment.schema.json",
+  "module": "iam",
+  "title": "iam：访问 AWS 的凭证（docs/modules/02-identity-security.md#iam 第 5 节）",
+  "default": "whoami",
+  "experiments": [
+    {
+      "module": "iam",
+      "id": "whoami",
+      "title": "凭证来源对照：none / keys（AKIA，长期）/ role（ASIA，临时）",
+      "kind": "functional",
+      "doc": "docs/modules/02-identity-security.md#iam",
+      "description": "读取 capabilities 的 iam 段、GET /api/lab/iam/whoami（仅管理员，内部 GetCallerIdentity）与 /api/lab/self-check（已加载的 AWS SDK）。业务功能与性能两档相同，差别全在安全属性上。",
+      "requires": {
+        "before": { "iam.driver": "none" },
+        "keys": { "iam.driver": "keys" },
+        "after": { "iam.driver": "role", "iam.status": ["ok", "degraded"] }
+      },
+      "labels": {
+        "before": { "title": "none：应用不调用任何 AWS API", "role": "baseline" },
+        "keys": { "title": "keys：长期访问密钥（反面教材）", "role": "treatment" },
+        "after": { "title": "role：实例配置文件 + IMDSv2 临时凭证", "role": "treatment" }
+      },
+      "pair": ["keys", "after"],
+      "scenario": { "tool": "node", "script": "whoami.ts", "vus": 1, "duration": "10s" },
+      "metrics": ["scenario.longTermKeysOnDisk", "scenario.expiresInSec", "scenario.awsSdkLoaded", "scenario.credentialWarnings"],
+      "expect": [
+        { "metric": "scenario.longTermKeysOnDisk", "direction": "zero", "note": "role 模式不落盘：凭证只存在于 IMDS 与进程内存中（keys 模式触发 CRED-002）" }
+      ]
+    },
+    {
+      "module": "iam",
+      "id": "long-run",
+      "title": "长时间运行：以 1 rps 请求 /api/lab/aws-ping，确认凭证刷新前后错误数为 0",
+      "kind": "functional",
+      "doc": "docs/modules/02-identity-security.md#iam",
+      "requires": {
+        "keys": { "iam.driver": "keys" },
+        "after": { "iam.driver": "role", "iam.status": ["ok", "degraded"] }
+      },
+      "pair": ["keys", "after"],
+      "scenario": { "tool": "node", "script": "aws-ping.ts", "vus": 1, "duration": "6h" },
+      "params": {
+        "rps": { "type": "number", "default": 1, "min": 0.05, "max": 5 }
+      },
+      "metrics": ["scenario.errors", "scenario.requests", "scenario.sts.fail", "scenario.iam.fail"],
+      "expect": [
+        { "metric": "scenario.errors", "direction": "zero", "note": "SDK 在临时凭证过期前自动刷新，业务无感" }
+      ]
+    },
+    {
+      "module": "iam",
+      "id": "revoke",
+      "title": "撤销实验：低速请求 /api/lab/aws-ping，期间停用密钥（keys）或 Revoke sessions（role），看两列何时失败、何时恢复",
+      "kind": "fault",
+      "doc": "docs/modules/02-identity-security.md#iam",
+      "requires": {
+        "keys": { "iam.driver": "keys" },
+        "after": { "iam.driver": "role", "iam.status": ["ok", "degraded"] }
+      },
+      "pair": ["keys", "after"],
+      "scenario": { "tool": "node", "script": "aws-ping.ts", "vus": 1, "duration": "20m" },
+      "params": {
+        "rps": { "type": "number", "default": 1, "min": 0.05, "max": 5 }
+      },
+      "faults": [
+        { "at": "60s", "manual": "keys 模式：aws iam update-access-key --user-name cloudalbum-<env>-demo-keys --access-key-id AKIA… --status Inactive", "onlyFor": ["keys"] },
+        { "at": "60s", "manual": "role 模式：控制台打开 CloudAlbumAppRole → Revoke sessions → Revoke active sessions；几分钟后运行 bash experiments/iam/refresh-role-creds.sh（README）", "onlyFor": ["after"] }
+      ],
+      "metrics": ["scenario.sts.firstFailAtMs", "scenario.iam.firstFailAtMs", "scenario.iam.recoveredAtMs", "scenario.errors"],
+      "expect": [
+        { "metric": "scenario.sts.fail", "direction": "down", "note": "role 模式：iam:GetRole 列开始显式 Deny，而 GetCallerIdentity 列照常成功——它不能用作权限探针；keys 模式两列都失败" }
+      ]
+    },
+    {
+      "module": "iam",
+      "id": "leak-scan",
+      "title": "泄露面扫描：AKIA / ASIA 在磁盘、日志、进程环境、备份中的命中数（在实例上以 root 运行）",
+      "kind": "functional",
+      "doc": "docs/modules/02-identity-security.md#iam",
+      "requires": {
+        "before": { "iam.driver": "none" },
+        "keys": { "iam.driver": "keys" },
+        "after": { "iam.driver": "role" }
+      },
+      "pair": ["keys", "after"],
+      "scenario": { "tool": "shell", "script": "leak-scan.sh", "runsOn": "instance", "offline": true },
+      "metrics": ["scenario.total.akia", "scenario.total.asia", "scenario.locationsWithHits"],
+      "expect": [
+        { "metric": "scenario.total.akia", "direction": "zero", "note": "role 模式扫不到长期凭证；keys 模式能在 secrets.env、同盘本地备份等多处扫出 AKIA" }
+      ]
+    },
+    {
+      "module": "iam",
+      "id": "imds-ssrf",
+      "title": "IMDSv2 与 SSRF：不带会话令牌的 GET 返回 401，PUT 取令牌后才返回角色名（在实例上运行）",
+      "kind": "functional",
+      "doc": "docs/modules/02-identity-security.md#iam",
+      "requires": {
+        "before": { "iam.driver": "none" },
+        "after": { "iam.driver": "role" }
+      },
+      "scenario": { "tool": "shell", "script": "imds-ssrf.sh", "runsOn": "instance", "offline": true },
+      "metrics": ["scenario.getWithoutToken", "scenario.getWithToken"]
+    }
+  ]
+}

@@ -1,0 +1,131 @@
+{
+  "$schema": "../_lib/schema/experiment.schema.json",
+  "module": "cache",
+  "title": "cache：有 / 无 ElastiCache（docs/modules/03-data-storage.md#cache 第 5 节）",
+  "default": "feed-read",
+  "experiments": [
+    {
+      "module": "cache",
+      "id": "feed-read",
+      "title": "时间线读压测：命中与未命中路径的延迟分布、每请求 DB 调用次数",
+      "kind": "runtime-ab",
+      "doc": "docs/modules/03-data-storage.md#cache",
+      "description": "--ab 时同一部署逐请求交替：A = X-Compare-Bypass: cache（不读不写缓存），B = 正常 cache-aside。不加 --ab 时在 none / memory / 自建 Valkey / ElastiCache 四档各跑一次做切换前后对比。",
+      "requires": {
+        "before": { "cache.driver": "none" },
+        "memory": { "cache.driver": "memory" },
+        "selfhost": { "cache.driver": "redis", "cache.status": "off" },
+        "after": { "cache.driver": "redis", "cache.status": ["ok", "degraded"] }
+      },
+      "labels": {
+        "before": { "title": "无缓存（none）", "role": "baseline" },
+        "memory": { "title": "进程内 LRU（本地档）", "role": "treatment" },
+        "selfhost": { "title": "EC2 自建 Valkey（本地档）", "role": "treatment" },
+        "after": { "title": "Amazon ElastiCache", "role": "treatment" }
+      },
+      "ab": { "bypass": "cache", "note": "A = 旁路（相当于没有缓存），B = 正常" },
+      "scenario": { "tool": "node", "script": "feed-read.ts", "vus": 20, "duration": "120s", "warmup": "15s" },
+      "params": {
+        "scope": { "type": "string", "default": "mine", "enum": ["mine", "public"], "description": "时间线范围" },
+        "limit": { "type": "number", "default": 24, "min": 1, "max": 100 }
+      },
+      "metrics": [
+        "client.http_req_duration{route:/api/feed}.p50",
+        "client.http_req_duration{route:/api/feed}.p95",
+        "client.http_req_duration{route:/api/feed}.p99",
+        "client.timing.database.calls_per_request",
+        "client.outcome_ratio.cache.hit",
+        "server.route./api/feed.p95",
+        "server.port.cache.dur.p95"
+      ],
+      "expect": [
+        { "metric": "client.http_req_duration{route:/api/feed}.p95", "direction": "down", "note": "命中时省掉若干次查库；数据量越大、数据库在 RDS 上时越明显。单实例下 memory 命中（微秒级）比 redis（多一次 VPC 往返）更快" },
+        { "metric": "client.timing.database.calls_per_request", "direction": "down", "note": "命中时每请求 DB 查询降到 0" },
+        { "metric": "client.errors", "direction": "zero", "note": "缓存是非权威端口：任何档位都不应产生错误" }
+      ]
+    },
+    {
+      "module": "cache",
+      "id": "cache-stampede",
+      "title": "缓存击穿：热门键失效瞬间的并发回源（single-flight 只在进程内生效）",
+      "kind": "before-after",
+      "doc": "docs/modules/03-data-storage.md#cache",
+      "requires": {
+        "before": { "cache.driver": "none" },
+        "memory": { "cache.driver": "memory" },
+        "selfhost": { "cache.driver": "redis", "cache.status": "off" },
+        "after": { "cache.driver": "redis", "cache.status": ["ok", "degraded"] }
+      },
+      "scenario": { "tool": "node", "script": "cache-stampede.ts", "vus": 1, "duration": "60s" },
+      "params": {
+        "rounds": { "type": "number", "default": 5, "min": 1, "max": 50, "description": "失效 + 并发突发的轮数" },
+        "burst": { "type": "number", "default": 50, "min": 2, "max": 500, "description": "每轮同时发出的 GET /api/albums 数" },
+        "pauseMs": { "type": "number", "default": 1000, "min": 0, "max": 60000 }
+      },
+      "metrics": ["scenario.dbCallsPerBurst", "scenario.dbCallsPerBurstMax", "client.http_req_duration{route:GET /api/albums}.p95"],
+      "expect": [
+        { "metric": "scenario.dbCallsPerBurst", "direction": "down", "note": "none 档每个请求都查库；有缓存时每进程（每实例）只回源一次" }
+      ]
+    },
+    {
+      "module": "cache",
+      "id": "stale-read",
+      "title": "写后陈旧读：多进程 / 多实例下 memory 与 redis 的一致性",
+      "kind": "before-after",
+      "doc": "docs/modules/03-data-storage.md#cache",
+      "description": "需要 LB_LOCAL_WORKERS=2（本机两个 api 进程）或 ASG 两台实例才能看到 memory 档的陈旧窗口。",
+      "requires": {
+        "memory": { "cache.driver": "memory" },
+        "selfhost": { "cache.driver": "redis", "cache.status": "off" },
+        "after": { "cache.driver": "redis", "cache.status": ["ok", "degraded"] }
+      },
+      "pair": ["memory", "after"],
+      "scenario": { "tool": "node", "script": "stale-read.ts", "vus": 1, "duration": "90s" },
+      "params": {
+        "ttlSec": { "type": "number", "default": 60, "min": 1, "max": 3600, "description": "运行时配置 feedCacheTtlSec（轮询持续一个 TTL）" },
+        "intervalMs": { "type": "number", "default": 500, "min": 50, "max": 10000 }
+      },
+      "metrics": ["scenario.staleRatio", "scenario.longestStaleMs", "scenario.responses"],
+      "expect": [
+        { "metric": "scenario.staleRatio", "direction": "down", "note": "memory：约一部分请求（2 个进程时约一半）在 TTL 内返回旧数据；redis：版本号共享，陈旧比例为 0" },
+        { "metric": "scenario.longestStaleMs", "direction": "down", "note": "memory 的陈旧窗口最长约等于 TTL" }
+      ]
+    },
+    {
+      "module": "cache",
+      "id": "fail-open",
+      "title": "缓存故障：fail-open 退化为直接查库，错误率保持为 0",
+      "kind": "fault",
+      "doc": "docs/modules/03-data-storage.md#cache",
+      "requires": {
+        "selfhost": { "cache.driver": "redis", "cache.status": "off" },
+        "after": { "cache.driver": "redis", "cache.status": ["ok", "degraded"] }
+      },
+      "scenario": { "tool": "node", "script": "feed-read.ts", "vus": 10, "duration": "120s", "warmup": "10s" },
+      "params": {
+        "scope": { "type": "string", "default": "mine", "enum": ["mine", "public"] },
+        "limit": { "type": "number", "default": 24, "min": 1, "max": 100 }
+      },
+      "faults": [
+        { "at": "30s", "script": "faults/stop-valkey.sh", "onlyFor": ["selfhost"], "description": "停掉本机 Valkey" },
+        { "at": "80s", "script": "faults/start-valkey.sh", "onlyFor": ["selfhost"], "description": "恢复本机 Valkey" },
+        { "at": "30s", "script": "faults/revoke-sg.sh", "args": ["revoke"], "via": "local", "onlyFor": ["after"], "description": "临时撤销 sg-cache 的入站规则（运维机执行，需要部署者凭证与 CACHE_SG_ID）" },
+        { "at": "80s", "script": "faults/revoke-sg.sh", "args": ["restore"], "via": "local", "onlyFor": ["after"], "description": "恢复入站规则" }
+      ],
+      "metrics": ["client.errors", "scenario.errorBypass", "client.http_req_duration{route:/api/feed}.p95"],
+      "expect": [
+        { "metric": "client.errors", "direction": "zero", "note": "fail-open：缓存故障期间请求全部成功，结果变为 error-bypass" },
+        { "metric": "scenario.errorBypass", "direction": "nonzero", "note": "故障期间路径头出现 cache=redis@…:error-bypass" }
+      ]
+    },
+    {
+      "module": "cache",
+      "id": "ttl-sweep",
+      "title": "TTL 与命中率：feedCacheTtlSec = 10 / 60 / 300（热更新）下的命中率",
+      "kind": "before-after",
+      "doc": "docs/modules/03-data-storage.md#cache",
+      "description": "需要按档位热改运行时配置 feedCacheTtlSec（ConfigPort），本轮按 README 手工执行，每档用 feed-read 跑 2 分钟。",
+      "scenario": { "tool": "manual" }
+    }
+  ]
+}

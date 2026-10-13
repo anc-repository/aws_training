@@ -1,0 +1,93 @@
+{
+  "$schema": "../_lib/schema/experiment.schema.json",
+  "module": "storage",
+  "title": "storage：有 / 无 S3（docs/modules/03-data-storage.md#storage 第 5 节）",
+  "default": "upload-burst",
+  "experiments": [
+    {
+      "module": "storage",
+      "id": "upload-burst",
+      "title": "批量上传：EC2 网卡入站字节、API CPU / 事件循环、上传与时间线延迟",
+      "kind": "before-after",
+      "doc": "docs/modules/03-data-storage.md#storage",
+      "description": "负载机最好是同区域的另一台 EC2，两次测量的客户端带宽必须一致。每个 VU 循环 POST /api/photos → PUT uploadTarget → complete；同时以固定速率读 GET /api/feed 作为背景流量。",
+      "requires": {
+        "before": { "storage.driver": "local" },
+        "after": { "storage.driver": "s3", "storage.status": ["ok", "degraded"] }
+      },
+      "labels": {
+        "before": { "title": "EBS 本地盘（HMAC 签名 PUT 经 EC2）", "role": "baseline" },
+        "after": { "title": "Amazon S3（预签名 URL 直传）", "role": "treatment" }
+      },
+      "scenario": { "tool": "node", "script": "upload-burst.ts", "vus": 10, "duration": "120s", "warmup": "10s" },
+      "params": {
+        "fileMb": { "type": "number", "default": 20, "min": 0, "max": 30, "description": "每个文件的大小（MB，原图上限 30 MB）；0 = 不补齐" },
+        "width": { "type": "number", "default": 1600, "min": 16, "max": 8000 },
+        "height": { "type": "number", "default": 1200, "min": 16, "max": 8000 },
+        "feedRps": { "type": "number", "default": 2, "min": 0, "max": 100, "description": "背景时间线读取速率" },
+        "drainTimeoutSec": { "type": "number", "default": 180, "min": 1, "max": 3600 }
+      },
+      "metrics": [
+        "host.net_rx_bytes",
+        "host.cpu.p95",
+        "host.event_loop_delay.p99",
+        "host.rss_max_bytes",
+        "host.data_used_pct_max",
+        "client.http_req_duration{route:/api/storage/upload}.p95",
+        "client.http_req_duration{route:PUT s3:upload}.p95",
+        "client.http_req_duration{route:/api/photos/complete}.p95",
+        "client.http_req_duration{route:/api/feed}.p95",
+        "client.timing.storage.p95",
+        "server.port.storage.dur.p95"
+      ],
+      "expect": [
+        { "metric": "host.net_rx_bytes", "direction": "down", "note": "local：网卡收字节与上传总量同一数量级；s3：EC2 只处理 KB 级的签名请求" },
+        { "metric": "host.cpu.p95", "direction": "down", "note": "上传字节不再经过 Node，API CPU 基本不随上传量变化" },
+        { "metric": "client.http_req_duration{route:/api/feed}.p95", "direction": "down-or-flat", "note": "并发大文件上传时 local 档的 feed p95 被拖慢；s3 不受影响" }
+      ],
+      "cleanup": "DELETE /api/lab/runs/{runId}/photos"
+    },
+    {
+      "module": "storage",
+      "id": "upload-sidebyside",
+      "title": "同部署侧路对比：/api/lab/storage/upload-target?driver=local|s3 交替上传同样的批次",
+      "kind": "runtime-ab",
+      "doc": "docs/modules/03-data-storage.md#storage",
+      "description": "启用 s3 后才可用；local 路径写 /var/lib/cloudalbum/lab/uploads/，s3 路径写原图桶的 lab/ 前缀，服务端在结束后清理（lab/ 另有 1 天过期的生命周期兜底）。",
+      "requires": {
+        "after": { "storage.driver": "s3", "storage.status": ["ok", "degraded"] }
+      },
+      "scenario": { "tool": "node", "script": "upload-sidebyside.ts", "vus": 4, "duration": "60s" },
+      "params": {
+        "fileMb": { "type": "number", "default": 5, "min": 0, "max": 30 }
+      },
+      "metrics": ["scenario.local.p95", "scenario.s3.p95", "host.net_rx_bytes", "host.cpu.p95"]
+    },
+    {
+      "module": "storage",
+      "id": "ebs-growth",
+      "title": "磁盘写满：数据卷剩余空间低于阈值时，上传与评论分别会怎样",
+      "kind": "fault",
+      "doc": "docs/modules/03-data-storage.md#storage",
+      "description": "第 0 秒经投递通道执行 faults/balloon.sh fill <fillPct>（fallocate 占位），等 settleSec 后尝试上传与发表评论，结束时 balloon.sh release。启用 s3 后重跑：上传不受影响，但 SQLite 仍会写失败。",
+      "requires": {
+        "before": { "storage.driver": "local" },
+        "after": { "storage.driver": "s3", "storage.status": ["ok", "degraded"] }
+      },
+      "scenario": { "tool": "node", "script": "ebs-growth.ts", "vus": 1, "duration": "60s" },
+      "params": {
+        "fillPct": { "type": "number", "default": 92, "min": 50, "max": 99 },
+        "attempts": { "type": "number", "default": 5, "min": 1, "max": 50 },
+        "settleSec": { "type": "number", "default": 10, "min": 0, "max": 120 }
+      },
+      "faults": [
+        { "at": "start", "script": "faults/balloon.sh", "args": ["fill", "{fillPct}"], "description": "fallocate 占位，把数据卷使用率压到 fillPct%" },
+        { "at": "end", "script": "faults/balloon.sh", "args": ["release"], "description": "释放占位文件" }
+      ],
+      "metrics": ["scenario.uploadRejected507", "scenario.uploadOk", "scenario.commentFailures", "host.data_used_pct_max"],
+      "expect": [
+        { "metric": "scenario.uploadRejected507", "direction": "down", "note": "local：剩余空间低于 STORAGE_LOCAL_MIN_FREE_PCT 时上传返回 507；s3：上传不受影响" }
+      ]
+    }
+  ]
+}

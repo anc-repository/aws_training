@@ -494,3 +494,79 @@ L0 的照片全流程：签名直传 → 缩略图 → 标签 → 时间线 → 
   `consumeResults` 这类阻塞方法建议加入 `UNTIMED_METHODS`。
 - `config/net.ts` 的 `isLoopback()`：`::ffff:127.0.0.1`（IPv4 映射地址）也应视为回环；否则监听 `::` 时 Nginx 传来的 `X-CloudAlbum-Entry` 不被信任。
 - `backend/test/http/app.test.ts`：`POST /api/photos/abc/complete` 现在返回 401（不再是 501 桩）；database 探针在系统盘剩余 < 15% 的机器上为 degraded。
+
+---
+
+## experiments
+
+总纲 §8.2 的实验框架（Node 22 + undici，不依赖 k6）与 8 个 MVP 模块的实验。只改 `experiments/**`；运行时只经 HTTP 访问 CloudAlbum，
+实验机上不加载任何 `@aws-sdk/*`（ESLint 规则不允许 experiments 引入；需要云端操作的步骤用 AWS CLI 脚本或手工步骤，均由学员执行，测试中从不调用）。
+
+### 1. 文件
+
+- `_lib/`：`runner.ts`（`npm run exp`）、`collect.ts`（capabilities 断言、`/api/lab/runs`、`/api/lab/metrics` → 结果 `server` 段）、`report.ts`（`npm run exp:report`，
+  Markdown + JSON，可选 HTML）、`login.ts`（`npm run exp:login`）、`http.ts`（实验头、A/B 旁路交替与限流、Server-Timing / 路径头解析）、`stats.ts`、`load.ts`、
+  `metrics.ts`（指标键解析）、`faults.ts`、`app.ts`（上传三步、就绪轮询、登录）、`images.ts`、`probe.ts`（新建连接的分阶段计时）、`session.ts`、
+  `scenario.ts`、`schema.ts`、`types.ts`、`util.ts`、`scenarios/{upload-burst,feed-read}.ts`、`leak-scan.sh`、`schema/{experiment,result}.schema.json`。
+- 模块：`iam/ auth/ storage/ cdn/ database/ cache/ image-processing/ queue/`，各含 `experiment.json`、场景脚本、`faults/*.sh`、`README.md`。
+- 测试：`test/mock-server.ts`（本地 mock CloudAlbum）+ `lib / manifest / report / runner / scenarios.test.ts`（每个 node 场景都对 mock 跑一次）。
+  `tsconfig.json` 不编译 `test/`；`tsconfig.test.json`（`npm run typecheck -w @cloudalbum/experiments`）检查全部源码与测试。
+
+### 2. 设计有歧义时的取舍
+
+1. **experiment.json 是模块级清单** `{ module, default, experiments: [...] }`，每个元素即总纲 §8.2 示例的实验对象；也接受示例那样的单个对象。
+   新增可选字段：`labels`、`params`（`--param` 的类型 / 范围）、`ab.bypass`、`pair`（报告缺省对比的两个标签）、`description`、`doc`；
+   `scenario.tool` 取 `node | shell | manual`（`k6` 只为兼容示例保留在 schema 中，运行器拒绝）；`faults[]` 另支持 `api`（`POST /api/lab/faults`）、
+   `manual`（到点提示人工操作）、`args`（可写 `{参数名}`）、`via`、`at: start|end`。
+2. **实验 id 以 registry `lab.experiments` 为准**（scaffold 约定）。任务中的示例名对应：cdn `ttfb-compare` → `ttfb`；cache `bypass-ab` → `feed-read --ab`；
+   queue `kill-worker` → `upload-burst` 在 after 标签第 30 秒的 `faults/kill-worker.sh`；image-processing `upload-burst-neighbor` → `neighbor`；
+   auth `token-inspect` → `token-claims`；iam `credential-source` → `whoami`。必须在控制台或云端操作的实验写成 `manual`（README 给步骤）：
+   cache `ttl-sweep`、queue `poison` / `dlq-replay`、image-processing `cold-start` / `throttle` / `cost`、database `conn-storm` / `pitr`、cdn `invalidation`。
+   iam `leak-scan` / `imds-ssrf` 是 `shell` 场景（在实例上运行，stdout 最后一行 `EXP-RESULT:<json>`）。
+3. **A/B 的方向**：A = 带 `X-Compare-Bypass`（相当于“没有该模块”），B = 不带（“有”），标签 `<label>:A` / `<label>:B`，使 A→B 与 before→after 的 expect 方向一致。
+   服务端旁路限额（每管理员每分钟 120、每实例 4 在途）在客户端用令牌桶（≤110/分钟）+ 信号量主动限流。报告 `--pair after:A,after:B` 用 `client.byVariant`，
+   服务端路由按路径签名中有无 `bypass=` 近似拆分。
+4. **实验头只随管理员令牌发送**：没有注入管理员令牌的请求（登录、测试用户令牌、S3 预签名 PUT、CDN 媒体、Cognito）不带 `X-Experiment-*` / `X-Compare-Bypass`
+   （否则后端 403），它们只进客户端统计。平台模式的“已登记 runId 免令牌归属”未实现。预热请求不带实验头、不计入结果。
+5. **前置断言**：`requires[label]` 的键为 `<模块>.<字段>`（取 capabilities.modules）或根路径（`app.deployMode`）；值可为数组（任选其一）、`null`、`!x`（不等于）、`*`（非空）。
+   `--label` 必须是 `requires` 的键；不匹配退出码 3；`--force` 时只有确实不匹配才记 `forced: true`。shell / 离线场景不校验（记警告）。
+6. **结果 JSON**：在 §8.2 字段之外增加 `variant`、`requiresCheck`、`spec`（metrics / expect 快照）、`scenario.findings`、`repeats`、`warnings`、`runner`；
+   客户端路由键统一为 `METHOD 路由模板`（`POST /api/photos/:id/complete`），指标解析器按“去掉方法与 :参数 段”宽松匹配总纲写法 `{route:/api/photos/complete}`。
+   `server.business` 由场景在客户端计算（缩略图就绪时间 = 服务端 readyAt − createdAt、jobsLost = 排空时限内未就绪的照片、排空时间等）——后端没有 `lab_job_ledger` / 业务统计接口。
+7. **主机指标**：`/api/lab/metrics` 的主机采样按时间窗（运行前后各放宽 60 秒）取；`host.cpu` = 同一 10 秒桶内 api + worker 的进程 CPU 之和；
+   `netRxBytes` / `netTxBytes` = 同一实例累计计数器的首尾差；`eventLoopDelayP99` = api 进程各采样 p99 的最大值。
+8. **报告**：文件名 `_reports/<module>/<UTC>__<实验>.{md,json,html}`（加实验 id 避免同秒冲突）；缺省格式 md,json；HTML 为可选（内联 SVG 条形图）。
+   噪声带 = max(`--noise`（默认 10%）× 两者较大值, 多轮区间的一半, 毫秒类指标 1 ms)。同一指标的不同写法在报告中去重。
+9. **令牌**：`--token` > `CLOUDALBUM_ADMIN_TOKEN` > `.cloudalbum/experiments/admin-token.json`（`exp:login` 写入，0600，按目标区分）> 用
+   `CLOUDALBUM_ADMIN_EMAIL` / `CLOUDALBUM_ADMIN_PASSWORD` 现场登录。令牌不写入结果、不打印；`exp:login` 不接受命令行密码（只读环境变量或 `--password-stdin`）。
+10. **故障投递**：缺省按 `--ssh` > 实例 ID（ssm，经 AWS CLI `ssm send-command`）> Linux 上本地执行 > 跳过（Windows 开发机）；需要部署者凭证的故障
+    （`rds-failover.sh`、`revoke-sg.sh`）声明 `via: local`，在运维机执行。到测量结束仍未触发的故障记为 skipped。
+11. **cognito 登录**：auth 实验用 User Pool 的公开 JSON 接口 `InitiateAuth`（USER_PASSWORD_AUTH，无需凭证与 SDK）模拟浏览器登录；App Client 只允许 SRP 时不可用（README 说明）。
+12. **cdn ttfb** 用 node:http(s) 新建连接并记录 DNS / TCP / TLS / 首字节（只有 HTTP/1.1；h2 / h3 对比在浏览器 /lab 做）。
+13. **清理**：先请求 `cleanup`（`DELETE /api/lab/runs/{runId}/photos`），失败（目前 501）时逐个删除场景登记的资源（照片、相册）；`--keep` 跳过。
+14. 平台模式（ATL）的 `--on lab`、`~/.atl/session.json` 上传、`CA-Lab` 令牌未实现（不在 MVP 范围）；`--label` 已支持任意变体标签。
+
+### 3. 需要其他文件配合
+
+场景调用了下列尚未实现的接口（目前返回 501 / 404，场景记录 `endpointAvailable=false` 或注记后结束）。响应形状是本组的约定，实现者请按此提供：
+
+- `DELETE /api/lab/runs/:runId/photos`（清理本次运行上传的照片；实验头已标出归属）。
+- iam：`GET /api/lab/iam/whoami` → `{ arn, accessKeyPrefix, expiration, source }`；`GET /api/lab/aws-ping` → `{ sts: { ok, error? }, iam: { ok, error? } }`；
+  `POST /api/lab/iam/refresh`（`forceRefresh()`）。capabilities 的 `modules.iam.data` 带 `arn` / `accessKeyPrefix` / `expiration` 时 whoami 也能用。
+- storage：`POST /api/lab/storage/upload-target?driver=local|s3`（body `{contentType,size}`）→ `{ uploadTarget }`（lab/ 命名空间）。
+- database：`POST /api/lab/db/read-after-write` → `{ visible: boolean, lagMs?: number }`。
+- cdn：`GET /api/lab/now`（private, no-store）与 `GET /api/public/now`（`s-maxage=10`）→ `{ now }`；capabilities 的 `modules.cdn.public.baseUrl` 与
+  `modules.cdn.data.originDirectUrl`（缺省时用 `--param cdn= / direct=`）。
+- 根 `package.json`（可选）：`"exp": "npm run exp -w @cloudalbum/experiments --"`、`"exp:report": "npm run exp:report -w @cloudalbum/experiments --"`，
+  让总纲里的 `npm run exp -- <module> …` 在仓库根目录也能用（现在需在 `experiments/` 下或加 `-w`）。
+
+### 4. 如何运行
+
+```bash
+npm run build                                            # 运行器经 node_modules 使用 @cloudalbum/contracts 的 dist
+cd experiments && npm run exp -- cache --list
+npm run exp -- queue --label before --scenario upload-burst --fault-via ssh --ssh ec2-user@<EIP>
+npm run exp:report -- queue
+npx vitest run --project experiments                     # mock 服务器上的全部测试（约 10 秒）
+npm run typecheck -w @cloudalbum/experiments
+```

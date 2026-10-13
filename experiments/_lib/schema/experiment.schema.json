@@ -1,0 +1,144 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://cloudalbum.local/schema/experiment.schema.json",
+  "title": "CloudAlbum experiment manifest (experiments/<module>/experiment.json)",
+  "description": "总纲 §8.2。一个模块一个文件：{ module, experiments: [...] }；也接受总纲示例那样的单个实验对象。",
+  "oneOf": [
+    { "$ref": "#/definitions/manifest" },
+    { "$ref": "#/definitions/experiment" }
+  ],
+  "definitions": {
+    "label": { "type": "string", "pattern": "^[a-z][a-z0-9-]{0,23}$" },
+    "slug": { "type": "string", "pattern": "^[a-z][a-z0-9-]{0,47}$" },
+    "duration": { "type": "string", "pattern": "^(\\d+(\\.\\d+)?(ms|s|m|h))+$|^\\d+$" },
+    "scalar": { "type": ["string", "number", "boolean", "null"] },
+    "manifest": {
+      "type": "object",
+      "required": ["module", "experiments"],
+      "additionalProperties": false,
+      "properties": {
+        "$schema": { "type": "string" },
+        "module": { "$ref": "#/definitions/slug" },
+        "title": { "type": "string" },
+        "default": { "$ref": "#/definitions/slug" },
+        "experiments": { "type": "array", "minItems": 1, "items": { "$ref": "#/definitions/experiment" } }
+      }
+    },
+    "experiment": {
+      "type": "object",
+      "required": ["module", "id", "title", "kind", "scenario"],
+      "additionalProperties": false,
+      "properties": {
+        "module": { "$ref": "#/definitions/slug" },
+        "id": { "$ref": "#/definitions/slug" },
+        "title": { "type": "string", "minLength": 1 },
+        "description": { "type": "string" },
+        "kind": { "enum": ["before-after", "runtime-ab", "functional", "fault"] },
+        "doc": { "type": "string" },
+        "requires": {
+          "type": "object",
+          "propertyNames": { "$ref": "#/definitions/label" },
+          "additionalProperties": {
+            "type": "object",
+            "propertyNames": { "pattern": "^[a-z][a-zA-Z0-9-]*(\\.[A-Za-z0-9_-]+)+$" },
+            "additionalProperties": {
+              "anyOf": [
+                { "$ref": "#/definitions/scalar" },
+                { "type": "array", "minItems": 1, "items": { "$ref": "#/definitions/scalar" } }
+              ]
+            }
+          }
+        },
+        "labels": {
+          "type": "object",
+          "propertyNames": { "$ref": "#/definitions/label" },
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "title": { "type": "string" },
+              "role": { "enum": ["baseline", "treatment", "single"] }
+            }
+          }
+        },
+        "ab": {
+          "type": "object",
+          "required": ["bypass"],
+          "additionalProperties": false,
+          "properties": {
+            "bypass": { "enum": ["cache", "cdn", "queue", "image", "tagger", "tracing", "analytics", "replica", "kms", "identity-pool"] },
+            "note": { "type": "string" }
+          }
+        },
+        "scenario": {
+          "type": "object",
+          "required": ["tool"],
+          "additionalProperties": false,
+          "properties": {
+            "tool": { "enum": ["node", "shell", "manual", "k6"] },
+            "script": { "type": "string", "pattern": "^[A-Za-z0-9._/-]+\\.(ts|js|sh|md)$" },
+            "vus": { "type": "integer", "minimum": 1, "maximum": 2000 },
+            "duration": { "$ref": "#/definitions/duration" },
+            "warmup": { "$ref": "#/definitions/duration" },
+            "offline": { "type": "boolean" },
+            "runsOn": { "enum": ["client", "instance"] }
+          },
+          "allOf": [
+            { "if": { "properties": { "tool": { "enum": ["node", "shell", "k6"] } } }, "then": { "required": ["script"] } }
+          ]
+        },
+        "params": {
+          "type": "object",
+          "propertyNames": { "pattern": "^[a-zA-Z][a-zA-Z0-9_-]{0,31}$" },
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "type": { "enum": ["string", "number", "boolean"] },
+              "default": { "type": ["string", "number", "boolean"] },
+              "min": { "type": "number" },
+              "max": { "type": "number" },
+              "enum": { "type": "array", "items": { "type": ["string", "number"] } },
+              "description": { "type": "string" }
+            }
+          }
+        },
+        "metrics": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+        "faults": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["at"],
+            "additionalProperties": false,
+            "properties": {
+              "at": { "anyOf": [{ "$ref": "#/definitions/duration" }, { "enum": ["start", "end"] }] },
+              "script": { "type": "string", "pattern": "^[A-Za-z0-9._/-]+\\.sh$" },
+              "args": { "type": "array", "items": { "type": "string" } },
+              "api": { "type": "object" },
+              "manual": { "type": "string" },
+              "onlyFor": { "type": "array", "items": { "$ref": "#/definitions/label" } },
+              "via": { "enum": ["auto", "local", "ssh", "ssm", "api", "skip"] },
+              "description": { "type": "string" }
+            },
+            "anyOf": [{ "required": ["script"] }, { "required": ["api"] }, { "required": ["manual"] }]
+          }
+        },
+        "expect": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["metric", "direction"],
+            "additionalProperties": false,
+            "properties": {
+              "metric": { "type": "string", "minLength": 1 },
+              "direction": { "enum": ["down", "up", "flat", "up-or-flat", "down-or-flat", "zero", "nonzero"] },
+              "note": { "type": "string" }
+            }
+          }
+        },
+        "cleanup": { "type": "string", "pattern": "^(GET|POST|PUT|PATCH|DELETE) /" },
+        "pair": { "type": "array", "minItems": 2, "maxItems": 2, "items": { "type": "string", "pattern": "^[a-z][a-z0-9-]{0,23}(:[AB])?$" } }
+      }
+    }
+  }
+}

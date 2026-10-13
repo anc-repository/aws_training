@@ -6,8 +6,10 @@
   "type": "module",
   "scripts": {
     "build": "tsc -b",
+    "typecheck": "tsc -p tsconfig.test.json",
     "exp": "tsx _lib/runner.ts",
     "exp:report": "tsx _lib/report.ts",
+    "exp:login": "tsx _lib/login.ts",
     "test": "vitest run"
   },
   "dependencies": {
