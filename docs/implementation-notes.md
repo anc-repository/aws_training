@@ -961,3 +961,137 @@ npm run platform:db:up && ATL_IT=1 npx vitest run --project atl-api   # 含 Dyna
 - 04：§6.1 的 SSM 文档源路径与 01 §13 不一致（本轮按 01）。
 - 06（CloudAlbum 平台模式）：检查包的 Node 入口路径（供 `ATL_DEV_CHECK_RUNNER`），以及 dev 运行器可调用的平台模式子命令。
 - infra：模板为每个函数设置第 2 节列出的环境变量；状态机的 DefinitionSubstitutions 键与 `DEV_SUBSTITUTIONS` 一致。
+
+## platform-api
+
+ATL 平台 API（01 §8.2 全部 `/api/v1` 路由）：HTTP 层、DynamoDB 仓储、目录 / 会话 / 事件服务、路由表、本地 dev-server 与测试。
+名称、键、路由 id、状态、事件、错误码一律取自 `@atl/shared`；键只经 `src/data/keys.ts`。
+
+### 1. 目录
+
+```
+platform/api/src/
+  http/          router.ts（鉴权 → RBAC → 最近登录 → Idempotency-Key → IdempotencyRecord 重放 → 处理函数；problem+json；
+                 429/503 带 Retry-After；Atl.NotImplemented / PortError NotImplemented → 501）、responses.ts（ETag/304、202+Location）、
+                 validate.ts（zod → 400 VALIDATION_FAILED + errors[]{path,message}）、pagination.ts（limit + HMAC 游标）、rate-limit.ts
+  repositories/  table.ts（Get/Put/Update/Query/Transact/BatchGet，条件失败归一为 ConditionFailedError）、sessions.ts（LabSession 与
+                 SESSION# 子项；T01 createRequested、Transition 条件转换 + 同事务事件 + GSI2 重算）、events.ts（SessionEvent、单调 ULID、AP5）、
+                 platform.ts（PlatformConfig、ActiveEnvironmentLock 的 acquire/reserve/transferTx/release、CatalogRelease）、users.ts（Learner/Member、
+                 LabProgress、QuizAttempt、CostQuote）、environments.ts（Environment、SessionResource、ReclaimPass）、certificates.ts、audit.ts
+                 （AuditEvent、IdempotencyRecord）
+  services/catalog/   内容发布读取（store.ts）、变体 / cardFacts / 时长与保留上限（labs.ts）、报价 API 层（quotes.ts）、路径进度与证书条件、掌握度（progress.ts）
+  services/sessions/  lifecycle-client.ts（atl-lifecycle 动作与短编排的唯一入口）、guards.ts（开始前快速预判）、view.ts（会话视图）、start.ts
+                      （报价 START/REUSE、复用差异计划、POST /sessions）、control.ts（心跳、EXTEND/KEEP 报价、延长、结束、保留、释放、重试回收、“我已处理”）、
+                      cleanup.ts（回收报告 json/md、人工清单、费用计）、agent.ts（agent context、实验登记/上传/轮询/附件、模块操作上报、运行器进度与凭证登记）
+  services/events/    写事件 + 发总线、events?after= 轮询、workspace.* 事件清洗、审计
+  routes/        platform / catalog / sessions / workspace / progress / reports / agent（含 internal、回退与 atl-public）；index.ts 的
+                 createApiHttpHandler / createAgentHttpHandler / createPublicHttpHandler；extensions.ts（可插拔 provider 与下游动作名）
+  dev-server.ts  Express ↔ Lambda 事件适配器（见第 4 节）
+platform/api/test/  api-units.test.ts、api-flows.test.ts（内存表）、api-flows.it.test.ts（DynamoDB Local）、dev-server.test.ts、api-support/
+```
+
+### 2. 接线（集成时的一行改动）
+
+`functions/api|agent|public/handler.ts` 仍是脚手架桩（不在本节负责范围内）。集成时改为
+`createApiHandler = (getDeps) => createApiHttpHandler(getDeps)`，agent、public 同理（`src/routes/index.ts`）。这三个工厂已带上
+`IdempotencyRecord` 存取与 403 审计。dev 运行时的 `createFunctionTable` 经这三个工厂自动生效；`dev-server.ts` 现在就会替换注册。
+
+### 3. 与其他函数的契约（动作名未登记的需 01 收录）
+
+| 调用 | 方式 | 载荷 `{ action, … }` | 期望结果 |
+|---|---|---|---|
+| atl-lifecycle `CreateSession` | 同步 | `sessionId, sub, labId, variant, quoteId, reuseEnvId, session:<LabSession 草稿>, actor:'user', requestedBy` | `{ sessionId, state, ver }`（T01 写 REQUESTED） |
+| atl-lifecycle `Transition` | 同步 | `sessionId, from[], to, reason, expectedVer?` | 会话项（T04 取消、T07 首次心跳、T08 心跳发现剩余 ≤ 15 分钟） |
+| atl-lifecycle `Extend` | 同步 | `sessionId, minutes, quoteId, expectedDeadlineVersion` | 会话项（02 §5.4，含 T09 与调度） |
+| atl-lifecycle `ExtendKeep` | 同步 | `sessionId, hours, quoteId, expectedKeepVersion` | 会话项（T13 + 保留调度，**新动作名**） |
+| `atl-session-start` | StartExecution | 名 `start-<sid>`，输入 `{ sessionId }` | — |
+| `atl-session-end` | StartExecution | `end-<sid>-1` / `-rel` / `-retry-<k>`；输入 `{ sessionId, reason, disposition, keep?, keepPrerequisites?, actor, requestedBy }`，`keep = { hours, quoteId, saveMode, confirmedAt }` | 同阶段同输入重复启动视为已在进行 |
+| `atl-module-op` | StartExecution | `modop-<sid>-<n>`，输入 `{ sessionId, n, envId, actionId 或 op:'repair', opId?, requestId, requestedBy }` | n 从现有 ModuleOp 数 +1 起，名字被占用则递增 |
+| `atl-platform-uninstall` | StartExecution | `uninstall-<n>`（运行中的复用，已结束的跳过），输入 `{ mode:'prepare', requestedBy, requestedAt }` | — |
+| atl-pricing `PriceQuote` | 同步 | `purpose, region, labId, labVersion, catalogVersion, variant, alternativeVariants?, lines[], durationMinutes, maxTotalMinutes, envId?, keepHours?` | `{ currency, priceAsOf, lines, hourly{start,completed}, retainHourly, platformOverhead, maxSession, incomplete[], freeTierNote, notes[] }` |
+| atl-checks `RunChecks` / `StepAction`（read、drift-ack、skip、unskip）/ `SubmitAttempt` / `ApplyManualConfirmation` / `ApplyManualReview` / `CrossCheckExperiment` | 异步 | 见 `routes/progress.ts`、`services/sessions/agent.ts` | 写 CheckRun / StepResult / LabAttempt / ExperimentRun.validity |
+| atl-certs `GenerateReport` / `ExportReport` / `CreateShare` / `RevokeShare` / `PublishCertificate` / `ExportArchive` | 异步 | 见 `routes/reports.ts`、`routes/platform.ts` | — |
+| atl-certs `IssueCertificate` / `RevokeCertificate` | **同步** | `sub, scope, trackId 或 labId, labs[], catalogVersion, displayName?, public?` / `certId, reason` | `{ certId, jws, payload }`（01 §8.3 示例直接返回 JWS）/ 吊销后的证书 |
+| atl-reaper `VerifyResolved` | 异步 | `envId, resourceKey, sessionId, note, actor, requestedBy` | 复核“我已处理” |
+
+错误：同步调用抛出的 `Atl.<CODE>`（大写下划线）或 `Atl.<CamelCase>`（如 `Atl.QuoteExpired`）都映射到 01 §8.6 的码；`Atl.TransitionRejected`、
+`Atl.AlreadyTerminal`、`Atl.SessionNotRunning` → 409 `INVALID_STATE`；`Atl.LockBusy` 取消息前缀中的码；`Atl.NotImplemented` → 501。
+
+### 4. dev-server（`platform/api/src/dev-server.ts`）
+
+```bash
+npm run platform:db:up && npm run platform:db:init
+npx tsx platform/api/src/dev-server.ts --dev-mode --seed-catalog labs --port 8788
+```
+
+- `/api/*` → 三个 HTTP 函数（payload 2.0）；浏览器路由用 `Authorization: Bearer dev.<group>.<sub>`，agent / internal 路由用
+  `X-ATL-Dev-Caller: <assumed-role ARN>`（与脚手架 dev/server.ts 一致）；对 `localhost` / `127.0.0.1` 来源加 CORS（前端 vite 开发用）。
+- `/content/*` 读 dev `atl-web` 桶；`--seed-catalog <dir>` 或 `POST /__dev/catalog/seed` 把 `labs/<id>/lab.yaml`、`quiz.yaml`、`_tracks/*.yaml`
+  （有 `_catalog/catalog.yaml` 时用它作索引）发布为内容版本 `dev` 并写 `CatalogRelease`。
+- `POST /__dev/sessions/<sid>/advance { to, minutes? }` 按 T01～T21 推进会话（填 readyAt / deadlineAt、dev Environment、锁）；其余 `/__dev/*` 沿用脚手架。
+- atl-lifecycle 对 `CreateSession`、`Transition`、`Extend`、`ExtendKeep` 抛 `Atl.NotImplemented` 时，dev-server 用仓储层的 dev 实现兜底
+  （`DEV_LIFECYCLE_ACTIONS`，只在 dev / 测试中使用，不建调度）。
+
+### 5. 取舍与偏离
+
+1. **SessionEvent 的 `type`**：按 `@atl/shared` 的 `SessionEventRecord` 存事件类型，实体名放 `entity`（01 §7.1 的通用属性 `type` 与 §7.3 的事件 `type`
+   重名）；读取时兼容 `eventType`。
+2. **事件轮询**：`{ events[], next, hasMore, pollAfterMs }`；ULID 时间晚于“现在 − 2 秒”的事件留到下一轮（防止慢写入者的较早 id 被游标跳过）；进程内 ULID
+   单调（同毫秒递增，时钟远远落后时重置）。`after` 必须是 ULID，否则 400（08 §9.2 #22 的 `CURSOR_EXPIRED` 未登记）。
+3. **幂等**：只保存 2xx 响应；同键处理中 → 409 `INVALID_STATE`（`reason: IDEMPOTENCY_IN_PROGRESS`，`Retry-After: 1`）；同键不同请求 → 422
+   （01 未给码，用 `VALIDATION_FAILED` + `reason: IDEMPOTENCY_KEY_REUSED`）；agent / internal 路由的作用域为 `ws-<sid>` / `prov-<sid>`；
+   `heartbeat`、`createExport` 仍要求请求头但不存记录（后者按同键轮询，08 §9.2 #16）。
+4. **未登记的错误码**放在已登记码的 `reason` 中：`TARGET_ALREADY_SATISFIED` → 409 `INVALID_STATE`；`LAB_DEPRECATED`、`HARD_PREREQ_UNMET` → 400
+   `VALIDATION_FAILED`（startability 的 `reasons[]` 直接用这些码）。
+5. **单活动会话**：`POST /sessions` 前强一致读锁、持有者、5 分钟内的 `REQUESTED` 会话（GSI2）与按小时计费的 `BLOCKING` 残留（AP13），按 02 §3.4、§9.2
+   给 409；权威仍是编排中的 `AcquireLock`。锁的条件写（acquire / reserve / transferTx / release）在 `repositories/platform.ts`，供 atl-lifecycle 复用。
+6. **报价**：API 从 `cost.basis` 生成明细（含“平台开销”行），交 atl-pricing 定价；atl-pricing 不可用（未实现 / 不存在）时报价照样生成，但每行
+   `unknown: true`、`incomplete` 列出全部定价键、金额区间为 `null`（04 §3.4“不允许按 0 计”），不编造价格。`CostQuote` 另存 `catalogVersion`、
+   `startProfile`、`startProfileDigest`、`reusePlan`、`sessionId`（EXTEND / KEEP）、`minutes` / `keepHours`、`costTier`。
+7. **LabSession 草稿**（CreateSession）在 01 §7.3 之外增加：`cardFacts.testUsersSeeded`（platform-scaffold 第 11 条的建议）、`cardLimits`
+   （timeLimit、extensions、retain、provision、workstationRequired，随 catalogVersion 固定）、`learnerInputs`、`requestedBy`。
+8. **atl-api 写的会话描述字段**（不改 ver，不在 01 §7.5 的生命周期字段表中）：`preferredDisposition`（对象 `{ disposition, keepHours, quoteId,
+   keepPrerequisites, saveMode, confirmedAt }`，与 lifecycle 的模型一致；@atl/shared 的类型写的是字符串，需要统一）、`lastHeartbeatAt` / `lastWorkbenchAt`
+   （30 秒内只写一次）、`cleanupRetryCount`（条件递增后启动 `end-<sid>-retry-<k>`）、`startExecutionArn`。
+9. **助教 / 观察者**看到的“我的…”数据（会话列表、当前会话、进度、掌握度、报告、实验、证书）是唯一学员的数据（08 §9.2 #21），学员 sub 取自
+   `MEMBERS / learner#`；学员资料在其首次 `GET /me` 时建立。学员只能看到自己的会话（其他 sid 一律 404）。
+10. **当前会话**：本人非终态会话中，活动状态 > `REQUESTED` > `KEPT` > `CLEANUP_FAILED`（08 §9.2 #23 尚未登记，暂按 01 / 02 的“非终态含 KEPT”）。
+11. **证书**：`POST /certificates` 先由 API 判定条件（路径：tracks §5.5 的纯函数；`scope: lab`：卡片 `certificate.enabled: true` 且徽章有效，07 V5-3 5a），
+    再**同步**调用 atl-certs 返回 `{ certId, jws, payload }`（201）；吊销也同步；公开、分享、报告、导出异步（202）。离线验证包由 API 直接组装。
+12. **输入变量**：`PUT /vars/{name}` 按卡片 `variables.<name>.pattern` 校验后写 `LabAttempt.variables`（01 只把 LabAttempt 记为 atl-checks 写入，这是一个
+    属性级例外；尝试未开始时 409）。
+13. **工作台**：终端、控制台、管理员密码与实时预览探测由 03 的 `WorkspaceProvider` 完成（路由层已做状态 / 截止时间 / 吊销闸门、限速、审计、`terminal.*`
+    与 `console_link.issued` 事件）；没有 provider 时这些路由 501。`GET /workspace` 的 targets 在无 provider 时取 `Environment.instances` 缓存（`cached: true`）；
+    `GET /preview` 无 provider 时按 `LabSession.app` / `Environment.endpoints` 判定（http → `MIXED_CONTENT`，自签 → `UNTRUSTED_CERT`）。
+14. **成员**：`POST` / `DELETE /members` 需要 Cognito 管理端口（`MemberDirectory` provider）；没有时 501。学员本人不能删除（403）。
+15. **限速**：函数容器内存中的一分钟固定窗口；默认值见 `RATE_LIMIT_DEFAULTS`，可由 `PlatformConfig.rateLimits` 覆盖（设置页可改）；超限 429 + `Retry-After`。
+16. **游标**：HMAC 密钥取 `ATL_CURSOR_SECRET`（可选环境变量），否则由账号与表名派生；游标绑定列表作用域，换列表解码失败。
+17. **内容路径**：索引先找 `content/<v>/catalog/index.json`（05 §8.4），再找 `content/<v>/index.json`（04 §2.5）；卡片 `content/<v>/labs/<id>.json`；
+    题库 `atl-artifacts/releases/<catalogVersion>/private/quiz/<id>.json`；档位摘要依次取卡片 `startProfileDigests[variant]`、索引
+    `startProfiles[].planDigest`、`manifest.json`，都没有时记 `sha256:unknown`。atl-agent 登记实验时读卡片校验实验与标签（需要 `atl-web/content/*/labs/*`
+    的读权限）。
+18. **实验运行**：登记时写 `ExperimentRun`（`status: registered`，窗口 = 现在 − 1 分钟 ～ min(现在 + 60 分钟, deadline + 10 分钟)）；上传时校验 schema、
+    RFC 8785 摘要、与登记一致、只收一次，结果存 `atl-data/experiments/<sid>/<runId>.json`，GSI1 `EXP#<module>#<experiment>#<finishedAt>` 在上传时写入；
+    附件键 `experiments/<sid>/<runId>/<name>`。回退路由按 `runTokenHash` 校验（只在 `agent.lateUploadFallback=on` 时可用）。
+19. **GET /platform** 按 08 §9.2 #3 给出可得的字段；`PATCH /me` 接受 08 §9.2 #4 的 `onboarding`。08 §9.2 的新路由（preflight、runner-runs、evidence、
+    cost/actual、exports/{id}、manual-confirmations 队列）未实现，等 01 登记。
+
+### 6. 测试
+
+```bash
+npx vitest run --project atl-api test/api-units.test.ts test/api-flows.test.ts test/dev-server.test.ts   # 无需 Docker
+npm run platform:db:up && CLOUDALBUM_IT=1 npx vitest run --project atl-api test/api-flows.it.test.ts      # 或 ATL_IT=1；每个用例一张临时表
+```
+
+同一组 17 个端到端场景分别跑在内存表（`api-support/memory-ddb.ts`）与 DynamoDB Local 上。
+
+### 7. 需要配合
+
+- 集成：第 2 节的 handler 接线；`platform/api/package.json` 补 `express`、`yaml`（dev-server），开发依赖 `@types/express`、`supertest`、`@types/supertest`
+  （目前由根 node_modules 提供）；可加脚本 `platform:dev:api`。
+- atl-lifecycle：实现第 3 节的 `CreateSession`、`Transition`、`Extend`、`ExtendKeep` 载荷；`BeginEnd` 读取 `keep`、`keepPrerequisites`；
+  EXPIRE 读取对象形式的 `preferredDisposition`。
+- atl-checks / atl-certs / atl-reaper / atl-pricing：第 3 节的动作名与载荷（`IssueCertificate`、`RevokeCertificate` 为同步）。
+- 03：实现 `WorkspaceProvider`（终端、控制台、管理员密码、预览探测、实例发现）。成员管理需要 Cognito 管理端口。
+- 01：登记第 3 节的新动作名、`IDEMPOTENCY_*` / `TARGET_ALREADY_SATISFIED` 等码、LabSession 的新增属性（第 5 节第 7、8 条）、CostQuote 的扩展字段、
+  atl-agent 读取内容包的权限。
