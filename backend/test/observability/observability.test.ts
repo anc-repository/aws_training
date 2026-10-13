@@ -9,6 +9,8 @@ import { buildPathHeader, setInstanceIdentity } from '../../src/observability/pa
 import { createRequestContext, currentContext, runWithContext } from '../../src/observability/request-context.js';
 import { buildServerTimingHeader } from '../../src/observability/server-timing.js';
 import type { Adapter, ProbeResult } from '../../src/ports/common.js';
+import type { Request } from 'express';
+import { routeTemplate, UNMATCHED_ROUTE } from '../../src/http/middleware/observability.js';
 
 class FakeCache implements Adapter {
   readonly meta = { module: 'cache' as const, driver: 'redis', awsService: 'Amazon ElastiCache', authoritative: false };
@@ -163,6 +165,24 @@ describe('LabMetricsStore（§7.3）', () => {
     expect(s.role).toBe('worker');
     expect(s.rssBytes).toBeGreaterThan(0);
     expect(s.memUsedRatio).toBeGreaterThan(0);
+  });
+});
+
+describe('routeTemplate（LabMetricsStore 的汇总键必须有界）', () => {
+  const req = (p: { path: string; route?: { path: unknown }; baseUrl?: string }) =>
+    ({ path: p.path, originalUrl: p.path, url: p.path, baseUrl: p.baseUrl ?? '', route: p.route }) as unknown as Request;
+
+  it('具体路由用模板；未匹配的 404 一律 <unmatched>；中间件拒绝按一级前缀；通配路由失败按模式本身', () => {
+    expect(routeTemplate(req({ path: '/api/photos/123', route: { path: '/api/photos/:id' } }), undefined, 404)).toBe('/api/photos/:id');
+    expect(routeTemplate(req({ path: '/api/x7Gq2pZr' }), undefined, 404)).toBe(UNMATCHED_ROUTE);
+    expect(routeTemplate(req({ path: '/api/aaaa/bbbb/cccc' }), undefined, 404)).toBe(UNMATCHED_ROUTE);
+    expect(routeTemplate(req({ path: '/api/random-1' }), undefined, 403)).toBe('/api/*');
+    expect(routeTemplate(req({ path: '/zzz/random-2' }), undefined, 401)).toBe('/<other>/*');
+    expect(routeTemplate(req({ path: '/api/me/whatever-9', route: { path: '/api/me/*rest' } }), undefined, 404)).toBe(UNMATCHED_ROUTE);
+    expect(routeTemplate(req({ path: '/media/raw/random', route: { path: '/media/*rest' } }), undefined, 403)).toBe('/media/*rest');
+    const owner = '11111111-2222-4333-8444-555555555555';
+    expect(routeTemplate(req({ path: `/media/raw/${owner}/${owner}.jpg`, route: { path: '/media/*rest' } }), undefined, 200))
+      .toBe('/media/raw/:id/:id.jpg');
   });
 });
 

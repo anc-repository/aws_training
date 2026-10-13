@@ -170,7 +170,19 @@ describe('identity-pool=none（F14 前缀令牌）', () => {
     if (s.mode !== 'token') throw new Error('unreachable');
     expect(s.prefix).toBe(`raw/${owner}/`);
     expect(s.partUrl).toBe('/api/storage/upload');
-    await expect(u.authorizePart(s.token, photo.rawKey, photo.id, 1)).resolves.toEqual({});
+    const ok = await u.authorizePart(s.token, photo.rawKey, photo.id, 1);
+    expect(ok.url).toBeUndefined();
+    expect(ok.maxBytes).toBeGreaterThan(0);
+    expect(ok.partSize).toBe(8 * 1024 * 1024);
+    const maxParts = Math.ceil(ok.maxBytes / ok.partSize);
+    await expect(u.authorizePart(s.token, photo.rawKey, photo.id, maxParts)).resolves.toBeTruthy();
+    await expect(u.authorizePart(s.token, photo.rawKey, photo.id, maxParts + 1)).rejects.toMatchObject({ status: 413, code: 'TOO_MANY_PARTS' });
+    // uploadId 决定 .incoming/<uploadId>/ 的位置：必须等于照片 ID
+    await expect(u.authorizePart(s.token, photo.rawKey, 'attacker-chosen-dir', 1)).rejects.toMatchObject({ status: 403, code: 'UPLOAD_ID_MISMATCH' });
+    // 令牌里的 maxBytesPerFile 生效（取与运行时上限的较小值）
+    const small = await u.sign({ v: 1, uid: owner, prefix: `raw/${owner}/`, exp: Math.floor(Date.now() / 1000) + 60, maxFiles: 1, maxBytesPerFile: 1024, jti: 'j2' });
+    expect((await u.authorizePart(small, photo.rawKey, photo.id, 1)).maxBytes).toBe(1024);
+    await expect(u.authorizePart(small, photo.rawKey, photo.id, 2)).rejects.toMatchObject({ status: 413 });
     const sb = await u.openSession(principal(other));
     if (sb.mode !== 'token') throw new Error('unreachable');
     await expect(u.authorizePart(sb.token, photo.rawKey, photo.id, 1)).rejects.toMatchObject({ status: 403, code: 'UPLOAD_PREFIX_DENIED' });

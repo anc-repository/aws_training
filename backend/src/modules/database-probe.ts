@@ -14,7 +14,7 @@ import type { Knex } from 'knex';
 import { describeAwsError, describeDbInstance, type AwsClients, type DbInstanceSummary } from '../adapters/aws/clients.js';
 import type { AppConfig } from '../config/schema.js';
 import { hostOf } from '../config/net.js';
-import { databaseHostClass } from '../db/knex.js';
+import { checkPgCa, databaseHostClass, pgTlsMode } from '../db/knex.js';
 import type { ProbeResult } from '../ports/common.js';
 
 export interface DatabaseProbeOptions {
@@ -123,6 +123,22 @@ export async function databaseProbe(db: Knex, cfg: AppConfig, opts: DatabaseProb
   }
   data.poolPending = pending;
 
+  // TLS：CA 证书包在启动后丢失 / 不可读 → error（下一次重启会以 78 拒绝启动）；显式 no-verify 连接非回环地址 → degraded
+  const tls = pgTlsMode(pg);
+  data.tls = tls;
+  if (tls === 'verify-ca') {
+    const ca = checkPgCa(pg);
+    if (ca.error) {
+      return { status: 'error', detail: `DB_SSL_CA ${ca.error}：无法校验数据库证书（重启后将拒绝启动，CFG-001）`, latencyMs, confidence: 'confirmed', data };
+    }
+  } else if (tls === 'no-verify' && hostClass !== 'local' && hostClass !== 'pgbouncer') {
+    status = 'degraded';
+    problems.push('DB_SSL=no-verify：TLS 不校验服务器证书（可被中间人攻击），请配置 DB_SSL_CA 并改回 require');
+  } else if (tls === 'disable' && (hostClass === 'rds' || hostClass === 'rds-proxy' || hostClass === 'remote')) {
+    status = 'degraded';
+    problems.push('DB_SSL=disable：到远程数据库的连接未加密');
+  }
+
   let replicaText = pg.DB_READ_HOST ? '有只读副本' : '无只读副本';
   if (opts.dbRead && opts.dbRead !== db) {
     try {
@@ -145,7 +161,7 @@ export async function databaseProbe(db: Knex, cfg: AppConfig, opts: DatabaseProb
   }
   return {
     status,
-    detail: `select 1 = ${latencyMs}ms · PostgreSQL ${version} · 主机分类：${hostClass} · ${replicaText}${deepText}${problems.length ? ` · ${problems.join('；')}` : ''}`,
+    detail: `select 1 = ${latencyMs}ms · PostgreSQL ${version} · 主机分类：${hostClass} · ${replicaText} · TLS ${tls}${deepText}${problems.length ? ` · ${problems.join('；')}` : ''}`,
     latencyMs,
     confidence: 'confirmed',
     data,

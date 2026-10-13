@@ -154,7 +154,7 @@ export const Database = section('DB_DRIVER', 'sqlite', z.discriminatedUnion('DB_
              DB_NAME: z.string().default('cloudalbum'), DB_USER: z.string().min(1),
              DB_PASSWORD: optStr,                           // 只能来自 secrets.env（第 3 层）
              DB_PASSWORD_SECRET_ARN: optStr,                // secrets=secretsmanager 或 RDS 托管主密码时（modules.d 中只写 ARN）
-             DB_SSL: z.enum(['require', 'disable']).default('require'),
+             DB_SSL: z.enum(['require', 'no-verify', 'disable']).default('require'),   // no-verify：显式选择“加密但不校验证书”
              DB_SSL_CA: optStr,
              DB_POOL_MAX: z.coerce.number().int().default(10),
              // —— db-proxy（ownsEnv DB_PROXY_，按最长前缀从 DB_ 中划出；DEP-032、033、036，MUTEX-006）——

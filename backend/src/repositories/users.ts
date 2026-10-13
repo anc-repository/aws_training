@@ -85,7 +85,7 @@ export async function insertUser(db: Db, input: {
 }
 
 export type UserPatch = Partial<{
-  display_name: string; password_hash: string | null; email_verified: boolean; role: 'admin' | 'member'; plan: string;
+  email: string; display_name: string; password_hash: string | null; email_verified: boolean; role: 'admin' | 'member'; plan: string;
   auth_provider: 'local' | 'cognito'; auth_subject: string; identity_id: string | null; mfa_secret_enc: string | null;
   mfa_enabled: boolean; failed_logins: number; locked_until: string | null; email_status: string; disabled: boolean;
 }>;

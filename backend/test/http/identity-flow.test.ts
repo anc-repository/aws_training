@@ -176,6 +176,7 @@ describe('防护：CSRF、锁定、防枚举', () => {
 
 describe('找回密码与 MFA', () => {
   const email = 'bob@example.com';
+  let mfaSecret = '';
 
   it('forgot → 管理员可见的重置邮件（本人预览不显示 password-reset）→ reset → 旧会话失效、新密码可登录', async () => {
     const a = request.agent(h.app);
@@ -201,6 +202,7 @@ describe('找回密码与 MFA', () => {
     expect(enroll.body.otpauthUrl).toMatch(/^otpauth:\/\/totp\//);
     expect(enroll.body.qrDataUrl).toMatch(/^data:image\/png;base64,/);
     const secret = enroll.body.secret as string;
+    mfaSecret = secret;
     const row = await h.c.db('users').where({ email }).first();
     expect(row.mfa_secret_enc).toMatch(/^ca1\./);
     expect(row.mfa_secret_enc).not.toContain(secret);
@@ -215,6 +217,31 @@ describe('找回密码与 MFA', () => {
     const ok = await request(h.app).post('/api/auth/mfa/verify').send({ challengeId: login.body.challengeId, code: totpAt(secret) }).expect(200);
     expect(ok.body).toMatchObject({ kind: 'tokens', user: { email, mfaEnabled: true } });
     await request(h.app).post('/api/auth/mfa/verify').send({ challengeId: login.body.challengeId, code: totpAt(secret) }).expect(401);
+  });
+
+  it('MFA 暴力破解：密码正确不清零失败计数，单个挑战最多试 3 次，跨挑战累计到阈值后锁定（锁定期间正确 TOTP 也被拒绝）', async () => {
+    expect(mfaSecret).toBeTruthy();
+    const login = async () => {
+      const r = await request(h.app).post('/api/auth/login').send({ email, password: 'Another-pass-77' }).expect(200);
+      expect(r.body.kind).toBe('mfa_required');
+      return r.body.challengeId as string;
+    };
+    const verify = (challengeId: string, code: string) => request(h.app).post('/api/auth/mfa/verify').send({ challengeId, code });
+    const a = await login();
+    expect((await verify(a, '111111')).body.error).toBe('INVALID_MFA_CODE');
+    expect((await verify(a, '222222')).body.error).toBe('INVALID_MFA_CODE');
+    expect((await verify(a, '333333')).body.error).toBe('INVALID_MFA_CHALLENGE');      // 第 3 次：挑战作废
+    expect((await verify(a, totpAt(mfaSecret))).status).toBe(401);                      // 作废后正确的码也无效
+    const b = await login();                                                             // 重新登录：计数不清零（已失败 3 次）
+    expect((await verify(b, '444444')).body.error).toBe('INVALID_MFA_CODE');
+    const locked = await verify(b, '555555');
+    expect(locked.status).toBe(423);
+    expect(locked.body.error).toBe('ACCOUNT_LOCKED');
+    await request(h.app).post('/api/auth/login').send({ email, password: 'Another-pass-77' }).expect(423);
+    await h.c.db('users').where({ email }).update({ locked_until: null });              // 解锁后：密码 + 正确 TOTP 正常登录
+    const c = await login();
+    await verify(c, totpAt(mfaSecret)).expect(200);
+    expect(Number((await h.c.db('users').where({ email }).first()).failed_logins)).toBe(0);
   });
 });
 

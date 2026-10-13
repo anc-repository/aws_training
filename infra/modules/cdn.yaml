@@ -277,6 +277,17 @@ Resources:
             CachePolicyId: !FindInMap [ManagedPolicies, Cache, CachingDisabled]
             OriginRequestPolicyId: !FindInMap [ManagedPolicies, OriginRequest, AllViewer]
             ResponseHeadersPolicyId: !Ref LabResponseHeadersPolicy
+          # Same-origin social endpoints (likes / comments; social-api off): every method, cookies forwarded, never cached.
+          # When social-api is enabled its injects repoint this path to API Gateway.
+          - PathPattern: /social/*
+            TargetOriginId: app-origin
+            ViewerProtocolPolicy: redirect-to-https
+            AllowedMethods: [GET, HEAD, OPTIONS, PUT, PATCH, POST, DELETE]
+            CachedMethods: [GET, HEAD]
+            Compress: true
+            CachePolicyId: !FindInMap [ManagedPolicies, Cache, CachingDisabled]
+            OriginRequestPolicyId: !FindInMap [ManagedPolicies, OriginRequest, AllViewer]
+            ResponseHeadersPolicyId: !Ref LabResponseHeadersPolicy
           - PathPattern: /.well-known/jwks.json
             TargetOriginId: app-origin
             ViewerProtocolPolicy: redirect-to-https

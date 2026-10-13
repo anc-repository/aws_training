@@ -41,6 +41,8 @@ export const ACCESS_AUDIENCE = 'cloudalbum';
 export const VERIFY_TTL_HOURS = 24;
 export const RESET_TTL_MINUTES = 60;
 export const MFA_CHALLENGE_TTL_SEC = 300;
+/** 单个 MFA 挑战最多可试的验证码个数（账号级锁定仍由 AUTH_LOCKOUT_THRESHOLD 控制，失败计数跨挑战累计） */
+export const MFA_CHALLENGE_MAX_ATTEMPTS = 3;
 const USER_CACHE_MS = 5000;
 const KEY_RELOAD_MIN_INTERVAL_MS = 30_000;
 const MFA_CRYPTO_CONTEXT = { app: 'cloudalbum', purpose: 'users.mfa_secret_enc' } as const;
@@ -76,6 +78,8 @@ export class LocalAuth implements AuthPort {
   private lastKeyLoadAt = 0;
   private readonly userCache = new Map<string, UserState>();
   private loginFailures = { total: 0, windowStart: Date.now() };
+  /** MFA 挑战 id（auth_tokens.id）→ 已失败次数；只是进程内的附加限制，挑战过期后清理 */
+  private readonly challengeAttempts = new Map<string, { n: number; at: number }>();
 
   constructor(protected readonly deps: AdapterDeps) {
     this.flows = this.createFlows();
@@ -401,6 +405,16 @@ export class LocalAuth implements AuthPort {
     return { subject: user.id, needsConfirmation: true };
   }
 
+  private noteChallengeAttempt(id: string): number {
+    const now = Date.now();
+    if (this.challengeAttempts.size > 1000) {
+      for (const [k, v] of this.challengeAttempts) if (now - v.at > MFA_CHALLENGE_TTL_SEC * 1000) this.challengeAttempts.delete(k);
+    }
+    const n = (this.challengeAttempts.get(id)?.n ?? 0) + 1;
+    this.challengeAttempts.set(id, { n, at: now });
+    return n;
+  }
+
   private noteLoginFailure(): void {
     const now = Date.now();
     if (now - this.loginFailures.windowStart > 300_000) this.loginFailures = { total: 0, windowStart: now };
@@ -430,8 +444,9 @@ export class LocalAuth implements AuthPort {
       }
       throw invalidCredentials();
     }
-    if (Number(u.failed_logins ?? 0) > 0 || u.locked_until) await resetLoginFailures(this.db, u.id);
     if (boolIn(u.disabled)) throw new HttpError(403, 'ACCOUNT_DISABLED', '账号已被管理员禁用');
+    // 开启 MFA 的账号：密码正确只签发 challenge，不清零失败计数——TOTP 失败与密码失败共用 failed_logins，
+    // 只有 completeMfa 成功才清零；否则“重新登录 → 再试几个 TOTP”的循环可以无限绕过锁定
     if (boolIn(u.mfa_enabled) && this.cfg.AUTH_MFA !== 'off') {
       const challengeId = randomToken(24);
       await insertAuthToken(this.db, {
@@ -440,6 +455,7 @@ export class LocalAuth implements AuthPort {
       });
       return { kind: 'mfa_required', challengeId };
     }
+    if (Number(u.failed_logins ?? 0) > 0 || u.locked_until) await resetLoginFailures(this.db, u.id);
     return { kind: 'tokens', tokens: await this.issueTokens(u) };
   }
 
@@ -449,16 +465,32 @@ export class LocalAuth implements AuthPort {
     if (!tok || tok.used_at || Date.parse(tok.expires_at) <= Date.now()) throw bad();
     const u = await findUserById(this.db, tok.user_id);
     if (!u || boolIn(u.disabled)) throw bad();
+    const lockedUntil = toIso(u.locked_until);
+    if (lockedUntil && Date.parse(lockedUntil) > Date.now()) {
+      // 锁定期间不再校验 TOTP（挑战一并作废，解锁后必须重新登录）
+      await deleteAuthTokens(this.db, { userId: u.id, type: 'mfa_challenge' });
+      throw new HttpError(423, 'ACCOUNT_LOCKED', `连续验证失败次数过多，账号已临时锁定，请在 ${lockedUntil} 之后再试`, { lockedUntil },
+        { 'Retry-After': String(Math.max(1, Math.ceil((Date.parse(lockedUntil) - Date.now()) / 1000))) });
+    }
     const secret = await this.decryptMfaSecret(u);
     if (!verifyTotp(secret, code ?? '')) {
       this.noteLoginFailure();
       const r = await recordLoginFailure(this.db, u.id, this.cfg.AUTH_LOCKOUT_THRESHOLD, this.cfg.AUTH_LOCKOUT_MINUTES);
-      if (r.lockedUntil) {
+      if (r.lockedUntil && Date.parse(r.lockedUntil) > Date.now()) {
         await deleteAuthTokens(this.db, { userId: u.id, type: 'mfa_challenge' });
-        throw new HttpError(423, 'ACCOUNT_LOCKED', `连续验证失败次数过多，账号已临时锁定 ${this.cfg.AUTH_LOCKOUT_MINUTES} 分钟`);
+        throw new HttpError(423, 'ACCOUNT_LOCKED', `连续验证失败次数过多，账号已临时锁定 ${this.cfg.AUTH_LOCKOUT_MINUTES} 分钟`,
+          { lockedUntil: r.lockedUntil }, { 'Retry-After': String(this.cfg.AUTH_LOCKOUT_MINUTES * 60) });
+      }
+      // 单个挑战的尝试上限：用完即作废，必须重新输入密码（失败计数不会因此清零）
+      const attempts = this.noteChallengeAttempt(tok.id);
+      if (attempts >= MFA_CHALLENGE_MAX_ATTEMPTS) {
+        await markAuthTokenUsed(this.db, tok.id);
+        this.challengeAttempts.delete(tok.id);
+        throw new HttpError(401, 'INVALID_MFA_CHALLENGE', '动态验证码错误次数过多，本次登录已作废，请重新登录');
       }
       throw new HttpError(401, 'INVALID_MFA_CODE', '动态验证码不正确');
     }
+    this.challengeAttempts.delete(tok.id);
     if (!(await markAuthTokenUsed(this.db, tok.id))) throw bad();
     await resetLoginFailures(this.db, u.id);
     return this.issueTokens(u);

@@ -45,6 +45,29 @@ describe('UserDirectory', () => {
     expect(u).toMatchObject({ auth_provider: 'cognito', auth_subject: 'sub-migrated' });
   });
 
+  it('cognito：email 未验证时不按 email 绑定已有本地行（403 EMAIL_NOT_VERIFIED），本地行保持原样', async () => {
+    const local = await createUserWithDefaults(db, { email: 'victim@example.com', displayName: 'v', passwordHash: 'argon', role: 'admin' });
+    const attacker = { ...cognito('sub-attacker', 'victim@example.com'), emailVerified: false };
+    await expect(new UserDirectory(db).ensureUser(attacker)).rejects.toMatchObject({ status: 403, code: 'EMAIL_NOT_VERIFIED' });
+    expect(await db('users').where({ id: local.id }).first()).toMatchObject({ auth_provider: 'local', auth_subject: local.id });
+  });
+
+  it('cognito：目标行已绑定另一个 Cognito sub → 409 ACCOUNT_LINK_CONFLICT（不改绑）', async () => {
+    const bound = await new UserDirectory(db).ensureUser(cognito('sub-owner', 'bound@example.com'));
+    await expect(new UserDirectory(db).ensureUser(cognito('sub-other', 'bound@example.com')))
+      .rejects.toMatchObject({ status: 409, code: 'ACCOUNT_LINK_CONFLICT' });
+    expect(await db('users').where({ id: bound.id }).first()).toMatchObject({ auth_provider: 'cognito', auth_subject: 'sub-owner' });
+  });
+
+  it('cognito：未验证的 email 不占用真实地址（占位建档），验证后改成真实地址', async () => {
+    const dir = new UserDirectory(db, 0);
+    const u = await dir.ensureUser({ ...cognito('sub-pending', 'pending@example.com'), emailVerified: false });
+    expect(u.email).toBe('sub-pending@cognito.invalid');
+    expect(await db('users').where({ email: 'pending@example.com' }).first()).toBeUndefined();
+    const v = await dir.ensureUser(cognito('sub-pending', 'pending@example.com'));
+    expect(v).toMatchObject({ id: u.id, email: 'pending@example.com' });
+  });
+
   it('cognito：令牌里没有 email 时用占位地址建档', async () => {
     const u = await new UserDirectory(db).ensureUser(cognito('sub-noemail', ''));
     expect(u.email).toBe('sub-noemail@cognito.invalid');

@@ -6,6 +6,8 @@
 //    Cookie 本身是 SameSite=Lax，这里再加一道（02#auth 第 1 节“CSRF”），对前端透明，不需要额外的请求头。
 // 3. 受限会话：auth=local 注册后、邮箱验证前，只允许 /api/auth/*、/api/me、/api/me/outbox*（04#email /me/outbox），
 //    其余 /api/*、/social/* 返回 403 EMAIL_NOT_VERIFIED。
+// 4. 令牌无效（4xx）按匿名处理（requireAuth 再返回 401）；校验依赖故障（5xx，例如 Cognito JWKS 不可达）原样返回 503，
+//    不降级为匿名（权威端口，总纲 1.2）；/api/capabilities、/api/health 这类公开端点除外。
 // 另外把客户端 IP 与 User-Agent 放进 ctx.locals（审计记录使用；IP 已由 Nginx realip 解析，Express trust proxy=loopback）。
 import type { Request, RequestHandler } from 'express';
 import type { Container } from '../../container.js';
@@ -60,6 +62,17 @@ export function isSameOriginRequest(req: Request, allowed: ReadonlySet<string>):
   return Boolean(host) && (o === `http://${host}`.toLowerCase() || o === `https://${host}`.toLowerCase());
 }
 
+/** 令牌被拒（4xx）与依赖故障（5xx / 非 HTTP 错误）的区分 */
+function isClientError(e: unknown): boolean {
+  const status = (e as { status?: unknown } | null)?.status;
+  return typeof status === 'number' && status >= 400 && status < 500;
+}
+
+/** 不需要登录的公开端点（能力清单、健康检查） */
+function isPublicPath(path: string): boolean {
+  return /^\/api\/(capabilities|health)(\/|$)/.test(path);
+}
+
 export function isAllowedForUnverified(path: string): boolean {
   return UNVERIFIED_ALLOWED.some((r) => r.test(path));
 }
@@ -83,12 +96,21 @@ export function authenticate(c: Container): RequestHandler {
     try {
       principal = await c.auth.verifyAccessToken(found.token);
     } catch (e) {
+      // 只有“令牌本身无效”（4xx）才按匿名处理；依赖故障（JWKS 不可达 503 AUTH_UNAVAILABLE、数据库故障等）原样上抛 →
+      // 503/500，绝不把已登录用户静默降级成匿名（总纲 1.2：auth 是权威端口）。公开端点（能力清单、健康检查）例外：
+      // 它们本来就不需要身份，继续匿名响应，前端才能在依赖故障时显示 auth 模块的状态
+      if (!isNotImplemented(e) && !isClientError(e) && !isPublicPath(req.path)) return next(e);
       ctx.locals.authError = isNotImplemented(e) ? 'auth-not-implemented' : ((e as HttpError).code ?? 'invalid-token');
       return next();
     }
     try {
       ctx.userId = await directory.userIdOf(principal);
     } catch (e) {
+      // JIT 建档被拒（未验证邮箱不能关联已有账号 / 账号已关联其他身份）：公开端点照常匿名访问，其余返回该错误
+      if (isClientError(e) && isPublicPath(req.path)) {
+        ctx.locals.authError = (e as HttpError).code ?? 'identity-rejected';
+        return next();
+      }
       return next(e);
     }
     ctx.principal = principal;

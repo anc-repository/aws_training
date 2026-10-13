@@ -125,6 +125,12 @@ export async function prepareModule(ctx: Ctx, target: ModuleTarget, opts: { mode
       if ((target.settings.AUTH_MIGRATION ?? 'bulk') === 'lazy') {
         throw new CliError('AUTH_MIGRATION=lazy (User Migration trigger in the VPC) is not part of this round; use the default bulk migration', EXIT.rules);
       }
+      if ((target.settings.COGNITO_LOGIN_MODE ?? 'sdk') === 'managed') {
+        throw new CliError('COGNITO_LOGIN_MODE=managed (hosted login, /api/auth/login + callback) is not part of this round; use LoginMode=sdk', EXIT.rules);
+      }
+      if ((target.settings.AUTH_DUAL_STACK ?? 'off') === 'on') {
+        throw new CliError('AUTH_DUAL_STACK=on (local + Cognito during the migration window) is not part of this round', EXIT.rules);
+      }
       p.settings.AUTH_MIGRATION = 'bulk';
       p.settings.AUTH_DUAL_STACK = target.settings.AUTH_DUAL_STACK ?? 'off';
       p.params.LoginMode = target.settings.COGNITO_LOGIN_MODE ?? 'sdk';

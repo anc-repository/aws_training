@@ -12,13 +12,39 @@ import { buildServerTimingHeader } from '../../observability/server-timing.js';
 
 const ID_SEGMENT = /^(?:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|[0-9A-HJKMNP-TV-Z]{26}|\d+|[0-9a-f]{24,})$/i;
 
-/** 路由模板：路由层设置的 ctx.route 优先；否则 Express 的 baseUrl + route.path；再否则把像 ID 的路径段替换为 :id */
-export function routeTemplate(req: Request, ctx?: RequestContext): string {
+/** 没有匹配任何路由的 404（以及失败的通配路由请求）统一记为这个键 */
+export const UNMATCHED_ROUTE = '<unmatched>';
+/** 路由之前就被中间件拒绝（401 / 403 / 429 …）时按一级前缀汇总；不在清单里的前缀记为 /<other>/* */
+const KNOWN_PREFIXES = new Set(['api', 'social', 'media', 'internal', '.well-known', 'metrics']);
+
+function normalizedPath(p: string): string {
+  // ID 段 → :id；“ID.扩展名”（原图 / 变体文件名）→ :id.<ext>
+  const segs = p.split('/').map((s) => {
+    if (ID_SEGMENT.test(s)) return ':id';
+    const m = /^(.+)\.([A-Za-z0-9]{1,8})$/.exec(s);
+    return m && ID_SEGMENT.test(m[1]!) ? `:id.${m[2]}` : s;
+  });
+  return segs.slice(0, 6).join('/') || '/';
+}
+
+/**
+ * 路由模板（LabMetricsStore 的汇总键，必须有界——任意路径不能各自产生一行）：
+ * - 路由层设置的 ctx.route 优先；否则具体的 Express 路由取 baseUrl + route.path；
+ * - 通配 / 正则路由：成功的请求按路径段细分（ID 段替换为 :id，数量受真实对象约束）；失败的请求按路由模式本身汇总；
+ * - 没有匹配任何路由：404 记为 <unmatched>，被中间件拒绝的请求按一级前缀（/api/* 等）汇总。
+ */
+export function routeTemplate(req: Request, ctx?: RequestContext, status?: number): string {
   if (ctx?.route) return ctx.route;
   const routePath = (req.route as { path?: unknown } | undefined)?.path;
   if (typeof routePath === 'string' && !routePath.includes('*')) return `${req.baseUrl}${routePath}`;
-  const segs = req.path.split('/').map((s) => (ID_SEGMENT.test(s) ? ':id' : s));
-  return segs.slice(0, 6).join('/') || '/';
+  const failed = status !== undefined && status >= 400;
+  if (routePath !== undefined) {
+    if (!failed) return normalizedPath(`${req.baseUrl}${req.path}`);
+    return status === 404 ? UNMATCHED_ROUTE : `${req.baseUrl}${String(routePath)}`;
+  }
+  if (status === undefined || status === 404) return UNMATCHED_ROUTE;
+  const first = (req.originalUrl ?? req.url ?? '').split('?')[0]!.split('/')[1] ?? '';
+  return KNOWN_PREFIXES.has(first) ? `/${first}/*` : '/<other>/*';
 }
 
 function origins(...urls: string[]): string[] {
@@ -75,7 +101,7 @@ export function observability(c: Container): RequestHandler {
         ts: ctx.startedAtIso,
         requestId: ctx.requestId,
         method: req.method,
-        route: routeTemplate(req, ctx),
+        route: routeTemplate(req, ctx, res.statusCode),
         status: res.statusCode,
         totalMs,
         path: buildPathHeader(ctx),

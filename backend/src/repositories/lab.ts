@@ -257,3 +257,20 @@ export async function compactRollups(db: Knex, before: Date, opts: { batchSize?:
   }
   return { minuteRows, hourRows };
 }
+
+/** 保留期（总纲 7.3）：分钟级与压缩后的小时级汇总一律保留 14 天，lab.compact 在压缩之后删除更早的行 */
+export const LAB_ROLLUP_RETENTION_DAYS = 14;
+
+/** 删除 before 之前的全部汇总行（分钟级与小时级），分批执行，返回删除的行数 */
+export async function purgeRollupsBefore(db: Knex, before: Date, opts: { batchSize?: number } = {}): Promise<number> {
+  const cutoff = before.toISOString();
+  const batchSize = opts.batchSize ?? 5000;
+  let total = 0;
+  for (;;) {
+    const ids = (await db('lab_metric_rollups').where('minute', '<', cutoff).orderBy('id', 'asc').limit(batchSize).pluck('id')) as Array<number | string>;
+    if (!ids.length) break;
+    for (let i = 0; i < ids.length; i += 500) total += await db('lab_metric_rollups').whereIn('id', ids.slice(i, i + 500)).del();
+    if (ids.length < batchSize) break;
+  }
+  return total;
+}

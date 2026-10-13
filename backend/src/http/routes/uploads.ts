@@ -63,6 +63,8 @@ const signBody = partQuery;
 
 export function register(app: Express, c: Container): void {
   const maxUploadBytes = () => Math.floor(c.runtimeConfig().maxUploadMb * MB);
+  /** uploadId → 正在写入的分片预留的字节数（并发分片也受累计上限约束） */
+  const inflight = new Map<string, number>();
 
   app.put('/api/storage/upload', async (req, res) => {
     // ---- F14：分片 ----
@@ -74,17 +76,36 @@ export function register(app: Express, c: Container): void {
       const local = asLocalMultipart(c.storage);
       if (!local) return reject(req, res, 400, 'USE_PARTS_SIGN', 'storage=s3：请改用 POST /api/uploads/parts:sign 换取预签名 UploadPart URL');
       if (typeof c.directUpload.authorizePart !== 'function') return reject(req, res, 404, 'NOT_AVAILABLE', '当前 identity-pool 驱动不签发前缀令牌');
+      let auth: Awaited<ReturnType<NonNullable<typeof c.directUpload.authorizePart>>>;
       try {
-        await c.directUpload.authorizePart(token, q.data.key, q.data.uploadId, q.data.part);
+        auth = await c.directUpload.authorizePart(token, q.data.key, q.data.uploadId, q.data.part);
       } catch (e) {
         req.resume();
         throw e;
       }
+      // 单片与累计上限：已落盘的其他分片 + 正在写入的分片（本进程内的预留）不得超过这次上传的上限，超出立即 413，
+      // 不等到 complete 才发现（否则一个 uploadId 可以写入 10000 × 上限的字节，把数据卷写满）
+      const { uploadId, part } = q.data;
+      const maxBytes = auth.maxBytes ?? maxUploadBytes();
+      const partCap = Math.min(auth.partSize ?? maxBytes, maxBytes);
+      const others = (await local.listParts(uploadId)).filter((p) => p.part !== part);
+      const reserved = inflight.get(uploadId) ?? 0;
+      const remaining = maxBytes - others.reduce((sum, p) => sum + p.size, 0) - reserved;
+      if (remaining <= 0) return reject(req, res, 413, 'UPLOAD_TOO_LARGE', `已收到的分片合计已达上限 ${maxBytes} 字节`);
+      const cap = Math.min(partCap, remaining);
+      inflight.set(uploadId, reserved + cap);
       const cl = contentLengthOf(req);
-      const r = await local.writePart(q.data.uploadId, q.data.part, req, { maxBytes: maxUploadBytes(), ...(cl !== undefined ? { contentLength: cl } : {}) });
+      let r;
+      try {
+        r = await local.writePart(uploadId, part, req, { maxBytes: cap, ...(cl !== undefined ? { contentLength: cl } : {}) });
+      } finally {
+        const left = (inflight.get(uploadId) ?? cap) - cap;
+        if (left > 0) inflight.set(uploadId, left);
+        else inflight.delete(uploadId);
+      }
       if (!r.ok) return reject(req, res, r.status, r.code, r.message);
       noStore(res);
-      res.set('ETag', r.etag).json({ uploadId: q.data.uploadId, part: r.part, size: r.size, etag: r.etag });
+      res.set('ETag', r.etag).json({ uploadId, part: r.part, size: r.size, etag: r.etag });
       return;
     }
 

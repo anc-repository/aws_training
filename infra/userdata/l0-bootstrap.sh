@@ -19,6 +19,9 @@ echo "=== $(date -Is) l0-bootstrap phase=$PHASE"
 : "${DEPLOY_MODE:=single}" "${APP_PUBLIC_IP:=}" "${ADMIN_EMAIL:=}" "${BOOTSTRAP_SIGNAL:=none}" "${CFN_STACK:=}"
 : "${PLATFORM_MODE:=off}"
 DATA=/var/lib/cloudalbum; ETC=$DATA/etc; LIB=/usr/local/lib/cloudalbum; CA_ID=2001
+# marker written when --regenerate-secrets replaced the secrets of an initialized volume; removed only after
+# `cli keys:reset-fingerprint` succeeded, so a re-run after a failure in between still finishes the recovery
+REGEN_MARKER=$ETC/.secrets-regenerated
 ARCHIVE=/var/tmp/cloudalbum-release.tgz
 
 imds() {   # IMDSv2: PUT a token first (hop limit 1 is enough for local processes)
@@ -70,7 +73,17 @@ install_phase() {
     ver=$(tar xzf "$ARCHIVE" -O --wildcards '*/VERSION' | head -1)
     [[ $ver =~ ^[A-Za-z0-9._-]+$ ]] || { echo "FATAL: invalid VERSION in the release archive"; exit 1; }
     rel=/opt/cloudalbum-releases/$ver
-    if [ ! -d "$rel" ]; then install -d "$rel"; tar xzf "$ARCHIVE" -C "$rel" --strip-components=1; fi
+    # extract into a temporary sibling directory (same file system) and rename only after tar succeeded: an interrupted
+    # extraction (disk full, instance stopped) never leaves a half-extracted $rel that a re-run would skip and link to
+    if [ ! -f "$rel/.extract-complete" ]; then
+      rm -rf "$rel".tmp.* "$rel".incomplete.*                          # leftovers of an interrupted earlier run
+      install -d "$rel.tmp.$$"
+      tar xzf "$ARCHIVE" -C "$rel.tmp.$$" --strip-components=1
+      touch "$rel.tmp.$$/.extract-complete"
+      if [ -e "$rel" ]; then mv -T "$rel" "$rel.incomplete.$$"; fi     # unmarked directory: replaced, not trusted
+      mv -T "$rel.tmp.$$" "$rel"
+      rm -rf "$rel.incomplete.$$"
+    fi
     ln -sfn "$rel" /opt/cloudalbum
   fi
   # 5. host files: nginx.conf (replaces the distribution default), cloudalbum.conf / locations / proxy / upstream,
@@ -145,6 +158,11 @@ ensure_secrets() {       # D5 + invariant 1: only when the data volume is mounte
       echo "       from a snapshot / backup. To give up every encrypted field and session: cloudalbum-postattach --regenerate-secrets"
       exit 1
     fi
+    if [ "$REGEN_SECRETS" = yes ] && [ "$DEPLOY_MODE" = single ]; then
+      echo "WARN: --regenerate-secrets: encrypted fields (MFA secrets, photo locations) and every session are given up"
+      echo "      (cli keys:reset-fingerprint --confirm-data-loss runs after db:migrate)"
+      install -o root -g cloudalbum -m 0640 /dev/null "$REGEN_MARKER"
+    fi
     ( umask 027
       { echo "SECRETS_ORIGIN=instance"
         for n in UPLOAD_HMAC_KEY MEDIA_HMAC_KEY CALLBACK_HMAC_KEY INTERNAL_HMAC_KEY COOKIE_SECRET LOCAL_MASTER_KEY; do
@@ -182,12 +200,19 @@ postattach_phase() {
   cli check-config                    # configuration error -> exit 78, the script stops (D3)
   if [ "$DEPLOY_MODE" = single ]; then
     cli db:migrate
+    if [ -e "$REGEN_MARKER" ]; then
+      # the old LOCAL_MASTER_KEY is gone: clear the fields it encrypted and record the new fingerprint (explicit, logged);
+      # without this the comparison below would fail with 78 forever
+      cli keys:reset-fingerprint --confirm-data-loss
+      rm -f "$REGEN_MARKER"
+    fi
     cli keys:check-fingerprint        # compared with system_meta; mismatch -> 78 (CFG-007)
     if [ "$PLATFORM_MODE" != on ] && [ -n "$ADMIN_EMAIL" ]; then   # platform mode: the runner creates the admin (PM-07)
       pw=$(cli admin:ensure --email "$ADMIN_EMAIL" --print-password-if-created)
       [ -z "$pw" ] || ( umask 077; printf '%s\n' "$pw" > /root/cloudalbum-admin.txt )
     fi
   fi
+  "$LIB/denylist-apply.sh" --sync     # root-owned, validated copy of security/denylist.conf for Nginx
   nginx -t
   systemctl enable --now nginx cloudalbum-api cloudalbum-worker cloudalbum-denylist.path \
     cloudalbum-backup.timer cloudalbum-security-snapshot.timer cloudalbum-healthcheck.timer cloudalbum-vuln-scan.timer

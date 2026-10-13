@@ -32,7 +32,20 @@ export function isDriverImplemented(id: ModuleId, driver: string): boolean {
   return implementedDriversOf(id).includes(driver);
 }
 
-/** 返回“配置了未实现驱动”的错误（每个开关变量最多一条）。 */
+/**
+ * 已实现驱动中“本轮未实现的子模式 / 变体”：配置了就和未实现的驱动一样以 CFG-001（退出码 78）拒绝，
+ * 不能启动成功后才在运行时 404（例如托管登录跳到不存在的 /api/auth/login）。
+ */
+export const UNIMPLEMENTED_VARIANTS: ReadonlyArray<{ module: ModuleId; driver: string; key: string; value: string; detail: string; fix: string }> = [
+  { module: 'auth', driver: 'cognito', key: 'COGNITO_LOGIN_MODE', value: 'managed',
+    detail: '托管登录（GET /api/auth/login 与 /api/auth/callback，授权码 + PKCE）', fix: '改用 COGNITO_LOGIN_MODE=sdk（scripts/module enable auth --param LoginMode=sdk）' },
+  { module: 'auth', driver: 'cognito', key: 'AUTH_MIGRATION', value: 'lazy',
+    detail: '惰性迁移（User Migration 触发器 + /internal/legacy-auth）', fix: '改用默认的 AUTH_MIGRATION=bulk' },
+  { module: 'auth', driver: 'cognito', key: 'AUTH_DUAL_STACK', value: 'on',
+    detail: '迁移窗口内的本地 + Cognito 双栈认证', fix: '删除该键（默认 off）' },
+];
+
+/** 返回“配置了未实现驱动”的错误（每个开关变量最多一条），以及已实现驱动中未实现的子模式（UNIMPLEMENTED_VARIANTS）。 */
 export function implementationErrors(env: EnvView): Array<{ section: string; path: string; message: string }> {
   const errors: Array<{ section: string; path: string; message: string }> = [];
   const seenVars = new Set<string>();
@@ -56,6 +69,14 @@ export function implementationErrors(env: EnvView): Array<{ section: string; pat
       message:
         `${sw.var}=${value}：${owner}（${REGISTRY[owner].awsService}）的“${driver}”驱动在本轮（MVP）尚未实现，` +
         `只能使用 ${allowed}。请改回本地实现：scripts/module disable ${owner}（或删除 modules.d/${owner}.env 中的该键）`,
+    });
+  }
+  for (const v of UNIMPLEMENTED_VARIANTS) {
+    if (driverOf(env, v.module) !== v.driver || (env[v.key] ?? '') !== v.value) continue;
+    errors.push({
+      section: 'implementation',
+      path: v.key,
+      message: `${v.key}=${v.value}：${v.module} 的${v.detail}在本轮（MVP）尚未实现。${v.fix}`,
     });
   }
   return errors;

@@ -9,6 +9,7 @@
 //   probe [module]          运行一次探针（--deep 深度探针），打印各模块状态
 //   keys:fingerprint        打印 LOCAL_MASTER_KEY 的指纹（scripts/module 在替换实例前后比对）
 //   keys:check-fingerprint  与数据库 system_meta 中的记录比对，不一致退出 78（CFG-007）
+//   keys:reset-fingerprint  --confirm-data-loss：主密钥已重新生成时清空无法解密的字段并记录新指纹（postattach --regenerate-secrets）
 //   dev:init                在开发机上生成本地运行目录（.cloudalbum/dev：env、机密、ES256 密钥、数据目录）
 //   job run <name>          手动执行一次定时任务（trigger=manual；与 worker 同一份注册表与锁）
 //   lab:compact             把 2 天前的 lab_metric_rollups 压缩为小时级
@@ -19,11 +20,12 @@ import path from 'node:path';
 import { Command, Option } from 'commander';
 import { MODULE_IDS, isModuleId, type ModuleId } from '@cloudalbum/contracts';
 import { buildContainer, type Container } from './container.js';
-import { checkKeyFingerprint, currentKeyFingerprint } from './config/key-fingerprint.js';
+import { checkKeyFingerprint, currentKeyFingerprint, resetKeyFingerprint } from './config/key-fingerprint.js';
 import { DEFAULT_ENV_DIR, validateConfig } from './config/validate.js';
 import { createKnex, migrateLatest } from './db/knex.js';
 import { ConfigValidationError, EX_CONFIG } from './errors.js';
 import { DEFAULT_RUNTIME_CONFIG } from './ports/config.js';
+import { secretEnvName } from './ports/secrets.js';
 import { registerScheduledJobs, bindJobs } from './jobs/index.js';
 import type { ScheduledJobName } from './ports/scheduler.js';
 import { compactRollups } from './repositories/lab.js';
@@ -199,6 +201,41 @@ function buildProgram(): Command {
         const r = await checkKeyFingerprint(c.db, c.secrets, c.logger);
         out(r.status === 'skipped' ? `skipped：${r.reason}` : `${r.status}：${r.fingerprint}`);
       });
+    });
+
+  program.command('keys:reset-fingerprint')
+    .description('放弃旧主密钥下的全部加密字段（MFA 密钥、照片位置）并记录新 LOCAL_MASTER_KEY 的指纹；必须带 --confirm-data-loss')
+    .addOption(envDirOption())
+    .option('--confirm-data-loss', '确认：已加密字段将被清空（开启 MFA 的用户需要重新绑定）')
+    .action(async (opts: { envDir?: string; confirmDataLoss?: boolean }) => {
+      if (!opts.confirmDataLoss) {
+        process.stderr.write('拒绝执行：这会清空所有无法再解密的字段。确认后加上 --confirm-data-loss\n');
+        process.exitCode = 2;
+        return;
+      }
+      // 不经 buildContainer（它会先做 CFG-007 比对并拒绝启动）；主密钥直接取分层 env 中的 LOCAL_MASTER_KEY（secrets=env）
+      const v = await validateConfig({ role: 'cli', envDir: envDirOf(opts) });
+      if (!v.ok || !v.parsed.config) {
+        printConfigReport(v.parsed.errors, v.verdict, (l) => process.stderr.write(`${l}\n`));
+        process.exitCode = EX_CONFIG;
+        return;
+      }
+      const key = v.layers.merged[secretEnvName('local-master-key')] ?? '';
+      if (!key) {
+        process.stderr.write('LOCAL_MASTER_KEY 不在分层 env 中（secrets.env）：无法记录新指纹\n');
+        process.exitCode = 1;
+        return;
+      }
+      const db = await createKnex(v.parsed.config);
+      try {
+        const r = await resetKeyFingerprint(db, key);
+        out(r.status === 'match'
+          ? `match：${r.fingerprint}（指纹已一致，未改动任何数据）`
+          : `reset：${r.previous ?? '(无)'} → ${r.fingerprint} · 清空 MFA 密钥 ${r.cleared.mfaUsers} 个（这些用户的 MFA 已关闭）、` +
+            `照片位置 ${r.cleared.photoLocations} 条、进行中的 MFA 挑战 ${r.cleared.mfaChallenges} 个`);
+      } finally {
+        await db.destroy();
+      }
     });
 
   program.command('dev:init')

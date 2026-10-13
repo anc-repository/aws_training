@@ -1,5 +1,6 @@
 // database 探针：SQLite（文件可写、quick_check）、PostgreSQL（延迟、连接池排队、只读副本）、RDS 深度探针（DescribeDBInstances）
-import { mkdirSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { DescribeDBInstancesCommand, RDSClient } from '@aws-sdk/client-rds';
 import { mockClient } from 'aws-sdk-client-mock';
@@ -8,6 +9,8 @@ import type { Knex } from 'knex';
 import { afterEach, describe, expect, it } from 'vitest';
 import { lazyAwsClients } from '../../src/adapters/aws/clients.js';
 import { databaseProbe, rdsInstanceIdOf } from '../../src/modules/database-probe.js';
+import { createKnex, pgSslOptions } from '../../src/db/knex.js';
+import { ConfigValidationError } from '../../src/errors.js';
 import { ENABLE } from '../helpers/config.js';
 import { awsError, fakeCredentials, testConfig } from '../adapters/aws/helpers.js';
 
@@ -108,6 +111,39 @@ describe('databaseProbe：PostgreSQL / RDS', () => {
     const noCreds = await databaseProbe(fakePg(), cfg, { deep: true, aws: aws(false) });
     expect(noCreds.status).toBe('ok');
     expect(noCreds.detail).toContain('CRED-004');
+  });
+
+  it('TLS：DB_SSL_CA 配置了却读不到 → 探针 error、createKnex 以 ConfigValidationError（78）拒绝；只有显式 no-verify 才不校验证书', async () => {
+    const missing = path.join(os.tmpdir(), `cloudalbum-missing-ca-${process.pid}.pem`);
+    const { cfg } = testConfig({ ...rdsEnv, DB_SSL_CA: missing });
+    if (cfg.db.DB_DRIVER !== 'postgres') throw new Error('unexpected');
+    const r = await databaseProbe(fakePg(), cfg);
+    expect(r.status).toBe('error');
+    expect(r.detail).toContain('DB_SSL_CA');
+    expect(() => pgSslOptions(cfg.db)).toThrow(ConfigValidationError);
+    await expect(createKnex(cfg)).rejects.toBeInstanceOf(ConfigValidationError);
+
+    const caFile = path.join(mkdtempSync(path.join(os.tmpdir(), 'cloudalbum-ca-')), 'rds-ca.pem');
+    writeFileSync(caFile, '-----BEGIN CERTIFICATE-----\nMIIB\n-----END CERTIFICATE-----\n');
+    const withCa = testConfig({ ...rdsEnv, DB_SSL_CA: caFile }).cfg;
+    if (withCa.db.DB_DRIVER !== 'postgres') throw new Error('unexpected');
+    expect(pgSslOptions(withCa.db)).toMatchObject({ rejectUnauthorized: true, ca: expect.stringContaining('BEGIN CERTIFICATE') });
+    expect((await databaseProbe(fakePg(), withCa)).detail).toContain('TLS verify-ca');
+
+    const noCa = testConfig(rdsEnv).cfg;                       // 没有配置 CA：用内置根证书校验，不静默放行
+    if (noCa.db.DB_DRIVER !== 'postgres') throw new Error('unexpected');
+    expect(pgSslOptions(noCa.db)).toEqual({ rejectUnauthorized: true });
+
+    const noVerify = testConfig({ ...rdsEnv, DB_SSL: 'no-verify' }).cfg;
+    if (noVerify.db.DB_DRIVER !== 'postgres') throw new Error('unexpected');
+    expect(pgSslOptions(noVerify.db)).toEqual({ rejectUnauthorized: false });
+    const nv = await databaseProbe(fakePg(), noVerify);
+    expect(nv.status).toBe('degraded');
+    expect(nv.detail).toContain('no-verify');
+
+    const loop = testConfig({ ...ENABLE.pgLocal, DB_SSL: 'require' }).cfg;   // 自建档的回环地址：加密但不校验
+    if (loop.db.DB_DRIVER !== 'postgres') throw new Error('unexpected');
+    expect(pgSslOptions(loop.db)).toEqual({ rejectUnauthorized: false });
   });
 
   it('自建 PostgreSQL（回环地址）不查控制面', async () => {

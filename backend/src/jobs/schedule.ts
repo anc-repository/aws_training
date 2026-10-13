@@ -110,6 +110,8 @@ export async function labCompact(c: Container, now = new Date()): Promise<{ skip
     return { skipped: true };
   }
   await (fn as CompactFn)(c.db, new Date(now.getTime() - 2 * DAY_MS));
+  // 小时级汇总同样有保留期：否则按 route 维度的行只增不减（总纲 7.3：保留 14 天）
+  await labRepo.purgeRollupsBefore(c.db, new Date(now.getTime() - labRepo.LAB_ROLLUP_RETENTION_DAYS * DAY_MS));
   return { skipped: false };
 }
 

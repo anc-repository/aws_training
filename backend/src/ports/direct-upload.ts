@@ -23,7 +23,9 @@ export interface TempAwsCredentials {
 
 export interface DirectUploadPort extends Adapter {
   openSession(who: Principal, opts?: { bypass?: boolean }): Promise<DirectUploadSession>;
-  authorizePart?(token: string, key: string, uploadId: string, part: number): Promise<{ url?: string }>;   // none
+  authorizePart?(token: string, key: string, uploadId: string, part: number): Promise<{ url?: string }   // none
+    /** 实现补充（加性可选字段）：这次上传的累计字节上限与分片大小，storage=local 的分片路由据此限制单片与累计大小 */
+    & { maxBytes?: number; partSize?: number }>;
   credentials?(who: Principal, idToken: string): Promise<TempAwsCredentials>;                               // cognito
   /** complete 时校验大小、类型与文件头，得到原图键 raw/<userId>/<photoId>.<ext>；
    *  none：分片在 storage 侧合并（local：拼接 .incoming/<uploadId>/；s3：CompleteMultipartUpload）；

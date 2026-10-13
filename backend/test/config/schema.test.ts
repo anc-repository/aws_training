@@ -75,6 +75,17 @@ describe('parseConfig', () => {
     expect(parseConfig({ CLOUDALBUM_ROLE: 'api', ...ENABLE.iamKeys }).errors).toEqual([]);
   });
 
+  it('已实现驱动中本轮未实现的子模式（托管登录、惰性迁移、双栈）→ CFG-001（implementation），不能启动后才 404', () => {
+    const base = { CLOUDALBUM_ROLE: 'api', ...ENABLE.iamRole, ...ENABLE.cognito };
+    expect(parseConfig(base).errors).toEqual([]);
+    for (const [key, value] of [['COGNITO_LOGIN_MODE', 'managed'], ['AUTH_MIGRATION', 'lazy'], ['AUTH_DUAL_STACK', 'on']] as const) {
+      const r = parseConfig({ ...base, [key]: value });
+      expect(r.config, key).toBeUndefined();
+      expect(r.errors, key).toEqual([expect.objectContaining({ section: 'implementation', path: key })]);
+      expect(parseConfig({ ...base, [key]: value }, { checkImplemented: false }).errors, key).toEqual([]);
+    }
+  });
+
   it('CONFIG_KEYS 覆盖 registry 中全部开关变量', () => {
     for (const m of Object.values(REGISTRY_DOCUMENT.modules)) {
       if (m.switch) expect(CONFIG_KEYS.has(m.switch.var), m.switch.var).toBe(true);

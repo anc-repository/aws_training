@@ -739,3 +739,41 @@ AWS_EC2_METADATA_DISABLED=true scripts/module --dry-run -y enable <id> --with-de
 - **AWS 档的 SDK 加载清单**里会出现 `@aws-sdk/credential-provider-node`（客户端包静态 import 默认凭证链模块；实际使用的是 iam 驱动显式传入的 provider）。
 - **git**：提交 `ca540ee` 的提交信息被并发的 aws-adapters 覆盖（正确信息在 `git notes show ca540ee`），本轮没有改写历史；工作区里 `docs/` 下其他文件与 `docs/platform/`
   的改动不是本轮的，没有提交。docker-compose 的 postgres 与 valkey 容器保持运行（`npm run test:services:down` 可停止）。
+
+## review-fixes
+
+审查发现（1 个 high、5 个 medium、6 个 low，全部修复）的实现取舍。没有调用真实 AWS API；验证 = build、lint、单元 / 集成测试（CLOUDALBUM_IT=1）、
+smoke:l0、smoke:selfhost、cfn-lint 1.57.2（10 个模板 0 发现）、amazonlinux:2023 容器内的 denylist-apply.sh 脚本测试。
+
+1. **cognito JIT 按 email 绑定**（`services/user-directory.ts`）：只在“令牌 / AdminGetUser 的 email_verified=true”且目标行 `auth_provider='local'` 时绑定，
+   用 `where auth_provider='local'` 的条件更新防并发改绑。未验证 → 403 `EMAIL_NOT_VERIFIED`；目标行已绑定其他 sub → 409 `ACCOUNT_LINK_CONFLICT`（都不新建，
+   因为 email 唯一）。没有同邮箱行时，未验证的 email 不占用真实地址：以 `<sub>@cognito.invalid` 占位建档，验证后的请求改成真实地址（地址被占用时保持占位）。
+   认证中间件对 JIT 被拒的 4xx：`/api/capabilities`、`/api/health` 照常匿名，其余返回该错误。`auth.yaml` 的 UserPool 加
+   `UserAttributeUpdateSettings.AttributesRequireVerificationBeforeUpdate: [email]` 与 `UserPoolTags: { DataClass: metadata }`（不加 Backup=true）。
+2. **MFA 锁定**（`adapters/auth/local.ts`）：开启 MFA 时密码正确只签发挑战、不清零 `failed_logins`（只在 completeMfa 成功或无 MFA 登录时清零）；completeMfa 先查
+   `locked_until`（锁定中 → 423 并作废挑战）；另加单挑战尝试上限 `MFA_CHALLENGE_MAX_ATTEMPTS=3`（进程内计数，用完即 `used_at`，账号级计数仍跨挑战累计）。
+3. **F14 分片**：`authorizePart` 要求 `uploadId === photoId`（403 `UPLOAD_ID_MISMATCH`，s3 分支同样要求）、分片号 ≤ ceil(上限 / 分片大小)（413 `TOO_MANY_PARTS`）；
+   上限 = min(令牌 `maxBytesPerFile`, 运行时 maxUploadMb)。端口返回值加了**加性可选字段** `{ maxBytes?, partSize? }`（总纲 4.2 照录的签名只扩展、不改名）。
+   uploads 路由按“已落盘的其他分片 + 本进程内正在写入的预留”限制单片（≤ partSize）与累计（≤ maxBytes），超出立即 413 `UPLOAD_TOO_LARGE`。
+   仍然存在：每个用户可建多张 UPLOADING 照片（每张最多 maxBytes），没有按用户的待上传配额，`.incoming` 仍按 24 小时清理。
+4. **DB TLS**（`db/knex.ts`）：`DB_SSL` 增加显式取值 `no-verify`。`require` + 配置了 CA 但读不到 / 不是 PEM → `ConfigValidationError`（报告写 CFG-001，退出码 78）；
+   `require` 且未配置 CA → 用 Node 内置根证书校验（RDS Proxy 的 Amazon Trust Services 证书可过）；回环地址（自建档）无 CA 时加密不校验。database 探针：CA 在运行中
+   丢失 → error；非回环地址上的 `no-verify` → degraded；到远程库的 `disable` → degraded；detail 增加 `TLS <模式>`。没有新增规则 ID（规则表以总纲 §5 为准）。
+5. **cdn**：分配增加 `/social/*` → app-origin（全部方法、CachingDisabled、AllViewer），与 `/api/*` 相同；social-api 启用后由它的 injects 改指 API Gateway。
+6. **认证中间件**：`verifyAccessToken` 只有 4xx 才按匿名处理；5xx / 非 HTTP 错误（JWKS 不可达、数据库故障）`next(e)` → 503 / 500。公开端点
+   `/api/capabilities`、`/api/health` 例外（继续匿名响应，否则依赖故障时前端连 auth 模块的状态都看不到）。
+7. **`--regenerate-secrets`**：新增 `cli keys:reset-fingerprint --confirm-data-loss`（不经 buildContainer，直接取分层 env 的 LOCAL_MASTER_KEY）：一个事务内清空
+   `users.mfa_secret_enc`（并关闭 MFA）、`photos.location_enc`、未完成的 MFA 挑战，再写新指纹；指纹已一致时什么都不做。引导脚本在 `--regenerate-secrets`
+   真正重新生成 secrets.env 时（single 模式）写标记 `etc/.secrets-regenerated`，`db:migrate` 之后执行该命令并删除标记——中途失败重跑时仍会完成恢复。
+   本轮 kms 只有本地驱动，因此全部 `ca1.*` 密文都清空；KMS 驱动实现后应只清空 keyRef 为本地密钥的行。
+8. **未实现的子模式**：`config/implemented.ts` 的 `UNIMPLEMENTED_VARIANTS`（cognito 下的 `COGNITO_LOGIN_MODE=managed`、`AUTH_MIGRATION=lazy`、
+   `AUTH_DUAL_STACK=on`）在 implementationErrors 中报 CFG-001（退出码 78）；`scripts/module enable auth` 的 hook 同样在部署前拒绝 managed 与 dual-stack（lazy 原本就拒绝）。
+9. **LabMetricsStore 汇总键**：`routeTemplate(req, ctx, status)`——没有匹配路由的 404 记为 `<unmatched>`；路由前被中间件拒绝的请求按一级前缀
+   （`/api/*`、`/social/*` …，其余 `/<other>/*`）；通配 / 正则路由失败时按路由模式本身、成功时按路径段（ID 与 “ID.扩展名” 归一为 `:id`）。
+   `lab.compact` 压缩后删除 14 天前的全部汇总行（`LAB_ROLLUP_RETENTION_DAYS`，总纲 7.3“保留 14 天”）。
+10. **发布包解压**（l0-bootstrap.sh）：先解压到同一文件系统的 `$rel.tmp.$$`，成功后写 `.extract-complete` 再 `mv -T`；没有标记的旧目录视为不完整，替换后删除。
+11. **denylist 信任边界**：Nginx 改为 include root 所有的 `/etc/nginx/cloudalbum-denylist.conf`（0644），只由 `denylist-apply.sh` 在逐行校验通过后写入；校验在
+    root-only 目录中的快照上进行（没有“校验后被替换”的窗口），符号链接、非普通文件、超过 4 MiB、FIFO（timeout 5s）一律视为无效。这个副本同时是 last-good：
+    旧的 `security/denylist.conf.last-good`（cloudalbum 可写）每次运行都会删除；校验失败时从 root 副本（再校验一次）恢复应用侧文件。新增 `--sync`
+    （只更新副本、不 reload、永远退出 0），由 nginx.service drop-in 的 `ExecStartPre=-` 与 postattach（`nginx -t` 之前）调用；install-host-files.sh 播种空副本。
+    文档 00-ec2-base.md 中 include 路径与 last-good 的描述需要按此回写（本轮不改 docs）。

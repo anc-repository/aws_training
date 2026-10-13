@@ -30,6 +30,11 @@ done
 # holds a derived copy of origin-verify when cdn is enabled: root only (D5 exception)
 [ -e /etc/nginx/cloudalbum.d/slot-origin-verify.inc ] || \
   install -m 0600 "$SRC/nginx/cloudalbum.d/slot-origin-verify.inc" /etc/nginx/cloudalbum.d/slot-origin-verify.inc
+# the deny list Nginx includes: root-owned copy written only by denylist-apply.sh after validation (seed an empty one)
+if [ ! -f /etc/nginx/cloudalbum-denylist.conf ] || [ -L /etc/nginx/cloudalbum-denylist.conf ]; then
+  rm -f /etc/nginx/cloudalbum-denylist.conf
+  install -o root -g root -m 0644 /dev/null /etc/nginx/cloudalbum-denylist.conf
+fi
 # the distribution default server block would conflict with default_server (E10)
 rm -f /etc/nginx/conf.d/default.conf
 

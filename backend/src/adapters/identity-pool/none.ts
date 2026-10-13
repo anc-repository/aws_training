@@ -3,9 +3,11 @@
 // F14 应用自签的前缀范围上传令牌（密钥 = SecretsPort 的 upload-hmac-key，与 F6 签名 URL 同一把）：
 //   令牌 = base64url(JSON{v:1, uid, prefix:"raw/<userId>/", exp, maxFiles, maxBytesPerFile, jti}) + "." + base64url(HMAC-SHA256)；
 //   浏览器持有一个令牌（不是每个文件一个 URL），每个文件先 POST /api/photos 建档，键为 raw/<userId>/<photoId>.<ext>。
-// - authorizePart：校验签名、有效期、键在令牌前缀之内、键对应的照片属于令牌主人且状态为 UPLOADING；
+// - authorizePart：校验签名、有效期、键在令牌前缀之内、键对应的照片属于令牌主人且状态为 UPLOADING、uploadId = photoId
+//   （否则 403：客户端给的 uploadId 决定 .incoming/<uploadId>/ 的位置，不能任意指定）、分片号不超过 ceil(上限 / 分片大小)（否则 413）；
+//   上限取令牌里的 maxBytesPerFile 与当前运行时 maxUploadMb 的较小值，随结果返回，uploads 路由据此限制单片与累计字节。
 //   storage=local 时分片由 uploads 路由写到 uploads/.incoming/<uploadId>/；storage=s3 时为这一片签发预签名 UploadPart URL
-//   （分片上传由后端代为创建，约定 uploadId = photoId，S3 的 UploadId 记在本进程内存中）。
+//   （分片上传由后端代为创建，S3 的 UploadId 记在本进程内存中）。
 // - complete：合并分片（local：拼接 .incoming/<uploadId>/；s3：ListParts + CompleteMultipartUpload），然后由 PhotoPipeline 校验与处理。
 // 撤销靠 jti 黑名单（未实现：令牌有效期 IDENTITY_TOKEN_TTL_SEC，默认 15 分钟）。
 import { createHmac, randomUUID, timingSafeEqual } from 'node:crypto';
@@ -167,12 +169,20 @@ export class PrefixTokenUpload implements DirectUploadPort {
     };
   }
 
-  async authorizePart(token: string, key: string, uploadId: string, part: number): Promise<{ url?: string }> {
+  async authorizePart(token: string, key: string, uploadId: string, part: number): Promise<{ url?: string; maxBytes: number; partSize: number }> {
     const p = await this.verify(token);
     if (!key.startsWith(p.prefix)) throw new HttpError(403, 'UPLOAD_PREFIX_DENIED', `键不在令牌前缀 ${p.prefix} 之内`);
     const m = KEY_RE.exec(key);
     if (!m || m[1] !== p.uid) throw new HttpError(403, 'UPLOAD_PREFIX_DENIED', '键必须是 raw/<userId>/<photoId>.<jpg|png|webp>');
     const photoId = m[2]!;
+    if (uploadId !== photoId) throw new HttpError(403, 'UPLOAD_ID_MISMATCH', 'uploadId 必须等于照片 ID（POST /api/photos 返回的 uploadId）');
+    const tokenMax = Number(p.maxBytesPerFile);
+    const maxBytes = Number.isFinite(tokenMax) && tokenMax > 0 ? Math.min(Math.floor(tokenMax), this.maxBytes()) : this.maxBytes();
+    const partSize = this.partSize();
+    const maxParts = Math.max(1, Math.ceil(maxBytes / partSize));
+    if (!Number.isInteger(part) || part < 1 || part > maxParts) {
+      throw new HttpError(413, 'TOO_MANY_PARTS', `分片号必须在 1～${maxParts} 之间（上限 ${maxBytes} 字节，分片 ${partSize} 字节）`);
+    }
     const db = this.deps.db;
     if (!db) throw new Error('PrefixTokenUpload: 缺少依赖 db');
     const photo = await getPhoto(db, photoId);
@@ -181,16 +191,15 @@ export class PrefixTokenUpload implements DirectUploadPort {
     markPath('identity-pool', 'none:token');
 
     const s3 = asS3Multipart(this.storage());
-    if (!s3) return {};
-    // storage=s3：后端代为创建分片上传；约定客户端的 uploadId = photoId
+    if (!s3) return { maxBytes, partSize };
+    // storage=s3：后端代为创建分片上传（客户端的 uploadId = photoId，已在上面校验）
     let s3UploadId = this.s3Uploads.get(photoId);
     if (!s3UploadId) {
       s3UploadId = (await s3.createMultipartUpload(key, { contentType: photo.contentType, metadata: { photoid: photoId, ownerid: p.uid } })).uploadId;
       this.s3Uploads.set(photoId, s3UploadId);
     }
-    void uploadId;
     const signed = await s3.presignUploadPart(key, s3UploadId, part, Math.min(this.deps.cfg.identity.IDENTITY_TOKEN_TTL_SEC, 3600));
-    return { url: signed.url };
+    return { url: signed.url, maxBytes, partSize };
   }
 
   async complete(photoId: string, _who: Principal): Promise<{ ok: boolean; rawKey?: string; reason?: string }> {

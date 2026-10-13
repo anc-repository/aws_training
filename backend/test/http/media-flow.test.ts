@@ -291,6 +291,22 @@ describe('L0 照片全流程：F6 签名直传 → inline 缩略图 → 时间�
     expect(signed.body.url).toContain('/api/storage/upload?');
   });
 
+  it('F14 分片的单片与累计上限（authorizePart 给出的 maxBytes / partSize）：超出立即 413，不等 complete', async () => {
+    const { app, c } = env;
+    Object.defineProperty(c.directUpload, 'authorizePart', { value: async () => ({ maxBytes: 100, partSize: 60 }), configurable: true, writable: true });
+    const uploadId = 'cap-test-0001';
+    const put = (part: number, n: number) => request(app).put('/api/storage/upload')
+      .query({ key: `raw/${owner}/00000000-0000-4000-8000-000000000001.jpg`, uploadId, part })
+      .set('Authorization', 'CA-Upload t').set('Content-Type', 'application/octet-stream').send(Buffer.alloc(n, 1));
+    await put(1, 61).expect(413);                     // 单片超过 partSize
+    await put(1, 60).expect(200);
+    await put(2, 41).expect(413);                     // 累计 101 > 100
+    await put(2, 40).expect(200);
+    expect((await put(3, 1).expect(413)).body.error).toBe('UPLOAD_TOO_LARGE');
+    await put(1, 60).expect(200);                     // 同一分片重传：不把自己的旧大小算进累计
+    await asLocalMultipart(c.storage)!.abortParts(uploadId);
+  });
+
   it('api 进程登记了定时任务：管理员“立即运行”（SchedulerPort.triggerNow）可用', async () => {
     const r = await request(env.app).post('/api/admin/jobs/share.cleanup/run').set(auth(admin, true)).expect(200);
     expect(r.body).toMatchObject({ name: 'share.cleanup', status: 'ok', trigger: 'manual' });

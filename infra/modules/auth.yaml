@@ -86,6 +86,13 @@ Resources:
       UsernameAttributes: [email]
       AutoVerifiedAttributes: [email]
       UsernameConfiguration: { CaseSensitive: false }
+      # An email change only takes effect after the new address is verified (until then the old, verified email stays):
+      # the backend binds legacy users by verified email only (user-directory.ts), and this closes the
+      # "UpdateUserAttributes to someone else's address" takeover path at the source.
+      UserAttributeUpdateSettings:
+        AttributesRequireVerificationBeforeUpdate: [email]
+      UserPoolTags:
+        DataClass: metadata                       # identity data; no Backup=true (AWS Backup does not cover Cognito)
       Policies:
         PasswordPolicy:
           MinimumLength: 10
