@@ -1879,3 +1879,118 @@ npm run lint -w @atl/web && npm run test -w @atl/web
 `npm install --before=2026-09-29` 只新增 `@xterm/xterm` 6.0.0 与 `@xterm/addon-fit` 0.11.0；react、react-dom、react-router-dom、vite、
 @vitejs/plugin-react、@testing-library/react、jsdom 等已在 lockfile 中（CloudAlbum 前端在用），`@atl/web` 声明为自己的依赖。
 没有引入：Storybook、axe-core（无障碍自动检查）、@testing-library/user-event。
+
+## platform-ssm-client
+
+新的 workspace 包 `platform/ssm-client`（`@atl/ssm-client`）：浏览器端 Session Manager 数据通道协议客户端（03 §3.5）、xterm.js 适配器，
+以及一个按同一协议工作的本地模拟服务器（Node，`ws`），供 web 的 dev 模式和测试使用。全程没有调用真实的 AWS API，也没有部署任何东西；
+模拟服务器只监听 127.0.0.1，不访问 AWS。
+
+### 1. 协议依据（2026-10-14 用 WebFetch 核实，源码注释逐处注明）
+
+| 来源 | 用到的内容 |
+|---|---|
+| aws/session-manager-plugin（Apache-2.0，最新标签 1.2.896.0，2026-10-09）`src/message/clientmessage.go`、`messageparser.go` | 帧头各字段长度与偏移；HeaderLength 写 116（PayloadLength 的偏移）；`putString` 用空格右填充、`getString` 去掉首尾 0x00 与空白；`putUuid` 先放低 64 位；摘要是原始 SHA-256；`Validate` 的检查顺序（start/pause_publication 跳过，PayloadLength 为 0 时不验摘要）；确认消息为 SequenceNumber 0、Flags 3、PayloadType 0 |
+| 同上 `handshakemessage.go`、`src/service/service.go` | HandshakeRequest/Response/Complete 的字段与 JSON 名，ActionType、ActionStatus（1/2/3）；OpenDataChannelInput 的五个字段 |
+| 同上 `src/datachannel/streaming.go`、`src/config/config.go` | 输入 Flags 0、单独的 `\n` 改成 `\r`、序列号在发送并入缓冲后加 1；收到 seq == expected 时处理、确认、排空乱序缓冲，seq > expected 时确认并缓冲（满则丢弃且不确认），seq < expected 时丢弃且不确认；握手请求、握手完成先确认后处理；只看缓冲队首、超过 RTO 就重发；RTO 初值 200ms、RTT 100ms、系数 1/8 与 1/4、时钟粒度 10ms、上限 1s；缓冲容量 10000；每 100ms 扫描、最多重发 3000 次；载荷最大 1024 字节；重连参数为初始 100～199ms、倍率 2、上限 5s、5 次；ping 间隔 5 分钟；start/pause_publication 忽略 |
+| 同上 `src/sessionmanagerplugin/session/session.go`、`sessionhandler.go`、`RELEASENOTES.md` | `ProcessFirstMessage`（第一条消息是 Output 即视为跳过握手）；`ResumeSessionHandler`（换新令牌和 StreamUrl 后 `Reconnect`，序列号不重置）；StreamUrl 校验（只接受 wss/ws、拒绝 userinfo、主机须为可识别的端点；1.2.889.0 起）；OpenDataChannel 签名的历次变化（1.2.688.0 加入、1.2.694.0 回滚、1.2.764.0 恢复） |
+| aws/amazon-ssm-agent `agent/session/datachannel/datachannel.go` | 模拟服务器里 Agent 一侧的行为：先发 HandshakeRequest、等 HandshakeResponse、再发 HandshakeComplete；握手期间其他输入照常确认但忽略；重复消息会再次确认 |
+| bertrandmartel/aws-ssm-session `src/ssm.js` | 只作对照：它在 MessageType 左侧填 0x00、把 32 个十六进制字符当摘要、序列号是模块级全局变量；本实现不采用这些写法 |
+
+`PROTOCOL_COMPAT_VERSION = '1.2.896.0'`（OpenDataChannel 与 HandshakeResponse 的 `ClientVersion`）。对齐新版插件时，先重读上表文件、重跑测试，再改这个常量。
+
+### 2. 实现范围
+
+| 部分 | 位置 | 内容 |
+|---|---|---|
+| 编解码 | `src/codec.ts`、`uuid.ts`、`constants.ts` | ClientMessage 编码、解码与校验（`ProtocolError` 带错误码）；UUID 线上字节序；同步 SHA-256（`@noble/hashes/sha2.js`，不用 WebCrypto 的异步 digest，以免打乱处理顺序） |
+| 载荷 | `src/payloads.ts`、`handshake.ts` | OpenDataChannel 文本帧；AcknowledgeContent；SizeData；ChannelClosed（解析失败时按零值处理，与插件一致）；握手做成纯函数：只接受 `Standard_Stream`，KMSEncryption 回 Failed 并附 `ATL web terminal does not support KMS session encryption`，其他会话类型与未知动作回 Unsupported |
+| 可靠传输 | `src/channel.ts` | `DataChannel`（`role: 'client' \| 'agent'`，与 WebSocket 无关）：发送缓冲与 RTO 重发、乱序缓冲、重复丢弃（`reackDuplicates` 可选）、摘要错误时丢弃且不确认、确认可以延后（由 sink 的 `ack()` 触发）、发不出去的确认留到续连后补发、`resendUnacknowledged()`、诊断事件与计数 |
+| 连接 | `src/connection.ts` | `SsmTerminalConnection` 实现 03 §3.5.9 状态机：requesting → connecting → authenticating → handshaking → ready；ready → reconnecting → resuming → connecting → ready（标记 resumed）；failed / closed。失败原因有 open-failed、invalid-stream-url、connect-failed、handshake-timeout、kms-unsupported、session-type-unsupported、gone、resume-rejected、reconnect-exhausted、connection-lost。还包括：15 秒握手超时（也限制建立 socket 的时间）；Ready 之前的按键与尺寸排队（上限 1 MiB）；按 1024 字节、不切断 UTF-8 字符地分片；尺寸只在变化时发送，进入 Ready 与续连后各发一次；channel_closed 带出 Output 文本（由 UI 结合 `readyAt` 与 `lastInputAt` 区分空闲断开还是到达最长时长）；`close('user' \| 'access-revoked')`；`connectBy` 已过时不用这个令牌，直接走 resume；离线时暂停计数，`online` 后继续；`retryNow()`；可选的 `sizeNudgeIntervalMs`（对应 `terminal.keepalive = size-nudge`）；`getTabClientId()`（存 sessionStorage；存储不可用时每次新生成 UUID） |
+| 适配器 | `src/xterm.ts` | `attachXterm`：onData / onBinary 进 `sendInput`；输出调用 `term.write(bytes, ack)`，在回调里确认，形成背压；onResize 进 `resize`；结束或失败后把终端设为只读。另有 `pasteText`（走 `term.paste`）和 `observeContainerResize`（ResizeObserver，去抖 150ms，拖动分隔条时暂停）。只用结构类型，不 import `@xterm/xterm`；测试里用 tsc 检查它与 xterm 6 的 `Terminal` 兼容 |
+| 模拟服务器 | `src/mock/*` | `MockSsmService` 模拟服务与 Agent：StartSession / ResumeSession / TerminateSession，令牌一次性、60 秒有效；Agent 一侧复用 `DataChannel`（role agent，重复消息会再次确认）；握手可选 session-type、none、kms；空闲超时与最长时长；输出按固定字节数切分，可能切断 UTF-8 字符，与 pty 读取一致；故障注入可模拟丢包、重复、乱序、摘要损坏、丢确认；`dropConnection` 模拟断网。`FakeShell` 是假的 shell：tty 回显、退格、^C、^D、^U，`echo`、`printf`、`stty size`、`tput`、`whoami`、`id`、`hostname`、`pwd`、`cd`、`date`、`uname`、`seq`、`sleep`、`clear`、`exit`，带 03 §3.7.5 的 OSC 133/7 标记与主机角色提示符，**不提供 `aws`**。`EchoShell` 原样回显。`startMockSsmServer` 提供 ws 数据通道 `/v1/data-channel/{SessionId}`，以及按 SSM 动作命名的 JSON 控制接口（`/StartSession`、`/ResumeSession`、`/TerminateSession`、`/DropConnection`、`/sessions`、`/health`）；CLI 为 `src/mock/cli.ts`。另有内存 socket 对（`memoryWebSocketFactory`），在假定时器下测试结果确定 |
+
+### 3. 如何运行与自测结果（2026-10-14，Windows 11 / Node 22.14.0）
+
+```bash
+npx tsc -b platform/ssm-client/tsconfig.json platform/ssm-client/tsconfig.mock.json   # 构建 → dist/（已被 .gitignore 忽略）
+npx tsc -p platform/ssm-client/tsconfig.test.json                                      # 源码 + 测试类型检查（含 xterm 6 兼容性）
+npx eslint platform/ssm-client
+npx vitest run --root platform/ssm-client
+npx tsx platform/ssm-client/src/mock/cli.ts --port 8790                                # dev 用的本地模拟服务器
+```
+
+| 自测 | 结果 |
+|---|---|
+| 构建与类型检查 | 通过。核心项目设置 `types: []`、lib 为 DOM：只要用到 Buffer、process 或 `node:*` 就编译不过。另用 esbuild 以 `--platform=browser` 打包核心：36.7 kB，gzip 后 12.7 kB，没有引入 Node 内置模块 |
+| ESLint | 0 个问题 |
+| Vitest | 6 个文件、88 个测试全部通过：编解码往返与手工拼出的黄金帧（摘要用 node:crypto 独立计算）、UUID 字节序、填充、摘要与校验错误；载荷与握手；StreamUrl 与退避；序列号与确认、RTO 公式、只重发队首、发送失败不计次、重发次数用尽、乱序、重复、缓冲区满、摘要损坏、确认延后与续连后补发；在 25% 丢包、5% 重复并轻度乱序的链路上双向各发几百条，全部按序恰好送达一次；连接部分覆盖两条握手路径、KMS 被拒、握手超时、错误令牌、非法 StreamUrl、输入排队、尺寸变化、`\n` → `\r`、64 KB 中文粘贴、背压、乱序/重复/损坏的输出、channel_closed（空闲、exit、TerminateSession）、access-revoked、断网续连后输出无丢失无重复且序列号连续、gone、resume-rejected、退避 100/200/400/800/1600ms 后失败、离线暂停、retryNow、重发次数用尽后续连、connectBy 已过期、没有 resume 函数；xterm 适配器；FakeShell；基于真实 ws 的模拟服务器（HTTP 控制接口、端到端 shell、`seq 1 2000` 时断网后续连、令牌重用被拒、TerminateSession） |
+| 浏览器 | 用系统 Chrome 无头模式（Playwright）跑打包后的客户端，连本地模拟服务器：握手 → ready、`stty size` 正确、中文回显正确；`seq 1 3000` 时断网，续连后 3000 行无丢失、无重复，状态序列中出现 `ready(resumed)`；`exit` 后收到 channel_closed |
+
+### 4. 设计有歧义时的取舍（偏离 03 §3.5 之处）
+
+1. **位置**：03 §3.5.12 把协议层放在 `platform/web/src/workspace/terminal/ssm/`。本任务要求做成独立包 `platform/ssm-client`；模块划分沿用 03 的
+   constants、codec、handshake、channel、connection，另拆出 payloads、uuid、bytes、streamUrl、backoff、socket、timers、xterm。这样 07 V2-2 的 Node PoC
+   可以直接复用：Node 22 自带全局 WebSocket，不需要 `ws`。
+2. **续连后立即进入 Ready**：03 §3.5.9 的图是 Resuming → Connecting → Authenticating → 等 Output。但空闲的 shell 不会输出，照图实现会在 15 秒后误报超时。
+   因此发出 OpenDataChannel 后立即 Ready：先重发未确认的消息，再发一次尺寸，然后发出排队的输入。如果 Agent 随后又发起握手，照常应答（进入 handshaking，期间输入排队）。
+   续连的尝试次数在新 socket 收到第一帧时清零；重发的尺寸一定会被确认，所以总能收到这一帧。
+3. **首次 Ready 之前 socket 断开 → `connect-failed`**，不续连（图上 Authenticating 没有指向 Reconnecting 的边）。
+4. **断线期间的输入照样编号并进入发送缓冲**，续连后补发（插件在发送出错时直接丢弃这条输入）。sink 回调里发不出去的确认先暂存，续连后先补发确认，再重发数据。
+5. **重发次数用尽只报告一次**（`resend-exhausted`），连接按“已失效”处理并走续连（03 §3.5.8）。插件此时会继续重发，并调用 TerminateSession。
+6. **重复消息默认不再确认**，与插件和 03 §3.5.5 一致，可用 `reackDuplicates` 打开。在丢包链路测试里，只有打开它才会收敛：确认一旦丢失，Agent 会一直重发。真实环境里是否发生，列为 PoC 项（第 5 节第 6 条）。
+7. **握手中的未知动作**回 `ActionStatus: 3` 并附错误文本。插件的做法是不设状态，而在 ActionResult 里写 Unsupported。
+8. **握手进行中收到 Output**：照常显示，但不结束握手。payload 类型 Error(2)、StdErr(11) 按 Output 显示；ExitCode(12) 只作为诊断事件。
+9. **StreamUrl 客户端校验**：不给 region 时接受任意 `ssmmessages.<region>.amazonaws.com(.cn)`；双栈或其他主机通过 `additionalHosts` 显式加入；
+   `ws://` 只在 `allowLoopback` 且主机为回环地址时接受（dev 模式）。服务端校验（03 §3.2 第 8 步）属于 api。
+10. **没有 Go 生成的互操作黄金样本**（03 §3.5.13 要求 `fixtures/*.bin`）：需要 Go 工具链和插件源码，本机没有。测试里的黄金帧按 clientmessage.go 的布局逐字段手工拼出，
+    摘要用 node:crypto 独立计算。拿到 Go 环境后，应补上“Go 序列化 → JS 解码”和“JS 编码 → Go 解码”两个方向的比对。
+11. **模拟服务器中真实情况未知的部分**（代码里标注 `mock:`）：错误或重复使用的令牌以 1008 关闭；channel_closed 帧的 PayloadType 用 0；空闲断开、最长时长的 Output 文案由模拟服务器自拟，不冒充 AWS 原文；
+    续连时 Agent 重发全部未确认的输出；令牌 60 秒有效。
+12. **`ws` 的类型**：@types/ws 没有安装，模拟服务器用 `createRequire` 加载 ws，接口类型在 `server.ts` 里本地声明。
+
+### 5. 必须到真实 AWS 上验证的行为（对应 07 阶段 2、03 §10 P0）
+
+| # | 行为 | 本实现的假设 | 07 / 03 |
+|---|---|---|---|
+| 1 | 未签名的 OpenDataChannel（只靠 TokenValue）能否连上；预签名 URL 能否连上 | 只用令牌；StreamUrl 原样使用（预签名的 URL 也能直接传入） | V2-3 第 2 步；P0 ①② |
+| 2 | `ssmmessages` 是否校验浏览器的 `Origin` | 不校验 | V2-3 第 3 步；P0 ⑨ |
+| 3 | ATL-SessionShell（Standard_Stream）会话里 Agent 是否发起握手，HandshakeRequest 的实际内容（AgentVersion、Properties、是否带其他动作） | 两条路径都支持；只接受 Standard_Stream | V2-2 第 2 步；P0 ③ |
+| 4 | 帧头逐字段与官方插件一致（MessageType 填充、UUID 字节序、摘要、确认消息的 Flags 3 / PayloadType 0），以及 Agent 是否校验这些字段 | 按插件源码实现 | V2-2 第 6 步（官方插件对照）；03 §3.5.13 黄金样本 |
+| 5 | Size 生效：改尺寸后 `stty size` 正确 | `{"cols","rows"}` 作为 input_stream_data / PayloadType 3 | V2-2 第 2 步；P0 ④ |
+| 6 | ResumeSession 续连：新 StreamUrl 和令牌能否连上；Agent 是否重发未确认的输出、是否重新握手；`seq 1 20000` 无丢失无重复；确认丢失后 Agent 是否持续重发（决定 `reackDuplicates` 的默认值） | 序列号和缓冲保持不变；续连后立即 Ready；重复消息不再确认 | V2-2 第 3 步；P0 ⑤ |
+| 7 | channel_closed 的载荷结构与 Output 文案：exit、空闲超时、TerminateSession、最长时长；TerminateSession 之后多久收到关闭 | 按 clientmessage.go 的 ChannelClosed 解析；UI 用 Output 加时间判断原因 | V2-2 第 5 步、V2-4 c；P0 ⑥ |
+| 8 | 中文输出与 64 KB 粘贴（按 1024 字节分片，不切断 UTF-8 字符） | 已在模拟服务器上通过 | V2-2 第 4 步；P0 ⑦ |
+| 9 | 私有放置（只有 VPC 终端节点）时，浏览器拿到的 StreamUrl 主机名是否仍是公共的 `ssmmessages.<region>.amazonaws.com` | 是；否则用 `additionalHosts`，CSP 也要同步 | P0 ⑧ |
+| 10 | 错误、过期或重复使用的令牌时服务端的表现（关闭码、是否发文本帧）；TokenValue 的实际有效期是否覆盖 30 秒的 `connectBy` | socket 在 Ready 前关闭 → connect-failed；超过 connectBy 就走 resume | V2-2 |
+| 11 | 浏览器不能发 WebSocket ping：长时间空闲（超过 5～10 分钟）的连接是否会被服务端或中间网络断开；`size-nudge` 是否会重置 `idleSessionTimeout` | 不做保活，断开后靠续连恢复；size-nudge 默认关闭 | 03 §3.5.8；V2-2 第 5 步 |
+| 12 | start_publication / pause_publication 是否会发给浏览器客户端，频率如何 | 只计数，不做流控 | V2-2 |
+| 13 | 背压：确认延后到 xterm 解析之后，Agent 是否会因此放慢（`cat` 大文件），且不会触发 Agent 的重发超时 | RTO 上限 1 秒，xterm 回调通常在毫秒级 | V2-2 第 3 步 |
+| 14 | `ClientVersion = 1.2.896.0` 时，Agent 是否会在 Standard_Stream 会话里发 StdErr / ExitCode（PayloadType 11 / 12） | 11 按输出显示，12 只记诊断 | V2-2 第 2 步 |
+| 15 | 15 秒握手超时对真实的冷启动 Agent 是否够用 | 平台参数，可通过 `handshakeTimeoutMs` 调整 | V2-2 |
+
+### 6. 需要其他部分配合
+
+- **根目录（集成负责人）**：并行阶段我没有改根文件，下面几项需要登记，之后再 `npm install`，让 lockfile 链接 `@atl/ssm-client`：
+  - `package.json`：workspaces 加 `platform/ssm-client`；`platform:test` 加 `--project atl-ssm-client`；`build` 或 `platform:build` 加 `tsc -b platform/ssm-client/tsconfig.json platform/ssm-client/tsconfig.mock.json`；
+  - `vitest.config.ts`：projects 加 `platform/ssm-client`；
+  - `vitest.shared.ts`：别名 `@atl/ssm-client` → `src/index.ts`，`@atl/ssm-client/mock` → `src/mock/index.ts`；
+  - `tsconfig.json`：references 加这两个 tsconfig；
+  - `eslint.config.js`：可以给 `platform/ssm-client/src/**`（不含 `src/mock/**`）加浏览器全局变量，并禁止导入 `node:*`。
+- **web**：
+  - 把 `@atl/ssm-client` 登记为依赖，用 vite alias 和 tsconfig paths 指向源码；目前 `platform/web/src/workspace/terminal/channel.ts` 用 `import.meta.glob` 加载，接口与本包一致；
+  - `scripts/dev.mjs` 启动模拟服务器（`tsx platform/ssm-client/src/mock/cli.ts --port 8790`）；
+  - 生产环境传 `streamUrlPolicy: { region }`，dev 传 `{ allowLoopback: true }`；`clientVersion` 取 API 返回的字段；
+  - xterm 在 CSP 下的样式问题（03 §3.7.6）仍未处理。
+- **api**：
+  - dev 模式的 `WorkspaceProvider.openTerminal`、`resumeTerminal`、`closeTerminal` 改为调用模拟服务器：可以在进程内 `new MockSsmService()`，也可以调它的 HTTP 控制接口；`sessionName` 传 `atl-<sid>-term`，`role` 按 target；
+  - `DoesNotExistException` 映射为 `409 TERMINAL_GONE`；
+  - 响应里带上 `connectBy`，以及 `clientVersion = PROTOCOL_COMPAT_VERSION`；
+  - 生产环境的 StreamUrl 主机校验仍归 api。
+- **07 PoC 执行者**：V2-2 的 Node 驱动可以直接用 `SsmTerminalConnection`（Node 22 全局 WebSocket，传入 `open` 和 `resume`）；第 5 节的结论回写 03 §3.5，以及本节第 4 部分第 2、6、11 条。
+
+### 7. 依赖
+
+没有运行 npm install。`package.json` 声明的 `@noble/hashes` ^1.8.0（@atl/workflows 已在用）、`ws` ^8.18.0（lockfile 里是 jsdom 的依赖，8.22.0），以及开发依赖
+`@xterm/xterm` ^6.0.0（只用于类型兼容检查），都已经提升到根目录的 node_modules。lockfile 里还没有 `@atl/ssm-client` 这个 workspace 条目。
+缺少：@types/ws（目前用本地声明代替）；Go 工具链和插件源码（用于生成互操作黄金样本）。

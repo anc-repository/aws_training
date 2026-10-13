@@ -1,0 +1,33 @@
+{
+  "name": "@atl/ssm-client",
+  "version": "0.1.0",
+  "private": true,
+  "description": "ATL web terminal protocol layer (docs/platform/03 §3.5): browser client for the AWS Session Manager data channel (OpenDataChannel, ClientMessage codec, sequencing / acknowledge / retransmission, handshake, size, channel_closed, resume), an xterm.js adapter, and a local Node mock of the service + agent (ws) for dev mode and tests.",
+  "type": "module",
+  "sideEffects": false,
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./mock": {
+      "types": "./dist/mock/index.d.ts",
+      "default": "./dist/mock/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -b tsconfig.json tsconfig.mock.json",
+    "typecheck": "tsc -p tsconfig.test.json",
+    "test": "vitest run",
+    "mock": "tsx src/mock/cli.ts"
+  },
+  "dependencies": {
+    "@noble/hashes": "^1.8.0",
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@xterm/xterm": "^6.0.0"
+  }
+}

@@ -1,0 +1,14 @@
+{
+  "//": "Type-check of sources + tests together (noEmit). Includes the @xterm/xterm structural compatibility check in test/xterm.test.ts.",
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "lib": ["ES2023", "DOM"],
+    "types": ["node"],
+    "noEmit": true,
+    "composite": false,
+    "declaration": false,
+    "declarationMap": false,
+    "sourceMap": false
+  },
+  "include": ["src/**/*.ts", "test/**/*.ts", "vitest.config.ts"]
+}

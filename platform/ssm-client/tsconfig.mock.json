@@ -1,0 +1,14 @@
+{
+  "//": "Node-only local mock of the Session Manager service + agent (ws). Emits next to the core build (dist/mock), so its relative imports of the core resolve at runtime.",
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "composite": true,
+    "lib": ["ES2023", "DOM"],
+    "types": ["node"],
+    "rootDir": "src/mock",
+    "outDir": "dist/mock",
+    "tsBuildInfoFile": "dist/mock/.tsbuildinfo"
+  },
+  "include": ["src/mock/**/*.ts"],
+  "references": [{ "path": "./tsconfig.json" }]
+}

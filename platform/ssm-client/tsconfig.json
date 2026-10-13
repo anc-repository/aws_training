@@ -1,0 +1,14 @@
+{
+  "//": "Browser-safe protocol layer: DOM + ES libs, no Node types (a Buffer / process / node:* use fails to compile). The Node mock is tsconfig.mock.json; tests are type-checked by tsconfig.test.json.",
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "composite": true,
+    "lib": ["ES2023", "DOM"],
+    "types": [],
+    "rootDir": "src",
+    "outDir": "dist",
+    "tsBuildInfoFile": "dist/.tsbuildinfo"
+  },
+  "include": ["src/**/*.ts"],
+  "exclude": ["src/mock/**"]
+}
