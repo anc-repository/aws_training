@@ -119,7 +119,9 @@ describe('ATL_DEV_MODE runtime', () => {
       const ctx = await fetch(`${base}/api/v1/agent/sessions/${SID}/context`, {
         headers: { 'x-atl-dev-caller': `arn:aws:sts::000000000000:assumed-role/ATLLearnerRole/atl-${SID}-ws` },
       });
-      expect(ctx.status).toBe(501); // route registered in 01, handler not implemented yet
+      // served by the API's agent handler (no longer the scaffold's 501); this runtime has no DynamoDB, so it cannot answer 200
+      expect(ctx.status).not.toBe(501);
+      expect(ctx.status).not.toBe(404);
       const state = (await (await fetch(`${base}/__dev/state`)).json()) as { executions: unknown[]; builds: unknown[] };
       expect(state.executions.length).toBeGreaterThan(0);
       const inj = await fetch(`${base}/__dev/trail/events`, { method: 'POST', body: JSON.stringify([]) });

@@ -12,7 +12,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { transformSync } from 'esbuild';
 import { LAMBDA_FUNCTIONS, STATE_MACHINES, type LambdaFunctionName, type StateMachineName } from '@atl/shared';
-import { DEV_SUBSTITUTIONS } from '@atl/workflows';
+import { DEV_SUBSTITUTIONS, RUNNER_SESSION_STATIC_POLICY, staticRunnerStatements } from '@atl/workflows';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 export const INFRA_DIR = path.resolve(HERE, '..');
@@ -83,6 +83,8 @@ export function functionEnvironment(): Json {
       'Fn::If': ['HasCustomDomain', { 'Fn::Sub': 'https://${CustomDomainName}' }, { 'Fn::Sub': 'https://${WebDistribution.DomainName}' }],
     },
     ATL_DISTRIBUTION_ID: { Ref: 'WebDistribution' },
+    // atl-checks pins the check bundle it asks ATL-RunCheck to run (04 §6.2; platform-checks #3, platform-integration)
+    ATL_CHECK_BUNDLE_DIGEST: { 'Fn::GetAtt': ['CopyArtifacts', 'ChecksBundleDigest'] },
     ATL_STACK_NAME: { Ref: 'AWS::StackName' },
     ATL_INSTALLATION_ID: { 'Fn::Select': [2, { 'Fn::Split': ['/', { Ref: 'AWS::StackId' }] }] },
     ATL_TERMINAL_RECORDING: { Ref: 'TerminalRecording' },
@@ -94,6 +96,33 @@ const PLATFORM_TAGS = [
   { Key: 'atl:component', Value: 'platform' },
   { Key: 'Project', Value: 'ATL' },
 ];
+
+/** Wrap every string that contains `${…}` in Fn::Sub (install-time values of a generated policy document). */
+function subStrings(v: unknown): unknown {
+  if (typeof v === 'string') return v.includes('${') ? { 'Fn::Sub': v } : v;
+  if (Array.isArray(v)) return v.map(subStrings);
+  if (v && typeof v === 'object') return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, subStrings(x)]));
+  return v;
+}
+
+/**
+ * `ATLProvisionerPolicy-RunnerSession` (platform-lifecycle #10): the session-independent statements of the runner's session
+ * policy, passed with `--policy-arns` when the runner assumes ATLProvisionerRole (the inline session policy is limited to
+ * 2 048 characters). Not attached to any role: as a session policy it only narrows the role's own permissions.
+ */
+export function runnerSessionPolicyResource(): Json {
+  const statements = staticRunnerStatements({ region: '${AWS::Region}', accountId: '${AWS::AccountId}', apiId: '${HttpApi}' });
+  return {
+    ProvisionerPolicyRunnerSession: {
+      Type: 'AWS::IAM::ManagedPolicy',
+      Properties: {
+        ManagedPolicyName: RUNNER_SESSION_STATIC_POLICY,
+        Description: 'ATL runner session policy (session-independent part; passed as PolicyArns of atl-<sid>-prov-<op>)',
+        PolicyDocument: subStrings({ Version: '2012-10-17', Statement: statements }),
+      },
+    },
+  };
+}
 
 export function copyArtifactsInlineCode(): string {
   const src = fs.readFileSync(path.join(INFRA_DIR, 'custom-resources', 'copy-artifacts.cjs'), 'utf8');

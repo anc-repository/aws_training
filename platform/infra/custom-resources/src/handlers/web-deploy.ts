@@ -119,6 +119,8 @@ export async function webDeploy(event: CfnEvent, ports: Ports): Promise<CfnResul
       taxonomyVersion: catalog.taxonomyVersion ?? null,
       platformVersion: version,
       defective: false,
+      // where the quiz banks with answers went (atl-api reads them from here; 01 §3.7 releases/<ver>/private/quiz/)
+      quizPrefix: `${prefix}private/quiz/`,
     });
     await ports.table.put(table, { ...Keys.catalogCurrent(), type: 'CatalogRelease', ver: 1, createdAt: now, updatedAt: now, catalogVersion: catalog.catalogVersion });
     data.Content = catalog.catalogVersion;

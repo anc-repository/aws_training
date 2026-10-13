@@ -354,7 +354,8 @@ describe('start-state derivation and digest (PM-32, PM-33)', () => {
     const noBecause = specOf(a.card, a.variant, a.start.map(({ because: _b, ...e }) => e), a.platform, a.baseParams, a.extraStacks, a.seeds);
     expect(specDigest(noBecause)).toBe(a.digest);
     expect(specDigest(spec, '999+other')).not.toBe(a.digest);
-    for (const card of ['svc-cdn', 'svc-ec2', 'svc-queue', 'sc-static-acceleration', 'svc-autoscaling']) {
+    // svc-image-processing starts with storage=s3: STORAGE_DRIVER is the switch shared with shared-fs (owned value s3 → storage)
+    for (const card of ['svc-cdn', 'svc-ec2', 'svc-queue', 'sc-static-acceleration', 'svc-autoscaling', 'svc-image-processing']) {
       const p = planStartOf(lab(card), { repoRoot: REPO_ROOT });
       const text = renderAtlProfile(p);
       expect(text).toContain(`PROFILE_PLAN_DIGEST=${p.digest}`);

@@ -17,8 +17,9 @@ describe('App（L0 + 模拟后端）', () => {
     expect(await screen.findByText(/面向 AWS SAA-C03 学习者的云相册/)).toBeTruthy();
     expect(screen.getAllByText('本地账号（EC2）').length).toBeGreaterThan(0);
     const footer = screen.getByRole('contentinfo', { name: '运行状态' });
-    expect(within(footer).getByText(/运行在 EC2/)).toBeTruthy();
-    expect(within(footer).getByText(/入口：直连（开发机，无 Nginx）/)).toBeTruthy();
+    // the footer fills in after its own capability / path requests: wait for them (the full suite runs under load)
+    expect(await within(footer).findByText(/运行在 EC2/)).toBeTruthy();
+    expect(await within(footer).findByText(/入口：直连（开发机，无 Nginx）/)).toBeTruthy();
   });
 
   it('登录后：时间线带请求级 cache 徽章与 DB 次数；照片网格有 CDN 角标', async () => {

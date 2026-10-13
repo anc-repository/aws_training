@@ -40,6 +40,30 @@ Resources:
       Principal: events.amazonaws.com
       SourceArn: !GetAtt SfnFailedRule.Arn
 
+  # atl-checks consumes session.state_changed (READY → attempt, EXPIRING → precheck, terminal → cleanup.verify + report)
+  # and reclaim.pass_completed (late ownership) from atl-events (04 §12.3; platform-integration: not in 01's rule list)
+  ChecksEventsRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: atl-checks-session-events
+      Description: 'session.state_changed / reclaim.pass_completed on atl-events → atl-checks (04 §12.3)'
+      EventBusName: !Ref EventBus
+      State: ENABLED
+      EventPattern:
+        source: [atl.lifecycle]
+        detail-type: [session.state_changed, reclaim.pass_completed]
+      Targets:
+        - Id: atl-checks
+          Arn: !GetAtt ChecksFunction.Arn
+          RetryPolicy: { MaximumRetryAttempts: 4, MaximumEventAgeInSeconds: 3600 }
+  ChecksEventsRulePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref ChecksFunction
+      Action: lambda:InvokeFunction
+      Principal: events.amazonaws.com
+      SourceArn: !GetAtt ChecksEventsRule.Arn
+
   NotifyTopic:
     Type: AWS::SNS::Topic
     Properties:

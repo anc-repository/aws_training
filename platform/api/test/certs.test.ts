@@ -172,7 +172,8 @@ describe('atl-certs actions (synchronous contract with atl-api)', () => {
     expect(ok.payload.certId).toBe(ok.certId);
     await expect(handler({ action: 'IssueCertificate', sub: 'nobody', scope: 'track', trackId: 'quick-compare' })).rejects.toMatchObject({ name: 'Atl.CERT_NOT_ELIGIBLE' });
     const rev = (await handler({ action: 'RevokeCertificate', certId: ok.certId, reason: 'learner-request', sub: SUB })) as { status: string; revocationsSeq: number };
-    expect(rev).toMatchObject({ status: 'revoked', revocationsSeq: 1 });
+    // seq 1 is the empty signed list published with the verify page when the first certificate was issued
+    expect(rev).toMatchObject({ status: 'revoked', revocationsSeq: 2 });
     await expect(handler({ action: 'Nope' })).rejects.toThrow(/not implemented/);
   });
 });

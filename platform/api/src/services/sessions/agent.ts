@@ -120,6 +120,8 @@ export async function registerExperimentRun(ctx: ServiceContext, s: SessionItem,
     },
     { expression: 'attribute_not_exists(PK)' },
   );
+  // 04 §7.4 step 4: atl-checks takes the registration-time snapshot of the platform drivers (best effort, async)
+  await ctx.deps.ports.invoker.invokeAsync('atl-checks', { action: 'ExperimentRegistered', sessionId: s.sid, runId }).catch(() => undefined);
   return {
     runId,
     window,

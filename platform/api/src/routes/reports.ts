@@ -274,18 +274,10 @@ export function reportRoutes(ext: ApiExtensions): RouteHandlers {
 
     getOfflineBundle: wrap(ext, async (ctx) => {
       const cert = await loadCert(ctx);
-      const [keys, revocations, cfg] = await Promise.all([ctx.repos.certificates.keys(), ctx.repos.certificates.latestRevocations(), ctx.repos.platform.config()]);
-      const bundle = {
-        schema: 'atl.offline-bundle/v1',
-        certId: cert.certId,
-        jws: cert.jws ?? null,
-        jwks: { keys: keys.map((k) => ({ ...(k.jwk as object), kid: k.kid, alg: 'ES256', use: 'sig' })) },
-        revocations: revocations ? { seq: revocations.seq ?? null, jws: revocations.jws ?? null, issuedAt: revocations.issuedAt ?? null } : null,
-        issuer: { origin: cfg?.platformUrl ?? null, installationId: cfg?.installationId ?? null },
-        verify: { instructions: '用 jwks 中 kid 对应的公钥验证 JWS（ES256，RFC 8785 规范化载荷），并检查 revocations 中不含该证书 ID（04 §10.5）' },
-        nature: 'self-hosted-self-signed',
-        generatedAt: ctx.nowIso,
-      };
+      // the bundle of 04 §10.5 ({ jws, jwk, jwks, revocationsJws, verifyScript }) is assembled by atl-certs, which owns the
+      // published jwks.json, the signed revocation list and the verification algorithm (synchronous call)
+      const bundle = await callCerts(ctx, { action: 'OfflineBundle', certId: cert.certId, sub: cert.sub });
+      if (!bundle) throw new AtlError('INTERNAL', 'atl-certs returned no offline bundle');
       return {
         statusCode: 200,
         headers: { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store', 'content-disposition': `attachment; filename="${String(cert.certId)}.atl-bundle.json"` },

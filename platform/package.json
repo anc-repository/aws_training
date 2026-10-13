@@ -11,6 +11,8 @@
     "db:up": "npm --prefix .. run platform:db:up",
     "db:init": "npm --prefix .. run platform:db:init",
     "db:down": "npm --prefix .. run platform:db:down",
-    "publish:s3": "node -e \"console.error('publish:s3 is not implemented yet (platform/infra/build/package.ts + manifest.ts, infra implementer)'); process.exit(2)\""
+    "package": "npm --prefix .. run package -w @atl/infra --",
+    "publish:s3": "npm --prefix .. run publish:s3 -w @atl/infra --",
+    "smoke": "npm --prefix .. run smoke:platform"
   }
 }

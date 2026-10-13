@@ -24,7 +24,9 @@ import {
   type CertContext,
   type RevokeReason,
 } from '../../services/certificates/service.js';
+import { WebKeys } from '@atl/shared';
 import { decodeJws } from '../../services/certificates/jws.js';
+import { verifyPageJs } from '../../services/certificates/static-site.js';
 import { emitEvents } from '../../services/progress/events.js';
 import { DynamoItemStore, type ItemStore } from '../../services/progress/store.js';
 import { createShare, exportReport, generateReport, removeShare, type ReportsContext } from '../../services/reports/publish.js';
@@ -59,6 +61,17 @@ function certFail(e: unknown): never {
 
 type CertsAction = (p: Record<string, unknown>, c: CertContext & ReportsContext) => Promise<unknown>;
 
+/**
+ * The static verification entry (04 §10.6) must exist before the first certificate points at `/verify/<certId>`:
+ * `verify/` and the signed revocation list are atl-certs' (WebDeploy never writes them, JwksPublish cannot sign), so the
+ * page is (re)published when it is missing or outdated and an empty signed list is published once.
+ */
+async function ensureVerification(c: CertContext): Promise<void> {
+  const cur = await c.deps.ports.objects.get(c.deps.env.buckets.web, `${WebKeys.verify}verify.js`).catch(() => null);
+  if (!cur || Buffer.from(cur).toString('utf8') !== verifyPageJs()) await publishVerifyPage(c);
+  if (!(await c.store.query(Keys.revocationList(1).PK, { skPrefix: SkPrefix.revocation, limit: 1 })).length) await publishRevocations(c, []);
+}
+
 export const CERTS_ACTIONS: Record<string, CertsAction> = {
   GenerateReport: async (p, c) => {
     const r = await generateReport(c, str(p.sessionId), str(p.reason) || 'request');
@@ -83,6 +96,7 @@ export const CERTS_ACTIONS: Record<string, CertsAction> = {
         ...(typeof p.public === 'boolean' ? { public: p.public } : {}),
       });
       await emitEvents(c.deps, c.store, r.events);
+      await ensureVerification(c);
       // the report of the cited attempts gets a revision with the certificate link
       for (const sid of r.certificate.sessionIds) await generateReport(c, sid, 'certificate').catch(() => undefined);
       return { ok: true, certId: r.certificate.certId, jws: r.certificate.jws, payload: decodeJws(r.certificate.jws).payload, scope: r.certificate.scope, issuedAt: r.certificate.issuedAt };
@@ -121,7 +135,7 @@ export const CERTS_ACTIONS: Record<string, CertsAction> = {
   },
   PublishVerifyPage: async (_p, c) => {
     await publishVerifyPage(c);
-    if (!(await c.store.query(Keys.revocationList(1).PK, { skPrefix: SkPrefix.revocation, limit: 1 })).length) await publishRevocations(c, []);
+    await ensureVerification(c);
     return { ok: true };
   },
   EvidenceInvalidated: async (p, c) => {

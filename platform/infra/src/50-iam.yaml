@@ -295,6 +295,13 @@ Resources:
                 Effect: Allow
                 Action: 'sts:AssumeRole'
                 Resource: !Sub 'arn:${AWS::Partition}:iam::${AWS::AccountId}:role/ATLProvisionerRole'
+              # pre reads LabSession / Environment / PlatformConfig to build the session context (02 §4.3, platform-lifecycle)
+              - Sid: SessionRecords
+                Effect: Allow
+                Action: 'dynamodb:GetItem'
+                Resource: !GetAtt AtlMainTable.Arn
+                Condition:
+                  'ForAllValues:StringLike': { 'dynamodb:LeadingKeys': ['SESSION#*', 'ENV#*', 'PLATFORM'] }
       Tags:
         - { Key: 'atl:component', Value: platform }
         - { Key: Project, Value: ATL }

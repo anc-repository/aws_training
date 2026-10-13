@@ -20,5 +20,8 @@
   "dependencies": {
     "@atl/shared": "0.1.0",
     "yaml": "^2.8.1"
+  },
+  "devDependencies": {
+    "@atl/workflows": "0.1.0"
   }
 }

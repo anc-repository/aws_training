@@ -285,10 +285,12 @@ export async function resolveCleanupItem(ctx: ServiceContext, s: SessionItem, ac
   if (!['MANUAL_REQUIRED', 'FAILED', 'REVIEW'].includes(String(item.cleanupState))) {
     throw new AtlError('INVALID_STATE', `resource is ${String(item.cleanupState)}, not waiting for manual handling`);
   }
+  // atl-lifecycle ResolveCleanup (02 §7.8): atl-reaper ResolveItem re-checks the item, then T20 when nothing BLOCKING is left
+  // (the lifecycle is the only writer of the session state)
   try {
-    await ctx.deps.ports.invoker.invokeAsync('atl-reaper', { action: 'VerifyResolved', envId, resourceKey, sessionId: s.sid, ...actorFields(actor), note: note ?? null });
+    await ctx.deps.ports.invoker.invokeAsync('atl-lifecycle', { action: 'ResolveCleanup', envId, resourceKey, sessionId: s.sid, ...actorFields(actor), note: note ?? null });
   } catch (e) {
-    mapDownstreamError(e, 'atl-reaper VerifyResolved');
+    mapDownstreamError(e, 'atl-lifecycle ResolveCleanup');
   }
   return { resourceKey, envId, status: 'verifying' };
 }

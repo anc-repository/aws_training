@@ -111,6 +111,7 @@ export class LifecycleClient {
       variant: session.variant,
       quoteId: (session.costQuote as { quoteId?: string } | undefined)?.quoteId ?? null,
       reuseEnvId: session.reuseOfEnvId ?? null,
+      costAcknowledged: !!(session.costQuote as { acknowledgedAt?: string } | undefined)?.acknowledgedAt,
       session,
       ...actorFields(actor),
     });

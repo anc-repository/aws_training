@@ -102,7 +102,7 @@ export interface ApiTestRuntime {
   orchestrator: RecordingOrchestrator;
   objects: MemoryObjectStore;
   bus: MemoryEventPublisher;
-  /** Payloads sent to atl-checks / atl-certs / atl-reaper. */
+  /** Payloads sent to atl-lifecycle / atl-checks / atl-certs / atl-reaper. */
   calls: { fn: LambdaFunctionName; payload: Record<string, unknown> }[];
   api(e: HttpEvent): Promise<HttpResult>;
   agent(e: HttpEvent): Promise<HttpResult>;
@@ -137,7 +137,9 @@ export async function createApiTestRuntime(opts: { db?: DynamoDBDocumentClient; 
   const calls: ApiTestRuntime['calls'] = [];
   invoker.register('atl-lifecycle', async (p) => {
     const action = String((p as { action?: string }).action);
+    calls.push({ fn: 'atl-lifecycle', payload: p as Record<string, unknown> });
     const h = DEV_LIFECYCLE_ACTIONS[action];
+    if (action === 'ResolveCleanup') return { resolved: false, remainingBlocking: 1 };
     if (!h) throw Object.assign(new Error(`atl-lifecycle: action ${action} is not implemented yet`), { name: 'Atl.NotImplemented' });
     return h(p as Record<string, unknown>, deps);
   });
@@ -148,6 +150,7 @@ export async function createApiTestRuntime(opts: { db?: DynamoDBDocumentClient; 
       calls.push({ fn, payload });
       if (payload.action === 'IssueCertificate') return { certId: 'ATL-7K2M-9Q4X-1ABZ-C3DE', jws: 'eyJ.test.sig', payload: { v: 1, kind: payload.scope } };
       if (payload.action === 'RevokeCertificate') return { certId: payload.certId, status: 'revoked', reason: payload.reason };
+      if (payload.action === 'OfflineBundle') return { schema: 'atl.offline-verify/v1', jws: 'eyJ.test.sig', jwk: null, jwks: { keys: [] }, revocationsJws: null, verifyScript: '// verify.mjs' };
       return null;
     });
   }

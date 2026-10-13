@@ -6,7 +6,10 @@
  *   atl-content.zip              content release (labs:build output; a placeholder catalog when absent)
  *   cloudalbum-app-<arch>.tar.gz CloudAlbum release archives (scripts/release output; skipped with a warning when absent)
  *   cloudalbum-infra.zip         runner source: infra/, scripts/, modules/, experiments/, guides/, packages/, the runner
- *                                buildspec, the workstation template, the check bundle (atl/checks/<digest>/, atl/bin/atl-check)
+ *                                buildspec, the workstation template, the check bundle (atl/checks/<digest>/, atl/bin/atl-check),
+ *                                the bundled runner (platform/workflows/runner/dist/atl-runner.mjs), the CloudAlbum release
+ *                                archives as scripts/release names them (cloudalbum-<ver>-<arch>.tgz, `bootstrap --release-file`)
+ *                                and SHA256SUMS of every file in it (buildspec install: `sha256sum --check --strict`)
  *   atl-workstation.tar.gz       workstation bootstrap bundle (03 §4.5): tools, check bundle, repository, manifest.json
  *   atl-cloudshell-kit-<arch>.tar.gz  only when given (--cloudshell-kit <arch>=<file>)
  *   SHA256SUMS                   `<sha256>  <file>` for all of the above (+ `# checks-bundle-digest <hex>`)
@@ -173,7 +176,10 @@ export function loadChecksBundle(dir: string | undefined): ChecksBundle | null {
   const actual = sha256(fs.readFileSync(path.join(dir, 'checks', digest, 'manifest.json')));
   if (actual !== digest) throw new Error(`check bundle ${dir}: manifest digest ${actual} does not match its directory ${digest}`);
   if (!fs.existsSync(path.join(dir, 'bin', 'atl-check'))) throw new Error(`check bundle ${dir}: bin/atl-check is missing`);
-  const entries = collectDir(dir).map((e) => (e.name === 'bin/atl-check' ? { ...e, mode: 0o755 } : e));
+  // bin/atl-check.mjs is the Node port for ATL_DEV_MODE / Windows hosts only (platform-checks): never shipped
+  const entries = collectDir(dir)
+    .filter((e) => e.name !== 'bin/atl-check.mjs')
+    .map((e) => (e.name === 'bin/atl-check' ? { ...e, mode: 0o755 } : e));
   return { digest, entries };
 }
 
@@ -350,7 +356,8 @@ function parseOptions(argv: string[]): Options {
   const all = (name: string) => argv.flatMap((a, i) => (a === name && argv[i + 1] ? [argv[i + 1]!] : []));
   const pairs = (name: string) => Object.fromEntries(all(name).map((v) => v.split('=', 2) as [string, string]));
   const tag = get('--tag') ?? releaseTag();
-  const checksDefault = path.join(INFRA_DIR, 'checks-bundle', 'dist');
+  // `node platform/checks/build.mjs` writes platform/checks/dist/atl/ (platform-checks); 06 PM-04's platform/infra/checks-bundle/dist is the fallback
+  const checksDefault = [path.join(PLATFORM_DIR, 'checks', 'dist', 'atl'), path.join(INFRA_DIR, 'checks-bundle', 'dist')].find((d) => fs.existsSync(path.join(d, 'checks'))) ?? path.join(INFRA_DIR, 'checks-bundle', 'dist');
   return {
     tag,
     out: get('--out') ?? path.join(INFRA_DIR, 'dist', 'release', tag),
@@ -363,6 +370,27 @@ function parseOptions(argv: string[]): Options {
     nodeModulesDir: get('--workstation-node-modules'),
     cloudshellKits: pairs('--cloudshell-kit'),
   };
+}
+
+/** platform/workflows/runner/dist/atl-runner.mjs (runner/build.mjs, esbuild; not written to disk here). */
+export async function runnerBundle(): Promise<Buffer> {
+  const mod = (await import(pathToFileURL(path.join(PLATFORM_DIR, 'workflows', 'runner', 'build.mjs')).href)) as {
+    bundleRunner(o: { write: boolean }): Promise<{ errors: unknown[]; outputFiles?: { path: string; contents: Uint8Array }[] }>;
+  };
+  const r = await mod.bundleRunner({ write: false });
+  const out = (r.outputFiles ?? []).find((f) => f.path.endsWith('atl-runner.mjs'));
+  if (r.errors.length || !out) throw new Error('runner bundle failed (platform/workflows/runner/build.mjs)');
+  return Buffer.from(out.contents);
+}
+
+/** SHA256SUMS of the runner source package itself (every entry; buildspec install phase). */
+export function sourceSha256sums(entries: ArchiveEntry[]): Buffer {
+  return Buffer.from(
+    entries
+      .filter((e) => e.name !== 'SHA256SUMS')
+      .map((e) => `${sha256(e.data)}  ${e.name}`)
+      .join('\n') + '\n',
+  );
 }
 
 export async function packageRelease(opts: Options): Promise<{ dir: string; files: string[]; warnings: string[] }> {
@@ -379,15 +407,23 @@ export async function packageRelease(opts: Options): Promise<{ dir: string; file
   const content = contentZip(findContentDir(opts.contentDir), version);
   if (content.placeholder) warnings.push('no content release (npm run labs:build): atl-content.zip carries an empty catalog');
   files.push({ name: 'atl-content.zip', data: content.zip });
+  const appArchives: ArchiveEntry[] = [];
   for (const arch of ['arm64', 'x86_64'] as const) {
     const f = findAppArchive(arch, opts.appArchives[arch]);
-    if (f && fs.existsSync(f)) files.push({ name: `cloudalbum-app-${arch}.tar.gz`, data: fs.readFileSync(f) });
-    else warnings.push(`no CloudAlbum release archive for ${arch} (run scripts/release on Linux or pass --app-archive ${arch}=<file>)`);
+    if (f && fs.existsSync(f)) {
+      const data = fs.readFileSync(f);
+      files.push({ name: `cloudalbum-app-${arch}.tar.gz`, data });
+      // inside the runner source under the scripts/release name (the runner picks cloudalbum-<ver>-<arch>.tgz)
+      const base = path.basename(f);
+      appArchives.push({ name: /^cloudalbum-.+-(arm64|x86_64)\.tgz$/.test(base) ? base : `cloudalbum-${version}-${arch}.tgz`, data, mode: 0o644 });
+    } else warnings.push(`no CloudAlbum release archive for ${arch} (run scripts/release on Linux or pass --app-archive ${arch}=<file>)`);
   }
   const checks = loadChecksBundle(opts.checksDir);
-  if (!checks) warnings.push('no check bundle (06 PM-04 / platform/infra/checks-bundle): ATL-RunCheck cannot run on the workstation');
+  if (!checks) warnings.push('no check bundle (node platform/checks/build.mjs, or --checks-dir): ATL-RunCheck cannot run on the workstation');
   const infra = sourceEntries();
   if (checks) infra.push(...checks.entries.map((e) => ({ ...e, name: `atl/${e.name}` })));
+  infra.push({ name: 'platform/workflows/runner/dist/atl-runner.mjs', data: await runnerBundle(), mode: 0o644 }, ...appArchives);
+  infra.push({ name: 'SHA256SUMS', data: sourceSha256sums(infra), mode: 0o644 });
   files.push({ name: 'cloudalbum-infra.zip', data: writeZip(infra) });
   const ws = await workstationBundle({ checks, ssmPluginRpm: opts.ssmPluginRpm, k6Tarball: opts.k6Tarball, nodeModulesDir: opts.nodeModulesDir, version });
   for (const m of (ws.manifest.missing as string[]) ?? []) warnings.push(`workstation bundle without ${m}`);

@@ -37,6 +37,9 @@ export interface EndInput {
   disposition?: Disposition;
   failure?: SfnError | null;
   actor?: string;
+  /** atl-api's form (POST /end with disposition keep, already validated against the KEEP quote and the limits) */
+  keep?: { hours?: number; quoteId?: string | null; saveMode?: boolean; confirmedAt?: string } | null;
+  keepPrerequisites?: string[];
 }
 
 export interface EndContext {
@@ -70,11 +73,31 @@ export function endPhaseOf(executionName: string | undefined, sid: string): { ph
 
 const NO_KEEP_REASONS: EndReason[] = ['IDLE_NOT_STARTED', 'BUDGET_ENFORCED', 'ADMIN_ENDED', 'PLATFORM_UNINSTALL', 'CANCELLED', 'PROVISION_FAILED', 'PROVISION_TIMEOUT'];
 
-function decideDisposition(s: SessionRecord, input: EndInput): Disposition {
+/**
+ * The keep request of this end: the lifecycle's own (RequestEnd), else atl-api's — `input.keep` of POST /end, or for an
+ * expiry the `preferredDisposition` the API stored (object form with keepHours / quoteId / saveMode / confirmedAt).
+ */
+export function keepRequestOf(s: SessionRecord, input: EndInput, nowIso: string): SessionRecord['keepRequest'] {
+  if (s.keepRequest) return s.keepRequest;
+  const pref = s.preferredDisposition as (SessionRecord['preferredDisposition'] & { saveMode?: boolean | null; confirmedAt?: string | null }) | null | undefined;
+  const k =
+    input.reason === 'EXPIRED'
+      ? pref?.disposition === 'keep'
+        ? { hours: pref.keepHours ?? undefined, quoteId: pref.quoteId, saveMode: pref.saveMode ?? undefined, confirmedAt: pref.confirmedAt ?? undefined }
+        : null
+      : input.disposition === 'keep'
+        ? (input.keep ?? null)
+        : null;
+  const hours = Number(k?.hours);
+  if (!k || !Number.isFinite(hours) || hours <= 0) return null;
+  return { hours, quoteId: k.quoteId ?? null, saveMode: k.saveMode !== false, confirmedAt: k.confirmedAt ?? nowIso };
+}
+
+function decideDisposition(s: SessionRecord, input: EndInput, keepRequest: SessionRecord['keepRequest']): Disposition {
   if (NO_KEEP_REASONS.includes(input.reason)) return 'destroy';
   if (!s.cardSnapshot.retain.allowed) return 'destroy';
-  if (input.reason === 'EXPIRED') return s.preferredDisposition?.disposition === 'keep' && s.keepRequest ? 'keep' : 'destroy';
-  return input.disposition === 'keep' && s.keepRequest ? 'keep' : 'destroy';
+  if (input.reason === 'EXPIRED') return s.preferredDisposition?.disposition === 'keep' && keepRequest ? 'keep' : 'destroy';
+  return input.disposition === 'keep' && keepRequest ? 'keep' : 'destroy';
 }
 
 async function isRunning(ctx: Ctx, arn: string | null | undefined): Promise<boolean> {
@@ -134,7 +157,8 @@ export async function beginEnd(ctx: Ctx, p: { input: EndInput; executionId?: str
       ],
     });
   } else if (s0.state === 'READY' || s0.state === 'RUNNING' || s0.state === 'EXPIRING') {
-    disposition = decideDisposition(s0, input);
+    const keepRequest = keepRequestOf(s0, input, ctx.nowIso());
+    disposition = decideDisposition(s0, input, keepRequest);
     if (disposition === 'keep' && (cfg.mode === 'UNINSTALLING' || (cfg.budget.state === 'EXCEEDED' && cfg.budget.enforcement !== 'notify'))) disposition = 'destroy';
     marks.push({ phase: 'end.disarm', status: 'RUNNING' });
     await transitionSession(ctx, sid, {
@@ -154,6 +178,8 @@ export async function beginEnd(ctx: Ctx, p: { input: EndInput; executionId?: str
         endSeq: ph.seq,
         endPhase: ph.phase,
         endExecutionArns: [...(s.endExecutionArns ?? []), ...(p.executionId ? [p.executionId] : [])],
+        ...(disposition === 'keep' && !s.keepRequest ? { keepRequest } : {}),
+        ...(disposition === 'keep' && input.keepPrerequisites?.length && !s.keepPrerequisites?.length ? { keepPrerequisites: input.keepPrerequisites } : {}),
         ...phasePatch(ctx, s, marks).patch,
       }),
       events: (s) => [{ type: 'session.end_requested', data: { by: input.actor ?? 'system', reason: endRequestedReason(reason) } }, ...phasePatch(ctx, s, marks).events],

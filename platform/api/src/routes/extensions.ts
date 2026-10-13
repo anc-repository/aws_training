@@ -83,6 +83,6 @@ export const DOWNSTREAM_ACTIONS = {
     publishCertificate: 'PublishCertificate',
     exportArchive: 'ExportArchive',
   },
-  reaper: { verifyResolved: 'VerifyResolved' },
+  lifecycle: { resolveCleanup: 'ResolveCleanup' },
   pricing: { priceQuote: 'PriceQuote' },
 } as const;

@@ -18,7 +18,7 @@ import { parse as parseYaml } from 'yaml';
 import { parseCfnYaml } from './cfn-yaml.js';
 import { compilePolicies } from './gen-policies.js';
 import { collectReferences } from './intrinsics.js';
-import { ec2TrustPolicy, functionResources, loadDevSubstitutions, stateMachineResources } from './template-parts.js';
+import { ec2TrustPolicy, functionResources, loadDevSubstitutions, runnerSessionPolicyResource, stateMachineResources } from './template-parts.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 export const INFRA_ROOT = path.resolve(HERE, '..');
@@ -171,7 +171,7 @@ export function buildTemplate(opts: BuildOptions = {}): Record<string, unknown> 
     .map((name) => ({ name, text: fs.readFileSync(path.join(srcDir, name), 'utf8') }));
   const { template } = mergeFragments(fragments, version);
   const resources = template.Resources as Record<string, Record<string, unknown>>;
-  for (const [id, def] of Object.entries({ ...functionResources(), ...stateMachineResources(loadDevSubstitutions()) })) {
+  for (const [id, def] of Object.entries({ ...functionResources(), ...stateMachineResources(loadDevSubstitutions()), ...runnerSessionPolicyResource() })) {
     if (id in resources) throw new Error(`generated resource ${id} collides with a fragment`);
     resources[id] = def as Record<string, unknown>;
   }

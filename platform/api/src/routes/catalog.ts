@@ -9,7 +9,7 @@ import { parseBody, z } from '../http/validate.js';
 import { stripKeys, type Item, type SessionItem } from '../repositories/index.js';
 import { trackProgress, type ProgressRecord } from '../services/catalog/progress.js';
 import type { LabContent, QuizBank, TrackDef } from '../services/catalog/store.js';
-import { loadPlatformState, startBlockers, type Blocker } from '../services/sessions/guards.js';
+import { isPlannedCard, loadPlatformState, startBlockers, type Blocker } from '../services/sessions/guards.js';
 import { createLabQuote } from '../services/sessions/start.js';
 import { auditOk, principalOf, rateLimit, subjectSub, type ApiContext } from './context.js';
 import type { ApiExtensions } from './extensions.js';
@@ -119,6 +119,7 @@ export function catalogRoutes(ext: ApiExtensions): RouteHandlers {
       const p = progress.find((x) => x.labId === lab.id);
       const reasons: Blocker[] = [];
       if (lab.status === 'deprecated') reasons.push({ code: 'LAB_DEPRECATED', detail: '卡片已停用，不能开始新会话' });
+      if (isPlannedCard(lab)) reasons.push({ code: 'LAB_PLANNED', detail: '卡片即将推出，暂不能开始' });
       for (const pre of lab.prerequisites?.cards ?? []) {
         if (pre.kind !== 'hard') continue;
         const badge = progress.find((x) => x.labId === pre.id)?.badge;

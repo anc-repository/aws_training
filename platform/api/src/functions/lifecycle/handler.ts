@@ -251,12 +251,17 @@ export const ACTIONS: Record<string, ActionHandler> = {
   FinishUninstall: (p, d) => finishUninstall(ctxOf(p, d), { result: p.result as { outcome: 'SUCCESS'; reason: string } }),
 };
 
-/** SNS (atl-budget) and EventBridge (atl-sfn-failed) events carry no `action`: map them to their action. */
+/** SNS (atl-budget) and EventBridge (atl-sfn-failed, raw or wrapped as `ExecutionFailed`) events: map them to their action. */
 export function normalizeLifecycleEvent(event: unknown): unknown {
   const e = (event && typeof event === 'object' ? event : {}) as Record<string, unknown>;
   const records = e.Records as { Sns?: { Message?: string } }[] | undefined;
   if (Array.isArray(records) && records[0]?.Sns) return { action: 'BudgetAlert', message: records.map((r) => r.Sns?.Message ?? '').join('\n') };
   if (e['detail-type'] === 'Step Functions Execution Status Change') return { action: 'HandleExecutionFailure', detail: e.detail };
+  // the template's atl-sfn-failed rule wraps the event: {"action":"ExecutionFailed","event":<aws.events.event.json>}
+  if (e.action === 'ExecutionFailed') {
+    const inner = (e.event && typeof e.event === 'object' ? e.event : {}) as Record<string, unknown>;
+    return { action: 'HandleExecutionFailure', detail: inner.detail ?? inner };
+  }
   return event;
 }
 

@@ -137,8 +137,14 @@ export class CatalogStore {
     return lab;
   }
 
+  /**
+   * Quiz bank with answers in atl-artifacts (01 §3.7: `releases/<ver>/private/quiz/`). WebDeploy records the prefix it
+   * wrote (`CatalogRelease.quizPrefix`, the release version's prefix); releases without it use `releases/<catalogVersion>/`.
+   */
   async quizBank(labId: string, catalogVersion: string): Promise<QuizBank | null> {
-    return this.json<QuizBank>(this.deps.env.buckets.artifacts, `releases/${catalogVersion}/private/quiz/${labId}.json`);
+    const rel = await this.platform.getRelease(catalogVersion).catch(() => null);
+    const prefix = typeof rel?.quizPrefix === 'string' && /^releases\/[A-Za-z0-9._-]+\/private\/quiz\/$/.test(rel.quizPrefix) ? rel.quizPrefix : `releases/${catalogVersion}/private/quiz/`;
+    return this.json<QuizBank>(this.deps.env.buckets.artifacts, `${prefix}${labId}.json`);
   }
 
   /** Start-profile digest of a variant: card build output → catalog index → manifest. */

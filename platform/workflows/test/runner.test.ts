@@ -360,6 +360,41 @@ describe('executor', () => {
     expect(r.exitCode).toBe(6);
     expect(r.steps.map((s) => s.id)).toEqual(['archive', 'card-stacks-before', 'destroy', 'card-stacks-after']);
   });
+
+  it('workstation-up: the platform template with every parameter it declares (default VPC, bundle from the CodeBuild variables)', async () => {
+    const host = new FakeHost((cmd, args) => {
+      if (cmd !== 'aws') return undefined;
+      if (args[1] === 'describe-vpcs') return { code: 0, stdout: JSON.stringify({ Vpcs: [{ VpcId: 'vpc-0def', IsDefault: true }] }), stderr: '' };
+      if (args[1] === 'describe-subnets') {
+        return { code: 0, stdout: JSON.stringify({ Subnets: [{ SubnetId: 'subnet-c', AvailabilityZone: 'ap-northeast-1c' }, { SubnetId: 'subnet-a', AvailabilityZone: 'ap-northeast-1a' }] }), stderr: '' };
+      }
+      return undefined;
+    });
+    const env = { ATL_WORKSTATION_BUNDLE_URI: 's3://atl-artifacts-000000000000-ap-northeast-1/releases/v0.1.0/atl-workstation.tar.gz', ATL_WORKSTATION_BUNDLE_SHA256: 'a'.repeat(64), ATL_WORKSTATION_INSTANCE_TYPE: 't4g.small' };
+    const r = await new RunnerExecutor(ctxFor({ ATL_OP: 'workstation-up', ATL_RUN_ID: `${SID}-ws-1` }), host, { ...OPTS, env }).runAll();
+    expect(r.exitCode).toBe(0);
+    const create = host.calls.find((c) => c.args[1] === 'create-stack')!;
+    expect(create.args).toContain('file:///src/platform/workstation/templates/atl-workstation.yaml');
+    const params = create.args.filter((a) => a.startsWith('ParameterKey='));
+    expect(params).toEqual(
+      expect.arrayContaining([
+        `ParameterKey=SessionId,ParameterValue=${SID}`,
+        'ParameterKey=EnvName,ParameterValue=e7k2m9qx',
+        'ParameterKey=VpcId,ParameterValue=vpc-0def',
+        'ParameterKey=SubnetId,ParameterValue=subnet-a',
+        `ParameterKey=BundleUri,ParameterValue=${env.ATL_WORKSTATION_BUNDLE_URI}`,
+        `ParameterKey=BundleSha256,ParameterValue=${'a'.repeat(64)}`,
+        'ParameterKey=InstanceType,ParameterValue=t4g.small',
+      ]),
+    );
+    expect(params.some((p) => p.startsWith('ParameterKey=EnvId,'))).toBe(true);
+    expect(params.some((p) => p.startsWith('ParameterKey=LabId,'))).toBe(true);
+    // without the bundle variables the build fails before creating anything
+    const bare = new FakeHost(() => undefined);
+    const r2 = await new RunnerExecutor(ctxFor({ ATL_OP: 'workstation-up', ATL_RUN_ID: `${SID}-ws-1` }), bare, { ...OPTS, env: {} }).runAll();
+    expect(r2.exitCode).not.toBe(0);
+    expect(bare.calls.some((c) => c.args[1] === 'create-stack')).toBe(false);
+  });
 });
 
 describe('runner bundle', () => {

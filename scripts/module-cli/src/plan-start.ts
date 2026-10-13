@@ -441,7 +441,11 @@ export function parseAtlProfile(text: string): ProfileSpec & { name: string; kin
   const modules: ProfileSpec['modules'] = [];
   for (const id of splitList(e.PROFILE_MODULES)) {
     if (!isModuleId(id)) throw new CliError(`PROFILE_MODULES: unknown module ${id}`, EXIT.rules, 'PROFILE_INVALID');
-    const set = Object.fromEntries(Object.entries(drivers).filter(([k]) => ownerOfKey(k) === id));
+    // a key belongs to the module that owns it (ownsEnv) or, for a switch variable shared by several modules (STORAGE_DRIVER:
+    // storage owns s3, shared-fs owns efs), to the module whose switch owns the value — renderAtlProfile wrote it from m.set
+    const sw = moduleOf(id).switch;
+    const ownsSwitchValue = (k: string, v: string) => !!sw && !isParamSwitch(sw) && sw.var === k && sw.ownedValues.includes(v);
+    const set = Object.fromEntries(Object.entries(drivers).filter(([k, v]) => ownerOfKey(k) === id || ownsSwitchValue(k, v)));
     const p = Object.fromEntries(Object.entries(params).filter(([k]) => k.startsWith(`${id}.`)).map(([k, v]) => [k.slice(id.length + 1), v]));
     modules.push({ id, kind: 'module', set, params: p, value: null });
   }

@@ -37,6 +37,21 @@ describe('ScaledClock (ATL_DEV_TIME_SCALE)', () => {
     c.skip(60_000);
     expect(c.nowMs() - t0).toBeGreaterThanOrEqual(64_000);
   });
+
+  it('skip() fires the timers it passes and re-arms the others for their remaining platform time', async () => {
+    const c = new ScaledClock(1, Date.UTC(2026, 0, 1));
+    const fired: string[] = [];
+    c.setTimer(10 * 60_000, () => fired.push('a'));
+    c.setTimer(60 * 60_000, () => fired.push('b'));
+    c.setTimer(5 * 60_000, () => fired.push('x')).cancel();
+    c.skip(30 * 60_000);
+    await new Promise((r) => setTimeout(r, 20));
+    expect(fired).toEqual(['a']);
+    expect(c.pendingTimers()).toBe(1);
+    c.skip(30 * 60_000);
+    await new Promise((r) => setTimeout(r, 20));
+    expect(fired).toEqual(['a', 'b']);
+  });
 });
 
 describe('InProcessScheduler', () => {

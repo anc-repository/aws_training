@@ -13,8 +13,10 @@
  *                    POST /__dev/sessions/<sid>/advance { to, minutes? } — move a session along the state machine while
  *                    the real lifecycle workflows are not available (dev only)
  *
- * Until `atl-lifecycle` implements them, `CreateSession`, `Transition`, `Extend` and `ExtendKeep` fall back to a dev
- * implementation on the shared repositories (`devLifecycleFallback`), so that the browser flows can be exercised.
+ * `npm run platform:dev` starts this server (with `--seed-catalog`: the labs:build output is published like WebDeploy
+ * does). The runtime is the full dev runtime (src/dev/runtime.ts): lifecycle, dev check engine, dev runner
+ * (ATL_DEV_RUNNER_MODE=local-l0 starts a local CloudAlbum per environment), plus the infra custom resources on dev ports.
+ * The `DEV_LIFECYCLE_ACTIONS` fallback only answers when atl-lifecycle reports `Atl.NotImplemented` (API unit tests).
  */
 import fs from 'node:fs';
 import type http from 'node:http';
@@ -351,7 +353,56 @@ async function ensureDevEnvironment(repos: Repositories, deps: FunctionDeps, env
 }
 
 // ---------------------------------------------------------------------------------------------------------------
-// Dev content release from labs/ (lab.yaml v2 → content/dev/…; 04 §2.5, 05 §8.4)
+// Dev content release from the `labs:build` output (what WebDeploy publishes in production, platform-infra #17):
+// dist/content/<catalogVersion>/** → atl-web `content/<catalogVersion>/…`, `private/**` → atl-artifacts
+// `releases/<catalogVersion>/private/…`, then CatalogRelease + CATALOG/CURRENT.
+
+function walkFiles(dir: string, base = dir): string[] {
+  const out: string[] = [];
+  for (const d of fs.readdirSync(dir, { withFileTypes: true })) {
+    const full = path.join(dir, d.name);
+    if (d.isDirectory()) out.push(...walkFiles(full, base));
+    else if (d.isFile()) out.push(path.relative(base, full).split(path.sep).join('/'));
+  }
+  return out;
+}
+
+const CONTENT_TYPES: Record<string, string> = { '.json': 'application/json', '.svg': 'image/svg+xml', '.png': 'image/png', '.yaml': 'application/yaml', '.env': 'text/plain', '.md': 'text/markdown' };
+
+/** The newest `dist/content/<v>/manifest.json` under the repository (labs:build output), or null. */
+export function findContentBuild(repoRoot: string): string | null {
+  const root = path.join(repoRoot, 'dist', 'content');
+  if (!fs.existsSync(root)) return null;
+  const dirs = fs
+    .readdirSync(root, { withFileTypes: true })
+    .filter((d) => d.isDirectory() && fs.existsSync(path.join(root, d.name, 'manifest.json')))
+    .map((d) => ({ dir: path.join(root, d.name), t: fs.statSync(path.join(root, d.name, 'manifest.json')).mtimeMs }))
+    .sort((a, b) => b.t - a.t);
+  return dirs[0]?.dir ?? null;
+}
+
+export async function publishDevContent(deps: FunctionDeps, buildDir: string): Promise<{ catalogVersion: string; contentDigest: string; files: number; cards: number; tracks: number }> {
+  const manifest = JSON.parse(fs.readFileSync(path.join(buildDir, 'manifest.json'), 'utf8')) as { catalogVersion: string; contentDigest: string; counts?: { cards?: number; tracks?: number } };
+  const catalogVersion = manifest.catalogVersion;
+  const prefix = WebKeys.content(catalogVersion);
+  const files = walkFiles(buildDir);
+  for (const rel of files) {
+    const body = fs.readFileSync(path.join(buildDir, rel));
+    const contentType = CONTENT_TYPES[path.extname(rel)] ?? 'application/octet-stream';
+    if (rel.startsWith('private/')) await deps.ports.objects.put(deps.env.buckets.artifacts, `releases/${catalogVersion}/${rel}`, body, { contentType });
+    else await deps.ports.objects.put(deps.env.buckets.web, `${prefix}${rel}`, body, { contentType });
+  }
+  const nowIso = deps.ports.clock.now().toISOString();
+  const repos = reposOf(deps);
+  await repos.table.put({ ...Keys.catalogRelease(catalogVersion), type: 'CatalogRelease', ver: 1, createdAt: nowIso, updatedAt: nowIso, catalogVersion, contentDigest: manifest.contentDigest, publishedAt: nowIso });
+  await repos.table.put({ ...Keys.catalogCurrent(), type: 'CatalogRelease', ver: 1, createdAt: nowIso, updatedAt: nowIso, catalogVersion, contentDigest: manifest.contentDigest });
+  clearContentCache();
+  return { catalogVersion, contentDigest: manifest.contentDigest, files: files.length, cards: manifest.counts?.cards ?? 0, tracks: manifest.counts?.tracks ?? 0 };
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// Fallback dev content release straight from labs/ (lab.yaml v2 → content/dev/…; no expanded checks — prefer
+// `npm run labs:build` + publishDevContent)
 
 export const DEV_CATALOG_VERSION = 'dev';
 
@@ -427,11 +478,26 @@ async function main(): Promise<void> {
   const cfg = (await loadDevConfigModule()).loadDevConfig();
   const rt = await (await loadDevRuntime()).createDevRuntime(cfg);
   await ensureDevPlatformConfig(rt.deps, cfg.port);
+  // atl-custom-resources = the infra handler on dev ports (UninstallGuard / UninstallRoleCleanup, SeedData, …)
+  try {
+    const { installDevCustomResources } = await import('./dev/adapters/custom-resources.js');
+    await installDevCustomResources(rt, { db: rt.deps.db, objects: rt.objects, signer: rt.signer, orchestrator: rt.orchestrator, clock: rt.clock, iam: () => rt.lifecycleDev?.lifecycle ?? null, tableName: rt.env.tableName });
+  } catch (e) {
+    console.warn(`dev custom resources not installed (${e instanceof Error ? e.message : String(e)}); atl-custom-resources stays a stub`);
+  }
   const seedArg = argv.indexOf('--seed-catalog');
   if (seedArg >= 0) {
-    const dir = path.resolve(argv[seedArg + 1] && !argv[seedArg + 1]!.startsWith('--') ? argv[seedArg + 1]! : 'labs');
-    const r = await seedDevCatalog(rt.deps, dir);
-    console.log(`seeded content release ${r.catalogVersion}: ${r.cards.length} cards, ${r.tracks.length} tracks from ${dir}`);
+    const given = argv[seedArg + 1] && !argv[seedArg + 1]!.startsWith('--') ? path.resolve(argv[seedArg + 1]!) : null;
+    // a labs:build output (manifest.json) is published as is; a labs/ directory uses its build when one exists
+    const build = given && fs.existsSync(path.join(given, 'manifest.json')) ? given : findContentBuild((await loadDevConfigModule()).REPO_ROOT);
+    if (build) {
+      const r = await publishDevContent(rt.deps, build);
+      console.log(`published content release ${r.catalogVersion} (${r.contentDigest}): ${r.cards} cards, ${r.tracks} tracks, ${r.files} files from ${build}`);
+    } else {
+      const dir = given ?? path.resolve('labs');
+      const r = await seedDevCatalog(rt.deps, dir);
+      console.log(`seeded content release ${r.catalogVersion}: ${r.cards.length} cards, ${r.tracks.length} tracks from ${dir} (no labs:build output: checks are not expanded)`);
+    }
   }
   const app = createDevApp(rt);
   const server = app.listen(cfg.port, '127.0.0.1', () => {

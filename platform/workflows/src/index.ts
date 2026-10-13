@@ -10,3 +10,5 @@ export * from './simulator/jsonpath.js';
 export { evalIntrinsic, isIntrinsic } from './simulator/intrinsics.js';
 export * from './simulator/engine.js';
 export * from './simulator/virtual-clock.js';
+// the runner's session-independent managed session policy (the platform template creates it)
+export { RUNNER_SESSION_STATIC_POLICY, staticRunnerStatements } from './runner/policy.js';

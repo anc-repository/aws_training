@@ -46,10 +46,15 @@ async function waitActive(ddb: DynamoDBClient, name: string): Promise<void> {
   throw new Error(`table ${name} did not become ACTIVE`);
 }
 
-export async function createTables(ddb: DynamoDBClient, opts: { reset?: boolean; log?: (s: string) => void } = {}): Promise<string[]> {
+export async function createTables(
+  ddb: DynamoDBClient,
+  opts: { reset?: boolean; log?: (s: string) => void; names?: Partial<Record<string, string>> } = {},
+): Promise<string[]> {
   const log = opts.log ?? (() => undefined);
   const created: string[] = [];
-  for (const spec of TABLE_SPECS) {
+  for (const base of TABLE_SPECS) {
+    // `names` maps atl-main / cloudalbum-lab-locks to other names (per-run tables of smoke:platform)
+    const spec: TableSpec = { ...base, TableName: opts.names?.[base.TableName] ?? base.TableName };
     const { ttlAttribute, ...input }: TableSpec = spec;
     if (opts.reset && (await exists(ddb, spec.TableName))) {
       await ddb.send(new DeleteTableCommand({ TableName: spec.TableName }));

@@ -52,6 +52,8 @@ function arnOf(r: { type: string; region: string; id: string }): string {
       return `arn:aws:lambda:${r.region}:${acct}:function:${r.id}`;
     case 'AWS::Logs::LogGroup':
       return `arn:aws:logs:${r.region}:${acct}:log-group:${r.id}`;
+    case 'AWS::RDS::DBInstance':
+      return `arn:aws:rds:${r.region}:${acct}:db:${r.id}`;
     default:
       return `arn:aws:dev:${r.region}:${acct}:${r.type.replace(/::/g, '-')}/${r.id}`;
   }
@@ -64,6 +66,26 @@ export class DevReclaimCloud implements ReclaimCloud {
   readonly deleteCalls: { ref: ResourceRef; roleSessionName: string }[] = [];
   /** S6 resets performed: full (own lock) or only the ledger's attachments */
   readonly appRoleResets: { full: boolean; policyArns: string[] }[] = [];
+  private readonly deletedListeners: ((r: FakeResource) => void)[] = [];
+
+  /** Called for every resource removed from the account (stack deletion, reclaimer delete / poll). */
+  onDeleted(fn: (r: FakeResource) => void): void {
+    this.deletedListeners.push(fn);
+  }
+
+  private removed(k: string): void {
+    const r = this.resources.get(k);
+    if (!r) return;
+    this.resources.delete(k);
+    this.deleted.push(k);
+    for (const fn of this.deletedListeners) {
+      try {
+        fn(r);
+      } catch {
+        /* listeners are best effort */
+      }
+    }
+  }
 
   addResource(r: FakeResource): void {
     this.resources.set(key(r.type, r.region, r.id), { ...r });
@@ -80,12 +102,9 @@ export class DevReclaimCloud implements ReclaimCloud {
     const st = this.stacks.get(`${region}|${name}`);
     if (!st) return;
     for (const [k, r] of [...this.resources]) {
-      if (r.stackName === name && r.region === region && !(opts.retain ?? []).includes(r.logicalId ?? '')) {
-        this.resources.delete(k);
-        this.deleted.push(k);
-      }
+      if (r.stackName === name && r.region === region && !(opts.retain ?? []).includes(r.logicalId ?? '')) this.removed(k);
     }
-    this.resources.delete(key('AWS::CloudFormation::Stack', region, name));
+    this.removed(key('AWS::CloudFormation::Stack', region, name));
     st.status = 'DELETE_COMPLETE';
   }
 
@@ -148,8 +167,7 @@ export class DevReclaimCloud implements ReclaimCloud {
         break;
     }
     if (ref.type === 'AWS::CloudFormation::Stack') this.deleteStack(ref.region, ref.id);
-    this.resources.delete(k);
-    this.deleted.push(k);
+    this.removed(k);
     return { status: 'DONE' };
   }
 
@@ -160,8 +178,7 @@ export class DevReclaimCloud implements ReclaimCloud {
     r.pendingPolls = (r.pendingPolls ?? 1) - 1;
     if (r.pendingPolls > 0) return { status: 'PENDING', waitSeconds: 30 };
     if (ref.type === 'AWS::CloudFormation::Stack') this.deleteStack(ref.region, ref.id);
-    this.resources.delete(k);
-    this.deleted.push(k);
+    this.removed(k);
     return { status: 'DONE' };
   }
 

@@ -3,7 +3,7 @@
  *
  *   atl-api     createApiHttpHandler(getDeps, ext)     — every JWT route
  *   atl-agent   createAgentHttpHandler(getDeps, ext)   — agent, internal and the fallback route
- *   atl-public  createPublicHttpHandler(getDeps, ext)  — public routes
+ *   atl-public  createPublicHttpHandler(getDeps)       — public routes (functions/public/handler.ts, owned by atl-certs)
  *
  * The factories add the `IdempotencyRecord` store (01 §7.5 item 3) and audit every 403 (01 §8.5).
  */
@@ -13,7 +13,8 @@ import type { HttpEvent } from '../http/types.js';
 import { createRepositories } from '../repositories/index.js';
 import type { DepsProvider, FunctionDeps } from '../runtime/deps.js';
 import { audit, userAgentHash } from '../services/events/index.js';
-import { agentRoutes, publicRoutes } from './agent.js';
+import { ROUTE_HANDLERS as PUBLIC_ROUTE_HANDLERS } from '../functions/public/handler.js';
+import { agentRoutes } from './agent.js';
 import { catalogRoutes } from './catalog.js';
 import type { ApiExtensions } from './extensions.js';
 import { platformRoutes } from './platform.js';
@@ -37,8 +38,9 @@ export function agentRouteHandlers(ext: ApiExtensions = {}): RouteHandlers {
   return agentRoutes(ext);
 }
 
-export function publicRouteHandlers(ext: ApiExtensions = {}): RouteHandlers {
-  return publicRoutes(ext);
+/** atl-public: the certs-owned implementation (functions/public/handler.ts) is the only one (integration decision). */
+export function publicRouteHandlers(_ext: ApiExtensions = {}): RouteHandlers {
+  return PUBLIC_ROUTE_HANDLERS;
 }
 
 /** Routes whose repeated POSTs are part of the protocol (they are idempotent by construction). */

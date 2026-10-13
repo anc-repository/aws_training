@@ -1535,3 +1535,170 @@ npx tsx scripts/labs/src/cli.ts catalog --check && npx tsx scripts/labs/src/cli.
 npx vitest run --project atl-labs-tools
 npx tsc -b scripts/labs && npx eslint scripts/labs/src scripts/labs/test
 ```
+
+## platform-integration
+
+平台集成与本地端到端自测：把 api、lifecycle、checks、infra、cloudalbum-mode、content 六个实现的提交接到一起，补齐依赖，修复各部分之间的契约
+不一致，接通 ATL_DEV_MODE 的完整运行时，固化 `npm run smoke:platform`。全程没有调用真实 AWS API，没有部署任何东西；Docker 只用了本机已有的
+`amazon/dynamodb-local:3.3.1`、`postgres:16-alpine`、`valkey/valkey:8`。
+
+### 1. 补齐与修复
+
+**依赖**（`npm install --before=2026-09-29`，lockfile 只新增 11 个包）：
+- `platform/api`：`express`、`yaml`、`@aws-sdk/client-cloudfront` 与 lifecycle 按名动态加载的 13 个 SDK 客户端（sqs、sns、rds、elasticache、efs、
+  elastic-load-balancing-v2、auto-scaling、cloudcontrol、cloudwatch、cloudwatch-logs、secrets-manager、ecr、ecs，全部锁定 3.1142.0，与已有客户端同版本）；
+  开发依赖 `@types/express`、`supertest`、`@types/supertest`。
+- `platform/workflows`：`@noble/hashes`，开发依赖 `esbuild`。`platform/workstation`：`@smithy/signature-v4`、`@aws-sdk/credential-provider-node`、
+  `@aws-crypto/sha256-js`。`platform/infra`：开发依赖 `@atl/workflows`。`scripts/module-cli`：`@aws-sdk/client-dynamodb`、`-cognito-identity-provider`、
+  `-rds`、`@aws-sdk/s3-request-presigner`、`@smithy/signature-v4`、`@node-rs/argon2`。`scripts/labs`：`ajv`。
+
+**接线**：
+- `functions/{api,agent}/handler.ts` 改用 `routes/index.ts` 的 `createApiHttpHandler` / `createAgentHttpHandler`（可传 `ApiExtensions`）。
+  atl-public 原有两份实现：保留 atl-certs 一侧的 `functions/public/handler.ts`（它读写的正是 atl-certs 写的证书与密钥项），`routes/agent.ts` 中的副本删除，
+  `publicRouteHandlers()` 直接返回这张表。
+- `src/dev/runtime.ts`：函数表使用 dev 检查引擎（`createDevCheckEngine`）；`installLifecycleDev` 在运行时内调用，与 dev 运行器共用同一个
+  `DevReclaimCloud`（新增 `reclaim` 选项）；模拟 `atl-events` 上的规则（`session.state_changed`、`reclaim.pass_completed` → atl-checks，EventBridge 事件形状）；
+  新增选项 `tables`（每次自测一套表）、`gates`、`ext`、`lifecycle`；返回值增加 `reclaim`、`lifecycleDev`、`l0`、`checks`。
+  `orchestrator-dev/server.ts` 不再重复安装 lifecycle。`npm run platform:dev` 改为 `dev-server.ts --dev-mode --seed-catalog`。
+- dev 运行器（`dev/adapters/runner.ts`）在各模式下都把 op 的 AWS 副作用写进 dev 账号（与测试用 ScriptedRunner 相同：base-deploy 的 toolchain / ec2 栈、
+  密钥对与 `/cloudalbum/<envName>/atl/*` 参数，workstation-up/-down，destroy 删栈并写 `ledger.json`）。`local-l0` 模式下 base-deploy 启动的本地 L0
+  处于平台模式（`etc/platform.env`、`etc/atl/probe.token`、应用管理员，初始密码写 `etc/atl/app-admin-password`，相当于 SSM 参数）；回收器删除实验机
+  `i-dev-<envName>-lab` 时停止对应的本地 L0（`DevReclaimCloud.onDeleted`）。
+- `dev/adapters/custom-resources.ts`：在 dev 端口上运行 `platform/infra/custom-resources` 的真实处理器（DynamoDB Local、目录桶、dev 签名密钥、模拟器、
+  lifecycle 的 dev IAM 状态），CloudFormation 回调记录在内存中。smoke 与 dev-server 用它替换 atl-custom-resources 的桩。
+- `dev/adapters/clock.ts`：`ScaledClock.skip()` 现在让跳过的定时器立即触发、其余按剩余平台时间重排（原来定时器保持原来的真实时间，快进后调度不会触发）。
+- `dev-server.ts`：`publishDevContent()` 按 WebDeploy 的布局发布 `labs:build` 产物（含展开后的检查、档位、私有题库），`--seed-catalog` 优先用它。
+
+**契约不一致（各自测试都通过、接起来才出现的问题）**：
+1. CreateSession：lifecycle 要求费用确认，API 的草稿里没有 → API 草稿 `costQuote.acknowledgedAt`，lifecycle-client 同时传 `costAcknowledged`。
+2. 保留环境：API 直接以 `{ keep: {hours, quoteId, saveMode, confirmedAt} }` 启动 `atl-session-end`、到期处置写对象形式的 `preferredDisposition`，而
+   lifecycle 的 BeginEnd 只认 `LabSession.keepRequest`（只有 lifecycle 自己的 RequestEnd 会写）→ 立即保留与到期保留都会变成销毁。
+   `end.ts` 新增 `keepRequestOf()`：两种 API 形式都转成 `keepRequest`，在 ENDING 转换中写入。新测试 `test/lifecycle/api-lifecycle-e2e.test.ts` 用真实 ASL、
+   模拟器与 lifecycle 跑 API 路由（保留 / 延长保留 / 释放、到期保留、平台动作、PROVISIONING 中取消），去掉修复后有两项失败。
+3. “我已处理”：API 异步调用 atl-reaper `VerifyResolved`，reaper 没有这个动作 → 改为异步调用 atl-lifecycle `ResolveCleanup`（它调 reaper `ResolveItem`
+   并执行 T20，状态只由 lifecycle 写）。`DOWNSTREAM_ACTIONS.reaper` 换成 `lifecycle.resolveCleanup`。
+4. 离线验证包：API 自己拼了一份（没有 `verifyScript`，jwks 也不是发布的 jwks.json）→ 改为同步调用 atl-certs `OfflineBundle`（04 §10.5 的形状）。
+5. 验证页：只有 atl-certs 的 `PublishVerifyPage` 动作会发布 `verify/`，没有任何调用方 → 签发证书时检查并（重新）发布验证页，第一次签发时发布空的签名
+   吊销列表（因此第一次吊销的序号是 2）。
+6. 题库位置：WebDeploy 写 `releases/<ReleaseVersion>/private/quiz/`（01 §3.7），API 读 `releases/<catalogVersion>/…`（两者在生产中不同）→ WebDeploy 在
+   `CatalogRelease` 记 `quizPrefix`，API 优先用它。
+7. atl-sfn-failed 规则投递 `{"action":"ExecutionFailed","event":…}`，lifecycle 没有这个动作 → `normalizeLifecycleEvent` 映射为 `HandleExecutionFailure`。
+8. atl-checks 需要的 `session.state_changed` / `reclaim.pass_completed` 在模板里没有规则 → `45-events.yaml` 新增 `atl-checks-session-events`
+   （总线 atl-events → ChecksFunction）与权限；`inventory.test.ts` 相应放宽。
+9. 函数环境：atl-checks 读 `ATL_CHECK_BUNDLE_DIGEST`，模板只给 CodeBuild 设了 `ATL_CHECKS_BUNDLE_DIGEST` → 函数环境增加 `ATL_CHECK_BUNDLE_DIGEST`
+   （`CopyArtifacts.ChecksBundleDigest`）；atl-certs 的 CloudFront 失效同时接受模板设置的 `ATL_DISTRIBUTION_ID`。
+10. 运行器：会话策略的托管部分 `ATLProvisionerPolicy-RunnerSession` 模板里没有 → `template-parts.ts` 由 `staticRunnerStatements()` 生成
+    （`@atl/workflows` 导出）；`ATLRunnerServiceRole` 增加 `dynamodb:GetItem`（atl-main，`LeadingKeys` 限 `SESSION#*`、`ENV#*`、`PLATFORM`）。
+    工作台栈：运行器用的是不存在的 `platform/workflows/workstation/workstation.yaml`、只传两个参数 → 改用 `platform/workstation/templates/atl-workstation.yaml`，
+    并传齐模板声明的参数（默认 VPC 及其按 AZ 排序的第一个默认子网、CodeBuild 变量 `ATL_WORKSTATION_*`）。
+11. 运行器源码包 `cloudalbum-infra.zip`：缺 buildspec 要用的 `runner/dist/atl-runner.mjs` 与根目录 `SHA256SUMS`，也没有 `cloudalbum-<ver>-<arch>.tgz` →
+    `package.ts` 打进运行器 bundle、按 scripts/release 的文件名放入 CloudAlbum 发行包（有时），并写出覆盖全部条目的 `SHA256SUMS`；检查包默认取
+    `platform/checks/dist/atl`（`bin/atl-check.mjs` 不进包）。
+12. 06：`parseAtlProfile` 丢掉 `STORAGE_DRIVER`（storage 与 shared-fs 共用的开关）→ 按开关的 `ownedValues` 归属。`labs:derive` 的两条警告消失
+    （svc-image-processing、sc-static-acceleration 不再 PROFILE_DIGEST_MISMATCH）。
+13. `status: planned` 的卡片（46 张）：简介页 `startability.reasons` 带 `LAB_PLANNED`，报价与开始返回 400 `VALIDATION_FAILED`（`reason: LAB_PLANNED`）。
+14. 实验登记后异步调用 atl-checks `ExperimentRegistered`（04 §7.4 第 4 步的登记时快照）。
+15. DevReclaimCloud 的 RDS ARN 改为真实格式（否则标签发现与 CloudTrail 发现的是两个条目）。
+
+**其他**：`backend/test/http/media-flow.test.ts` 的日报日期改按 `SCHEDULER_TIMEZONE`（UTC 15:00～24:00 运行时失败）；`frontend/src/App.test.tsx` 的页脚
+断言改为等待（全量并行时偶发）；`.gitignore` 增加 `!platform/infra/build/`；`platform/package.json` 的 `publish:s3`、`package`、`smoke` 转发到实际脚本；
+`platform:build` 先构建检查包；根脚本增加 `platform:package`、`smoke:platform`。
+
+### 2. 如何运行
+
+```bash
+npm install && npm run build && npm run lint && npm test
+npm run platform:db:up                 # DynamoDB Local（127.0.0.1:58000）
+npm run smoke:platform                 # 约 2 分钟；-- --keep 保留数据与表，--time-scale 5（默认），--skip-package
+#   结果：.atl-dev/smoke/last-platform.json；运行目录 .atl-dev/smoke/platform-<时间>/（失败或 --keep 时保留）
+npm run smoke:l0 && npm run smoke:selfhost
+npm run platform:validate              # 6 个状态机的结构校验 + asl-validator
+npm run labs:lint && npm run labs:derive
+ATL_CFN_LINT=<cfn-lint 路径> npm run cfn-lint -w @atl/infra     # 本轮用 1.57.2
+npm run platform:package -- --out <dir>                         # 发布包 + SHA256SUMS，不上传
+npm run platform:dev                   # dev API（127.0.0.1:8787），ATL_DEV_RUNNER_MODE=local-l0 时每个环境起一个本地 L0
+ATL_IT=1 npx vitest run --project atl-api                       # 含 DynamoDB Local 集成测试
+```
+
+### 3. 自测结果（2026-10-14，Windows 11 / Node 22.14.0 / Docker 28）
+
+| 自测 | 命令 | 结果 |
+|---|---|---|
+| 构建 / 检查 | `npm run build`、`npm run lint`、`cd platform && npm run build`、`npm run registry:check` | 通过；0 个 lint 问题；平台模板 156 个资源 |
+| 单元测试 | `npm test` | 127 个文件、1523 个测试通过；18 个跳过（集成测试，另需服务） |
+| 集成测试 | `CLOUDALBUM_IT=1 npx vitest run`（PostgreSQL 16、Valkey 8、DynamoDB Local）；`ATL_IT=1` 平台三项目 | 133 个文件、1569 个测试通过（1 个跳过）；平台 399 个通过 |
+| 平台端到端 | `npm run smoke:platform` | 106 / 106 通过，约 126 秒（见第 4 节） |
+| CloudAlbum | `npm run smoke:l0`、`npm run smoke:selfhost` | 85 / 85、31 / 31 |
+| ASL | `npm run platform:validate` | 6 个状态机全部通过 |
+| 内容 | `labs:lint`、`labs:derive` | 56 张卡 0 错误 0 警告；10 张完整卡推导 0 错误 0 警告（摘要与 `plan --profile` 一致） |
+| cfn-lint 1.57.2 | 平台模板 + 工作台模板；`infra/modules/*.yaml` | 0 错误（平台模板 2 条警告：W3037 `access-analyzer:ListFindingsV2` 不在 cfn-lint 的动作表中、W1030 自定义域名证书参数）；10 个模块模板 0 发现 |
+| 打包 | `npm run platform:package -- --out …` | 生成 `atl-lambdas.zip`、`atl-web.zip`（占位页）、`atl-content.zip`、`cloudalbum-infra.zip`（963 个条目，内部 SHA256SUMS 全部可核对）、`atl-workstation.tar.gz`、模板、`SHA256SUMS`（含 `# checks-bundle-digest`）、`release-manifest.json`、`launch-stack.md` |
+
+### 4. smoke:platform 的内容
+
+运行时：DynamoDB Local（每次一套 `atl-main-smoke-<时间>` 表，结束后删除）、真实的 6 个 ASL 在进程内模拟器中执行、12 个函数进程内调用、dev 运行器
+`local-l0`、dev 检查运行器（`platform/checks` 的 Node 启动器，ATL-RunCheck 直接对本地 L0 执行）、`ScaledClock`（默认 ×5，倒计时用 `skip` 快进）、
+本地 ECDSA P-256 签名、假 CloudTrail。经 HTTP 调用 dev-server（Express → Lambda 事件）。
+
+| 阶段 | 验证内容 |
+|---|---|
+| 0 构建 | 构建产物存在；检查包构建；没有内容包时 `labs:build`；`package.ts` 打包并逐个核对 `SHA256SUMS` |
+| 1 平台初始化 | 在 dev 端口上执行安装自定义资源 SeedData → WebDeploy（`atl-content.zip`）→ JwksPublish → UninstallGuard Create，均回调 SUCCESS；`GET /platform`、`/me`、`/catalog`；目录索引 56 张卡，10 张可开始、46 张 planned；planned 卡不可开始、报价 400 `LAB_PLANNED`；9 条学习路径 |
+| 2 开始 svc-storage | 报价（atl-pricing 不可用：各行 `unknown`、金额 null，不编价格）→ `POST /sessions` → REQUESTED → PROVISIONING（PROVISIONING 中 agent context 可读、别的会话名 403 `SESSION_MISMATCH`）→ READY；运行器 base-deploy（本地 L0，平台模式，`platform-status` 核对）、workstation-up、profile-apply；健康门经 ATL-RunCheck 在本地 L0 上执行；w15 / w5 / exp 调度；截止时间取整分钟；心跳 → RUNNING |
+| 3 第 1 步检查 | capability `storage-local-baseline` 与 local `data-volume-usage` 均 pass，步骤 orient 完成 |
+| 4 手动确认 | `put-target-answer` 确认 201，助教复核，StepResult 带 `lastManual` |
+| 5 对比实验 | `upload-burst` 的 before / after 两个变体：agent 登记 → 应用登记（`CA-Lab` 实验令牌）→ 带 `X-Experiment-Run` 的请求 → RFC 8785 摘要上传 → 轮询：before `valid`（`lab-metrics` 服务端佐证），after `invalid / DRIVER_MISMATCH: storage=local (expected s3)`（目标模块需要真实 S3） |
+| 6 延长与到期 | 报价 EXTEND → 延长 30 分钟（deadlineVersion 2，v2 调度）→ 快进到截止前 16 分钟 → w15 → EXPIRING 与 `session.expiry_warning` → 快进到截止 → ENDING → CLEANING → ENDED（`EXPIRED`）；dev 账号中环境的栈与资源全部删除、本地 L0 停止；回收报告；已安排复扫 |
+| 7 报告与证书 | 结束编排生成的报告（第 2 版，`atl.report/v1`）；svc-storage 的真实尝试记为 `attempted`；夹具补齐 quick-compare 7 张必修卡的完成记录与 verified 徽章 → 路径可领证 → `POST /certificates` 201，JWS ES256 / `atl-cert+jws`；离线工具 `verify.mjs` 与发布的 `verify/verify.js`（vm 中以发布的 jwks.json、revocations.jws 运行）都判 `valid`，篡改载荷被拒；吊销后离线工具与验证页都判 `revoked`，公开查询为 revoked |
+| 8 失败路径 | 第二个会话；注入学员在控制台创建、删除保护无法解除的 RDS 实例（假账号资源 + CloudTrail `CreateDBInstance`）→ 结束 → CLEANUP_FAILED（hourlyBlocking 1）→ `GET /resources/manual` 1 项、回收报告（含 Markdown 中的删除命令）→ 学员删除后“我已处理”→ ResolveCleanup → ENDED，清单清空 |
+| 9 卸载守卫 | 第三个会话处于 READY：`UninstallRoleCleanup` 拒绝（“1 session(s) are not finished yet”，回调 FAILED）；UNINSTALLING 时开始会话 409；`/platform/uninstall/status` 列出阻塞项；UninstallGuard Delete 不走快速路径、启动 `uninstall-1`，结束会话后回调 SUCCESS |
+
+### 5. 设计有歧义时的取舍
+
+1. **dev 健康门豁免**：本地 L0 是开发机上的一个 api 进程，没有 systemd 的 worker / nginx、没有单独的数据卷；dev 运行器也不部署起始档位中需要 AWS 的
+   模块（svc-storage 的 iam=role 需要 IMDS + STS）。`devHealthGateWaiver()`（只在 `local-l0` 模式）在检查照常执行之后，只豁免这些开发机缺口，并把豁免项写入
+   `report.devWaived`；模块 `error` / `degraded`、api 不在线、缺 platform.env 或本机探测密钥都不豁免。生产代码不变。
+2. **svc-storage 在本地不能“完成”**：接入步骤要求 storage=s3 与本环境的桶，本地 L0 做不到；真实的 FinalizeAttempt 把尝试记为 `attempted`，报告照常生成。
+   任务允许 dev 模式用夹具补齐其余卡片的完成记录，本自测把 svc-storage 的完成记录也放进夹具（徽章带 `fixture: smoke:platform` 标记），其后的路径资格、
+   签发、验证、吊销全部走真实代码。
+3. **对比实验的两个变体**：before 在本地 L0 上有效；after 声明 `requires: storage=s3`，本地只能得到 `DRIVER_MISMATCH`，自测把这一结论作为期望。
+4. **平台初始化**：用 infra 的安装自定义资源（而不是 `platform:db:init` 的 dev 配置）初始化，覆盖 SeedData、WebDeploy、JwksPublish、UninstallGuard 的代码。
+5. **atl-events 规则** `atl-checks-session-events`：01 的规则表只有 `atl-sfn-failed` 与 `atl-tagger-api-calls`，04 §12.3 要求 atl-checks 消费这两类事件，
+   取最简单的做法新增一条规则（需 01 登记）。
+6. **LAB_PLANNED**：未登记的错误码按 api 的约定放在 `VALIDATION_FAILED` 的 `reason` 中。
+
+### 6. 与 07 验证计划的对应
+
+| 07 条目 | 本地已覆盖 | 必须在真实 AWS 上验证 |
+|---|---|---|
+| V0-6 代码就绪 | `npm run build` / `npm test` / `registry:check`、`cd platform && npm run build`、labs:lint / derive（10 张完整卡；svc-waf、svc-tls、svc-autoscaling 仍是 planned，无法推导） | — |
+| 阶段 1、2（IAM/STS、SSM 协议 PoC） | 模拟器语义、IAM 策略求值器（infra 测试）只是离线近似 | 全部（V1-1～V1-15、V2-1～V2-7） |
+| V3-1、V3-2 L0 部署与冒烟 | smoke:l0 / selfhost 覆盖应用逻辑；`scripts/module --dry-run` | 部署本身、Nginx、systemd、EBS、IMDS；`scripts/release` 须在 Linux 上产出 `cloudalbum-<ver>-<arch>.tgz` |
+| V3-3 平台模式自检 | smoke:platform 第 2、5 步：platform.env、本机探测密钥、`platform-status`、检查包入口（Node 版）、`lab-token`、`/api/lab/runs`、`lab-metrics` 佐证 | Nginx 日志字段、CSP 头、`PROBE_LOCAL_ONLY`（经 EIP）、真实检查包安装路径；第 8 步引用的 `experiments/ec2` 不存在（可改用 storage 的标签） |
+| V3-4～V3-6 | — | 全部 |
+| 阶段 4 模块启停 | cfn-lint 10 个模块模板 0 发现、module-cli 单元测试、档位摘要 | 全部 |
+| V5-1 安装 | 模板构建 + cfn-lint 0 错误、清单测试、打包与 SHA256SUMS、SeedData / WebDeploy / JwksPublish / UninstallGuard 的 dev 执行 | CopyArtifacts、StackGuard、真实建栈、Cognito 首次登录、CloudFront 转发 Authorization |
+| V5-2 护栏 | infra 的离线 IAM 求值测试 | 全部用例 |
+| V5-3 主路径 | smoke 第 2～7 步（以 svc-storage 代替 svc-ec2）：开始 / 健康门 / 倒计时 / 检查 / 手动确认 / 实验 / 结束 / 回收 / 报告 / 证书签名与验证 / 吊销 | 真实 CodeBuild 运行器与 scripts/module、SSM、`kms:Sign`、终端 / 控制台 / 预览（见第 7 节）、吊销条目的巡检删除 |
+| V5-4、V5-5 保留与复用 | `api-lifecycle-e2e.test.ts`（API × 真实 lifecycle：立即保留、到期保留、延长、释放）、lifecycle 的 keep-reuse 测试 | 节省模式停机、状态桶与锁表、标签、复用时的实例发现 |
+| V5-6 延长与到期 | smoke 第 6 步 | 真实 EventBridge Scheduler（V1-11） |
+| V5-7、V5-7a、V5-8 | — | 全部（svc-waf 未实现） |
+| V5-9 卸载 | smoke 第 9 步（UninstallRoleCleanup 拒绝、守卫启动卸载编排、回调 SUCCESS） | 真实删栈顺序、BucketEmptier、角色清理 |
+| 阶段 6 | — | 全部 |
+
+### 7. 已知问题与仍需配合
+
+- **没有实现者认领的生产实现**：
+  - `atl-pricing`（Price List Query API + `PriceCache`）仍是桩：报价全部 `unknown`，金额 null（04 §3.4 不允许按 0 计）；
+  - 03 的 `WorkspaceProvider`（终端 StartSession、控制台联合登录、`app-credentials`、预览实时探测）与 Cognito `MemberDirectory`：这些路由在生产中返回 501，
+    V5-3 第 4 步（终端、控制台）在实现前无法执行；
+  - `platform/web` 仍是占位（`atl-web.zip` 只有占位页），阶段 5 只能用 API 调用驱动；
+  - 08 §9.2 请求的新路由未实现（等 01 登记）。
+- **发布包的前提**：`cloudalbum-<ver>-<arch>.tgz` 要在 Linux 上运行 `scripts/release` 后经 `--app-archive` 传入；工作台引导包缺 session-manager-plugin、k6、
+  预构建的 `node_modules`（启动时 `npm ci`，偏离 03 §4.5）；检查包摘要只有设置 `SOURCE_DATE_EPOCH` 时才可复现。
+- **需 01 登记**：规则 `atl-checks-session-events`、函数环境变量 `ATL_CHECK_BUNDLE_DIGEST`、托管策略 `ATLProvisionerPolicy-RunnerSession` 与运行器的
+  `GetItem`、`CatalogRelease.quizPrefix`、错误原因 `LAB_PLANNED`，以及 API → atl-lifecycle `ResolveCleanup`、API → atl-certs `OfflineBundle` 两个调用。
+- **dev 模式的边界**：健康门豁免（第 5 节第 1 条）；`noop` / `dry-run` 运行器模式下 Preflight 与健康门直接 PASS（没有实验机）；dev 运行器的 profile-apply
+  不改本地 L0 的模块配置；dev 的 `DevReclaimCloud` 只是内存中的账号。
+- **未在本地验证**：模块操作（平台动作）只在模拟器测试中覆盖；svc-auth 的 Cognito 测试用户、需要 AWS 的检查（`aws-readonly` 只由 FakeAws 回答）。
+- **git**：本轮只提交自己改动的路径；工作区中 `docs/` 下其他文件与未跟踪的 `docs/platform/` 不是本轮的改动，没有提交。

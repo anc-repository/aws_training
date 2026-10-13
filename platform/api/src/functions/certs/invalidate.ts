@@ -9,9 +9,11 @@ import type { FunctionDeps } from '../../runtime/deps.js';
 export type Invalidator = (paths: string[]) => Promise<void>;
 
 export const WEB_DISTRIBUTION_ENV = 'ATL_WEB_DISTRIBUTION_ID';
+/** The name the platform template sets (platform/infra/build/template-parts.ts functionEnvironment). */
+export const TEMPLATE_DISTRIBUTION_ENV = 'ATL_DISTRIBUTION_ID';
 
 export function createInvalidator(deps: FunctionDeps, env: NodeJS.ProcessEnv = process.env): Invalidator {
-  const distributionId = env[WEB_DISTRIBUTION_ENV];
+  const distributionId = env[WEB_DISTRIBUTION_ENV] ?? env[TEMPLATE_DISTRIBUTION_ENV];
   if (deps.env.devMode || !distributionId) return async () => undefined;
   return async (paths) => {
     if (!paths.length) return;

@@ -39,7 +39,7 @@ export async function loadPlatformState(repos: Repositories, nowMs: number, opts
 }
 
 export interface Blocker {
-  code: ErrorCode | 'TARGET_ALREADY_SATISFIED' | 'LAB_DEPRECATED' | 'HARD_PREREQ_UNMET';
+  code: ErrorCode | 'TARGET_ALREADY_SATISFIED' | 'LAB_DEPRECATED' | 'LAB_PLANNED' | 'HARD_PREREQ_UNMET';
   detail: string;
   /** Can be overridden by the request (residualAck). */
   ackable?: boolean;
@@ -90,10 +90,22 @@ export function startBlockers(st: PlatformState, opts: { reuseEnvId?: string | n
   return out;
 }
 
+/**
+ * A card with `status: planned` (05: catalog placeholder, “即将推出”) has no steps, checks or start profile: visible in the
+ * catalog, never startable or quotable. Not registered in 01 §8.6: carried as `reason: LAB_PLANNED` on VALIDATION_FAILED.
+ */
+export function isPlannedCard(lab: object): boolean {
+  return (lab as { status?: unknown }).status === 'planned';
+}
+
+export function plannedBlocker(labId: string): Blocker {
+  return { code: 'LAB_PLANNED', detail: `card ${labId} is planned (coming soon) and cannot start sessions yet` };
+}
+
 /** Throw the first blocker as problem+json. */
 export function throwBlocker(b: Blocker): never {
   const { code, detail, ...extra } = b;
-  if (code === 'TARGET_ALREADY_SATISFIED' || code === 'LAB_DEPRECATED' || code === 'HARD_PREREQ_UNMET') {
+  if (code === 'TARGET_ALREADY_SATISFIED' || code === 'LAB_DEPRECATED' || code === 'LAB_PLANNED' || code === 'HARD_PREREQ_UNMET') {
     // not registered in 01 §8.6 yet (08 §9.2 #1): carried as `reason` on a registered code
     throw new AtlError(code === 'TARGET_ALREADY_SATISFIED' ? 'INVALID_STATE' : 'VALIDATION_FAILED', detail, { reason: code, ...extra });
   }

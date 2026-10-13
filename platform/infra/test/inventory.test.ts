@@ -113,7 +113,8 @@ describe('01 §3 inventory ⊆ template', () => {
 
   it('events, notifications, budget, analyzer, trail (01 §3.10, §3.12)', () => {
     expect(names('AWS::Events::EventBus', 'Name')).toEqual([EVENT_BUS]);
-    expect(names('AWS::Events::Rule', 'Name').sort()).toEqual([...EVENT_RULES].sort());
+    // 01's two rules, plus the atl-events rule for atl-checks (04 §12.3 consumer; platform-integration, to be registered in 01)
+    expect(names('AWS::Events::Rule', 'Name').sort()).toEqual([...EVENT_RULES, 'atl-checks-session-events'].sort());
     expect(conditionOfName('AWS::Events::Rule', 'Name', 'atl-tagger-api-calls')).toBe('TrailEnabled');
     expect(names('AWS::SNS::Topic', 'TopicName').sort()).toEqual([...SNS_TOPICS].sort());
     const [[, budget]] = byType('AWS::Budgets::Budget');

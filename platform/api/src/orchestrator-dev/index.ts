@@ -31,6 +31,8 @@ export interface LifecycleDevOptions {
   sfnFailedRule?: boolean;
   /** dev answers for atl-checks Preflight / RunHealthGate / FinalizeAttempt while they throw Atl.NotImplemented (default true) */
   checksFallback?: boolean;
+  /** the in-memory reclaim “account” (default: a new one); the dev runtime shares it with the local runner */
+  reclaim?: DevReclaimCloud;
 }
 
 export interface LifecycleDev {
@@ -48,7 +50,7 @@ const isNotImplemented = (e: unknown) => (e as { name?: string })?.name === 'Atl
 
 export function installLifecycleDev(rt: DevRuntimeLike, opts: LifecycleDevOptions = {}): LifecycleDev {
   const lifecycle = new DevLifecycleCloud(rt.envs, rt.runner ?? null);
-  const reclaim = new DevReclaimCloud();
+  const reclaim = opts.reclaim ?? new DevReclaimCloud();
   provideClouds(rt.deps, { lifecycle, reclaim });
   const sfnFailed: LifecycleDev['sfnFailed'] = [];
   const roleCleanups: unknown[] = [];

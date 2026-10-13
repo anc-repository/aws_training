@@ -7,7 +7,7 @@ import type { EnvironmentRecord, QuoteItem, SessionItem } from '../../repositori
 import { cardFactsOf, cardLimitsOf, effectiveLimits, requiredLearnerInputs, resolveVariant, type ResolvedVariant } from '../catalog/labs.js';
 import { priceQuote, quoteExpiresAt, quoteLinesFromLab, quoteView } from '../catalog/quotes.js';
 import type { LabContent } from '../catalog/store.js';
-import { loadPlatformState, startBlockers, throwBlocker, type Blocker } from './guards.js';
+import { isPlannedCard, loadPlatformState, plannedBlocker, startBlockers, throwBlocker, type Blocker } from './guards.js';
 import type { Actor, ServiceContext } from './types.js';
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -75,6 +75,7 @@ export interface LabQuoteInput {
 export async function createLabQuote(ctx: ServiceContext, sub: string, labId: string, input: LabQuoteInput): Promise<Record<string, unknown>> {
   const release = await ctx.catalog.requireCurrent();
   const lab = await ctx.catalog.requireLab(labId, release.catalogVersion);
+  if (isPlannedCard(lab)) throwBlocker(plannedBlocker(lab.id));
   const v = resolveVariant(lab, input.variant);
   const config = await ctx.repos.platform.config();
   let plan: ReusePlan | null = null;
@@ -177,6 +178,7 @@ export async function createSession(ctx: ServiceContext, principal: JwtPrincipal
   const lab = await ctx.catalog.requireLab(input.labId, release.catalogVersion);
   const blockers: Blocker[] = [];
   if (lab.status === 'deprecated') blockers.push({ code: 'LAB_DEPRECATED', detail: `card ${lab.id} is deprecated and cannot start new sessions` });
+  if (isPlannedCard(lab)) throwBlocker(plannedBlocker(lab.id));
   const v = resolveVariant(lab, input.variant);
   const reuseEnvId = input.reuseEnvironmentId ?? null;
   const quote = checkQuote(
@@ -234,6 +236,8 @@ export async function createSession(ctx: ServiceContext, principal: JwtPrincipal
       currency: quote.currency ?? 'USD',
       hourly: quote.hourly ?? null,
       incomplete: quote.incomplete ?? [],
+      // the learner confirmed the cost (costAcknowledged, checked above); atl-lifecycle requires it (02 §3.3, C1)
+      acknowledgedAt: new Date(ctx.nowMs).toISOString(),
     },
     workstation: { mode: input.workstation ?? 'ec2', instanceId: null, stackName: null },
     residualAck: !!input.residualAck,

@@ -1,6 +1,8 @@
 node_modules/
 dist/
 build/
+# the platform's release / template build scripts are sources (platform-infra)
+!platform/infra/build/
 coverage/
 .env
 .env.*

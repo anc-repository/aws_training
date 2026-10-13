@@ -15,7 +15,8 @@ import { signRequest, type SigV4Credentials } from './sigv4.js';
 
 export const PROFILE_NAME = 'atl-prov';
 export const CLOUDALBUM_CLI = '/opt/cloudalbum/bin/cloudalbum';
-export const WORKSTATION_TEMPLATE = 'platform/workflows/workstation/workstation.yaml';
+/** The workstation stack template in the source package (platform-infra #1: cloudalbum-infra.zip ships platform/workstation/templates/). */
+export const WORKSTATION_TEMPLATE = 'platform/workstation/templates/atl-workstation.yaml';
 
 export interface CfnFailure {
   stack: string;
@@ -69,6 +70,8 @@ export interface ExecOptions {
   pollSeconds?: number;
   /** `cloudalbum-<ver>-<arch>.tgz` architecture preference */
   arch?: string;
+  /** the CodeBuild project's static variables (ATL_WORKSTATION_*; default process.env) */
+  env?: NodeJS.ProcessEnv;
 }
 
 type Json = Record<string, unknown>;
@@ -698,11 +701,40 @@ export class RunnerExecutor {
     await this.host.writeFile(file, JSON.stringify(cur, null, 2));
   }
 
+  /** The default VPC and its default subnet with the smallest AZ name (the workstation's placement, 03 §4.4). */
+  private async defaultPlacement(): Promise<{ vpcId: string; subnetId: string }> {
+    const vpcs = await this.awsJson(['ec2', 'describe-vpcs', '--filters', 'Name=is-default,Values=true']);
+    const vpcId = String(((vpcs.Vpcs ?? []) as Json[])[0]?.VpcId ?? '');
+    if (!vpcId) throw new StepFailure(3, 'workstation: the region has no default VPC (Preflight PREFLIGHT_NO_DEFAULT_VPC)');
+    const subnets = await this.awsJson(['ec2', 'describe-subnets', '--filters', `Name=vpc-id,Values=${vpcId}`, 'Name=default-for-az,Values=true']);
+    const list = ((subnets.Subnets ?? []) as Json[]).sort((a, b) => String(a.AvailabilityZone).localeCompare(String(b.AvailabilityZone)));
+    const subnetId = String(list[0]?.SubnetId ?? '');
+    if (!subnetId) throw new StepFailure(3, `workstation: the default VPC ${vpcId} has no default subnet`);
+    return { vpcId, subnetId };
+  }
+
   /** `atl-ws-<sid>` from the platform's workstation template (03; `--on-failure DELETE`). */
   private async workstationUp(): Promise<void> {
     const sid = this.ctx.input.sessionId;
     const name = `atl-ws-${sid}`;
     const tags = Object.entries({ ...this.ctx.platformTags, 'atl:component': 'workstation' }).map(([Key, Value]) => ({ Key, Value }));
+    const env = this.opts.env ?? process.env;
+    const bundleUri = env.ATL_WORKSTATION_BUNDLE_URI ?? '';
+    const bundleSha = env.ATL_WORKSTATION_BUNDLE_SHA256 ?? '';
+    if (!bundleUri || !bundleSha) throw new StepFailure(2, 'workstation: ATL_WORKSTATION_BUNDLE_URI / ATL_WORKSTATION_BUNDLE_SHA256 are not set (CodeBuild project variables)');
+    const { vpcId, subnetId } = await this.defaultPlacement();
+    // the template's parameters (platform/workstation/templates/atl-workstation.src.yaml); InstanceProfile keeps its default
+    const params: Record<string, string> = {
+      SessionId: sid,
+      EnvName: this.ctx.envName,
+      EnvId: this.ctx.input.envId,
+      LabId: this.ctx.input.labId,
+      VpcId: vpcId,
+      SubnetId: subnetId,
+      BundleUri: bundleUri,
+      BundleSha256: bundleSha,
+      ...(env.ATL_WORKSTATION_INSTANCE_TYPE ? { InstanceType: env.ATL_WORKSTATION_INSTANCE_TYPE } : {}),
+    };
     const create = await this.aws([
       'cloudformation',
       'create-stack',
@@ -711,8 +743,7 @@ export class RunnerExecutor {
       '--template-body',
       `file://${this.opts.srcDir}/${WORKSTATION_TEMPLATE}`,
       '--parameters',
-      `ParameterKey=SessionId,ParameterValue=${sid}`,
-      `ParameterKey=EnvName,ParameterValue=${this.ctx.envName}`,
+      ...Object.entries(params).map(([k, v]) => `ParameterKey=${k},ParameterValue=${v}`),
       '--tags',
       JSON.stringify(tags),
       '--client-request-token',

@@ -296,7 +296,7 @@ export function defineApiScenarios(label: string, make: Make): void {
       const resolve = await rt.api(ev('POST', `/api/v1/sessions/${sid}/cleanup/items/${rk}/resolve`, { token: LEARNER, body: { note: '已在控制台删除' } }));
       expect(resolve.statusCode).toBe(202);
       await rt.flush();
-      expect(rt.calls.find((c) => c.fn === 'atl-reaper')?.payload).toMatchObject({ action: 'VerifyResolved', envId, resourceKey: rk, sessionId: sid });
+      expect(rt.calls.find((c) => c.fn === 'atl-lifecycle' && (c.payload as { action?: string }).action === 'ResolveCleanup')?.payload).toMatchObject({ action: 'ResolveCleanup', envId, resourceKey: rk, sessionId: sid });
       const retry = await rt.api(ev('POST', `/api/v1/sessions/${sid}/cleanup/retry`, { token: LEARNER }));
       expect(retry.statusCode).toBe(202);
       expect(rt.orchestrator.started('atl-session-end').map((e) => e.name)).toEqual([ExecutionNames.endRetry(sid, 1)]);
@@ -508,10 +508,14 @@ export function defineApiScenarios(label: string, make: Make): void {
       await rt.repos.table.put({ ...Keys.certificate('ATL-7K2M-9Q4X-1ABZ-C3DE'), ...(await import('@atl/shared')).Gsi1.certificate('u-learner', nowIso, 'ATL-7K2M-9Q4X-1ABZ-C3DE'), type: 'Certificate', ver: 1, certId: 'ATL-7K2M-9Q4X-1ABZ-C3DE', sub: 'u-learner', status: 'valid', scope: 'track', trackId: 'saa-main', issuedAt: nowIso, kid: 'kid-0123456789abcdef', jws: 'eyJ.test.sig' });
       expect(body(await rt.api(ev('GET', '/api/v1/certificates', { token: OBSERVER }))).items).toEqual([expect.objectContaining({ certId: 'ATL-7K2M-9Q4X-1ABZ-C3DE', status: 'valid' })]);
       const bundle = await rt.api(ev('GET', '/api/v1/certificates/ATL-7K2M-9Q4X-1ABZ-C3DE/offline-bundle', { token: LEARNER }));
-      expect(body(bundle)).toMatchObject({ schema: 'atl.offline-bundle/v1', jws: 'eyJ.test.sig', jwks: { keys: [] } });
+      expect(body(bundle)).toMatchObject({ schema: 'atl.offline-verify/v1', jws: 'eyJ.test.sig', jwks: { keys: [] }, verifyScript: expect.any(String) });
+      expect(rt.calls.find((c) => c.payload.action === 'OfflineBundle')?.payload).toMatchObject({ certId: 'ATL-7K2M-9Q4X-1ABZ-C3DE', sub: 'u-learner' });
       const revoked = await rt.api(ev('POST', '/api/v1/certificates/ATL-7K2M-9Q4X-1ABZ-C3DE/revoke', { token: LEARNER, body: { reason: 'learner-request' } }));
       expect(body(revoked)).toMatchObject({ status: 'revoked', reason: 'learner-request' });
-      expect(body(await rt.pub(ev('GET', '/api/v1/public/certificates/ATL-7K2M-9Q4X-1ABZ-C3DE')))).toMatchObject({ certId: 'ATL-7K2M-9Q4X-1ABZ-C3DE', status: 'valid', displayName: null });
+      // atl-public is the certs-owned view (publicCertificateView): no JWS and no name unless the learner made it public
+      const pubCert = body(await rt.pub(ev('GET', '/api/v1/public/certificates/ATL-7K2M-9Q4X-1ABZ-C3DE')));
+      expect(pubCert).toMatchObject({ certId: 'ATL-7K2M-9Q4X-1ABZ-C3DE', status: 'valid', scope: 'track' });
+      expect(pubCert).not.toHaveProperty('jws');
       expect(body(await rt.api(ev('GET', '/api/v1/me/mastery', { token: LEARNER }))).services).toEqual([expect.objectContaining({ id: 'sqs', level: 'mastered' })]);
       expect(body(await rt.api(ev('GET', '/api/v1/me/progress', { token: OBSERVER })))).toMatchObject({ tracks: [{ trackId: 'saa-main', completed: true, eligible: true }], subject: { displayName: 'u-learner' } });
       // public

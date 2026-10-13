@@ -18,9 +18,11 @@
     "validate": "tsx src/cli/validate.ts"
   },
   "dependencies": {
-    "@atl/shared": "0.1.0"
+    "@atl/shared": "0.1.0",
+    "@noble/hashes": "^1.8.0"
   },
   "devDependencies": {
-    "asl-validator": "4.0.0"
+    "asl-validator": "4.0.0",
+    "esbuild": "^0.25.10"
   }
 }

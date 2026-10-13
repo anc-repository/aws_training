@@ -1,9 +1,9 @@
 /**
- * atl-agent routes (01 §8.2 “Agent（工作台，SigV4）”, “Internal（运行器，SigV4）”, fallback route of 01 §5.3) and the
- * public routes of atl-public (01 §8.2 “公开”: only `CERT#*` / `KEY#*` are read).
+ * atl-agent routes (01 §8.2 “Agent（工作台，SigV4）”, “Internal（运行器，SigV4）”, fallback route of 01 §5.3). The public
+ * routes of atl-public are served by functions/public/handler.ts (owned by atl-certs, which writes the records it reads).
  */
 import { createHash, timingSafeEqual } from 'node:crypto';
-import { AtlError, isCertId, isSid } from '@atl/shared';
+import { AtlError, isSid } from '@atl/shared';
 import { accepted, created, noContent, ok } from '../http/responses.js';
 import type { RouteHandlers } from '../http/router.js';
 import { header } from '../http/types.js';
@@ -156,61 +156,6 @@ export function agentRoutes(ext: ApiExtensions): RouteHandlers {
       const r = await uploadExperimentResult(ctx, s, runId, 'run-token', ctx.req.body, rawSize(ctx), { viaFallback: true });
       await auditOk(ctx, 'agent.experiment_upload', { sessionId: s.sid, target: runId, details: { via: 'fallback' } });
       return accepted(r);
-    }),
-  };
-}
-
-// ---------------------------------------------------------------------------------------------------------------
-// atl-public
-
-export const PLATFORM_VERSION = process.env.ATL_PLATFORM_VERSION ?? '0.1.0-dev';
-
-function keyView(k: Record<string, unknown>, nowMs: number): Record<string, unknown> {
-  return {
-    kid: k.kid,
-    alg: k.alg ?? 'ES256',
-    jwk: k.jwk ?? null,
-    publicKeyPem: k.publicKeyPem ?? null,
-    validFrom: k.validFrom ?? null,
-    validTo: k.validTo ?? null,
-    status: k.validTo && Date.parse(String(k.validTo)) < nowMs ? 'retired' : 'active',
-  };
-}
-
-export function publicRoutes(ext: ApiExtensions): RouteHandlers {
-  return {
-    publicHealth: wrap(ext, async () => ok({ status: 'ok', version: PLATFORM_VERSION })),
-
-    publicGetCertificate: wrap(ext, async (ctx) => {
-      const certId = ctx.req.params.certId ?? '';
-      if (!isCertId(certId)) throw new AtlError('NOT_FOUND', 'certificate not found');
-      const c = await ctx.repos.certificates.get(certId);
-      if (!c) throw new AtlError('NOT_FOUND', 'certificate not found');
-      return ok(
-        {
-          certId: c.certId,
-          status: c.status,
-          scope: c.scope ?? null,
-          trackId: c.trackId ?? null,
-          issuedAt: c.issuedAt ?? null,
-          revokedAt: c.revokedAt ?? null,
-          revokeReason: c.revokeReason ?? null,
-          kid: c.kid ?? null,
-          displayName: c.public ? (c.displayName ?? null) : null,
-          verify: `/verify/${certId}`,
-        },
-        { 'cache-control': 'public, max-age=60' },
-      );
-    }),
-
-    publicListKeys: wrap(ext, async (ctx) => ok({ keys: (await ctx.repos.certificates.keys()).map((k) => keyView(k, ctx.nowMs)) }, { 'cache-control': 'public, max-age=300' })),
-
-    publicGetKey: wrap(ext, async (ctx) => {
-      const kid = ctx.req.params.kid ?? '';
-      if (!/^[A-Za-z0-9_-]{16,64}$/.test(kid)) throw new AtlError('NOT_FOUND', 'key not found');
-      const k = await ctx.repos.certificates.key(kid);
-      if (!k) throw new AtlError('NOT_FOUND', 'key not found');
-      return ok(keyView(k, ctx.nowMs), { 'cache-control': 'public, max-age=300' });
     }),
   };
 }

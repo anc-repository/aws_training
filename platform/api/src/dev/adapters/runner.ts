@@ -4,6 +4,10 @@
  *  - `dry-run`: runs `scripts/module … --dry-run` commands per ATL_OP (prints the AWS calls, needs no credentials).
  *  - `local-l0`: `base-deploy` starts a local CloudAlbum (LocalL0Launcher), `destroy` stops it, other ops are no-ops.
  * Each build writes `runs/<runId>/result.json` and `progress.jsonl` into the dev `atl-data` bucket like the real runner.
+ * With an `account` (the dev reclaimer's in-memory AWS account), every mode also has the AWS side effects of its op, like
+ * the real runner would: base-deploy registers the toolchain / ec2 stacks (the lab instance `i-dev-<envName>-lab` is the
+ * local CloudAlbum in `local-l0` mode), the key pair and the `/cloudalbum/<envName>/atl/*` parameters; workstation-up /
+ * -down the workstation stack; destroy deletes the environment's stacks and writes `ledger.json` (06 PM-36).
  * Commands can be overridden with a JSON file (ATL_DEV_RUNNER_COMMANDS): `{ "<op>": [["arg", …], …] }`, placeholders
  * `{envName}`, `{profile}`, `{runId}`, `{stateFile}`.
  */
@@ -55,6 +59,19 @@ export interface LocalProcessRunnerOptions {
   envs: DevEnvRegistry;
   l0?: LocalL0Launcher;
   commands?: RunnerCommandTable;
+  /** The dev reclaimer's in-memory account (structural: DevReclaimCloud of src/orchestrator-dev). */
+  account?: DevAccount;
+  region?: string;
+  /** `ATL_PLATFORM_ORIGIN` written to the local L0's platform.env (06 PM-01; must be https). */
+  platformOrigin?: string;
+}
+
+/** The parts of DevReclaimCloud the dev runner writes (src/orchestrator-dev/reclaim-cloud.ts). */
+export interface DevAccount {
+  addStack(s: { name: string; region: string; status: string; tags: Record<string, string> }, resources?: { type: string; id: string; logicalId?: string | null; tags?: Record<string, string> }[]): void;
+  addResource(r: { type: string; region: string; id: string; tags?: Record<string, string> }): void;
+  deleteStack(region: string, name: string): void;
+  readonly stacks: Map<string, { name: string; region: string; status: string }>;
 }
 
 interface BuildState {
@@ -129,7 +146,11 @@ export class LocalProcessRunner implements RunnerPort {
       } else if (this.o.mode === 'local-l0') {
         if (!this.o.l0) throw new Error('local-l0 mode needs a LocalL0Launcher');
         if (req.op === 'base-deploy') {
-          const inst = await this.o.l0.start(req.envId, envName);
+          const inst = await this.o.l0.start(req.envId, envName, {
+            sessionId: req.sessionId,
+            labId: req.labId,
+            ...(this.o.platformOrigin ? { origin: this.o.platformOrigin } : {}),
+          });
           this.o.envs.upsert(req.envId, { baseUrl: inst.baseUrl, root: inst.root });
           result.endpoints = { baseUrl: inst.baseUrl, https: { trusted: false } };
         } else {
@@ -139,6 +160,7 @@ export class LocalProcessRunner implements RunnerPort {
       } else {
         exitCode = await this.dryRun(st, req, envName, result);
       }
+      if (exitCode === 0) await this.accountEffects(req, envName, result);
       result.ok = exitCode === 0;
       result.exitCode = exitCode;
     } catch (e) {
@@ -152,6 +174,69 @@ export class LocalProcessRunner implements RunnerPort {
     await this.o.objects.put(this.o.dataBucket, st.build.resultKey, JSON.stringify(result, null, 2));
     await this.progress(req, { status: exitCode === 0 ? 'SUCCEEDED' : 'FAILED', op: req.op, exitCode });
     this.finish(st, exitCode === 0 ? 'SUCCEEDED' : 'FAILED', exitCode);
+  }
+
+  private tags(req: RunnerBuildRequest): Record<string, string> {
+    return { 'atl:env-id': req.envId, 'atl:session-id': req.sessionId, 'atl:lab-id': req.labId, 'atl:component': 'env', Project: 'CloudAlbum' };
+  }
+
+  /** The AWS side effects of the op on the dev account (what the real runner leaves in the account). */
+  private async accountEffects(req: RunnerBuildRequest, envName: string, result: Record<string, unknown>): Promise<void> {
+    const acct = this.o.account;
+    if (!acct) return;
+    const region = this.o.region ?? 'ap-northeast-1';
+    const live = (name: string) => {
+      const st = acct.stacks.get(`${region}|${name}`);
+      return !!st && st.status !== 'DELETE_COMPLETE';
+    };
+    switch (req.op) {
+      case 'base-deploy':
+      case 'resume':
+        if (!live(`cloudalbum-${envName}-toolchain`)) {
+          acct.addStack({ name: `cloudalbum-${envName}-toolchain`, region, status: 'CREATE_COMPLETE', tags: this.tags(req) }, [
+            { type: 'AWS::S3::Bucket', id: `cloudalbum-${envName}-toolchain-000000000000-${region}`, logicalId: 'ArtifactsBucket' },
+          ]);
+        }
+        if (!live(`cloudalbum-${envName}-ec2`)) {
+          acct.addStack({ name: `cloudalbum-${envName}-ec2`, region, status: 'CREATE_COMPLETE', tags: this.tags(req) }, [
+            { type: 'AWS::EC2::Instance', id: `i-dev-${envName}-lab`, logicalId: 'Instance' },
+            { type: 'AWS::EC2::SecurityGroup', id: `sg-dev-${envName}`, logicalId: 'SecurityGroup' },
+          ]);
+        }
+        acct.addResource({ type: 'AWS::EC2::KeyPair', region, id: `cloudalbum-${envName}-key`, tags: this.tags(req) });
+        acct.addResource({ type: 'AWS::SSM::Parameter', region, id: `/cloudalbum/${envName}/atl/ssh-key` });
+        acct.addResource({ type: 'AWS::SSM::Parameter', region, id: `/cloudalbum/${envName}/atl/app-admin-password` });
+        return;
+      case 'workstation-up':
+        if (!live(`atl-ws-${req.sessionId}`)) {
+          acct.addStack({ name: `atl-ws-${req.sessionId}`, region, status: 'CREATE_COMPLETE', tags: { ...this.tags(req), 'atl:component': 'workstation' } }, [
+            { type: 'AWS::EC2::Instance', id: `i-dev-${envName}-ws`, logicalId: 'Workstation' },
+          ]);
+        }
+        return;
+      case 'workstation-down':
+        acct.deleteStack(region, `atl-ws-${req.sessionId}`);
+        return;
+      case 'destroy': {
+        const stacks = [...acct.stacks.values()].filter((st) => st.name.startsWith(`cloudalbum-${envName}-`));
+        for (const st of stacks) if (st.status !== 'DELETE_COMPLETE') acct.deleteStack(st.region, st.name);
+        const ledger = {
+          schema: 'cloudalbum.ledger/v1',
+          env: envName,
+          envId: req.envId,
+          generatedAt: this.o.clock.now().toISOString(),
+          stacks: stacks.map((st) => ({ name: st.name, region: st.region, result: 'DELETED', resources: [] })),
+          outOfBand: [{ type: 'ec2-key-pair', id: `cloudalbum-${envName}-key`, region, createdBy: `atl-${req.sessionId}-prov-base-deploy` }],
+          policyAttachments: [],
+          backups: [],
+        };
+        await this.o.objects.put(this.o.dataBucket, `runs/${req.runId}/ledger.json`, JSON.stringify(ledger, null, 2));
+        result.ledgerKey = `runs/${req.runId}/ledger.json`;
+        return;
+      }
+      default:
+        return;
+    }
   }
 
   private async dryRun(st: BuildState, req: RunnerBuildRequest, envName: string, result: Record<string, unknown>): Promise<number> {

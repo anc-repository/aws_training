@@ -16,6 +16,7 @@ import { createApp } from '../../src/http/app.js';
 import type { Principal } from '../../src/ports/auth.js';
 import type { SecretName } from '../../src/ports/secrets.js';
 import { getPhoto } from '../../src/repositories/photos.js';
+import { zonedDate } from '../../src/services/report.js';
 import { tempEnvDir } from '../helpers/config.js';
 import { seedAlbum, seedUser, waitFor } from '../helpers/media-fixtures.js';
 
@@ -218,7 +219,8 @@ describe('L0 照片全流程：F6 签名直传 → inline 缩略图 → 时间�
   it('日报（F13）：管理员立即生成 → reports/daily/<日期>.csv（私有，签名 URL）→ 管理员站内信', async () => {
     const { app } = env;
     await request(app).post('/api/reports/daily').set(auth(owner)).send({}).expect(403);
-    const day = new Date().toISOString().slice(0, 10);
+    // 日报按 SCHEDULER_TIMEZONE（默认 Asia/Tokyo）的自然日统计：用 UTC 日期时，UTC 15:00～24:00 会落到“前一天”，统计不到刚上传的照片
+    const day = zonedDate(new Date(), env.c.config.scheduler.SCHEDULER_TIMEZONE);
     const gen = await request(app).post('/api/reports/daily').set(auth(admin, true)).send({ day }).expect(201);
     expect(gen.body).toMatchObject({ day, key: `reports/daily/${day}.csv` });
     expect(gen.body.stats.uploads).toBeGreaterThanOrEqual(1);
