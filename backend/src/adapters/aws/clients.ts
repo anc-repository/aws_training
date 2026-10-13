@@ -67,6 +67,108 @@ async function load<T>(pkg: string, importer: () => Promise<T>): Promise<T> {
 }
 
 /**
+ * 适配器动态加载其他 @aws-sdk 包（例如 `@aws-sdk/s3-request-presigner`）时也经这里登记，
+ * 让 awsSdkLoadReport() 的 viaFactory 完整反映“本进程加载过哪些 SDK 包”。
+ */
+export function loadAwsPackage<T>(pkg: string, importer: () => Promise<T>): Promise<T> {
+  return load(pkg, importer);
+}
+
+// ---------------------------------------------------------------------------------------------
+// AWS SDK v3 错误分类（各适配器与探针共用；只看 name 与 $metadata.httpStatusCode，不依赖具体服务的异常类）
+// ---------------------------------------------------------------------------------------------
+const NOT_FOUND_NAMES = new Set([
+  'NotFound', 'NoSuchKey', 'NoSuchBucket', 'NoSuchUpload', 'ResourceNotFoundException', 'QueueDoesNotExist',
+  'AWS.SimpleQueueService.NonExistentQueue', 'DBInstanceNotFound', 'DBInstanceNotFoundFault', 'NoSuchDistribution',
+  'ReplicationGroupNotFoundFault', 'ServerlessCacheNotFoundFault', 'UserNotFoundException', 'NoSuchEntity',
+  'NoSuchEntityException',
+]);
+const ACCESS_DENIED_NAMES = new Set([
+  'AccessDenied', 'AccessDeniedException', 'UnauthorizedOperation', 'UnrecognizedClientException',
+  'InvalidClientTokenId', 'ExpiredToken', 'ExpiredTokenException', 'SignatureDoesNotMatch', 'NotAuthorizedException',
+  'AuthorizationError', 'AuthorizationErrorException', 'InvalidAccessKeyId',
+]);
+
+export function awsErrorName(e: unknown): string {
+  if (typeof e !== 'object' || e === null) return 'Error';
+  const o = e as { name?: unknown; Code?: unknown; code?: unknown };
+  return String(o.name ?? o.Code ?? o.code ?? 'Error');
+}
+
+export function awsHttpStatus(e: unknown): number | undefined {
+  const s = (e as { $metadata?: { httpStatusCode?: unknown } } | null)?.$metadata?.httpStatusCode;
+  return typeof s === 'number' ? s : undefined;
+}
+
+export function isAwsNotFound(e: unknown): boolean {
+  return NOT_FOUND_NAMES.has(awsErrorName(e)) || awsHttpStatus(e) === 404;
+}
+
+export function isAwsAccessDenied(e: unknown): boolean {
+  return ACCESS_DENIED_NAMES.has(awsErrorName(e)) || awsHttpStatus(e) === 403;
+}
+
+/** 一行可读描述：`AccessDenied（HTTP 403）：User is not authorized…` */
+export function describeAwsError(e: unknown): string {
+  const status = awsHttpStatus(e);
+  const message = (e as Error | null)?.message ?? String(e);
+  return `${awsErrorName(e)}${status ? `（HTTP ${status}）` : ''}：${message}`;
+}
+
+// ---------------------------------------------------------------------------------------------
+// 只读控制面查询：modules/ 下的探针（例如 modules/database-probe.ts）按 ESLint 规则不能直接引用 @aws-sdk/*，
+// 经这里调用；返回与 SDK 类型无关的普通对象。
+// ---------------------------------------------------------------------------------------------
+export interface DbInstanceSummary {
+  id: string;
+  status: string;
+  engine?: string;
+  engineVersion?: string;
+  instanceClass?: string;
+  multiAz: boolean;
+  availabilityZone?: string;
+  secondaryAvailabilityZone?: string;
+  storageEncrypted?: boolean;
+  latestRestorableTime?: string;
+  /** PendingModifiedValues 中非空的字段名（例如 DBInstanceClass、MultiAZ） */
+  pendingModified: string[];
+  readReplicaIds: string[];
+  replicaSourceId?: string;
+}
+
+/** `rds:DescribeDBInstances`（DBInstanceIdentifier = id）。实例不存在时返回 null；其他错误照常抛出。 */
+export async function describeDbInstance(aws: AwsClients, id: string): Promise<DbInstanceSummary | null> {
+  const { DescribeDBInstancesCommand } = await load('@aws-sdk/client-rds', () => import('@aws-sdk/client-rds'));
+  const rds = await aws.rds();
+  try {
+    const r = await rds.send(new DescribeDBInstancesCommand({ DBInstanceIdentifier: id }));
+    const i = r.DBInstances?.[0];
+    if (!i) return null;
+    const pending = Object.entries(i.PendingModifiedValues ?? {})
+      .filter(([, v]) => v !== undefined && v !== null && !(Array.isArray(v) && v.length === 0))
+      .map(([k]) => k);
+    return {
+      id: i.DBInstanceIdentifier ?? id,
+      status: i.DBInstanceStatus ?? 'unknown',
+      ...(i.Engine ? { engine: i.Engine } : {}),
+      ...(i.EngineVersion ? { engineVersion: i.EngineVersion } : {}),
+      ...(i.DBInstanceClass ? { instanceClass: i.DBInstanceClass } : {}),
+      multiAz: Boolean(i.MultiAZ),
+      ...(i.AvailabilityZone ? { availabilityZone: i.AvailabilityZone } : {}),
+      ...(i.SecondaryAvailabilityZone ? { secondaryAvailabilityZone: i.SecondaryAvailabilityZone } : {}),
+      ...(i.StorageEncrypted !== undefined ? { storageEncrypted: i.StorageEncrypted } : {}),
+      ...(i.LatestRestorableTime ? { latestRestorableTime: new Date(i.LatestRestorableTime).toISOString() } : {}),
+      pendingModified: pending,
+      readReplicaIds: i.ReadReplicaDBInstanceIdentifiers ?? [],
+      ...(i.ReadReplicaSourceDBInstanceIdentifier ? { replicaSourceId: i.ReadReplicaSourceDBInstanceIdentifier } : {}),
+    };
+  } catch (e) {
+    if (isAwsNotFound(e)) return null;
+    throw e;
+  }
+}
+
+/**
  * 报告进程中已加载的 AWS SDK 模块：本工厂的动态加载记录 + CommonJS require 缓存中的 @aws-sdk 路径。
  * L0 冒烟测试要求两者都为空。
  */
