@@ -23,7 +23,7 @@ export function publishPlan(opts: { dir: string; bucket: string; prefix: string;
   const common = [...(opts.profile ? ['--profile', opts.profile] : []), ...(opts.region ? ['--region', opts.region] : [])];
   const files = fs
     .readdirSync(opts.dir)
-    .filter((f) => !['launch-stack.md', 'release-manifest.json'].includes(f))
+    .filter((f) => !['launch-stack.md', 'release-manifest.json', 'package-report.json'].includes(f))
     .sort();
   if (!files.includes('SHA256SUMS') || !files.includes(TEMPLATE_FILE_NAME)) {
     throw new Error(`${opts.dir} is not a packaged release (run npm run package -w @atl/infra)`);

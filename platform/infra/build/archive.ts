@@ -75,23 +75,51 @@ export function writeTarGz(entries: ArchiveEntry[]): Buffer {
   return zlib.gzipSync(writeTar(entries), { level: 9 });
 }
 
-/** Reader for tests and for re-packing (regular files only). */
-export function readTarGz(buf: Buffer): ArchiveEntry[] {
+/**
+ * Reader for tests and for re-packing (regular files only; directories, links and devices are skipped). Besides the ustar
+ * entries written above it understands what GNU tar writes for long names (`L` records, the default `gnu` format) and the
+ * `path` record of POSIX pax headers (`x`), so archives built with system tar (scripts/release, node_modules tarballs) can be
+ * read. `stopAt` ends the scan at the first regular file whose name it accepts (only that entry is returned).
+ */
+export function readTarGz(buf: Buffer, opts: { stopAt?: (name: string) => boolean } = {}): ArchiveEntry[] {
   const tar = zlib.gunzipSync(buf);
   const out: ArchiveEntry[] = [];
+  const str = (b: Buffer) => b.toString('utf8').replace(/\0.*$/s, '');
   let p = 0;
+  let longName: string | undefined;
+  let paxPath: string | undefined;
   while (p + 512 <= tar.length) {
     const h = tar.subarray(p, p + 512);
     if (h.every((b) => b === 0)) break;
-    const base = h.subarray(0, 100).toString('utf8').replace(/\0.*$/s, '');
-    const prefix = h.subarray(345, 500).toString('utf8').replace(/\0.*$/s, '');
-    const size = parseInt(h.subarray(124, 136).toString('ascii').replace(/\0.*$/s, '').trim() || '0', 8);
-    const mode = parseInt(h.subarray(100, 108).toString('ascii').replace(/\0.*$/s, '').trim() || '0', 8);
+    const base = str(h.subarray(0, 100));
+    const magic = h.subarray(257, 263).toString('ascii');
+    // the 155-byte prefix exists only in ustar / pax headers; GNU headers use those bytes for other fields
+    const prefix = magic === 'ustar\0' ? str(h.subarray(345, 500)) : '';
+    const sizeField = h.subarray(124, 136);
+    const size = sizeField[0]! & 0x80 ? Number(sizeField.subarray(4).readBigUInt64BE(0)) : parseInt(str(sizeField).trim() || '0', 8);
+    const mode = parseInt(str(h.subarray(100, 108)).trim() || '0', 8);
     const type = String.fromCharCode(h[156]!);
-    const name = prefix ? `${prefix}/${base}` : base;
     p += 512;
-    if (type === '0' || type === '\0') out.push({ name, data: Buffer.from(tar.subarray(p, p + size)), mode });
+    const data = tar.subarray(p, p + size);
     p += Math.ceil(size / 512) * 512;
+    if (type === 'L') {
+      longName = str(Buffer.from(data));
+      continue;
+    }
+    if (type === 'x') {
+      for (const m of data.toString('utf8').matchAll(/^\d+ path=(.*)$/gm)) paxPath = m[1];
+      continue;
+    }
+    if (type === 'g' || type === 'K') continue;
+    const name = (paxPath ?? longName ?? (prefix ? `${prefix}/${base}` : base)).replace(/^\.\//, '');
+    longName = undefined;
+    paxPath = undefined;
+    if (type !== '0' && type !== '\0' && type !== '7') continue;
+    if (opts.stopAt) {
+      if (opts.stopAt(name)) return [{ name, data: Buffer.from(data), mode }];
+      continue;
+    }
+    out.push({ name, data: Buffer.from(data), mode });
   }
   return out;
 }

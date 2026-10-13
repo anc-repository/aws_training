@@ -10,16 +10,25 @@
  *                                the bundled runner (platform/workflows/runner/dist/atl-runner.mjs), the CloudAlbum release
  *                                archives as scripts/release names them (cloudalbum-<ver>-<arch>.tgz, `bootstrap --release-file`)
  *                                and SHA256SUMS of every file in it (buildspec install: `sha256sum --check --strict`)
- *   atl-workstation.tar.gz       workstation bootstrap bundle (03 §4.5): tools, check bundle, repository, manifest.json
+ *                                (+ node_modules/ for linux-arm64 when --runner-node-modules is given: CodeBuild runs scripts/module
+ *                                from this package without an install step)
+ *   atl-workstation.tar.gz       workstation bootstrap bundle (03 §4.5): atl-ws-install.sh (the installation, run by the user
+ *                                data after the bundle is verified), tools, check bundle, repository, optional prebuilt
+ *                                node_modules, manifest.json (per-file SHA-256; tools.sessionManagerPlugin = the official
+ *                                download URL per machine + pinned SHA-256, build/workstation-tools.json; k6 optional)
  *   atl-cloudshell-kit-<arch>.tar.gz  only when given (--cloudshell-kit <arch>=<file>)
  *   SHA256SUMS                   `<sha256>  <file>` for all of the above (+ `# checks-bundle-digest <hex>`)
  *   release-manifest.json        the manifest embedded into the template (CopyArtifacts)
  *   launch-stack.md              Launch Stack links (build/launch-link.ts)
+ *   package-report.json          inputs, digests and warnings of this run (not an asset; read by scripts/verify/preflight.mjs)
  *
  *   npm run package -w @atl/infra -- [--tag v1.0.0] [--out dir] [--app-archive arm64=<file>] [--checks-dir dir]
- *        [--content-dir dir] [--web-dir dir] [--ssm-plugin-rpm file] [--k6-tarball file] [--workstation-node-modules dir]
- *        [--cloudshell-kit <arch>=<file>]
- * Nothing is uploaded (publish-s3.ts does that); no AWS call is made.
+ *        [--content-dir dir] [--web-dir dir] [--ssm-plugin-version v --ssm-plugin-sha256 <arch>=<hex> …] [--ssm-plugin-rpm file]
+ *        [--k6-tarball file] [--workstation-node-modules <dir|tar.gz>] [--runner-node-modules <tar.gz>]
+ *        [--cloudshell-kit <arch>=<file>] [--allow-checks-mismatch]
+ * An app archive whose .release-manifest.json atlBundleDigest differs from the check bundle is refused (the lab instance
+ * would not find the platform's checks). Nothing is uploaded (publish-s3.ts does that); no AWS call is made.
+ * scripts/release-docker/build.sh runs the whole chain (Linux builds of both architectures, then this) in Docker.
  */
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
@@ -29,7 +38,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { build, type Plugin } from 'esbuild';
 import { LAMBDA_FUNCTIONS } from '@atl/shared';
 import { writeZip } from '../custom-resources/src/zip.js';
-import { collectDir, writeTarGz, type ArchiveEntry } from './archive.js';
+import { collectDir, readTarGz, writeTarGz, type ArchiveEntry } from './archive.js';
 import { launchStackMarkdown } from './launch-link.js';
 import { buildTemplate, loadReleaseConfig, platformVersion, releaseTag, TEMPLATE_FILE_NAME, writeTemplate, type ReleaseManifest } from './merge-template.js';
 
@@ -203,17 +212,117 @@ async function bundleCli(entry: string): Promise<Buffer> {
   return Buffer.from(`#!/usr/bin/env node\n${code}`);
 }
 
+/** Machine names as `uname -m` prints them on the workstation (the keys of the bundle manifest's per-architecture maps). */
+export type Machine = 'aarch64' | 'x86_64';
+export const MACHINES: Machine[] = ['aarch64', 'x86_64'];
+const HEX64 = /^[0-9a-f]{64}$/;
+
+/** Boot-time download of session-manager-plugin (03 §4.5): official URL per machine and the pinned SHA-256 (null = not pinned). */
+export interface SsmPluginSpec {
+  version: string;
+  urls: Record<Machine, string>;
+  sha256: Record<Machine, string | null>;
+  /** where the version came from: the pin in build/workstation-tools.json, a command-line override, or PROTOCOL_COMPAT_VERSION */
+  versionSource: 'pin' | 'override' | 'protocol-compat';
+}
+
+interface WorkstationToolsConfig {
+  sessionManagerPlugin: {
+    urlTemplate: string;
+    platforms: Record<Machine, string>;
+    pin: { version: string | null; sha256: Partial<Record<Machine, string | null>>; pinnedAt?: string | null };
+  };
+}
+
+export const WORKSTATION_TOOLS_FILE = path.join(HERE, 'workstation-tools.json');
+
+export function loadWorkstationTools(file = WORKSTATION_TOOLS_FILE): WorkstationToolsConfig {
+  const raw = JSON.parse(fs.readFileSync(file, 'utf8')) as WorkstationToolsConfig;
+  const s = raw.sessionManagerPlugin;
+  if (!s?.urlTemplate?.startsWith('https://') || !s.urlTemplate.includes('{version}') || !s.urlTemplate.includes('{platform}'))
+    throw new Error(`${file}: sessionManagerPlugin.urlTemplate must be an https URL with {version} and {platform}`);
+  for (const m of MACHINES) if (!s.platforms?.[m]) throw new Error(`${file}: sessionManagerPlugin.platforms.${m} is missing`);
+  return raw;
+}
+
+/** PROTOCOL_COMPAT_VERSION of platform/ssm-client (the plugin version the browser protocol layer mirrors, 03 §3.5.1). */
+export function protocolCompatVersion(): string | null {
+  const file = path.join(PLATFORM_DIR, 'ssm-client', 'src', 'constants.ts');
+  if (!fs.existsSync(file)) return null;
+  return /PROTOCOL_COMPAT_VERSION\s*=\s*'([0-9.]+)'/.exec(fs.readFileSync(file, 'utf8'))?.[1] ?? null;
+}
+
+/**
+ * Resolve the plugin download: an explicit `--ssm-plugin-version` (with `--ssm-plugin-sha256 <machine>=<hex>`) wins; else the
+ * pin of workstation-tools.json; else PROTOCOL_COMPAT_VERSION without hashes. Hashes belong to exactly one version: a pin is
+ * never reused for another version.
+ */
+export function ssmPluginSpec(
+  opts: { version?: string; sha256?: Partial<Record<string, string>> } = {},
+  config: WorkstationToolsConfig = loadWorkstationTools(),
+  compat: string | null = protocolCompatVersion(),
+): SsmPluginSpec {
+  const s = config.sessionManagerPlugin;
+  const norm = (m: string): Machine | null => (m === 'arm64' || m === 'aarch64' ? 'aarch64' : m === 'x86_64' || m === 'amd64' || m === 'x64' ? 'x86_64' : null);
+  let version: string;
+  let versionSource: SsmPluginSpec['versionSource'];
+  const sha: Record<Machine, string | null> = { aarch64: null, x86_64: null };
+  const overrides = Object.entries(opts.sha256 ?? {});
+  if (opts.version || overrides.length) {
+    version = opts.version ?? s.pin.version ?? compat ?? '';
+    versionSource = 'override';
+    if (!opts.version && s.pin.version) for (const m of MACHINES) sha[m] = s.pin.sha256?.[m] ?? null;
+  } else if (s.pin.version) {
+    version = s.pin.version;
+    versionSource = 'pin';
+    for (const m of MACHINES) sha[m] = s.pin.sha256?.[m] ?? null;
+  } else {
+    version = compat ?? '';
+    versionSource = 'protocol-compat';
+  }
+  for (const [k, v] of overrides) {
+    const m = norm(k);
+    if (!m) throw new Error(`--ssm-plugin-sha256: unknown architecture ${k} (arm64 | x86_64)`);
+    sha[m] = v ?? null;
+  }
+  if (!/^\d+(\.\d+){1,3}$/.test(version)) throw new Error(`session-manager-plugin version is unknown or invalid (${version || 'empty'}): pin it in build/workstation-tools.json`);
+  for (const m of MACHINES) if (sha[m] !== null && !HEX64.test(sha[m]!)) throw new Error(`session-manager-plugin SHA-256 for ${m} is not 64 lowercase hex digits`);
+  const urls = Object.fromEntries(MACHINES.map((m) => [m, s.urlTemplate.replace('{version}', version).replace('{platform}', s.platforms[m])])) as Record<Machine, string>;
+  return { version, urls, sha256: sha, versionSource };
+}
+
+/** Prebuilt node_modules for the workstation / runner (scripts/release-docker): `<file>.json` sidecar written next to the tarball. */
+export interface NodeModulesInfo {
+  schema?: string;
+  arch?: string;
+  node?: string;
+  createdAt?: string;
+  [k: string]: unknown;
+}
+
+export function nodeModulesInfo(tarball: string): NodeModulesInfo | null {
+  const side = `${tarball}.json`;
+  return fs.existsSync(side) ? (JSON.parse(fs.readFileSync(side, 'utf8')) as NodeModulesInfo) : null;
+}
+
 export interface WorkstationInputs {
   checks: ChecksBundle | null;
+  /** legacy: a session-manager-plugin rpm bundled into the package instead of the boot-time download */
   ssmPluginRpm?: string;
+  ssmPlugin?: SsmPluginSpec | null;
   k6Tarball?: string;
+  /** a directory (legacy: copied into cloudalbum-src.tar.gz, symlinks followed) or a node_modules tarball (scripts/release-docker) */
   nodeModulesDir?: string;
   version: string;
 }
 
+const WORKSTATION_NODE_MODULES = 'cloudalbum-node_modules.tar.gz';
+
 export async function workstationBundle(inputs: WorkstationInputs): Promise<{ tarball: Buffer; manifest: Record<string, unknown> }> {
   const ws = path.join(PLATFORM_DIR, 'workstation');
   const files: ArchiveEntry[] = [
+    { name: 'atl-ws-install.sh', data: fs.readFileSync(path.join(ws, 'bootstrap', 'install.sh')), mode: 0o755 },
+    { name: 'atl-install-node-modules.sh', data: fs.readFileSync(path.join(ws, 'bootstrap', 'install-node-modules.sh')), mode: 0o755 },
     { name: 'atl-credentials', data: fs.readFileSync(path.join(ws, 'bin', 'atl-credentials')), mode: 0o755 },
     { name: 'atl-workstation-setup.sh', data: fs.readFileSync(path.join(ws, 'bin', 'atl-workstation-setup.sh')), mode: 0o755 },
     { name: 'atl-lab-proxy', data: fs.readFileSync(path.join(ws, 'bin', 'atl-lab-proxy')), mode: 0o755 },
@@ -222,28 +331,83 @@ export async function workstationBundle(inputs: WorkstationInputs): Promise<{ ta
     { name: 'atl-write-session-files', data: await bundleCli(path.join(ws, 'src', 'cli', 'write-session-files.ts')), mode: 0o755 },
   ];
   const missing: string[] = [];
-  const optional = (name: string, file: string | undefined) => {
-    if (file && fs.existsSync(file)) files.push({ name, data: fs.readFileSync(file), mode: 0o644 });
-    else missing.push(name);
-  };
-  optional('session-manager-plugin.rpm', inputs.ssmPluginRpm);
-  optional('k6-linux-arm64.tar.gz', inputs.k6Tarball);
+  const notes: string[] = [];
+  // session-manager-plugin: downloaded at boot from the official URL and verified against the pin (03 §4.5); a bundled rpm
+  // (--ssm-plugin-rpm) is still accepted and takes precedence on the workstation
+  let ssmTool: Record<string, unknown>;
+  if (inputs.ssmPluginRpm && fs.existsSync(inputs.ssmPluginRpm)) {
+    const data = fs.readFileSync(inputs.ssmPluginRpm);
+    files.push({ name: 'session-manager-plugin.rpm', data, mode: 0o644 });
+    ssmTool = { source: 'bundle', file: 'session-manager-plugin.rpm', sha256: sha256(data) };
+  } else if (inputs.ssmPlugin) {
+    const p = inputs.ssmPlugin;
+    ssmTool = { source: 'download', version: p.version, urls: p.urls, sha256: p.sha256, versionSource: p.versionSource };
+    const unpinned = MACHINES.filter((m) => !p.sha256[m]);
+    if (unpinned.length) notes.push(`session-manager-plugin ${p.version}: no pinned SHA-256 for ${unpinned.join(', ')} (the workstation skips the plugin; scripts/release-docker/pin-ssm-plugin.sh)`);
+  } else {
+    ssmTool = { source: 'none' };
+    notes.push('session-manager-plugin: no download spec and no rpm');
+  }
+  // k6 is optional (the experiments runner does not use it)
+  let k6Tool: Record<string, unknown> = { source: 'none', optional: true };
+  if (inputs.k6Tarball && fs.existsSync(inputs.k6Tarball)) {
+    const data = fs.readFileSync(inputs.k6Tarball);
+    files.push({ name: 'k6-linux-arm64.tar.gz', data, mode: 0o644 });
+    k6Tool = { source: 'bundle', file: 'k6-linux-arm64.tar.gz', optional: true, sha256: sha256(data) };
+  }
   if (inputs.checks) files.push({ name: 'atl-checks.tar.gz', data: writeTarGz(inputs.checks.entries), mode: 0o644 });
   else missing.push('atl-checks.tar.gz');
   const src = sourceEntries();
-  if (inputs.nodeModulesDir) src.push(...collectDir(inputs.nodeModulesDir, 'node_modules/'));
+  let nodeModules: Record<string, unknown> = { source: 'npm-at-boot' };
+  if (inputs.nodeModulesDir && fs.statSync(inputs.nodeModulesDir).isFile()) {
+    const data = fs.readFileSync(inputs.nodeModulesDir);
+    files.push({ name: WORKSTATION_NODE_MODULES, data, mode: 0o644 });
+    nodeModules = { ...(nodeModulesInfo(inputs.nodeModulesDir) ?? {}), source: 'prebuilt', file: WORKSTATION_NODE_MODULES };
+  } else if (inputs.nodeModulesDir) {
+    src.push(...collectDir(inputs.nodeModulesDir, 'node_modules/'));
+    nodeModules = { source: 'in-source' };
+  }
   files.push({ name: 'cloudalbum-src.tar.gz', data: writeTarGz(src), mode: 0o644 });
   const manifest = {
     schema: 'atl.workstation-bundle/v1',
     version: inputs.version,
     repoCommit: gitCommit(),
-    nodeModules: !!inputs.nodeModulesDir,
+    nodeModules: nodeModules.source !== 'npm-at-boot',
+    nodeModulesInfo: nodeModules,
     checksBundleDigest: inputs.checks?.digest ?? null,
+    tools: { sessionManagerPlugin: ssmTool, k6: k6Tool },
     files: files.map((f) => ({ name: f.name, sha256: sha256(f.data) })),
     missing,
+    notes,
   };
   const tarball = writeTarGz([{ name: 'manifest.json', data: Buffer.from(JSON.stringify(manifest, null, 2) + '\n') }, ...files]);
   return { tarball, manifest };
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// Runner node_modules and CloudAlbum release archives
+
+/** ZIP without ZIP64 (custom-resources/src/zip.ts): at most 65,535 entries. */
+export const ZIP_MAX_ENTRIES = 65535;
+
+/** Files of no use at run time (type declarations, source maps): dropped from the runner's node_modules. */
+const RUNNER_SKIP = /(\.d\.ts|\.d\.mts|\.d\.cts|\.map)$|(^|\/)\.bin\//;
+
+/**
+ * node_modules for the runner (CodeBuild ARM_CONTAINER runs scripts/module from cloudalbum-infra.zip, which has no install
+ * step): a tarball of regular files only — workspace links dereferenced, no .bin — built by scripts/release-docker on
+ * linux-arm64. Returned entries are named node_modules/… .
+ */
+export function runnerNodeModules(tarball: string): ArchiveEntry[] {
+  return readTarGz(fs.readFileSync(tarball))
+    .filter((e) => e.name.startsWith('node_modules/') && !RUNNER_SKIP.test(e.name))
+    .map((e) => ({ name: e.name, data: e.data, mode: (e.mode ?? 0o644) & 0o111 ? 0o755 : 0o644 }));
+}
+
+/** `.release-manifest.json` of a scripts/release archive (`cloudalbum-<ver>-<arch>/.release-manifest.json`). */
+export function appArchiveManifest(file: string): Record<string, unknown> | null {
+  const hit = readTarGz(fs.readFileSync(file), { stopAt: (n) => /^[^/]+\/\.release-manifest\.json$/.test(n) })[0];
+  return hit ? (JSON.parse(hit.data.toString('utf8')) as Record<string, unknown>) : null;
 }
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -343,12 +507,17 @@ interface Options {
   contentDir?: string;
   webDir?: string;
   ssmPluginRpm?: string;
+  ssmPluginVersion?: string;
+  ssmPluginSha256?: Record<string, string>;
   k6Tarball?: string;
   nodeModulesDir?: string;
+  runnerNodeModules?: string;
   cloudshellKits: Record<string, string>;
+  /** package even when an app archive's atlBundleDigest differs from the check bundle (never for a real release) */
+  allowChecksMismatch?: boolean;
 }
 
-function parseOptions(argv: string[]): Options {
+export function parseOptions(argv: string[]): Options {
   const get = (name: string) => {
     const i = argv.indexOf(name);
     return i >= 0 ? argv[i + 1] : undefined;
@@ -358,6 +527,7 @@ function parseOptions(argv: string[]): Options {
   const tag = get('--tag') ?? releaseTag();
   // `node platform/checks/build.mjs` writes platform/checks/dist/atl/ (platform-checks); 06 PM-04's platform/infra/checks-bundle/dist is the fallback
   const checksDefault = [path.join(PLATFORM_DIR, 'checks', 'dist', 'atl'), path.join(INFRA_DIR, 'checks-bundle', 'dist')].find((d) => fs.existsSync(path.join(d, 'checks'))) ?? path.join(INFRA_DIR, 'checks-bundle', 'dist');
+  const shaPairs = pairs('--ssm-plugin-sha256');
   return {
     tag,
     out: get('--out') ?? path.join(INFRA_DIR, 'dist', 'release', tag),
@@ -366,9 +536,13 @@ function parseOptions(argv: string[]): Options {
     contentDir: get('--content-dir'),
     webDir: get('--web-dir') ?? path.join(PLATFORM_DIR, 'web', 'dist'),
     ssmPluginRpm: get('--ssm-plugin-rpm') ?? process.env.ATL_SSM_PLUGIN_RPM,
+    ssmPluginVersion: get('--ssm-plugin-version'),
+    ...(Object.keys(shaPairs).length ? { ssmPluginSha256: shaPairs } : {}),
     k6Tarball: get('--k6-tarball') ?? process.env.ATL_K6_TARBALL,
     nodeModulesDir: get('--workstation-node-modules'),
+    runnerNodeModules: get('--runner-node-modules'),
     cloudshellKits: pairs('--cloudshell-kit'),
+    allowChecksMismatch: argv.includes('--allow-checks-mismatch'),
   };
 }
 
@@ -393,7 +567,17 @@ export function sourceSha256sums(entries: ArchiveEntry[]): Buffer {
   );
 }
 
-export async function packageRelease(opts: Options): Promise<{ dir: string; files: string[]; warnings: string[] }> {
+export interface PackageResult {
+  dir: string;
+  files: string[];
+  warnings: string[];
+  report: Record<string, unknown>;
+}
+
+/** Build report next to the release assets (not an asset: not in SHA256SUMS, never published). */
+export const PACKAGE_REPORT = 'package-report.json';
+
+export async function packageRelease(opts: Options): Promise<PackageResult> {
   const version = platformVersion();
   const warnings: string[] = [];
   fs.rmSync(opts.out, { recursive: true, force: true });
@@ -407,27 +591,58 @@ export async function packageRelease(opts: Options): Promise<{ dir: string; file
   const content = contentZip(findContentDir(opts.contentDir), version);
   if (content.placeholder) warnings.push('no content release (npm run labs:build): atl-content.zip carries an empty catalog');
   files.push({ name: 'atl-content.zip', data: content.zip });
+  const checks = loadChecksBundle(opts.checksDir);
+  if (!checks) warnings.push('no check bundle (node platform/checks/build.mjs, or --checks-dir): ATL-RunCheck cannot run on the workstation');
   const appArchives: ArchiveEntry[] = [];
+  const appReport: Record<string, unknown>[] = [];
   for (const arch of ['arm64', 'x86_64'] as const) {
     const f = findAppArchive(arch, opts.appArchives[arch]);
     if (f && fs.existsSync(f)) {
       const data = fs.readFileSync(f);
+      // the lab instance runs ATL-RunCheck with the platform's digest: the archive must carry the same check bundle
+      const m = appArchiveManifest(f);
+      const digest = (m?.atlBundleDigest as string | null | undefined) ?? null;
+      if (m && m.arch !== arch) throw new Error(`--app-archive ${arch}=${f}: the archive was built for ${String(m.arch)}`);
+      if (checks && digest !== checks.digest) {
+        const msg = `${path.basename(f)}: atlBundleDigest ${digest ?? 'none'} differs from the check bundle ${checks.digest} (build both with one SOURCE_DATE_EPOCH)`;
+        if (!opts.allowChecksMismatch) throw new Error(msg);
+        warnings.push(msg);
+      }
       files.push({ name: `cloudalbum-app-${arch}.tar.gz`, data });
       // inside the runner source under the scripts/release name (the runner picks cloudalbum-<ver>-<arch>.tgz)
       const base = path.basename(f);
       appArchives.push({ name: /^cloudalbum-.+-(arm64|x86_64)\.tgz$/.test(base) ? base : `cloudalbum-${version}-${arch}.tgz`, data, mode: 0o644 });
+      appReport.push({ arch, file: base, sha256: sha256(data), size: data.length, version: m?.version ?? null, atlBundleDigest: digest, build: m?.build ?? null });
     } else warnings.push(`no CloudAlbum release archive for ${arch} (run scripts/release on Linux or pass --app-archive ${arch}=<file>)`);
   }
-  const checks = loadChecksBundle(opts.checksDir);
-  if (!checks) warnings.push('no check bundle (node platform/checks/build.mjs, or --checks-dir): ATL-RunCheck cannot run on the workstation');
   const infra = sourceEntries();
   if (checks) infra.push(...checks.entries.map((e) => ({ ...e, name: `atl/${e.name}` })));
   infra.push({ name: 'platform/workflows/runner/dist/atl-runner.mjs', data: await runnerBundle(), mode: 0o644 }, ...appArchives);
+  let runnerModules: Record<string, unknown> = { source: 'none' };
+  if (opts.runnerNodeModules) {
+    const nm = runnerNodeModules(opts.runnerNodeModules);
+    if (!nm.length) throw new Error(`--runner-node-modules ${opts.runnerNodeModules}: no node_modules/ entries`);
+    const seen = new Set(infra.map((e) => e.name));
+    infra.push(...nm.filter((e) => !seen.has(e.name)));
+    runnerModules = { ...(nodeModulesInfo(opts.runnerNodeModules) ?? {}), source: 'prebuilt', files: nm.length };
+  } else warnings.push('cloudalbum-infra.zip without node_modules: scripts/module cannot run in CodeBuild (pass --runner-node-modules, scripts/release-docker/build.sh)');
   infra.push({ name: 'SHA256SUMS', data: sourceSha256sums(infra), mode: 0o644 });
+  if (infra.length > ZIP_MAX_ENTRIES) throw new Error(`cloudalbum-infra.zip would have ${infra.length} entries (ZIP without ZIP64: at most ${ZIP_MAX_ENTRIES})`);
   files.push({ name: 'cloudalbum-infra.zip', data: writeZip(infra) });
-  const ws = await workstationBundle({ checks, ssmPluginRpm: opts.ssmPluginRpm, k6Tarball: opts.k6Tarball, nodeModulesDir: opts.nodeModulesDir, version });
+  const ssmPlugin = ssmPluginSpec({ version: opts.ssmPluginVersion, sha256: opts.ssmPluginSha256 });
+  const compat = protocolCompatVersion();
+  if (compat && ssmPlugin.version !== compat) warnings.push(`session-manager-plugin ${ssmPlugin.version} differs from PROTOCOL_COMPAT_VERSION ${compat} (03 §3.5.1)`);
+  const ws = await workstationBundle({
+    checks,
+    ssmPluginRpm: opts.ssmPluginRpm,
+    ssmPlugin,
+    k6Tarball: opts.k6Tarball,
+    nodeModulesDir: opts.nodeModulesDir,
+    version,
+  });
   for (const m of (ws.manifest.missing as string[]) ?? []) warnings.push(`workstation bundle without ${m}`);
-  if (!opts.nodeModulesDir) warnings.push('workstation bundle without node_modules: the workstation runs npm ci at boot (source build)');
+  for (const n of (ws.manifest.notes as string[]) ?? []) warnings.push(`workstation bundle: ${n}`);
+  if (!opts.nodeModulesDir) warnings.push('workstation bundle without node_modules: the workstation installs them from the npm registry at boot');
   files.push({ name: 'atl-workstation.tar.gz', data: ws.tarball });
   for (const [arch, file] of Object.entries(opts.cloudshellKits)) files.push({ name: `atl-cloudshell-kit-${arch}.tar.gz`, data: fs.readFileSync(file) });
 
@@ -445,10 +660,42 @@ export async function packageRelease(opts: Options): Promise<{ dir: string; file
   fs.writeFileSync(path.join(opts.out, 'SHA256SUMS'), sha256sums([...files, { name: TEMPLATE_FILE_NAME, data: templateData }], checksDigest));
   const config = loadReleaseConfig();
   fs.writeFileSync(path.join(opts.out, 'launch-stack.md'), launchStackMarkdown({ tag: opts.tag, config }));
-  return { dir: opts.out, files: [...files.map((f) => f.name), TEMPLATE_FILE_NAME, 'SHA256SUMS', 'release-manifest.json', 'launch-stack.md'], warnings };
+  // what went into this release (read by scripts/verify/preflight.mjs; not a release asset, publish-s3 skips it)
+  const report = {
+    schema: 'atl.package-report/v1',
+    tag: opts.tag,
+    version,
+    repoCommit: gitCommit(),
+    createdAt: process.env.SOURCE_DATE_EPOCH ? new Date(Number(process.env.SOURCE_DATE_EPOCH) * 1000).toISOString() : new Date().toISOString(),
+    checksBundleDigest: checksDigest || null,
+    web: web.placeholder ? 'placeholder' : 'built',
+    content: { catalogVersion: content.catalogVersion, placeholder: content.placeholder },
+    appArchives: appReport,
+    runnerNodeModules: runnerModules,
+    infraZipEntries: infra.length,
+    workstation: { nodeModules: ws.manifest.nodeModulesInfo, tools: ws.manifest.tools },
+    warnings,
+  };
+  fs.writeFileSync(path.join(opts.out, PACKAGE_REPORT), JSON.stringify(report, null, 2) + '\n');
+  return {
+    dir: opts.out,
+    files: [...files.map((f) => f.name), TEMPLATE_FILE_NAME, 'SHA256SUMS', 'release-manifest.json', 'launch-stack.md', PACKAGE_REPORT],
+    warnings,
+    report,
+  };
 }
 
 async function main(): Promise<void> {
+  // `--emit-source <file>`: only write the repository subset of the workstation / runner (cloudalbum-src.tar.gz) — the input
+  // of the node_modules prebuild (scripts/release-docker, bootstrap/install-node-modules.sh)
+  const emit = process.argv.indexOf('--emit-source');
+  if (emit >= 0) {
+    const file = process.argv[emit + 1];
+    if (!file) throw new Error('--emit-source needs a file');
+    fs.writeFileSync(file, writeTarGz(sourceEntries()));
+    console.log(`source subset → ${file}`);
+    return;
+  }
   const r = await packageRelease(parseOptions(process.argv.slice(2)));
   console.log(`release → ${path.relative(process.cwd(), r.dir)}`);
   for (const f of r.files) {

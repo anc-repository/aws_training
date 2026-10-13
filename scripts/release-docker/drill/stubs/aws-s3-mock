@@ -1,0 +1,13 @@
+#!/bin/bash
+# workstation drill stand-in for the AWS CLI: `aws s3 cp [opts] s3://<bucket>/<key> <dest>` copies /drill/release/<basename of
+# key> (the release file the bucket would hold), anything else fails. Every call is recorded. No network, no credentials.
+printf '%s %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$*" >> /var/log/drill-aws-cli.log
+if [ "${1:-}" = s3 ] && [ "${2:-}" = cp ]; then
+  shift 2; src=''; dst=''
+  while [ $# -gt 0 ]; do
+    case "$1" in --region) shift 2 ;; --*) shift ;; *) if [ -z "$src" ]; then src=$1; else dst=$1; fi; shift ;; esac
+  done
+  case "$src" in s3://*) cp "/drill/release/$(basename "$src")" "$dst" && exit 0 ;; esac
+fi
+echo "drill: unsupported aws call: $*" >&2
+exit 97

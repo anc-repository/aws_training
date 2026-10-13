@@ -1,0 +1,9 @@
+{
+  "//": "Third-party tools of the workstation bootstrap bundle (03 §4.5), read by build/package.ts. session-manager-plugin is downloaded at boot from the official AWS download location (urlTemplate, the versioned path of the 'latest' URL in the AWS install guide) and installed only when its SHA-256 equals the pin. pin.version null = platform/ssm-client PROTOCOL_COMPAT_VERSION without hashes (the workstation then skips the plugin and says why). Pins are recorded by scripts/release-docker/pin-ssm-plugin.sh, which downloads the pinned version once on the maintainer machine; hashes are never guessed. `--ssm-plugin-sha256 <arch>=<hex>` (with --ssm-plugin-version) overrides the pin for one package run. k6 is optional: the experiments runner is the Node implementation (experiments/_lib/load.ts) and works without it; `--k6-tarball` still bundles it.",
+  "sessionManagerPlugin": {
+    "urlTemplate": "https://s3.amazonaws.com/session-manager-downloads/plugin/{version}/{platform}/session-manager-plugin.rpm",
+    "platforms": { "aarch64": "linux_arm64", "x86_64": "linux_64bit" },
+    "pin": { "version": null, "sha256": { "aarch64": null, "x86_64": null }, "pinnedAt": null }
+  },
+  "k6": { "optional": true }
+}

@@ -42,3 +42,11 @@ npm-debug.log*
 .atl-dev/
 platform/api/dist-lambda/
 platform/infra/dist/
+
+# --- release artifacts (scripts/release-docker; large, never committed) ---
+# dist/release/: app/cloudalbum-<ver>-<arch>.tgz, v<ver>/ (GitHub Release layout + SHA256SUMS), drill/ reports
+# dist/release-work/, dist/release-cache/: build intermediates, npm caches, the offline RPM repository of the L0 drill
+dist/release/
+dist/release-work/
+dist/release-cache/
+build/release/

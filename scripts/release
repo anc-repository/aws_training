@@ -1,103 +1,252 @@
 #!/usr/bin/env bash
-# scripts/release <version> [--arch arm64|x86_64] [--out <dir>] [--skip-build] — build the per-architecture release
-# archive downloaded by the User Data stub (AppArchiveUrl / AppArchiveSha256; 00-ec2-base.md 6.5).
-# Run on Linux (or CloudShell). Layout of cloudalbum-<version>-<arch>.tgz (single top-level directory, --strip-components=1):
+# scripts/release <version> [--arch arm64|x86_64] [--out <dir>] [--skip-build] [--prepare-only] [--from-prepared <dir>]
+# Build the per-architecture release archive downloaded by the User Data stub (AppArchiveUrl / AppArchiveSha256; 00-ec2-base.md 6.5).
+# Run on Linux (or CloudShell); scripts/release-docker/build.sh runs it in amazonlinux:2023 containers (x86_64 natively, arm64
+# through QEMU). Layout of cloudalbum-<version>-<arch>.tgz (single top-level directory, --strip-components=1):
 #   VERSION  package.json  package-lock.json  node_modules/ (production deps for linux-<arch>, incl. sharp)
 #   backend/{package.json,dist}  packages/{contracts,image-core}/{package.json,dist}  frontend/dist
 #   infra/ (templates, nginx, systemd, host helpers, userdata/l0-bootstrap.sh, defaults)
 #   modules/{registry.yaml,registry.json,hostsetup-order.txt}  scripts/{local-backup.sh,selfhost/}
 #   atl/{bin/atl-check,checks/<bundleDigest>/}  experiments/<module>/{lab,faults}/*.sh  .release-manifest.json  (ATL, 06 PM-04)
 # Prints the SHA-256 to pass as AppArchiveSha256. Uploading (GitHub Release or the toolchain bucket releases/ mirror) is manual.
+#
+# Two steps (the architecture-independent part once, the production dependencies per architecture):
+#   scripts/release <ver> --skip-build --prepare-only --out <dir>       → <dir>/cloudalbum-<ver>-prepared/ (no node_modules)
+#   scripts/release <ver> --arch arm64 --from-prepared <dir>/cloudalbum-<ver>-prepared --out <dir>
+# Without either option both steps run back to back (the original single-command form).
+#
+# Native modules: every *.node file under node_modules is classified by its ELF machine; better-sqlite3, sharp
+# (@img/sharp-linux-<cpu>) and @node-rs/argon2 (-linux-<cpu>-gnu) must exist for the target machine (x86_64 / aarch64) or
+# the build fails. When the host is the target architecture they are also loaded (an in-memory SQLite query, a sharp PNG
+# encode, an argon2id hash). Cross installs (host != target) pass npm_config_arch so prebuild-install fetches the target
+# binary; build in a Linux of the target architecture whenever possible.
+# SOURCE_DATE_EPOCH (when set) fixes createdAt, the check bundle's createdAt and every mtime in the archive (GNU tar).
 set -euo pipefail
 
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+usage() { echo "usage: scripts/release <version> [--arch arm64|x86_64] [--out dir] [--skip-build] [--prepare-only] [--from-prepared dir]" >&2; exit 64; }
 version=${1:-}; shift || true
-arch=arm64; out="$ROOT/build/release"; build=yes
+arch=arm64; out="$ROOT/build/release"; build=yes; mode=full; prepared=''
 while [ $# -gt 0 ]; do
   case "$1" in
-    --arch) arch=$2; shift 2 ;;
-    --out) out=$2; shift 2 ;;
+    --arch) arch=${2:-}; shift 2 ;;
+    --out) out=${2:-}; shift 2 ;;
     --skip-build) build=no; shift ;;
-    *) echo "unknown option: $1" >&2; exit 64 ;;
+    --prepare-only) mode=prepare; shift ;;
+    --from-prepared) mode=finish; prepared=${2:-}; shift 2 ;;
+    *) echo "unknown option: $1" >&2; usage ;;
   esac
 done
-[[ $version =~ ^[A-Za-z0-9._-]+$ ]] || { echo "usage: scripts/release <version> [--arch arm64|x86_64] [--out dir] [--skip-build]" >&2; exit 64; }
-case "$arch" in arm64) cpu=arm64 ;; x86_64) cpu=x64 ;; *) echo "--arch must be arm64 or x86_64" >&2; exit 64 ;; esac
+[[ $version =~ ^[A-Za-z0-9._-]+$ ]] || usage
+case "$arch" in arm64) cpu=arm64; elf=183 ;; x86_64) cpu=x64; elf=62 ;; *) echo "--arch must be arm64 or x86_64" >&2; exit 64 ;; esac
+mkdir -p "$out"; out=$(cd "$out" && pwd)
 
-name="cloudalbum-$version-$arch"
-stage="$out/$name"
-rm -rf "$stage"; mkdir -p "$stage"
+created_at() {
+  if [ -n "${SOURCE_DATE_EPOCH:-}" ]; then date -u -d "@$SOURCE_DATE_EPOCH" +%Y-%m-%dT%H:%M:%SZ; else date -u +%Y-%m-%dT%H:%M:%SZ; fi
+}
 
-if [ "$build" = yes ]; then
-  (cd "$ROOT" && npm run build && npm run build:frontend)
-fi
+# ---------------------------------------------------------------------------------------------------------------------
+# step 1: the architecture-independent stage (built JavaScript, host files, registry metadata, ATL check bundle)
+prepare_stage() {
+  local stage=$1
+  rm -rf "$stage"; mkdir -p "$stage"
+  if [ "$build" = yes ]; then
+    (cd "$ROOT" && npm run build && npm run build:frontend)
+  fi
 
-copy() { mkdir -p "$stage/$(dirname "$1")"; cp -a "$ROOT/$1" "$stage/$1"; }
-echo "$version" > "$stage/VERSION"
-copy package-lock.json
-copy backend/package.json; copy backend/dist
-for p in contracts image-core; do copy "packages/$p/package.json"; copy "packages/$p/dist"; done
-copy frontend/dist
-copy infra
-copy modules/registry.yaml
-copy scripts/local-backup.sh; copy scripts/selfhost
-# remove TypeScript build info and source maps of type declarations (not needed at runtime)
-find "$stage" -name '*.tsbuildinfo' -delete
+  copy() { mkdir -p "$stage/$(dirname "$1")"; cp -a "$ROOT/$1" "$stage/$1"; }
+  echo "$version" > "$stage/VERSION"
+  copy package-lock.json
+  copy backend/package.json; copy backend/dist
+  for p in contracts image-core; do copy "packages/$p/package.json"; copy "packages/$p/dist"; done
+  copy frontend/dist
+  copy infra
+  copy modules/registry.yaml
+  copy scripts/local-backup.sh; copy scripts/selfhost
+  # remove TypeScript build info (not needed at runtime)
+  find "$stage" -name '*.tsbuildinfo' -delete
 
-# root package.json restricted to the runtime workspaces
-node -e '
-  const fs = require("node:fs");
-  const pkg = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
-  pkg.workspaces = ["packages/*", "backend"];
-  delete pkg.devDependencies; pkg.scripts = {};
-  fs.writeFileSync(process.argv[2], JSON.stringify(pkg, null, 2) + "\n");
-' "$ROOT/package.json" "$stage/package.json"
+  # root package.json restricted to the runtime workspaces
+  node -e '
+    const fs = require("node:fs");
+    const pkg = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+    pkg.workspaces = ["packages/*", "backend"];
+    delete pkg.devDependencies; pkg.scripts = {};
+    fs.writeFileSync(process.argv[2], JSON.stringify(pkg, null, 2) + "\n");
+  ' "$ROOT/package.json" "$stage/package.json"
 
-# registry.json + topological order for run-hostsetup.sh (computed by the module tool from the same registry)
-"$ROOT/scripts/module" release-meta --out "$stage/modules"
+  # registry.json + topological order for run-hostsetup.sh (computed by the module tool from the same registry)
+  "$ROOT/scripts/module" release-meta --out "$stage/modules"
 
-# ATL check bundle (docs/platform/06 PM-04): atl/bin/atl-check + atl/checks/<bundleDigest>/ travel with the release, so every
-# instance that can install CloudAlbum (instance replacement, ASG scale-out, private placement) also has the checks.
-# bundleDigest = SHA-256 of manifest.json = the directory name (verified here and again by install-atl-bundle.sh).
-atl_digest=null
-if [ -f "$ROOT/platform/checks/build.mjs" ]; then
-  atl_tmp=$(mktemp -d)
-  node "$ROOT/platform/checks/build.mjs" --out "$atl_tmp" >/dev/null
-  atl_digest_raw=$(node -e 'process.stdout.write(require(process.argv[1]).bundleDigest)' "$atl_tmp/bundle.json")
-  [ "$(sha256sum "$atl_tmp/atl/checks/$atl_digest_raw/manifest.json" | cut -c1-64)" = "$atl_digest_raw" ] \
-    || { echo "release: check bundle directory name and manifest digest differ" >&2; exit 1; }
-  mkdir -p "$stage/atl"
-  cp -R "$atl_tmp/atl/bin" "$atl_tmp/atl/checks" "$stage/atl/"
-  rm -f "$stage/atl/bin/atl-check.mjs"                        # dev launcher only
-  rm -rf "$atl_tmp"
-  atl_digest="\"$atl_digest_raw\""
-else
-  echo "release: platform/checks is missing, the release ships no ATL check bundle" >&2
-fi
-# lab-side experiment scripts (PM-41 / PM-42): experiments/<module>/{lab,faults}/*.sh only
-for d in "$ROOT"/experiments/*/lab "$ROOT"/experiments/*/faults; do
-  [ -d "$d" ] || continue
-  rel=${d#"$ROOT"/}; mkdir -p "$stage/$rel"; cp "$d"/*.sh "$stage/$rel/" 2>/dev/null || true
-done
-# minimum SSM Agent version for interpolationType ENV_VAR (PM-06): filled in after the 07 verification, never guessed here
-ssm_min=${SSM_AGENT_MIN_VERSION:-}
-node -e '
-  const fs = require("node:fs");
-  const [file, version, arch, digest, ssm] = process.argv.slice(1);
-  fs.writeFileSync(file, JSON.stringify({ schema: "cloudalbum.release-manifest/v1", version, arch, createdAt: new Date().toISOString(),
-    atlBundleDigest: digest === "null" ? null : JSON.parse(digest), ssmAgentMinVersion: ssm || null }, null, 2) + "\n");
-' "$stage/.release-manifest.json" "$version" "$arch" "$atl_digest" "$ssm_min"
+  # ATL check bundle (docs/platform/06 PM-04): atl/bin/atl-check + atl/checks/<bundleDigest>/ travel with the release, so every
+  # instance that can install CloudAlbum (instance replacement, ASG scale-out, private placement) also has the checks.
+  # bundleDigest = SHA-256 of manifest.json = the directory name (verified here and again by install-atl-bundle.sh). It must
+  # equal the platform release's ChecksBundleDigest (SHA256SUMS `# checks-bundle-digest`): build both with one SOURCE_DATE_EPOCH.
+  local atl_digest='' atl_tmp
+  if [ -f "$ROOT/platform/checks/build.mjs" ]; then
+    atl_tmp=$(mktemp -d)
+    node "$ROOT/platform/checks/build.mjs" --out "$atl_tmp" >/dev/null
+    atl_digest=$(node -e 'process.stdout.write(require(process.argv[1]).bundleDigest)' "$atl_tmp/bundle.json")
+    [ "$(sha256sum "$atl_tmp/atl/checks/$atl_digest/manifest.json" | cut -c1-64)" = "$atl_digest" ] \
+      || { echo "release: check bundle directory name and manifest digest differ" >&2; exit 1; }
+    mkdir -p "$stage/atl"
+    cp -R "$atl_tmp/atl/bin" "$atl_tmp/atl/checks" "$stage/atl/"
+    rm -f "$stage/atl/bin/atl-check.mjs"                        # dev launcher only
+    rm -rf "$atl_tmp"
+  else
+    echo "release: platform/checks is missing, the release ships no ATL check bundle" >&2
+  fi
+  # lab-side experiment scripts (PM-41 / PM-42): experiments/<module>/{lab,faults}/*.sh only
+  local d rel
+  for d in "$ROOT"/experiments/*/lab "$ROOT"/experiments/*/faults; do
+    [ -d "$d" ] || continue
+    rel=${d#"$ROOT"/}; mkdir -p "$stage/$rel"; cp "$d"/*.sh "$stage/$rel/" 2>/dev/null || true
+  done
 
-# production dependencies for the target platform (sharp ships prebuilt linux-<arch> binaries)
-(cd "$stage" && npm install --omit=dev --no-audit --no-fund --os=linux --cpu="$cpu" --libc=glibc)
+  # facts the per-architecture step needs (removed again there)
+  local commit dirty=false
+  commit=${RELEASE_SOURCE_COMMIT:-$(git -C "$ROOT" rev-parse HEAD 2>/dev/null || true)}
+  if [ -z "${RELEASE_SOURCE_COMMIT:-}" ] && git -C "$ROOT" rev-parse HEAD >/dev/null 2>&1 \
+     && ! git -C "$ROOT" diff --quiet HEAD -- 2>/dev/null; then dirty=true; fi
+  node -e '
+    const fs = require("node:fs");
+    const [file, version, digest, commit, dirty] = process.argv.slice(1);
+    fs.writeFileSync(file, JSON.stringify({ version, atlBundleDigest: digest || null, sourceCommit: commit || null,
+      sourceDirty: dirty === "true" }, null, 2) + "\n");
+  ' "$stage/.release-prepared.json" "$version" "$atl_digest" "$commit" "$dirty"
+}
 
-chmod 0755 "$stage"/infra/install-host-files.sh "$stage"/infra/userdata/l0-bootstrap.sh "$stage"/infra/host/*.sh \
-           "$stage"/infra/host/cloudalbum-* "$stage"/scripts/local-backup.sh "$stage"/scripts/selfhost/*.sh \
-           "$stage"/infra/modules/*/host-setup.sh "$stage"/infra/host/cloudalbum "$stage"/infra/host/platform/*.sh \
-           "$stage"/atl/bin/atl-check 2>/dev/null || true
+# ---------------------------------------------------------------------------------------------------------------------
+# step 2: production dependencies for linux-<arch>, native module checks, manifest, archive
+native_report() {   # $1 = stage; prints JSON [{path, machine}] and fails when a required module is missing or foreign
+  node -e '
+    const fs = require("node:fs"), path = require("node:path");
+    const [stage, wantStr, cpu] = process.argv.slice(1);
+    const want = Number(wantStr);
+    const names = { 62: "x86_64", 183: "aarch64", 3: "i386", 40: "arm" };
+    const found = [];
+    const walk = (dir) => {
+      for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+        const p = path.join(dir, e.name);
+        if (e.isSymbolicLink()) continue;
+        if (e.isDirectory()) walk(p);
+        else if (e.name.endsWith(".node")) {
+          const b = Buffer.alloc(20);
+          const fd = fs.openSync(p, "r"); fs.readSync(fd, b, 0, 20, 0); fs.closeSync(fd);
+          const elf = b.readUInt32BE(0) === 0x7f454c46;
+          const m = elf ? b.readUInt16LE(18) : null;
+          found.push({ path: path.relative(stage, p).split(path.sep).join("/"), machine: elf ? (names[m] ?? `elf-${m}`) : "not-elf", ok: elf && m === want });
+        }
+      }
+    };
+    walk(path.join(stage, "node_modules"));
+    const required = [
+      ["better-sqlite3", /^node_modules\/better-sqlite3\/build\/Release\/[^/]+\.node$/],
+      ["sharp", new RegExp(`^node_modules/@img/sharp-linux-${cpu}/lib/[^/]+\\.node$`)],
+      ["@node-rs/argon2", new RegExp(`^node_modules/@node-rs/argon2-linux-${cpu}-gnu/[^/]+\\.node$`)],
+    ];
+    const errors = [];
+    for (const [name, re] of required) {
+      const hits = found.filter((f) => re.test(f.path));
+      if (!hits.length) errors.push(`${name}: no native binary for linux-${cpu}`);
+      for (const h of hits) if (!h.ok) errors.push(`${name}: ${h.path} is ${h.machine}, expected ${names[want]}`);
+    }
+    if (errors.length) { console.error("release: native modules: " + errors.join("; ")); process.exit(1); }
+    process.stdout.write(JSON.stringify(found.map(({ path, machine }) => ({ path, machine }))));
+  ' "$1" "$elf" "$cpu"
+}
 
-tar czf "$out/$name.tgz" -C "$out" "$name"
-sha=$(sha256sum "$out/$name.tgz" | awk '{print $1}')
-echo "$sha  $name.tgz" > "$out/$name.tgz.sha256"
-echo "release: $out/$name.tgz"
-echo "AppArchiveSha256=$sha"
+load_check() {      # $1 = stage; only when the host runs the target architecture. Resolved as the runtime resolves them.
+  node -e '
+    const path = require("node:path");
+    const { createRequire } = require("node:module");
+    const stage = process.argv[1];
+    const backend = createRequire(path.join(stage, "backend", "package.json"));
+    const imageCore = createRequire(path.join(stage, "packages", "image-core", "package.json"));
+    (async () => {
+      const Database = backend("better-sqlite3");
+      const db = new Database(":memory:");
+      const v = db.prepare("select sqlite_version() as v").get().v;
+      db.close();
+      const sharp = imageCore("sharp");
+      const png = await sharp({ create: { width: 2, height: 2, channels: 3, background: "#336699" } }).png().toBuffer();
+      if (png.length < 8) throw new Error("sharp: empty PNG");
+      const argon2 = backend("@node-rs/argon2");
+      const h = await argon2.hash("release-check");
+      if (!(await argon2.verify(h, "release-check"))) throw new Error("argon2: verify failed");
+      console.log(`release: native modules load on ${process.platform}-${process.arch} (node ${process.version}, sqlite ${v}, sharp ${sharp.versions.sharp}, libvips ${sharp.versions.vips})`);
+    })().catch((e) => { console.error("release: native module load failed: " + ((e && e.message) || e)); process.exit(1); });
+  ' "$1"
+}
+
+finish_stage() {
+  local stage=$1 meta host natives
+  meta="$stage/.release-prepared.json"
+  [ -f "$meta" ] || { echo "release: $stage is not a prepared stage (no .release-prepared.json)" >&2; exit 1; }
+  [ "$(node -e 'process.stdout.write(require(process.argv[1]).version)' "$meta")" = "$version" ] \
+    || { echo "release: the prepared stage was built for another version" >&2; exit 1; }
+
+  # production dependencies for the target platform (sharp / argon2 ship prebuilt linux-<cpu> packages; better-sqlite3
+  # downloads its prebuilt binary or compiles it with node-gyp)
+  host=$(uname -m); [ "$host" = aarch64 ] && host=arm64
+  rm -rf "$stage/node_modules"
+  if [ "$host" = "$arch" ]; then
+    (cd "$stage" && npm install --omit=dev --no-audit --no-fund --os=linux --cpu="$cpu" --libc=glibc)
+  else
+    echo "release: cross install for linux-$cpu on $(uname -m): prebuilt binaries only, nothing is loaded" >&2
+    (cd "$stage" && npm_config_arch="$cpu" npm_config_target_arch="$cpu" npm_config_platform=linux \
+      npm install --omit=dev --no-audit --no-fund --os=linux --cpu="$cpu" --libc=glibc)
+  fi
+  natives=$(native_report "$stage")
+  if [ "$host" = "$arch" ]; then load_check "$stage"; fi
+
+  # minimum SSM Agent version for interpolationType ENV_VAR (PM-06): filled in after the 07 verification, never guessed here
+  node -e '
+    const fs = require("node:fs");
+    const [file, meta, arch, createdAt, ssm, natives] = process.argv.slice(1);
+    const m = JSON.parse(fs.readFileSync(meta, "utf8"));
+    fs.writeFileSync(file, JSON.stringify({ schema: "cloudalbum.release-manifest/v1", version: m.version, arch, createdAt,
+      atlBundleDigest: m.atlBundleDigest, ssmAgentMinVersion: ssm || null,
+      build: { node: process.version, platform: `linux-${arch}`, sourceCommit: m.sourceCommit, sourceDirty: m.sourceDirty },
+      nativeModules: JSON.parse(natives) }, null, 2) + "\n");
+  ' "$stage/.release-manifest.json" "$meta" "$arch" "$(created_at)" "${SSM_AGENT_MIN_VERSION:-}" "$natives"
+  rm -f "$meta"
+
+  chmod 0755 "$stage"/infra/install-host-files.sh "$stage"/infra/userdata/l0-bootstrap.sh "$stage"/infra/host/*.sh \
+             "$stage"/infra/host/cloudalbum-* "$stage"/scripts/local-backup.sh "$stage"/scripts/selfhost/*.sh \
+             "$stage"/infra/modules/*/host-setup.sh "$stage"/infra/host/cloudalbum "$stage"/infra/host/platform/*.sh \
+             "$stage"/atl/bin/atl-check 2>/dev/null || true
+}
+
+archive() {         # $1 = name (directory under $out)
+  local name=$1 sha
+  local -a topts=()
+  if tar --version 2>/dev/null | grep -q 'GNU tar'; then
+    topts=(--sort=name --owner=0 --group=0 --numeric-owner)
+    [ -z "${SOURCE_DATE_EPOCH:-}" ] || topts+=(--mtime="@$SOURCE_DATE_EPOCH")
+  fi
+  tar "${topts[@]}" -cf - -C "$out" "$name" | gzip -n -9 > "$out/$name.tgz.tmp"
+  mv -f "$out/$name.tgz.tmp" "$out/$name.tgz"
+  sha=$(sha256sum "$out/$name.tgz" | awk '{print $1}')
+  echo "$sha  $name.tgz" > "$out/$name.tgz.sha256"
+  echo "release: $out/$name.tgz"
+  echo "AppArchiveSha256=$sha"
+}
+
+case "$mode" in
+  prepare)
+    prepare_stage "$out/cloudalbum-$version-prepared"
+    echo "release: prepared $out/cloudalbum-$version-prepared" ;;
+  finish)
+    [ -d "$prepared" ] || { echo "release: --from-prepared $prepared is not a directory" >&2; exit 64; }
+    name="cloudalbum-$version-$arch"
+    rm -rf "${out:?}/$name"; mkdir -p "$out/$name"
+    (cd "$prepared" && tar --exclude=./node_modules -cf - .) | (cd "$out/$name" && tar -xf -)
+    finish_stage "$out/$name"
+    archive "$name" ;;
+  full)
+    name="cloudalbum-$version-$arch"
+    prepare_stage "$out/$name"
+    finish_stage "$out/$name"
+    archive "$name" ;;
+esac

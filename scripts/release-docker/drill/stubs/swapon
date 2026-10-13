@@ -1,0 +1,5 @@
+#!/bin/bash
+# drill stand-in for swapon: containers cannot enable swap on overlayfs (and swap would belong to the Docker VM kernel).
+# The swap file itself (dd + mkswap + fstab line) is still created and checked by the drill.
+printf '%s %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$*" >> /var/log/drill-swapon.log
+exit 0

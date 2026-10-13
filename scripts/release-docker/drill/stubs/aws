@@ -1,0 +1,5 @@
+#!/bin/bash
+# drill stand-in for the AWS CLI: records the call and fails — the offline drill must not depend on any AWS API
+printf '%s %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$*" >> /var/log/drill-aws-cli.log
+echo "drill: the AWS CLI is not available in the offline drill (aws $*)" >&2
+exit 97
