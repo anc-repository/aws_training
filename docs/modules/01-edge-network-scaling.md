@@ -59,7 +59,7 @@
 | + cdn（VPC Origin） | — | VPC CIDR + CloudFront origin-facing 网段（实际来源地址以实测为准） | `https` |
 
 - 所有监听器统一 `real_ip_header X-Forwarded-For; real_ip_recursive on;`。8080 的 `set_real_ip_from` 写在 8080 server 块内部，会覆盖 http 级继承的值，所以两个监听器互不影响。
-- CloudFront 网段来自 `https://ip-ranges.amazonaws.com/ip-ranges.json` 中 `service = CLOUDFRONT_ORIGIN_FACING` 的条目，由 `cloudalbum-cf-ranges.timer` 每天刷新并重新渲染 `/etc/nginx/cloudalbum.d/cdn-realip-ranges.conf`（不需要 AWS 凭证）。
+- CloudFront 网段来自 `https://ip-ranges.amazonaws.com/ip-ranges.json` 中 `service = CLOUDFRONT_ORIGIN_FACING` 的条目，由 `cloudalbum-cdn-cf-ranges.timer`（模块单元一律命名为 `cloudalbum-<id>-*`，00-ec2-base.md 6.8）每天刷新并重新渲染 `/etc/nginx/cloudalbum.d/cdn-realip-ranges.inc`（不需要 AWS 凭证；扩展名 `.inc` 避免被 http 级通配符引入，只由 8080 server 块显式 include）。load-balancer 的 realip 片段为 `cloudalbum.d/load-balancer-realip.conf`（模块文件必须以模块 id 开头，00-ec2-base.md 6.7 规则 1）。
 - 统一值（C16）：`cloudalbum_proxy.conf` 发送 `proxy_set_header X-Forwarded-For $remote_addr;` 与 `proxy_set_header X-Forwarded-Proto $ca_proto;`，Express 的 `trust proxy` 固定为 `loopback`。原总纲“按启用模块计算 trust proxy 跳数”的做法废止：它依赖 `$proxy_add_x_forwarded_for` 中出现的重复地址，组合一多就容易出错；现在 Node 永远只看到一个已经由 Nginx 解析好的地址。
 - 解析结果被 WAF 基线限速（`limit_req` 以 `$binary_remote_addr` 为键）、IP 封禁（`geo $ca_denied` 默认按 realip 之后的 `$remote_addr` 匹配）、审计日志、Cookie 的 `Secure` 判断共用。realip 配错的两种后果：所有用户被当成同一个代理 IP 一起限速或封禁；或者攻击者伪造 `X-Forwarded-For` 绕过限速。
 
@@ -105,23 +105,38 @@ CloudFront 使用的 ACM 证书（tls-edge 栈）、Cognito 托管登录页自�
 
 模块栈之间禁止 CloudFormation `Export` / `!ImportValue`；跨模块参数只能由**提供方**在注册表中用 `injects` 声明（目标模块、目标栈、参数），由 `scripts/module` 在提供方启用、更新、禁用时执行。上一轮 C 组提出的、由被更新方声明的 `reconfigureOn` 已删除，原来写在那里的需求（cdn 启用后更新 storage 栈）改由下表 cdn → storage 一行承担。本组相关的注入：
 
+写法统一为总纲 3.5 的 `{ target, stack?, params: { 参数: "${Out.<输出名>}" }, when? }`（各模块第 0 节）。`AppOrigins` 是逗号分隔的列表参数：dns、cdn、load-balancer 各自以 `+` 前缀**追加**自己的入口源，`scripts/module` 取并集后再并入基础上下文中的直连入口 `http://<EIP>`（与约定 5 的 CORS 白名单一致）。
+
 | 注入方（提供方） | 被更新的模块 / 栈 | 参数 |
 |---|---|---|
 | tls | cdn | `AcmCertificateArn`、`Aliases` |
-| tls | load-balancer | `CertificateArn` |
+| tls | load-balancer | `CertificateArn`、`DomainName`（ALB 回调地址 `https://<域名>/oauth2/idpresponse` 用） |
 | tls | social-api | 区域自定义域名的 `CertificateArn` |
 | waf（CLOUDFRONT） | cdn | `WebAclArn`（CloudFront 只能用分配自身的 `WebACLId` 关联，不能用 WebACLAssociation） |
 | cdn | storage | `CdnDistributionArn`（OAC 桶策略的 `AWS:SourceArn` 条件） |
 | cdn | kms | `CloudFrontDistributionArn`（媒体桶使用 SSE-KMS 时，允许 `cloudfront.amazonaws.com` 解密） |
-| cdn / load-balancer | dns | 记录目标 |
-| dns / cdn / load-balancer | auth | 回调与登出地址（有效入口 URL 变化时，约定 5） |
+| cdn（`DNS_TARGET_TYPE=cloudfront`）/ load-balancer（`DNS_TARGET_TYPE=alb`） | dns | `TargetDnsName`（ALB 另有 `TargetHostedZoneId`；CloudFront 的托管区域 ID 固定） |
+| dns / cdn / load-balancer | auth、identity-pool、storage | `AppOrigins`（auth：回调与登出地址；identity-pool：暂存桶 CORS；storage：原图桶 CORS；有效入口 URL 变化时更新，约定 5） |
+| dns | email、tls | `HostedZoneId`（SES DKIM / MAIL FROM 记录；证书与 ACME 域验证的 CNAME） |
+| load-balancer | auth | `AlbCallbackUrls`（`LB_ADMIN_AUTH=cognito` 时，auth 栈据此创建 ALB 专用机密客户端） |
+| load-balancer | autoscaling | `TargetGroupArn` |
+| load-balancer | cdn | `AlbOriginDomainName`（`CDN_ORIGIN_TYPE=alb` 时的源站域名） |
+| load-balancer | image-processing、social-api | `OriginBaseUrl`（ALB 地址；未注入时 `scripts/module` 用基础上下文中的 `http://<EIP>`） |
+| load-balancer | waf（`regional` 栈） | `AlbArn`（REGIONAL 范围的 WebACLAssociation） |
+| load-balancer | monitoring | `AlbFullName`、`TargetGroupFullName`（告警与仪表板维度） |
+| autoscaling | load-balancer | `InstanceId` 置空（L0 实例从目标组注销） |
+| autoscaling | monitoring | `AsgName` |
+| network | load-balancer、autoscaling、database、cache、shared-fs、db-proxy | `VpcId`、`SubnetIds`（按层选择 public / app / data 子网） |
 | network | cdn、dns | `VpcId`（只影响它们的独立安全组，约定 6） |
+| network | ami | `VpcId`、`SubnetId`（Image Builder 构建实例所在子网：public 子网，或 `NatMode≠none` 时的 app 子网） |
+
+network 未启用时，上表中 network 提供的参数取默认 VPC 及其默认子网（由 `scripts/module` 从 ec2 基础栈的状态读取），不需要注入。本组接收、由其他组声明的注入：iam → autoscaling 的 `InstanceProfileName`（02#iam）；auth → load-balancer 的 `CognitoUserPoolArn`、`CognitoAlbClientId`、`CognitoDomain`（02#auth）；ami → autoscaling 的 `ImageParamArm64`、`ImageParamX8664`（06#ami）；kms → 所有声明了 `KmsKeyArn` 参数的栈（02#kms，`target: "*"`）。
 
 禁用注入方时，先用空参数更新被注入的栈，再删除自己的栈（例如 ACM 拒绝删除仍被 CloudFront 使用的证书）。模块栈不自己挂 IAM 策略，只输出 `PolicyArn`，由 `scripts/module` 附加到 `CloudAlbumAppRole`（`IAM_CREDENTIALS=keys` 时附加到演示用户），附加关系记入 `.cloudalbum/state.json`（D2）。
 
 **约定 10：本组相关的校验规则（统一编号，D3）**
 
-全部规则只写在 `backend/src/rules/rules.ts` 一张表里，依赖只用 registry 的 `requires` 表达式书写（模块 id；`a | b` 任选其一；`when`/`need` 驱动条件依赖）。下表是本组模块涉及的规则说明，编号以评审统一值为准（C4）：DEP-014～018 与 ASG-014 归本组；DEP-019～021 是 D 组 image-processing 的回写通道规则（原 DEP-D01～D03），因为和 cdn、autoscaling 相互作用而列在这里；DEP-028 是 C 组提出、落在 cdn 上的新规则。结构或语义错误一律退出码 78，并一次性打印全部错误和修复命令。
+全部规则只写在 `backend/src/rules/rules.ts` 一张表里，依赖只用 registry 的 `requires` 表达式书写，**每一项都带 `rule: <ID>`**（模块 id；`a | b` 任选其一；`when`/`need` 驱动条件依赖；条件只能在部署期判断的项写 `need: []`，由 `rules.ts` 的 `deployCheck()` 检查）。下表是本组模块涉及的规则说明，编号以总纲 5.2 为准：DEP-014～018 与 ASG-014 归本组；DEP-038～042 是本组 registry 中原先只有条件、没有编号的五条依赖（第 3 轮由总纲补编）；DEP-019～021 是 D 组 image-processing 的回写通道规则（原 DEP-D01～D03），因为和 cdn、autoscaling 相互作用而列在这里；DEP-028 是 C 组提出、落在 cdn 上的新规则。ASG-001～013 的条件只写在 `rules.ts`，不出现在 autoscaling 的 `requires` 中。结构或语义错误一律退出码 78，并一次性打印全部错误和修复命令。
 
 | ID | 级别 | 可覆盖 | 范围 | 违规条件 | 说明 / 修复 |
 |---|---|---|---|---|---|
@@ -131,9 +146,9 @@ CloudFront 使用的 ACM 证书（tls-edge 栈）、Cognito 托管登录页自�
 | DEP-005（修订） | error | 否 | 启动 | ① `TLS_MODE=acm` 但 `TLS_DOMAIN` 为空；② cdn/load-balancer/social-api 绑定了自定义域名，却缺少对应区域的集成证书 ARN；③ `TLS_ACME=off`（ACME 端点不可用或被显式关闭），但不满足“dns 或外部 DNS”且“cdn 或 load-balancer” | ①② 是证书挂载的基本条件。③ 是回退分支：ACM ACME 端点（2026-07 起，已核实）让只有 L0 时也能用 ACM；`scripts/module` 探测到端点不可用时写入 `TLS_ACME=off`，最小依赖回到 {dns 或外部 DNS, cdn 或 load-balancer}，即考试结论中的形态 |
 | DEP-006 | error | 否 | 启动 | waf 已启用，但 cdn 与 load-balancer 都未启用 | WAF 不能关联 EC2、EIP、NLB |
 | DEP-007 | error | 否 | 启动 | `DEPLOY_MODE=asg`，但 `IAM_CREDENTIALS≠role` 或 load-balancer 未启用 | 实例用角色拉取引导配置包；流量经 ALB 分发 |
-| DEP-009（修订） | error | 否 | 部署 | `NETWORK_PLACEMENT=private`，但入口（load-balancer，或 cdn 且 `CDN_ORIGIN_TYPE=vpc-origin`）、出网路径、运维通道三者缺一 | 原规则只接受 load-balancer 作为入口 |
+| DEP-009（修订） | error | 否 | 部署 | `NETWORK_PLACEMENT=private`，但入口（load-balancer，或 cdn 且 `CDN_ORIGIN_TYPE=vpc-origin`）、出网路径、运维通道三者缺一。出网路径 = NAT；或 `NatMode=none` 时：Interface Endpoint 含 `cloudformation`（替换实例的 `cfn-signal`）与各已启用模块所需端点、`IAM_CREDENTIALS=role`、工具链栈的发布包镜像（network 第 2 节） | 原规则只接受 load-balancer 作为入口，也没有考虑新实例引导期的出网 |
 | DEP-010 | error | 否 | 部署 | cdn 的 `CDN_MEDIA_ORIGIN=s3`，但 `STORAGE_DRIVER≠s3` | 改回 `CDN_MEDIA_ORIGIN=ec2` |
-| DEP-011 | warn | — | 启动 | load-balancer 已启用，但 auth=cognito 或 HTTPS 监听器缺失 | F12 的 `authenticate-cognito` 子功能关闭，应用层 RBAC 照常 |
+| DEP-011 | warn | — | 启动 | load-balancer 已启用，但 `AUTH_DRIVER≠cognito` 或 ALB 没有 HTTPS 监听器 | F12 的 `authenticate-cognito` 子功能关闭，应用层 RBAC 照常 |
 | DEP-014 | error | 否 | 部署 | cdn 的 `CDN_ORIGIN_TYPE=ec2`，但实例没有关联 EIP | 源站只能填域名；没有 EIP 时实例停止再启动后公网 DNS 会变 |
 | DEP-015 | error | 否 | 启动 | `TLS_FORCE_HTTPS=true`，但直连监听器使用自签名证书 | 自签名 + HSTS 会把用户锁在站外 |
 | DEP-016（修订） | error | 否 | 部署 | network 的启用、禁用或更新会改变实例的 **`VpcId`**，而仍有已部署的 VPC 绑定模块（load-balancer、database、cache、shared-fs、autoscaling、db-proxy，以及放进 VPC 的 Lambda） | 同一 VPC 内只改 `NETWORK_PLACEMENT`（`public` ↔ `private`）**不触发**本规则，只检查 DEP-009，并更新 ALB 目标或 VPC Origin。只有安全组的栈（cdn、dns）不算 VPC 绑定模块，由 `injects` 随迁移重建。修复：先按 Lab 顺序在启用这些模块之前完成 `public` 迁入，或加 `--cascade` 先禁用、迁移后再启用 |
@@ -143,6 +158,11 @@ CloudFront 使用的 ACM 证书（tls-edge 栈）、Cognito 托管登录页自�
 | DEP-020 | warn | — | 启动 | `IMAGE_RESULT_CHANNEL=callback` 且 cdn 已启用 | 本组的 8080 监听器与 CloudFront 行为都不放行 `/internal/hooks/`；只有 `CDN_DIRECT_ACCESS=open` 时回调还能走直连 80。收紧源站前改用 `IMAGE_RESULT_CHANNEL=queue`（预设 l4-async 已固定为 queue） |
 | DEP-021 | warn | — | 启动 | 回调地址以 `http://` 开头 | HMAC 防伪造、防篡改，不防窃听 |
 | DEP-028 | warn | — | 启动 | cdn 的 `CDN_MEDIA_ORIGIN=ec2`，而 `STORAGE_DRIVER=s3` | 源站 `/media` 会返回指向会过期预签名 URL 的 302，不能放进边缘缓存。此时 MediaUrlBuilder 不把媒体 URL 改写到 CDN，cdn 状态为 `degraded`，提示改为 `CDN_MEDIA_ORIGIN=s3` |
+| DEP-038 | error | 否 | 启动 | `CDN_ORIGIN_TYPE=alb`，但 load-balancer 未启用 | 源站是 ALB 时必须先有 ALB；否则改回 `CDN_ORIGIN_TYPE=ec2` |
+| DEP-039 | error | 否 | 启动 | `CDN_ORIGIN_TYPE=vpc-origin`，但 `NETWORK_PLACEMENT≠private` | VPC Origin 的目标（internal ALB 或私有 EC2）必须在私有子网 |
+| DEP-040 | error | 否 | 启动 | `DNS_TARGET_TYPE=alb`，但 load-balancer 未启用 | Alias 目标不存在；改为 `eip` 或先启用 load-balancer |
+| DEP-041 | error | 否 | 启动 | `DNS_TARGET_TYPE=cloudfront`，但 cdn 或 tls 未启用 | Alias 到 CloudFront 要求分配上配置了该备用域名，而备用域名需要 us-east-1 的 ACM 证书 |
+| DEP-042 | error | 否 | 启动 | `LB_ORIGIN_VERIFY=on`，但 `CDN_ORIGIN_TYPE≠alb` | ALB 只接受带 `X-Origin-Verify` 的请求时，没有以 ALB 为源站的 CloudFront 就会把全部请求挡成 403 |
 | SEC-001（修订） | warn | — | 运行 | cdn 已启用，但 8080 监听器缺失，或最近 5 分钟出现 `X-Origin-Verify` 不匹配的回源请求 | 有人用自己的 CloudFront 分配指向我们的源站 |
 | SEC-002 | warn | — | 运行 | load-balancer 已启用，但仍有不经 ALB 的公网请求，或实例对 `0.0.0.0/0` 开放 80/443 | 用户绕过 ALB |
 | ASG-013（修订） | warn | — | 启动 | 限速计数按实例分别统计：`CACHE_DRIVER≠redis`（应用层），或 `WAF_MODE=nginx`（Nginx 层） | 实际限额 = 单实例限额 × 实例数。总纲 CachePort 注释中的 ASG-015 改为引用本规则 |
@@ -166,16 +186,16 @@ CloudFront 使用的 ACM 证书（tls-edge 栈）、Cognito 托管登录页自�
 | Lab 5 | cdn | l2-edge | 先以 EC2 为源站；之后把媒体源站切到 S3（OAC 三阶段） |
 | Lab 6 | dns、tls | l2-edge | 需要域名，可跳过；ACME 端点不可用时 tls 只做在 cdn 上（DEP-005 回退分支） |
 | Lab 7 | waf | l2-edge | CLOUDFRONT 范围 |
-| Lab 14 | network（`public`） | l6-data | **必须在任何 VPC 绑定模块之前**迁入自定义 VPC（DEP-016）；此时 cdn、dns 只有安全组需要随迁移重建 |
-| Lab 19 | load-balancer | l8-ha | 区域证书、`LB_ADMIN_AUTH=cognito`，cdn 源站切到 ALB |
-| Lab 20 | network（`private`） | l8-ha | 同一 VPC 内从 `public` 切到 `private`，不触发 DEP-016 |
+| Lab 14 | network（`public`） | l6-data | **必须在任何 VPC 绑定模块之前**迁入自定义 VPC（DEP-016）；此时 cdn、dns 只有安全组需要随迁移重建；public 子网自动分配公网 IPv4，新实例引导期靠它出网，收到 `cfn-signal` 后改挂原 EIP |
+| Lab 19 | load-balancer | l8-ha | 有域名时挂区域证书并设 `LB_ADMIN_AUTH=cognito`（没有域名时不设，F12 的 ALB 认证按 DEP-011 关闭）；cdn 源站切到 ALB |
+| Lab 20 | network（`private`） | l8-ha | 同一 VPC 内从 `public` 切到 `private`，不触发 DEP-016；没有 NAT 时引导期出网走 Endpoint（含 `cloudformation`）+ 工具链栈发布包镜像（DEP-009） |
 | Lab 21 | autoscaling（+ shared-fs 变体；ami 作为前置或扩展） | l8-ha、x-efs-asg | 依赖前面全部数据层模块 |
 
 本组模块在 l0-plus-local-tiers 中的本地档：`LB_LOCAL_WORKERS=2`；有域名时 `TLS_MODE=letsencrypt`。每个模块单独加在 L0 上的形态由 `profiles/single/<id>.env` 自动生成（L0 + 本模块 + 最小硬依赖；`credentials: required` 的模块自动并入 iam(role)；dns、tls 的“拥有域名”在冒烟矩阵中标为“需人工”）。
 
 **约定 12：本组定稿的设计点（均已进入评审统一值，总纲按此修订）**
 
-1. 端口（统一值 C10，共 23 个端口中的 3 个）：`ports/cdn.ts`（CdnPort，`adapters/cdn/{direct,cloudfront}.ts`）、`ports/blocklist.ts`（BlocklistPort，`adapters/waf/{nginx,aws}.ts`）、`ports/instance-lifecycle.ts`（InstanceLifecyclePort，`adapters/autoscaling/{single,asg}.ts`）。驱动名等于开关取值；AWS SDK 客户端统一由 `backend/src/adapters/aws/clients.ts` 创建。三者都是**非权威端口**（统一值 C30）：故障时模块标为 `degraded`，在 status 与路径头中可见，不返回 503。
+1. 端口（共 24 个端口——23 个模块端口 + 内部 LockPort，总纲 4.1——中的 3 个）：`ports/cdn.ts`（CdnPort，`adapters/cdn/{direct,cloudfront}.ts`）、`ports/blocklist.ts`（BlocklistPort，`adapters/waf/{nginx,aws}.ts`）、`ports/instance-lifecycle.ts`（InstanceLifecyclePort，`adapters/autoscaling/{single,asg}.ts`）。驱动名等于开关取值；AWS SDK 客户端统一由 `backend/src/adapters/aws/clients.ts` 创建。三者都是**非权威端口**（统一值 C30）：故障时模块标为 `degraded`，在 status 与路径头中可见，不返回 503。
 2. 纯基础设施型模块的声明型开关（约定 1，统一值 C1）。
 3. tls 在 ACME 端点可用时可以在 L0 上单独启用，并保留回退分支（DEP-005）；network 的 private 放置接受 VPC Origin 作为入口（DEP-009）；DEP-016 只在 `VpcId` 变化时触发。
 4. Nginx 的 include 点由 00-ec2-base.md 提供，cdn 使用独立的 8080 监听器（约定 2，统一值 C17）。
@@ -225,22 +245,35 @@ network:
   switch: { var: NETWORK_PLACEMENT, values: [default, public, private], ownedValues: [public, private], localTiers: [] }
   ownsEnv: [NETWORK_]
   credentials: optional                  # 无凭证时感知器只能按 CIDR 推断（inferred）
-  prerequisites: []
+  prerequisites: []                      # private + NatMode=none 时另需 toolchain（发布包镜像，DEP-009 的 deployCheck 检查）
   requires:
-    - when: { NETWORK_PLACEMENT: private }                       # DEP-009（部署范围）
-      need: ["load-balancer | CDN_ORIGIN_TYPE=vpc-origin",       # 入口
-             "NETWORK_NAT_MODE!=none | NETWORK_INTERFACE_ENDPOINTS!=none",   # 出网（逐模块端点探测在 rules.ts）
-             "shell-access | NETWORK_EIC_ENDPOINT=on"]           # 运维通道
+    - { rule: DEP-009, when: { NETWORK_PLACEMENT: private },
+        need: ["load-balancer | CDN_ORIGIN_TYPE=vpc-origin",                     # 入口
+               "NETWORK_NAT_MODE!=none | NETWORK_INTERFACE_ENDPOINTS!=none",     # 出网；NatMode=none 时 deployCheck() 另查：端点含 cloudformation 与各模块所需端点、IAM_CREDENTIALS=role、工具链栈的发布包镜像
+               "shell-access | NETWORK_EIC_ENDPOINT=on"] }                        # 运维通道
+    - { rule: DEP-016, need: [] }        # 无启动期条件；deployCheck()：本次启用 / 禁用 / 更新会改变 VpcId，且仍有已部署的 VPC 绑定模块
   soft: [shell-access, load-balancer, logging]
   conflicts: []
   orderBefore: [load-balancer, database, cache, shared-fs, autoscaling, db-proxy]   # DEP-016：先迁入再建 VPC 绑定资源
   authoritative: false
   bypass: []
-  stacks: [{ name: main, template: infra/modules/network.yaml }]
-  baseParams: [VpcId, SubnetId, AssociateEip, PublicHttpIngress, DataVolumeAttach, DataVolumeId]   # 定义见 00-ec2-base.md
-  injects:
-    - { module: cdn, stack: main, params: [VpcId] }      # 只影响 cdn 源站安全组
-    - { module: dns, stack: main, params: [VpcId] }      # 只影响健康检查器安全组
+  stacks: [{ name: main, template: infra/modules/network.yaml }]   # 栈参数 Placement=public|private 由 --placement 给出
+  baseParams:                            # 定义见 00-ec2-base.md 6.2；只在“替换实例的流程”中由 replaceInstance() 分阶段下发（00 第 8 节）
+    VpcId: "${Out.EnvNetworkVpcId}"
+    SubnetId: "${Out.InfoInstanceSubnetId}"            # public：public 第一个子网；private：app 第一个子网（与数据卷同 AZ）
+    AssociateEip: "${Out.InfoAssociateEip}"            # public = true，private = false
+    PublicHttpIngress: "${Out.InfoPublicHttpIngress}"  # private = closed；public = open（与其他声明方取最严格）
+    # DataVolumeAttach、DataVolumeId 不是 network 的长期取值：replaceInstance() 在分阶段流程中临时写入（跨 AZ 时传快照建的新卷）
+  injects:                               # D2：跨模块参数只由提供方声明；network 未启用时这些参数由 scripts/module 取默认 VPC 的值（基础上下文）
+    - { target: load-balancer, params: { VpcId: "${Out.EnvNetworkVpcId}", SubnetIds: "${Out.EnvNetworkPublicSubnetIds}" } }   # internet-facing ALB 在 public 子网
+    - { target: autoscaling,   params: { SubnetIds: "${Out.InfoAsgSubnetIds}" } }                                         # private：app 子网；public：public 子网
+    - { target: database,      params: { VpcId: "${Out.EnvNetworkVpcId}", SubnetIds: "${Out.EnvNetworkDataSubnetIds}" } }
+    - { target: cache,         params: { VpcId: "${Out.EnvNetworkVpcId}", SubnetIds: "${Out.EnvNetworkDataSubnetIds}" } }
+    - { target: shared-fs,     params: { VpcId: "${Out.EnvNetworkVpcId}", SubnetIds: "${Out.EnvNetworkDataSubnetIds}" } }
+    - { target: db-proxy,      params: { VpcId: "${Out.EnvNetworkVpcId}", SubnetIds: "${Out.EnvNetworkDataSubnetIds}" } }
+    - { target: cdn,           params: { VpcId: "${Out.EnvNetworkVpcId}" } }        # 只影响 cdn 源站安全组
+    - { target: dns,           params: { VpcId: "${Out.EnvNetworkVpcId}" } }        # 只影响健康检查器安全组
+    - { target: ami,           params: { VpcId: "${Out.EnvNetworkVpcId}", SubnetId: "${Out.InfoBuildSubnetId}" } }   # Image Builder 构建实例：public 子网，或 NatMode≠none 时 app 子网
   secretParams: []
   migration: instance-move               # 分阶段替换实例 + 数据卷改挂，见第 6 节
   probe: { kind: detector, intervalSec: 60 }
@@ -269,7 +302,7 @@ network:
 
 - **VPC**：10.0.0.0/16，`EnableDnsSupport` 与 `EnableDnsHostnames` 均为 true。
 - **AZ**：参数 `AzIds` 用 AZ ID 而不是 AZ 名称（AZ 名称到 AZ ID 的映射因账号而异），默认 `apne1-az1,apne1-az4`。`scripts/module` 会把 L0 实例所在的 AZ ID 放在第一位（它不是 `apne1-az3` 时），使迁移时数据卷可以直接改挂。东京的 `apne1-az3` 不支持 CloudFront VPC Origin，新账号通常也无法使用，不要选它。
-- **子网**（`MapPublicIpOnLaunch` 全部为 false，公网地址只用 EIP 显式分配）：
+- **子网**（public 子网 `MapPublicIpOnLaunch=true`，app、data 子网为 false）：public 子网必须自动分配公网 IPv4，原因是基础栈的 EIP 关联要等新实例发出 `cfn-signal` 之后才创建，引导期间（`dnf`、下载发布包、`cfn-signal`）实例只能靠自动分配的公网地址出网，否则 `CreationPolicy` 超时回滚（00-ec2-base.md 的 `preflight: ec2-public-ipv4-at-boot`）；EIP 关联后自动分配的地址随即释放，对外地址仍是原 EIP。ALB、NAT 的公网地址与此参数无关：
 
 | 层 | AZ-1 | AZ-2 | 路由 | 用途 |
 |---|---|---|---|---|
@@ -279,7 +312,8 @@ network:
 
 - **NAT**：参数 `NatMode=none|instance|gateway`，**默认 `none`**（`public` 放置不需要 NAT）。`gateway`：默认 1 个放在 public 第一个子网，`HaNat=true` 时每个 AZ 一个、每个 app 路由表指向本 AZ 的 NAT。`instance`：t4g.nano 的 AL2023 实例，开启 IP 转发并配置 iptables MASQUERADE，关闭源/目标检查（`SourceDestCheck=false`），挂 EIP，自带安全组（入站只允许 VPC CIDR）。
 - **Gateway Endpoint**：S3 与 DynamoDB，关联 app 与 data 路由表，免费。参数 `EndpointPolicyMode=open|restricted`：restricted 时只允许访问 `cloudalbum-*` 资源，**同时必须放行 AL2023 软件仓库所在的 S3 桶**（`al2023-repos-<region>-*`，桶名以官方文档为准），否则私有子网里 `dnf install` 会失败。
-- **Interface Endpoint**：参数 `InterfaceEndpoints=none|ops|all`。`ops` = `ssm`、`ssmmessages`、`logs`、`monitoring`（SSM Agent 3.3.40.0 起优先使用 `ssmmessages`，老区域是否还需要 `ec2messages` 以官方文档为准）；`all` 再加 `secretsmanager`、`sqs`、`sns`、`sts`、`kms` 以及按已启用模块需要的端点。放在 app 子网，`PrivateDnsEnabled=true`，端点安全组只放行 VPC CIDR 的 443。每个端点每个 AZ 按小时计费。
+- **Interface Endpoint**：参数 `InterfaceEndpoints=none|ops|all`。`ops` = `ssm`、`ssmmessages`、`logs`、`monitoring`、`cloudformation`（SSM Agent 3.3.40.0 起优先使用 `ssmmessages`，老区域是否还需要 `ec2messages` 以官方文档为准；`cloudformation` 供 `NatMode=none` 时替换实例的引导脚本发 `cfn-signal`）；`all` 再加 `secretsmanager`、`sqs`、`sns`、`sts`、`kms` 以及按已启用模块需要的端点。放在 app 子网，`PrivateDnsEnabled=true`，端点安全组只放行 VPC CIDR 的 443。每个端点每个 AZ 按小时计费。
+- **没有 NAT 时的引导期出网**（`private` + `NatMode=none`，DEP-009）：替换实例时新实例的引导脚本要 `dnf`（AL2023 仓库在 S3 上，经 S3 Gateway Endpoint）、下载发布包、发 `cfn-signal`（经 `cloudformation` Interface Endpoint）。GitHub Release 不可达，所以 `scripts/module` 先把固定版本的发布包复制到工具链栈制品桶的 `releases/<版本>/<架构>.tgz`，并在替换实例的同一次基础栈更新中把 `AppArchiveUrl` 改为该 `s3://` 地址（实例本来就要被替换，改 User Data 不会额外停机）；引导段用实例角色经 S3 Gateway Endpoint 下载，所以此时要求 `IAM_CREDENTIALS=role`，network 的 `PolicyArn` 含对 `releases/*` 的 `s3:GetObject`。`EndpointPolicyMode=restricted` 时 Gateway Endpoint 策略也要放行工具链桶。
 - **NACL**（只加在 data 子网）：入站只允许 app 子网 CIDR 的 TCP 5432、6379、2049；出站只允许到 app 子网 CIDR 的 TCP 1024–65535（临时端口）。NACL 无状态，忘了出站临时端口会导致连接挂起而不是立即被拒绝。
 - **VPC Flow Logs**：VPC 级，`TrafficType=ALL`，自定义格式（v5 字段）：`version interface-id instance-id srcaddr dstaddr srcport dstport protocol packets bytes action pkt-srcaddr pkt-dstaddr flow-direction traffic-path start end`；`MaxAggregationInterval=60`（便于实验观察）。目标为 CloudWatch Logs `/cloudalbum/<env>/vpc-flow`（保留 7 天，需要一个投递 IAM 角色）或 S3（参数 `FlowLogDestination=cloudwatch|s3`）。
 - **EC2 Instance Connect Endpoint**（可选，`EnableEicEndpoint=true`）：放在 app 第一个子网，自带安全组；实例安全组通过附加安全组放行来自该端点安全组的 22。私有实例不需要公网 22 也能 SSH。
@@ -291,9 +325,9 @@ network:
 | `public` | public 第一个子网 | 原 EIP 重新关联 | 与 L0 相同（EIP 直连） | 能，相当于“自定义 VPC 版 L0” |
 | `private` | app 第一个子网 | 无 | 只能经 ALB（internet-facing，在 public 子网），或 CloudFront VPC Origin | 不能（DEP-009） |
 
-- **Outputs**：`EnvNetworkPlacement`、`EnvNetworkVpcId`、`EnvNetworkVpcCidr`、`EnvNetworkPublicSubnetIds`、`EnvNetworkAppSubnetIds`、`EnvNetworkDataSubnetIds`、`EnvNetworkNatMode`、`EnvNetworkNatPublicIps`、`EnvNetworkS3EndpointId`、`EnvNetworkDdbEndpointId`、`EnvNetworkInterfaceEndpoints`、`EnvNetworkFlowLogGroup`；`PolicyArn` 包含 `ec2:DescribeVpcs`、`DescribeSubnets`、`DescribeRouteTables`、`DescribeNatGateways`、`DescribeVpcEndpoints`，以及对 Flow Logs 日志组的 `logs:StartQuery`、`logs:GetQueryResults`（供 `/lab` 查询）。
-- **baseParams**（由 `scripts/module` 更新基础栈；参数定义与缺省值见 00-ec2-base.md）：`VpcId`、`SubnetId`、`AssociateEip`（public=true，private=false）、`PublicHttpIngress`（private 隐含 closed）、`DataVolumeAttach` 与 `DataVolumeId`（迁移分阶段使用，见第 6 节）。
-- **injects**：`VpcId` 注入 cdn、dns 栈（它们只有独立安全组，约定 6）。
+- **Outputs**：`EnvNetworkPlacement`、`EnvNetworkVpcId`、`EnvNetworkVpcCidr`、`EnvNetworkPublicSubnetIds`、`EnvNetworkAppSubnetIds`、`EnvNetworkDataSubnetIds`、`EnvNetworkNatMode`、`EnvNetworkNatPublicIps`、`EnvNetworkS3EndpointId`、`EnvNetworkDdbEndpointId`、`EnvNetworkInterfaceEndpoints`、`EnvNetworkEicEndpoint`、`EnvNetworkFlowLogGroup`；按栈参数 `Placement` 与 `NatMode` 计算的 `InfoInstanceSubnetId`、`InfoAssociateEip`、`InfoPublicHttpIngress`（供 `baseParams`）、`InfoAsgSubnetIds`、`InfoBuildSubnetId`（供 `injects`）；`PolicyArn` 包含 `ec2:DescribeVpcs`、`DescribeSubnets`、`DescribeRouteTables`、`DescribeNatGateways`、`DescribeVpcEndpoints`，对 Flow Logs 日志组的 `logs:StartQuery`、`logs:GetQueryResults`（供 `/lab` 查询），以及 `NatMode=none` 时对工具链桶 `releases/*` 的 `s3:GetObject`。
+- **baseParams**（由 `scripts/module` 更新基础栈；参数定义与缺省值见 00-ec2-base.md）：`VpcId`、`SubnetId`、`AssociateEip`（public=true，private=false）、`PublicHttpIngress`（private 隐含 closed）；`DataVolumeAttach` 与 `DataVolumeId` 只在迁移分阶段中临时使用（第 6 节）。
+- **injects**：见第 0 节，按层把 VPC 与子网注入 load-balancer（public）、autoscaling（随放置）、database / cache / shared-fs / db-proxy（data），把 `VpcId` 注入 cdn、dns（它们只有独立安全组，约定 6），把构建子网注入 ami。
 
 ```mermaid
 flowchart LR
@@ -332,9 +366,9 @@ NETWORK_INTERFACE_ENDPOINTS=ops           # none | ops | all
 NETWORK_EIC_ENDPOINT=off                  # on：已建 EC2 Instance Connect Endpoint（DEP-009 的运维通道之一）
 NETWORK_FLOW_LOG_GROUP=/cloudalbum/lab/vpc-flow
 
-# CloudFormation 参数（scripts/module enable network --param ...）
-# AzIds=apne1-az1,apne1-az4  NatMode=gateway  HaNat=false  InterfaceEndpoints=ops
-# EndpointPolicyMode=open  FlowLogDestination=cloudwatch  EnableEicEndpoint=false
+# CloudFormation 参数（scripts/module enable network --placement public|private --param ...）
+# Placement=private  AzIds=apne1-az1,apne1-az4  NatMode=gateway  HaNat=false  InterfaceEndpoints=ops
+# EndpointPolicyMode=open  FlowLogDestination=cloudwatch  EnableEicEndpoint=false  ToolchainBucket=<工具链桶名，NatMode=none 时用>
 ```
 
 感知器要点（纯基础设施型没有端口，只有感知器）：
@@ -351,7 +385,8 @@ NETWORK_FLOW_LOG_GROUP=/cloudalbum/lab/vpc-flow
 **硬依赖**
 
 - `public` 放置：除 L0 外无依赖。
-- `private` 放置（DEP-009）：① 入口：load-balancer，或 cdn 且 `CDN_ORIGIN_TYPE=vpc-origin`；② 出网：`NatMode≠none`，或者为每个已启用、需要调用 AWS/公网 API 的模块提供对应 Endpoint（`NatMode=none` 时 `scripts/module` 会逐项探测，不可达的模块会在 capabilities 中变成 `error`）；③ 运维通道：shell-access（需要 iam 实例配置文件，外加 NAT 或 ssm/ssmmessages 端点），或 EC2 Instance Connect Endpoint。缺任何一项，`scripts/module` 拒绝切换。
+- `private` 放置（DEP-009）：① 入口：load-balancer，或 cdn 且 `CDN_ORIGIN_TYPE=vpc-origin`；② 出网：`NatMode≠none`；或 `NatMode=none` 时同时满足——`InterfaceEndpoints≠none`（`ops`、`all` 都含 `cloudformation`，替换实例时的 `cfn-signal` 需要它）、每个已启用且需要调用 AWS / 公网 API 的模块都有对应 Endpoint（`scripts/module` 逐项探测，不可达的模块在 capabilities 中变成 `error`）、`IAM_CREDENTIALS=role` 且工具链栈存在（发布包镜像，见第 2 节“没有 NAT 时的引导期出网”）；③ 运维通道：shell-access（需要 iam 且 `IAM_CREDENTIALS=role`，外加 NAT 或 ssm/ssmmessages 端点），或 EC2 Instance Connect Endpoint。缺任何一项，`scripts/module` 拒绝切换。
+- `public` 放置：network 栈的 public 子网固定 `MapPublicIpOnLaunch=true`，新实例引导期有自动分配的公网 IPv4（`preflight: ec2-public-ipv4-at-boot` 通过）；如果改用已有 VPC 的子网，`scripts/module` 先检查该属性。
 - **只有 `VpcId` 变化时**（默认 VPC → 自定义 VPC 的 `public` 迁入，或禁用时迁回默认 VPC）才要求当前没有已部署的 VPC 绑定模块（DEP-016）：load-balancer、database、cache、shared-fs、autoscaling、db-proxy、VPC 内的 Lambda。它们的子网、ENI、安全组都属于原 VPC，必须先禁用（或 `--cascade`），迁移后再在新 VPC 中启用。按统一的 Lab 顺序，`public` 迁入（Lab 14）排在所有 VPC 绑定模块之前，正常练习路径不会触发 DEP-016。
 - 同一 VPC 内从 `public` 切到 `private`（Lab 20）不改变 `VpcId`，不触发 DEP-016：RDS、ElastiCache、EFS、ALB 原地不动，只检查 DEP-009，并在实例替换后更新 ALB 目标或 VPC Origin。
 - cdn 的源站安全组、dns 的健康检查器安全组只是“附着”在 VPC 上，`VpcId` 变化时由 `injects` 随迁移重建，不需要禁用 cdn、dns。
@@ -419,8 +454,8 @@ network 的启用是一次**实例迁移**（总纲 9.3），有停机窗口，�
 
 | 场景 | 命令 | `VpcId` 是否变化 | DEP-016 | 受影响的其他资源 |
 |---|---|---|---|---|
-| 迁入自定义 VPC，`public` 放置（Lab 14） | `scripts/module enable network --placement public [--endpoints ops\|all]` | 是 | 检查 | 实例安全组随 VPC 重建；cdn、dns 的独立安全组经 `injects` 重建；EIP 重新关联，公网地址不变 |
-| 同一 VPC 内改为 `private`（Lab 20） | `scripts/module enable network --placement private --nat gateway\|instance\|none`（已启用时等价于更新放置方式） | 否 | 不检查，只检查 DEP-009 | 实例换到 app 子网（同 AZ）；ALB 目标或 VPC Origin 指向新实例；数据层资源不动 |
+| 迁入自定义 VPC，`public` 放置（Lab 14） | `scripts/module enable network --placement public [--endpoints ops\|all]` | 是 | 检查 | 实例安全组随 VPC 重建；cdn、dns 的独立安全组经 `injects` 重建；新实例在 public 子网先用自动分配的公网 IPv4 完成引导，收到 `cfn-signal` 后 EIP 重新关联，公网地址不变 |
+| 同一 VPC 内改为 `private`（Lab 20） | `scripts/module enable network --placement private --nat gateway\|instance\|none`（已启用时等价于更新放置方式） | 否 | 不检查，只检查 DEP-009 | 实例换到 app 子网（同 AZ）；ALB 目标或 VPC Origin 指向新实例；数据层资源不动。`--nat none` 时新实例的引导出网走 Endpoint：先上传发布包镜像，`AppArchiveUrl` 随替换改为 `s3://` 地址（第 2 节） |
 
 **enable / 更新放置方式**
 
@@ -428,7 +463,7 @@ network 的启用是一次**实例迁移**（总纲 9.3），有停机窗口，�
 2. **部署或更新 network 栈**，等待 NAT、Endpoint 就绪。
 3. **进入只读窗口**：运行时配置 `readOnly=true`，写接口返回 503；停止 `cloudalbum-api` 与 `cloudalbum-worker`；对数据卷做快照（保险，打 `Backup=true` 标签）；停止实例。
 4. **基础栈更新 #1**：`DataVolumeAttach=false`，卸载数据卷。
-5. **基础栈更新 #2**：`VpcId`（如有变化）、`SubnetId`、`AssociateEip`、`PublicHttpIngress` 改为新值；`VpcId` 变化时同时经 `injects` 更新 cdn、dns 栈的 `VpcId`。CloudFormation 会替换实例（`VpcId` 变化时还会替换实例安全组）。新实例的 User Data 照常安装，但因为 `DataVolumeAttach=false`，跳过挂载、**跳过密钥生成**和启动服务，安装完成即发出就绪信号。如果新子网与数据卷不在同一个 AZ，`scripts/module` 先用快照在目标 AZ 建卷，并把新卷 ID 传给参数 `DataVolumeId`。
+5. **基础栈更新 #2**：`VpcId`（如有变化）、`SubnetId`、`AssociateEip`、`PublicHttpIngress` 改为新值；`VpcId` 变化时同时经 `injects` 更新 cdn、dns 栈的 `VpcId`。CloudFormation 会替换实例（`VpcId` 变化时还会替换实例安全组）。新实例的 User Data 照常安装，但因为 `DataVolumeAttach=false`，跳过挂载、**跳过密钥生成**和启动服务，安装完成即发出就绪信号。引导期出网：`public` 放置靠 public 子网自动分配的公网 IPv4（EIP 要等信号之后才关联）；`private` 放置靠 NAT，或 `NatMode=none` 时靠 S3 Gateway Endpoint + `cloudformation` Interface Endpoint，并在本次更新中把 `AppArchiveUrl` 改为工具链栈中的发布包镜像（第 2 节）。如果新子网与数据卷不在同一个 AZ，`scripts/module` 先用快照在目标 AZ 建卷，并把新卷 ID 传给参数 `DataVolumeId`。
 6. **基础栈更新 #3**：`DataVolumeAttach=true`，挂载数据卷；`scripts/module` 通过投递通道执行 `cloudalbum-postattach`（挂载 `/var/lib/cloudalbum`、把 `/etc/cloudalbum` 指向数据卷上的 `/var/lib/cloudalbum/etc`、启动服务）。机密与本地配置（`secrets.env`、`keys/`、`modules.d/`、`tls/`、`runtime.json`）都在数据卷上，新实例直接沿用，不会重新生成（D5）。`public` 放置用 EIP 上的 SSH 或 SSM；`private` 放置只能用 SSM 或 EC2 Instance Connect Endpoint。
 7. **健康探针与密钥指纹校验**：`public` 直接经 EIP；`private` 经 ALB / CloudFront，或 SSM 端口转发访问 `127.0.0.1/api/health/ready`。再次执行 `cloudalbum keys fingerprint`，必须与第 1 步一致；不一致说明新实例生成了新密钥（已加密的 `mfa_secret` 将无法解密），立即停止，保持只读并按“回滚”处理。
 8. **切换入口**：`public` 放置时原 EIP 已在第 5 步重新关联到新实例，公网地址和所有链接不变；`private` 放置时更新 load-balancer 栈的目标实例 ID，或重建指向新实例的 VPC Origin。
@@ -472,7 +507,7 @@ network 的启用是一次**实例迁移**（总纲 9.3），有停机窗口，�
 - 删除 VPC 栈前必须先删掉依赖它的 ALB、RDS、ElastiCache、EFS 和 Lambda ENI；Lambda 的 ENI 释放可能较慢，导致栈删除长时间卡住。
 - Flow Logs 不记录访问 Amazon DNS、IMDS 等流量，不能用它排查所有问题；用 CloudWatch Logs 作为目标时还需要一个投递角色。
 - 安全组仍被其他资源引用时无法删除；按约定由各模块在自己的栈里建安全组，删除顺序就是禁用顺序的逆序。
-- 新实例的 User Data 如果在数据卷挂上之前就生成了密钥，会覆盖掉数据卷上的旧密钥，已加密字段再也解不开；所以“只安装”模式必须跳过密钥生成，迁移后必须比对密钥指纹（第 6 节第 7 步）。
+- 新实例的 User Data 如果在数据卷挂上之前就生成了密钥，这套新密钥可能取代数据卷上的旧密钥被应用加载，已加密字段再也解不开、所有会话失效；所以“只安装”模式必须跳过密钥生成（只有数据卷上也没有密钥时才生成），迁移后必须比对密钥指纹（第 6 节第 7 步）。
 - 把“换 VPC”和“同一 VPC 内换子网”混为一谈：前者要先处理 VPC 绑定模块（DEP-016），后者不需要。
 
 ### 10. 探针
@@ -509,15 +544,65 @@ badges:
 
 > 一句话总结：没有它时，浏览器直接从东京这台 EC2 上的 Nginx 取页面、JS 和缩略图，每个字节都由实例发出；有了它之后，同样的资源由离用户最近的 CloudFront 边缘节点返回，命中缓存时根本不回源。最直观的区别：响应头里出现 `X-Cache: Hit from cloudfront` 和递增的 `Age`，远离东京的地区首字节时间明显下降，EC2 出网流量曲线几乎变平。
 
+### 0. 元数据（registry 摘录）
+
+```yaml
+# modules/registry.yaml 中 cdn 的条目（摘录）
+cdn:
+  group: A
+  function: 内容分发与边缘缓存
+  awsService: Amazon CloudFront
+  auxServices: [CloudFront Functions, 响应头策略（Server-Timing）]
+  type: param                            # A·P：参数型，另有管理用小端口 CdnPort
+  port: CdnPort                          # adapters/cdn/{direct,cloudfront}.ts，非权威
+  switch: { var: CDN_BASE_URL, kind: param }   # 空 = direct 驱动 = 本地实现；非空 = cloudfront 驱动
+  ownsEnv: [CDN_]
+  credentials: optional                  # 失效按钮与 GetDistribution 探针需要；没有时 degraded
+  prerequisites: []
+  requires:
+    - { rule: DEP-010, when: { CDN_MEDIA_ORIGIN: s3 }, need: ["STORAGE_DRIVER=s3"] }
+    - { rule: DEP-028, when: { CDN_MEDIA_ORIGIN: ec2 }, need: ["STORAGE_DRIVER!=s3"], severity: warn }
+    - { rule: DEP-038, when: { CDN_ORIGIN_TYPE: alb }, need: ["load-balancer"] }
+    - { rule: DEP-039, when: { CDN_ORIGIN_TYPE: vpc-origin }, need: ["NETWORK_PLACEMENT=private"] }
+    - { rule: DEP-014, when: { CDN_ORIGIN_TYPE: ec2 }, need: [] }   # 条件只在 rules.ts 的 deployCheck()：基础栈 AssociateEip=true 且实例有公网 DNS 名
+  soft: [tls, dns, waf, storage, kms, secrets]
+  conflicts: []
+  authoritative: false
+  multiInstanceSafe: { direct: true, cloudfront: true }   # 多实例时源站必须是 ALB（autoscaling 的规则负责）
+  bypass: [cdn]
+  stacks: [{ name: main, template: infra/modules/cdn.yaml }]   # 分配是全局资源，栈在 ap-northeast-1
+  baseParams:                            # 定义见 00-ec2-base.md 6.2
+    ExtraSecurityGroupIds: "+${Out.InfoOriginSecurityGroupId}"   # 源站安全组（8080 只放行 CloudFront 前缀列表），追加
+    PublicHttpIngress: "${CDN_DIRECT_ACCESS}"                     # open | admin-ip | closed，与其他声明方取最严格
+    AdminIngressCidr: "${CDN_ADMIN_CIDR}"                         # 仅 CDN_DIRECT_ACCESS=admin-ip 时
+  injects:
+    - { target: storage,       params: { CdnDistributionArn: "${Out.InfoDistributionArn}" } }          # OAC 桶策略的 AWS:SourceArn
+    - { target: kms,           params: { CloudFrontDistributionArn: "${Out.InfoDistributionArn}" } }   # 媒体桶 SSE-KMS 时允许 CloudFront 解密
+    - { target: dns,           params: { TargetDnsName: "${Out.InfoDistributionDomainName}" }, when: { DNS_TARGET_TYPE: cloudfront } }
+    - { target: auth,          params: { AppOrigins: "+${Out.EnvCdnBaseUrl}" } }   # 回调与登出地址（约定 9：AppOrigins 由各入口追加，取并集）
+    - { target: identity-pool, params: { AppOrigins: "+${Out.EnvCdnBaseUrl}" } }   # 暂存桶 CORS
+    - { target: storage,       params: { AppOrigins: "+${Out.EnvCdnBaseUrl}" } }   # 原图桶 CORS
+  secretParams: [origin-verify, cloudfront-signing-key]   # 逻辑名；值只在 secrets.env 或 Secrets Manager；后者仅 CDN_SIGNED_MEDIA=on
+  nginxFragments: [infra/modules/cdn/nginx/cdn-origin.conf.tpl]   # 只含 8080 server 块，不定义任何 map
+  hostSetup: infra/modules/cdn/host-setup.sh   # 渲染槽位 slot-origin-verify.inc 与 cdn-realip-ranges.inc，安装 cloudalbum-cdn-cf-ranges.timer
+  migration: none                        # 数据库只存键，URL 在读取时计算
+  probe: { kind: active, method: "GET ${CDN_BASE_URL}/api/health/live + cloudfront:GetDistribution", intervalSec: 60 }
+  lab: { compare: runtime-ab, sideBySide: true, hourlyBilled: false, experiments: [ttfb, media-load, origin-requests, invalidation, api-nocache, compression] }
+  doc: docs/modules/01-edge-network-scaling.md#cdn
+```
+
+- 类型 A·P：应用只用 `CDN_BASE_URL` 改写媒体 URL，另有管理用的 CdnPort（缓存失效、探针）。CdnPort 是非权威端口：CloudFront 或失效 API 出错时只把 cdn 标为 `degraded`，媒体 URL 退回源站地址，不返回 503。
+- 支持旁路键 `cdn`（管理员，MediaUrlBuilder 对本次请求返回源站 URL）。
+
 ### 1. 基线实现（仅 EC2）
 
 `CDN_BASE_URL` 为空，由 EC2 上的 Nginx 直出（进程：nginx + 只监听 127.0.0.1:3000 的 `cloudalbum-api`）。
 
 - **文件位置**：前端构建产物 `/opt/cloudalbum/frontend/dist`（`index.html` 与 `assets/<name>-<hash>.js|css`）；照片在 `/var/lib/cloudalbum/uploads/`，键格式见总纲 2.4（`raw/…` 原图不对外，`variants/<photoId>/thumb_200.webp`、`display_1080.webp` 对外）。
-- **Nginx 缓存头**（总纲 2.5）：
+- **Nginx 缓存头**（ec2 基础的 `cloudalbum_locations.conf`，见 00-ec2-base.md）：
   - SPA：`try_files $uri $uri/ /index.html`；`index.html` 返回 `Cache-Control: no-cache`。
   - `/assets/`：`public, max-age=31536000, immutable`（文件名带内容哈希）。
-  - `/media/`：交给 Node 校验权限，Node 返回 `X-Accel-Redirect` 让 Nginx 零拷贝发送文件；公开媒体 `public, max-age=86400`，私有媒体 `private, max-age=300`；ETag 默认开启。
+  - `/media/`：交给 Node 校验权限，Node 返回 `X-Accel-Redirect` 让 Nginx 零拷贝发送文件；公开媒体 `public, max-age=86400`，私有媒体 `private, max-age=300`；ETag 默认开启。X-Accel-Redirect 要求 Nginx worker 能读上传目录：ec2 基础把 nginx 用户加入 cloudalbum 组、服务单元设 `UMask=0027`，L0 冒烟测试断言上传后 `GET /media/variants/...` 返回 200（D6，见 00-ec2-base.md）。8080 监听器复用同一份 location，前提相同。
   - `/api/`：需要认证的接口由 Express 设 `Cache-Control: private, no-store`；新增演示接口 `GET /api/public/now` 返回 `public, s-maxage=10, max-age=0`（用于观察 CDN 微缓存），`GET /api/lab/now` 返回 `private, no-store`。
 - **压缩与协议**：`gzip on`（text/css、application/javascript、application/json、image/svg+xml，`gzip_min_length 1024`，`gzip_vary on`）；AL2023 默认的 nginx 包不带 brotli 模块，基线不提供 `br`。80 端口是 HTTP/1.1；443（自签名或 tls 模块提供的证书）开启 HTTP/2；基线不做 HTTP/3。
 - **为对比实验添加的响应头**：`Timing-Allow-Origin`（入口来源列表）；CORS 允许全部入口来源（约定 5），`Access-Control-Expose-Headers: Server-Timing, X-CloudAlbum-Path, X-Cache, Age, X-Amz-Cf-Pop`；`X-CloudAlbum-Path: entry=nginx`。
@@ -538,7 +623,7 @@ badges:
 | `vpc-origin` | `CDN_ORIGIN_TYPE=vpc-origin`，需 network(private) | `AWS::CloudFront::VpcOrigin` 指向 internal ALB（推荐）或私有子网中的 EC2；目标安全组放行前缀列表或服务托管安全组 |
 | `s3-media` | `CDN_MEDIA_ORIGIN=s3`，需 storage(s3) | 媒体桶 REST 端点 + Origin Access Control（SigV4，always）；`/media/*` 行为挂一个 CloudFront Function（viewer-request）去掉 `/media` 前缀，使 `/media/variants/…` 对应对象键 `variants/…`；桶策略由 storage 栈根据注入的 `CdnDistributionArn` 生成，只授权 `variants/*` 前缀（不能把 `reports/` 等也暴露出去）；媒体桶用 SSE-KMS 时，kms 的密钥策略还要允许 `cloudfront.amazonaws.com` 解密 |
 
-**源站保护**（`ec2-origin`）：cdn 栈创建自己的安全组 `cloudalbum-<env>-cdn-origin-sg`，入站只允许 TCP 8080 来自 `com.amazonaws.global.cloudfront.origin-facing` 托管前缀列表（前缀列表 ID 由 `scripts/module` 查询后作为参数传入），通过基础栈参数 `ExtraSecurityGroupIds` 挂到实例上（约定 6）。Nginx 的 8080 监听器校验 `X-Origin-Verify`，支持新旧两个值以便轮换。前缀列表只能证明“来自某个 CloudFront 分配”，密钥头才能证明“来自我们的分配”。
+**源站保护**（`ec2-origin`）：cdn 栈创建自己的安全组 `cloudalbum-<env>-cdn-origin-sg`（参数 `VpcId`，network 改变 VPC 时经 `injects` 更新并随迁移重建），入站只允许 TCP 8080 来自 `com.amazonaws.global.cloudfront.origin-facing` 托管前缀列表（前缀列表 ID 由 `scripts/module` 查询后作为参数传入），通过基础栈参数 `ExtraSecurityGroupIds` 挂到实例上（约定 6）。Nginx 的 8080 监听器校验 `X-Origin-Verify`，支持新旧两个值以便轮换。前缀列表只能证明“来自某个 CloudFront 分配”，密钥头才能证明“来自我们的分配”。密钥的逻辑名是 `origin-verify`（约定 1）：栈参数 `OriginVerifySecret`（NoEcho）由 `scripts/module` 经 SecretsPort 读取后传入，不写进 `modules.d`，也不写进 `state.json`。
 
 **行为（按优先级）**
 
@@ -549,7 +634,7 @@ badges:
 | `/api/public/*` | ec2 | 自定义 `cloudalbum-api-micro`：最小 0、默认 0、最大 60 秒；缓存键含全部查询参数，不含 Cookie | 无 | 演示 `s-maxage` 微缓存。不用 Managed-UseOriginCacheControlHeaders，因为它把全部 Cookie 放进缓存键，登录用户之间无法共享缓存 |
 | `/api/*` | ec2 | Managed-CachingDisabled | Managed-AllViewer | 允许全部 7 种方法；转发 `Authorization`、Cookie、查询参数、`X-Compare-Bypass`、`Host`。CachingDisabled 不允许把 `Authorization` 放进缓存键，只能靠“转发全部查看器请求头”的源请求策略把它带到源站 |
 | `/social/*`（可选） | API Gateway | Managed-CachingDisabled | Managed-AllViewerExceptHostHeader | 由 social-api 模块提供源站；API Gateway 必须收到它自己的 Host |
-| 默认 `*` | ec2 | Managed-UseOriginCacheControlHeaders | 无 | 遵从 `index.html` 的 `no-cache`；SPA 深链接由 Nginx `try_files` 处理 |
+| 默认 `*` | ec2 | Managed-UseOriginCacheControlHeaders | 无 | 遵从 `index.html` 的 `no-cache`；SPA 深链接由 Nginx `try_files` 处理。默认行为只允许 GET/HEAD，所以 `POST /internal/*` 经 CDN 会被拒绝——内部端点刻意不经 CloudFront（DEP-020） |
 
 **分配配置**：`HttpVersion=http2and3`；`IPV6Enabled=true`；`PriceClass_200`（包含日本，需要全球覆盖时改为 `PriceClass_All`）；所有行为 `ViewerProtocolPolicy=redirect-to-https`；没有 tls 时使用默认证书 `*.cloudfront.net`，有 tls 时由注入参数设置 `Aliases` 与 us-east-1 的 ACM 证书（`sni-only`，`TLSv1.2_2021`）；`WebACLId` 由 waf 注入（可选）；`CustomErrorResponses` 中 403/404 的 `ErrorCachingMinTTL` 设为 0～5 秒（默认的错误缓存时间会让“缩略图生成前的 404”在边缘停留）；标准日志可选（S3 或 CloudWatch Logs）。
 
@@ -557,12 +642,12 @@ badges:
 
 **应用适配器** `backend/src/adapters/cdn/cloudfront.ts`：
 
-- `mediaUrl()`：公开媒体返回 `${CDN_BASE_URL}/media/<key>`；私有媒体：`CDN_MEDIA_ORIGIN=ec2` 时返回 `${CDN_BASE_URL}/media/<key>?exp=…&sig=…`（签名参数在缓存键中且被转发，源站校验后返回 `private`，边缘不缓存）；`CDN_MEDIA_ORIGIN=s3` 时返回 StoragePort 给出的 S3 预签名 URL（不经 CDN），除非 `CDN_SIGNED_MEDIA=on`（改用 CloudFront 签名 URL，受信任密钥组的公钥在 cdn 栈中，私钥由 secrets 管理）。
+- `mediaUrl()`：公开媒体返回 `${CDN_BASE_URL}/media/<key>`；私有媒体：`CDN_MEDIA_ORIGIN=ec2` 时返回 `${CDN_BASE_URL}/media/<key>?exp=…&sig=…`（签名参数在缓存键中且被转发，源站校验后返回 `private`，边缘不缓存）；`CDN_MEDIA_ORIGIN=s3` 时返回 StoragePort 给出的 S3 预签名 URL（不经 CDN），除非 `CDN_SIGNED_MEDIA=on`（改用 CloudFront 签名 URL，受信任密钥组的公钥在 cdn 栈中，私钥经 SecretsPort 读取逻辑名 `cloudfront-signing-key`）。`STORAGE_DRIVER=s3` 而 `CDN_MEDIA_ORIGIN` 仍为 `ec2` 时（DEP-028），源站 `/media` 会返回指向会过期预签名 URL 的 302，不能进边缘缓存，所以 `mediaUrl()` 不改写媒体 URL（原样返回 originUrl），cdn 状态为 `degraded`，detail 提示改为 `CDN_MEDIA_ORIGIN=s3`；页面与 `/assets` 仍经 CDN。
 - `invalidate(paths)` 调用 `CreateInvalidation`，`getInvalidation(id)` 查询进度。
 - `probe()`：先请求 `${CDN_BASE_URL}/api/health/live?cdnprobe=<nonce>`，确认响应的 `X-CloudAlbum-Path` 以 `entry=cloudfront` 开头（证明 8080 监听器与密钥都正确）；再连续两次请求同一个 `/assets` 文件，第二次应看到 `X-Cache: Hit`；有凭证时再用 `GetDistribution` 确认状态为 `Deployed`。
 - **管理员旁路**（总纲 8.3 的 `X-Compare-Bypass: cdn`）：MediaUrlBuilder 对这次请求返回源站 URL，页面上的图片直接从 EC2 加载。边缘本身没有旁路开关，见第 5 节。
 
-**Outputs**：`EnvCdnBaseUrl`、`EnvCdnDistributionId`、`EnvCdnOriginType`、`EnvCdnMediaOrigin`、`InfoDistributionArn`、`InfoDistributionDomainName`；`PolicyArn` 只允许对本分配执行 `cloudfront:CreateInvalidation`、`GetInvalidation`、`GetDistribution`。
+**Outputs**：`EnvCdnBaseUrl`、`EnvCdnDistributionId`、`EnvCdnOriginType`、`EnvCdnMediaOrigin`、`InfoDistributionArn`、`InfoDistributionDomainName`、`InfoOriginSecurityGroupId`（经 `baseParams` 追加到 `ExtraSecurityGroupIds`）；`PolicyArn` 只允许对本分配执行 `cloudfront:CreateInvalidation`、`GetInvalidation`、`GetDistribution`。
 
 ```mermaid
 flowchart LR
@@ -592,10 +677,13 @@ CDN_DIRECT_ACCESS=open              # open | admin-ip | closed → 映射为基�
 CDN_ADMIN_CIDR=198.51.100.7/32
 CDN_SIGNED_MEDIA=off                # off | on
 CDN_ORIGIN_DIRECT_URL=http://ec2-203-0-113-10.ap-northeast-1.compute.amazonaws.com   # 对比实验的直连地址
-CDN_ORIGIN_VERIFY_SECRET=...        # secrets 模块未启用时；启用后改为 CDN_ORIGIN_VERIFY_SECRET_ARN=...（总纲 SecretName: origin-verify）
+# 本文件不含任何机密值（CFG-002 会拒绝机密类键）。X-Origin-Verify 的值用逻辑名 origin-verify 读取：
+#   SECRETS_DRIVER=env            → /etc/cloudalbum/secrets.env 中的 ORIGIN_VERIFY（实际在数据卷 /var/lib/cloudalbum/etc）
+#   SECRETS_DRIVER=secretsmanager → cloudalbum/<env>/origin-verify（ARN 由 secrets 模块管理）
+# CDN_SIGNED_MEDIA=on 时的私钥同理，逻辑名 cloudfront-signing-key（env 驱动：CLOUDFRONT_SIGNING_KEY_FILE）
 
-# CloudFormation 参数：OriginDomainName OriginType OriginPort MediaOrigin MediaBucketDomain PriceClass
-#   AcmCertificateArn Aliases WebAclArn（后三个由 tls / waf 注入） OriginVerifySecret(NoEcho)
+# CloudFormation 参数：VpcId（network 注入） OriginDomainName OriginType OriginPort MediaOrigin MediaBucketDomain PriceClass
+#   AcmCertificateArn Aliases WebAclArn（后三个由 tls / waf 注入） OriginVerifySecret(NoEcho，经 SecretsPort 读取后传入)
 #   CloudFrontPrefixListId LoggingDestination EnableOriginShield
 ```
 
@@ -618,26 +706,33 @@ export interface CdnPort extends Adapter {
 ```
 
 ```nginx
-# /etc/nginx/cloudalbum.d/cdn-origin.conf（scripts/module 渲染，__…__ 为占位符）
-map $http_x_origin_verify $ca_cdn_verified {
-    default                0;
-    "__SECRET_CURRENT__"   1;
-    "__SECRET_PREVIOUS__"  1;      # 轮换期间新旧两个值同时有效
-}
+# /etc/nginx/cloudalbum.d/slot-origin-verify.inc（ec2 预留的槽位，cdn 的 hostSetup 写入；root:root 0600）
+# 由 00-entry.conf 中唯一的 map $http_x_origin_verify $ca_cdn_verified include（00-ec2-base.md 6.7）；cdn 不得再定义这个变量
+"__当前值__"   1;
+"__上一个值__" 1;      # 只在轮换期间存在；值由 hostSetup 以 root 从 secrets.env 的 ORIGIN_VERIFY（或 Secrets Manager）读取后渲染
+```
+
+```nginx
+# /etc/nginx/cloudalbum.d/cdn-origin.conf（registry nginxFragments 的模板渲染结果；不含任何机密，也不定义任何 map）
 server {
     listen 8080;
     server_name _;
-    include /etc/nginx/cloudalbum.d/cdn-realip-ranges.inc;   # set_real_ip_from <CloudFront origin-facing 网段>;（每日刷新，扩展名不是 .conf，避免被 http 级通配符引入）
+    include /etc/nginx/cloudalbum.d/cdn-realip-ranges.inc;   # set_real_ip_from <CloudFront origin-facing 网段>;（cloudalbum-cdn-cf-ranges.timer 每日刷新；扩展名 .inc，不会被 http 级通配符引入）
     real_ip_header X-Forwarded-For;
     real_ip_recursive on;
     gzip_types application/json;   # JS/CSS 不在源站压缩，交给边缘做 br/gzip；API JSON 仍由源站 gzip（CachingDisabled 的行为边缘不压缩）
     access_log /var/lib/cloudalbum/logs/nginx-access.json cloudalbum_json;
-    if ($ca_cdn_verified = 0) { return 403; }
+    # 00-ec2-base.md 6.7 规则 3：8080 不继承 80/443 server 块里的三行检查，必须自带
+    if ($ca_cdn_verified = 0) { return 403; }   # $ca_cdn_verified 由 00-entry.conf 的 map + slot-origin-verify.inc 计算
+    if ($ca_denied) { return 403; }             # 同一份 denylist（geo $ca_denied 由 ec2 基础在 http 级定义），按 realip 之后的客户端地址匹配
+    if ($ca_block)  { return 403; }             # 与 80/443 相同的特征拦截（map $ca_block 在 ec2 主配置中）
     root /opt/cloudalbum/frontend/dist;
     include /etc/nginx/cloudalbum_locations.conf;           # 与 80/443 共用 location
 }
 # $ca_proto（8080 上恒为 https）与 entry 段由 00-entry.conf 的 map 按 $server_port 计算
 ```
+
+- origin-verify 的值在 `secrets.env` 之外有一个**派生副本**：槽位文件 `slot-origin-verify.inc`（根卷，root 0600，Nginx master 以 root 读取）。它符合总纲 1.4 D5 的派生副本例外：由 `hostSetup` 从 `secrets.env`（或 Secrets Manager）重新生成（重放契约），leak-scan 会列出它。它留在 `/etc/nginx/cloudalbum.d/` 而不放 `/run`，因为 `00-entry.conf` 在 Nginx 启动时就要 include 它，`/run` 在重启后为空会让 Nginx 起不来。
 
 ```ts
 // frontend/src/lab/cdnProbe.ts（/lab 对比按钮的核心逻辑）
@@ -666,7 +761,7 @@ export async function probe(base: string, path: string) {
 - `CDN_ORIGIN_TYPE=alb`：需要 load-balancer。`vpc-origin`：需要 network(private)，以及 internal ALB 或私有子网中的 EC2。
 - `CDN_MEDIA_ORIGIN=s3`：需要 storage(s3)（DEP-010）；启用了 kms 且媒体桶用 SSE-KMS 时，密钥策略必须允许 CloudFront 解密。
 - 自定义域名：需要 tls（us-east-1 的 ACM 证书覆盖该域名，否则无法把域名加为备用域名），并由 dns 创建 Alias 或在外部 DNS 配 CNAME。不用自定义域名时，`*.cloudfront.net` 默认证书已经是受信任的 HTTPS。
-- 缓存失效按钮：需要 AWS 凭证具有 `cloudfront:CreateInvalidation`（推荐 iam 实例配置文件）；没有时 cdn 状态为 `degraded`，其他功能不受影响。
+- 缓存失效按钮：需要 `IAM_CREDENTIALS≠none`（推荐 role），`PolicyArn` 中有 `cloudfront:CreateInvalidation`；没有凭证时 cdn 状态为 `degraded`（`credentials: optional`），其他功能不受影响。
 - 回源走 HTTPS（可选）：源站域名必须有受信任证书，CloudFront 不接受自签名。EC2 源站默认 `http-only`，需要 HTTPS 回源时改用 ALB + ACM，或用 `origin.<域名>` + tls 模块的 ACME/Let's Encrypt 证书。
 
 **与其他模块组合**
@@ -676,10 +771,11 @@ export async function probe(base: string, path: string) {
 - **waf**：CLOUDFRONT 范围的 Web ACL 建在 us-east-1，由 cdn 栈的 `WebAclArn` 参数关联。源站必须锁定（`CDN_DIRECT_ACCESS≠open`），否则 WAF 可被绕过（DEP-018）。
 - **load-balancer**：源站换成 ALB；ALB 安全组只允许前缀列表，监听器规则校验 `X-Origin-Verify`。`/admin*`、`/oauth2/*` 必须使用 CachingDisabled + AllViewer。
 - **network(private)**：只能用 ALB 或 VPC Origin。**autoscaling**：源站必须是 ALB。
-- **storage=s3**：不开 CDN 时 S3 图片用预签名 GET URL，每个 URL 都不同，浏览器缓存利用率低；开 CDN 且 `CDN_MEDIA_ORIGIN=s3` 后公开图片 URL 稳定，可以在边缘和浏览器缓存。
+- **storage=s3**：不开 CDN 时 S3 图片用预签名 GET URL，每个 URL 都不同，浏览器缓存利用率低；开 CDN 且 `CDN_MEDIA_ORIGIN=s3` 后公开图片 URL 稳定，可以在边缘和浏览器缓存。storage 已是 s3 而 `CDN_MEDIA_ORIGIN` 还是 `ec2` 时触发 DEP-028（warn）：媒体不经 CDN，cdn 为 `degraded`。
+- **network**：`VpcId` 变化时，cdn 的源站安全组经 `injects` 随迁移重建，不需要禁用 cdn；EIP 重新关联后源站域名不变。`private` 放置后源站只能是 ALB 或 VPC Origin。
 - **social-store（F11 分享链接）**：分享页的媒体用带有效期的签名 URL；签名参数必须进入缓存键，且源站返回的缓存时间不能超过链接有效期。
 - **cache（ElastiCache）**：两者在不同层级。CDN 只缓存公共、静态内容（看 `X-Cache`）；个性化时间线只能靠 Redis（看 `X-CloudAlbum-Path` 的 `cache=` 段）。
-- **image-processing**：缩略图生成前 `/media` 返回 404，错误缓存 TTL 要很小，或者前端等到照片 `status=READY` 再显示；`IMAGE_PROCESSOR=inline` 处理大图可能超过 `OriginReadTimeout`，返回 504。
+- **image-processing**：缩略图生成前 `/media` 返回 404，错误缓存 TTL 要很小，或者前端等到照片 `status=READY` 再显示；`IMAGE_PROCESSOR=inline` 处理大图可能超过 `OriginReadTimeout`，返回 504。lambda 档的回写：cdn 不为 `/internal/*` 建行为，8080 监听器也不豁免 `/internal/hooks/`（豁免会让任何 CloudFront 分配都能打到内部端点）；回调只能走直连 80，而 `CDN_DIRECT_ACCESS` 收紧后连直连也不通，所以启用 cdn 时 image-processing 用 `IMAGE_RESULT_CHANNEL=queue`（DEP-020；预设 l4-async 已固定）。照片被拦截后，衍生图要做一次失效。
 - **auth=cognito**：App Client 的回调地址要包含 CDN 域名；本地认证若用 Cookie 携带刷新令牌，`/api/*` 必须转发 Cookie（AllViewer 已包含）。
 - **social-api**：可选 `/social/*` 行为指向 API Gateway。
 - **monitoring**：CloudFront 指标在 us-east-1；缓存命中率、源站延迟等附加指标要单独开启并收费。**logging / analytics**：标准日志可投递到 S3 或 CloudWatch Logs；实时日志需要 Kinesis Data Streams。**tracing**：X-Ray 没有 CloudFront 段，用 `X-Amz-Cf-Id` 关联日志。
@@ -733,9 +829,9 @@ export async function probe(base: string, path: string) {
 
 **enable**（`scripts/module enable cdn [--origin ec2|alb|vpc-origin] [--media-origin ec2|s3]`）
 
-1. 校验硬依赖（EIP 与公网 DNS、DEP-010 等），查询 CloudFront 托管前缀列表 ID。
-2. 生成 `X-Origin-Verify` 密钥：启用了 secrets 时存入 Secrets Manager，否则写入 `cdn.env`（640 权限）。
-3. 渲染 `/etc/nginx/cloudalbum.d/cdn-origin.conf`、`cdn-realip-ranges.inc` 与刷新定时器，执行 `nginx -t` 与 reload。
+1. 校验硬依赖（DEP-014、DEP-010、DEP-028 等），查询 CloudFront 托管前缀列表 ID。
+2. 生成 `X-Origin-Verify` 密钥（逻辑名 `origin-verify`）：`SECRETS_DRIVER=env` 时写入 `/etc/cloudalbum/secrets.env` 的 `ORIGIN_VERIFY`；`secretsmanager` 时存入 `cloudalbum/<env>/origin-verify`。`cdn.env` 中不出现密钥值（D5）。
+3. 执行 cdn 的 `hostSetup apply`：**只写** ec2 预留的槽位文件 `slot-origin-verify.inc`（不定义 map），渲染 `cdn-origin.conf`（8080 server 块）与 `cdn-realip-ranges.inc`，安装 `cloudalbum-cdn-cf-ranges.timer`；经 `nginx-reload.sh` 执行 `nginx -t`，通过后才 reload，失败则回滚本次投放的文件。
 4. 部署 cdn 栈（含源站安全组），基础栈追加 `ExtraSecurityGroupIds`；等待分配状态变为 `Deployed`，通常需要数分钟，`scripts/module` 显示进度。
 5. 写入 `cdn.env`，重启 `cloudalbum-api`。
 6. 健康探针：经 CDN 访问 `/api/health/live` 能看到 `entry=cloudfront>nginx`，重复请求 `/assets` 文件能看到 Hit。
@@ -745,9 +841,9 @@ export async function probe(base: string, path: string) {
 
 **`CDN_MEDIA_ORIGIN=s3` 的三阶段**（解决“桶策略需要分配 ARN、分配需要桶域名”的循环）：先以 `ec2` 媒体源站部署分配 → 把 `CdnDistributionArn` 注入 storage 栈生成 OAC 桶策略（以及 kms 密钥策略）→ 再把 cdn 栈的 `MediaOrigin` 改为 `s3`。
 
-**密钥轮换**：生成新值 → Nginx `map` 同时接受新旧两个值并 reload → 更新 cdn 栈的源站自定义头（分配重新部署）→ 等状态 `Deployed` 后移除旧值。
+**密钥轮换**：生成新值写入 `secrets.env` → hostSetup 重新渲染槽位文件，同时写新旧两个值，`nginx -t` 后 reload → 更新 cdn 栈的源站自定义头（分配重新部署）→ 等状态 `Deployed` 后从槽位文件移除旧值并 reload。
 
-**disable**：清空 `CDN_BASE_URL` 并重启，应用立即改回返回相对 URL；dns 记录切回原目标；反向依赖校验（waf 的 CLOUDFRONT 关联、dns Alias、storage 的 OAC 桶策略）通过后，先用空参数更新被注入的栈，再禁用并删除分配（CloudFront 要求先禁用、等待部署完成后才能删除，需要数分钟），最后移除 8080 监听器、附加安全组与刷新定时器。已发出的邮件中如果有 CDN 绝对链接会失效，所以邮件里应使用有效入口 URL（约定 5）。
+**disable**：清空 `CDN_BASE_URL` 并重启，应用立即改回返回相对 URL；dns 记录切回原目标；反向依赖校验（waf 的 CLOUDFRONT 关联、dns Alias、storage 的 OAC 桶策略）通过后，先用空参数更新被注入的栈，再禁用并删除分配（CloudFront 要求先禁用、等待部署完成后才能删除，需要数分钟），最后 `hostSetup revert`：移除 8080 监听器、清空槽位文件 `slot-origin-verify.inc`（保留空文件，00-entry.conf 仍引用它）、移除附加安全组与 `cloudalbum-cdn-cf-ranges.timer`。已发出的邮件中如果有 CDN 绝对链接会失效，所以邮件里应使用有效入口 URL（约定 5）。
 
 **回滚**：任何阶段失败都可以只清空 `CDN_BASE_URL` 并重启——直连入口一直保持可用。
 
@@ -792,14 +888,85 @@ export async function probe(base: string, path: string) {
 - `CDN_MEDIA_ORIGIN=s3` 时，CloudFront 把完整路径 `/media/…` 转给 S3，必须用 CloudFront Function 去掉前缀（源站路径只能“加前缀”不能“去前缀”）；OAC 桶策略要限制到 `variants/*`。
 - 如果把前端改为 S3 源站，用自定义错误响应把 403/404 改成 `/index.html` 会作用于整个分配，把 API 的 404 也变成 200；应改用 CloudFront Function 做 SPA 回退。
 - `OriginReadTimeout` 默认 30 秒，inline 处理大图时可能返回 504。
+- 把 `X-Origin-Verify` 的值写进 `cdn.env` 或模板默认值：它会出现在 `modules.d`、栈参数默认值或 `state.json` 中。值只放在 `secrets.env`（或 Secrets Manager），栈参数用 NoEcho。
+
+### 10. 探针
+
+| 探针 | 方式 | `degraded` 判据 | `error` 判据 | 所需权限（在 `PolicyArn` 中） | 无凭证时 |
+|---|---|---|---|---|---|
+| 常规（60 秒） | `GET ${CDN_BASE_URL}/api/health/live?cdnprobe=<nonce>`，确认 `X-CloudAlbum-Path` 以 `entry=cloudfront` 开头；被动统计最近 5 分钟带 `X-Amz-Cf-Id` 的请求占比与 `X-Origin-Verify` 不匹配次数 | 首字节 > 1 秒；经 CDN 的请求占比为 0（用户仍直连）；出现密钥不匹配（同时触发 SEC-001）；DEP-028 命中；源站未锁定而 waf 依赖它（DEP-018 由 waf 报告） | 经 CDN 访问返回 403/5xx 连续 3 次（8080 监听器缺失或密钥不一致） | 不需要 | 照常 |
+| 深度（管理员或 enable 健康检查阶段） | 连续两次请求同一个 `/assets` 文件，第二次应为 `X-Cache: Hit`；`GetDistribution` 确认 `Deployed`、源站与证书配置符合 `cdn.env` | 第二次仍为 Miss；分配状态 `InProgress` | 分配不存在或已禁用 | `cloudfront:GetDistribution`（失效按钮另需 `CreateInvalidation`、`GetInvalidation`，限本分配） | 跳过控制面检查，状态 `degraded`（无凭证：控制面感知不可用；失效按钮隐藏） |
+
+### 11. 前端徽章
+
+| 位置 | 本地实现时（direct） | AWS 实现时（cloudfront） | 数据来源 |
+|---|---|---|---|
+| 缩略图角标 | 图片由 EC2 Nginx 直出 | 图片由 CloudFront 提供 · HIT / MISS / RefreshHit | 全局：capabilities 的 cdn；请求级：Resource Timing 中 CloudFront 追加的 `cdn-*` 项（字段名以官方文档为准），没有时读 `X-Cache` |
+| 管理员旁路 | — | 紫色“管理员旁路 · 源站”（`bypass=cdn`，路径段 `cdn=cloudfront:bypass`） | 请求级 |
+| DEP-028 命中时 | — | 黄色“CDN 降级 · 媒体未经 CDN” | capabilities |
+| 页脚状态条 | 入口：Nginx | 入口：CloudFront → Nginx（经 WAF、ALB 时依次插入） | 请求级 `entry=` 段 |
+
+```yaml
+# registry.yaml：cdn.lab.badges
+badges:
+  local: "图片由 EC2 Nginx 直出"
+  aws: "图片由 CloudFront 提供 · {outcome}"     # outcome = HIT / MISS / RefreshHit
+  bypass: "管理员旁路 · 源站"
+  degraded: "CDN 降级 · {reason}"
+```
+
+<a id="dns"></a>
 
 ## dns：域名解析 ↔ Amazon Route 53
 
 > 一句话总结：没有它时用户用 `http://<EIP>` 或 `ec2-…compute.amazonaws.com` 访问，邮件和分享链接里写的也是 IP；有了它之后网站有一个固定域名，背后的目标可以在 EIP、ALB、CloudFront 之间切换而链接不变，还能做健康检查与故障转移。最直观的区别：地址栏和邮件链接变成 `album.example.com`；在“换 IP 演练”中，IP 链接立即失效，而域名链接在 TTL 过后自动恢复。
 
+### 0. 元数据（registry 摘录）
+
+```yaml
+# modules/registry.yaml 中 dns 的条目（摘录）
+dns:
+  group: A
+  function: 域名解析
+  awsService: Amazon Route 53
+  auxServices: [Route 53 健康检查]
+  type: infra
+  detector: detectors/dns.ts
+  switch: { var: DNS_PROVIDER, values: [none, external, route53], ownedValues: [route53], localTiers: [external] }
+  ownsEnv: [APP_BASE_URL, DNS_]          # 只有 dns 拥有 APP_BASE_URL（约定 5）
+  credentials: optional                  # 健康检查状态等控制面感知需要
+  prerequisites: [domain]                # 冒烟矩阵中标为“需人工”
+  requires:
+    - { rule: DEP-040, when: { DNS_TARGET_TYPE: alb }, need: ["load-balancer"] }
+    - { rule: DEP-041, when: { DNS_TARGET_TYPE: cloudfront }, need: ["cdn", "tls"] }   # 备用域名需要 us-east-1 证书
+  soft: [cdn, load-balancer, tls, email, auth]
+  conflicts: []
+  authoritative: false
+  bypass: []
+  stacks: [{ name: main, template: infra/modules/dns.yaml }]
+  baseParams:
+    ExtraSecurityGroupIds: "+${Out.InfoHealthCheckSecurityGroupId}"   # 仅放行 Route 53 健康检查器前缀列表时（输出为空则不追加）
+  injects:
+    - { target: auth,          params: { AppOrigins: "+${Out.EnvAppBaseUrl}" } }      # 回调与登出地址
+    - { target: identity-pool, params: { AppOrigins: "+${Out.EnvAppBaseUrl}" } }      # 暂存桶 CORS
+    - { target: storage,       params: { AppOrigins: "+${Out.EnvAppBaseUrl}" } }      # 原图桶 CORS
+    - { target: email,         params: { HostedZoneId: "${Out.EnvDnsHostedZoneId}" } } # SES DKIM / MAIL FROM 记录
+    - { target: tls,           params: { HostedZoneId: "${Out.EnvDnsHostedZoneId}" } } # 证书与 ACME 域验证的 CNAME
+  # 本栈接收的注入：TargetDnsName（cdn，DNS_TARGET_TYPE=cloudfront）；TargetDnsName、TargetHostedZoneId（load-balancer，DNS_TARGET_TYPE=alb）；VpcId（network）
+  nginxFragments: [infra/modules/dns/nginx/dns-canonical.conf.tpl]   # 投放到 cloudalbum.server.d/，仅 DNS_CANONICAL_REDIRECT=on
+  hostSetup: infra/modules/dns/host-setup.sh
+  migration: none
+  probe: { kind: detector, intervalSec: 60 }
+  lab: { compare: before-after, sideBySide: true, hourlyBilled: false, experiments: [ip-change-drill, failover-drill, weighted-sample] }
+  doc: docs/modules/01-edge-network-scaling.md#dns
+```
+
+- 类型 I；本地档 `DNS_PROVIDER=external`（外部注册商的 A 记录）不写 `MODULE_DNS=on`。
+- `APP_BASE_URL` 的基线值由 ec2 基础写入 `cloudalbum.env`；dns 启用后在 `dns.env` 中覆盖它，cdn 与 load-balancer 不改写它。
+
 ### 1. 基线实现（仅 EC2）
 
-- User Data 在基础配置 `/etc/cloudalbum/cloudalbum.env` 中写入 `APP_BASE_URL=http://<EIP>`（总纲 2.7）。EC2 的公网 DNS 主机名 `ec2-<EIP 以短横线分隔>.ap-northeast-1.compute.amazonaws.com` 同样可以访问。
+- User Data 在基础配置 `/etc/cloudalbum/cloudalbum.env` 中写入 `APP_BASE_URL=http://<EIP>`（00-ec2-base.md）。EC2 的公网 DNS 主机名 `ec2-<EIP 以短横线分隔>.ap-northeast-1.compute.amazonaws.com` 同样可以访问。
 - **本地档“外部 DNS”**：如果在其他注册商有域名，可以手工建一条 A 记录指向 EIP（TTL 300），并在 `modules.d/dns.env` 写入 `APP_BASE_URL=http://album.example.com` 与 `DNS_PROVIDER=external`（不含 `MODULE_DNS=on`）。这仍然是本地实现，不涉及 AWS。
 - `APP_BASE_URL` 参与“有效入口 URL”的计算（约定 5），用于邮件里的绝对链接（验证、通知、日报）、F11 分享链接、CORS 白名单、Cookie 域，以及 auth=cognito 的回调与登出地址。
 - L0 必须关联 EIP，否则实例停止再启动后公网 IP 改变，已发出的链接全部失效。
@@ -820,12 +987,12 @@ export async function probe(base: string, path: string) {
 | 源站名（可选） | `origin.album` A → EIP | 作为 CloudFront 源站域名，或用于源站证书 |
 
 - **其他模块的记录**：ACM 的 DNS 验证 CNAME 由 tls 栈在拿到 `DNS_HOSTED_ZONE_ID` 后创建；ACM ACME 的域验证 CNAME 由 `scripts/module` 在创建域验证时传入托管区域 ID 自动创建；email 模块的 SES DKIM、MAIL FROM 记录由 email 栈创建。
-- **健康检查**（`EnableHealthCheck=true`）：HTTP(S) 检查 `origin.album.example.com/api/health/ready?scope=instance`，间隔 30 秒，失败阈值 3。健康检查器来自多个区域的公网地址：源站被锁定时，要么改为检查 CloudFront/ALB 端点，要么由 dns 栈建一个独立安全组，放行 Route 53 健康检查器的托管前缀列表（`com.amazonaws.<region>.route53-healthchecks`，在安全组配额中按 25 条计算，覆盖范围以官方文档为准），并通过 `ExtraSecurityGroupIds` 挂到实例上。健康检查指标与告警在 us-east-1。
+- **健康检查**（`EnableHealthCheck=true`）：HTTP(S) 检查 `origin.album.example.com/api/health/ready?scope=instance`，间隔 30 秒，失败阈值 3。健康检查器来自多个区域的公网地址：源站被锁定时，要么改为检查 CloudFront/ALB 端点，要么由 dns 栈建一个独立安全组（参数 `VpcId`，network 改变 VPC 时经 `injects` 重建），放行 Route 53 健康检查器的托管前缀列表（`com.amazonaws.<region>.route53-healthchecks`，在安全组配额中按 25 条计算，覆盖范围以官方文档为准），并通过 `ExtraSecurityGroupIds` 挂到实例上。健康检查指标与告警在 us-east-1。
 - **路由策略演示**：
   - `failover`：PRIMARY 指向 EIP 并关联健康检查；SECONDARY 指向维护页。维护页可以是名为 `album.example.com` 的 S3 静态网站桶（桶名必须与记录名完全相同，且只支持 HTTP）。站点已经强制 HTTPS 时，S3 网站端点不能提供该域名的证书，应改用 cdn 模块的源站组（Origin Group）在 CDN 层做故障转移，而不是 DNS 层。
   - `weighted`：同名两条 A 记录，权重 90/10，分别指向 EIP 与 ALB（或 CloudFront Alias），演示“入口灰度切换”。HTTPS 下两个目标都必须持有该域名的有效证书。
   - latency、geolocation、geoproximity 需要多区域部署，本项目只在文档中对比。
-- **Outputs**：`EnvAppBaseUrl`、`EnvDnsHostedZoneId`、`EnvDnsRecordName`、`EnvDnsTargetType`、`EnvDnsTtl`、`EnvDnsRoutingPolicy`、`EnvDnsHealthCheckId`、`InfoNameServers`；`PolicyArn` 包含 `route53:GetHostedZone`、`ListResourceRecordSets`、`GetHealthCheckStatus`（只读，供感知器与 `/lab` 使用；演练脚本在运维机上用管理员凭证修改记录，应用不需要写权限）。
+- **Outputs**：`EnvAppBaseUrl`、`EnvDnsHostedZoneId`、`EnvDnsRecordName`、`EnvDnsTargetType`、`EnvDnsTtl`、`EnvDnsRoutingPolicy`、`EnvDnsHealthCheckId`、`InfoNameServers`、`InfoHealthCheckSecurityGroupId`（只在放行健康检查器前缀列表时非空）；记录目标来自注入参数 `TargetDnsName`（cdn 或 load-balancer 按 `DNS_TARGET_TYPE` 注入；ALB 另注入 `TargetHostedZoneId`，CloudFront 的托管区域 ID 固定）；`PolicyArn` 包含 `route53:GetHostedZone`、`ListResourceRecordSets`、`GetHealthCheckStatus`（只读，供感知器与 `/lab` 使用；演练脚本在运维机上用管理员凭证修改记录，应用不需要写权限）。
 
 ```mermaid
 sequenceDiagram
@@ -876,7 +1043,7 @@ DNS_CANONICAL_REDIRECT=off                  # on：Nginx 把用 IP 或 EC2 主�
 - `DNS_TARGET_TYPE=cloudfront`：需要 cdn，并且分配上已配置该备用域名，这又要求 tls（us-east-1 的 ACM 证书覆盖该域名）。
 - 健康检查：被检查的端点必须能被公网上的健康检查器访问（见第 2 节）。
 - 用 `https://album.example.com` 访问：需要受信任证书，来源可以是 tls 的 ACM（ACME 装在 Nginx 上，或集成证书在 CloudFront/ALB 上），也可以是本地档 Let's Encrypt。
-- 如果 auth=cognito：有效入口 URL 改变时必须同步更新 App Client 的回调地址（`scripts/module` 通过 `injects` 自动更新 auth 栈参数）。
+- 如果 auth=cognito：有效入口 URL 改变时必须同步更新 App Client 的回调地址（dns 在 registry 中声明 `injects` → auth，`scripts/module` 自动更新 auth 栈参数）。
 
 **与其他模块组合**
 
@@ -967,23 +1134,106 @@ CloudShell 中没有 `dig` 时先执行 `sudo dnf install -y bind-utils`。
 - 换 IP 演练会改变 EC2 公网 DNS 主机名，以它为源站的 CloudFront 分配会回源失败。
 - `DNS_CANONICAL_REDIRECT` 若对健康检查请求也做 301：ALB 目标组的匹配码是 200，会判定目标不健康；Route 53 的 HTTP 健康检查把 3xx 也算作健康，反而掩盖了后端故障。健康检查路径必须排除在跳转之外。
 
+### 10. 探针
+
+| 探针 | 方式 | `degraded` 判据 | `error` 判据 | 所需权限（在 `PolicyArn` 中） | 无凭证时 |
+|---|---|---|---|---|---|
+| 常规（60 秒） | 被动：最近 5 分钟请求的 `Host` 是否等于有效入口 URL 的主机名；主动：`dns.promises.resolve4(host, { ttl: true })`，比较解析结果是 EIP、ALB 还是 CloudFront | 解析结果与 `DNS_TARGET_TYPE` 不一致（记录未传播或指向旧目标）；仍有大量请求用 IP 访问（只写 detail，不降级） | 名称无法解析（NXDOMAIN）且持续超过 TTL | 不需要 | 照常 |
+| 深度（管理员或 enable 健康检查阶段） | `GetHostedZone`、`ListResourceRecordSets` 核对记录；`GetHealthCheckStatus` | 健康检查不健康；委派 NS 与托管区域不一致 | 托管区域不存在 | `route53:GetHostedZone`、`ListResourceRecordSets`、`GetHealthCheckStatus` | 跳过，状态 `degraded`（无凭证：控制面感知不可用） |
+
+### 11. 前端徽章
+
+| 位置 | 本地实现时（`none` / `external`） | AWS 实现时（`route53`） | 数据来源 |
+|---|---|---|---|
+| 页脚状态条“入口地址” | 入口：http://203.0.113.10（IP）／入口：album.example.com（外部 DNS） | 入口：album.example.com（Route 53 · {policy}） | capabilities 的 `app.entry` 与 dns 条目 |
+| 分享对话框、邮件预览 | 链接显示 IP 时附灰色提示“IP 变化后链接失效” | 无提示 | 有效入口 URL |
+| `/lab` DNS 卡片 | 解析结果、剩余 TTL、请求 `Host` 分布 | 另加健康检查状态与演练时间线 | capabilities |
+
+```yaml
+# registry.yaml：dns.lab.badges
+badges:
+  local: "入口：{host}（{provider}）"            # provider = IP / 外部 DNS
+  aws: "入口：{host}（Route 53 · {policy}）"    # policy = simple / failover / weighted
+```
+
+<a id="tls"></a>
+
 ## tls：HTTPS 证书 ↔ AWS Certificate Manager
 
 > 一句话总结：没有它时，Nginx 用 User Data 生成的自签名证书提供 HTTPS，浏览器显示“不安全”，真实用户只能退回 HTTP；有了它之后证书由 ACM 签发——只有 L0 时，经 ACM 的 ACME 端点把受信任证书装进 Nginx，启用 CloudFront/ALB 后由 ACM 托管的证书在边缘或负载均衡器上终止 TLS 并自动续期。最直观的区别：地址栏从红色警告变成锁标志，证书签发者从 `CN=cloudalbum-l0` 变成 Amazon。
+
+**考试结论与 2026 新能力（D13）**
+
+ACM 的 ACME 端点已于 2026-10-13 在 AWS 官方来源核实（What's New 2026-07-06；ACM 用户指南“ACME certificate automation”各页；CloudFormation 资源 `AWS::CertificateManager::AcmeEndpoint` 等，出处见约定 14）。因此本模块保留“只有 L0 时也能用 ACM”的主路径，但学习时必须把两件事分开：
+
+| | 考试结论（SAA 题库的常见答案） | 2026 新能力（本项目可实操） |
+|---|---|---|
+| ACM 证书能否装到 EC2 | **不能**。ACM 公有证书（`RequestCertificate` 签发）私钥由 ACM 托管、不可导出，只能挂在 CloudFront、ALB、API Gateway 等集成服务上；要在 EC2 上终止 TLS，答案是“前面加 ALB/CloudFront”或“导入第三方证书” | ACM 提供托管的 ACME 端点：certbot 等 ACME 客户端在实例上生成私钥，经 EAB 注册后签发 45 天的公有证书，可以装到 Nginx；这类证书反过来**不能**挂到 ELB、CloudFront、API Gateway |
+| 续期 | 集成证书由 ACM 自动续期（DNS 验证记录必须保留） | ACME 证书由客户端续期，ACM 不负责 |
+| 域验证 | DNS 验证或邮件验证，随证书申请进行 | `PRE_APPROVED`：管理员预先建立持久的域验证（CNAME），客户端申请时没有在线挑战 |
+| 本项目何时使用 | 启用 cdn 或 load-balancer 后的集成证书（tls-edge、tls-regional 栈） | 只有 L0 时装到 Nginx（`TLS_ACME=on`） |
+
+回退分支：`scripts/module enable tls` 先探测 ACME 端点是否可用（CLI/SDK 是否支持、区域是否提供、是否被 SCP 或权限拒绝）。不可用，或学习者用 `--no-acme` 选择练习“考试形态”时，写入 `TLS_ACME=off`：Nginx 上保持自签名或 Let's Encrypt，ACM 只用于 CloudFront/ALB，tls 的最小依赖退回 {dns 或外部 DNS, cdn 或 load-balancer}（DEP-005 第 ③ 条）。
+
+### 0. 元数据（registry 摘录）
+
+```yaml
+# modules/registry.yaml 中 tls 的条目（摘录）
+tls:
+  group: A
+  function: HTTPS 证书
+  awsService: AWS Certificate Manager
+  auxServices: [ACM ACME 端点]
+  type: infra
+  detector: detectors/tls.ts
+  switch: { var: TLS_MODE, values: [selfsigned, letsencrypt, acm], ownedValues: [acm], localTiers: [letsencrypt] }
+  ownsEnv: [TLS_, ACM_CERT_]
+  credentials: optional                  # 只用于 DescribeCertificate 等感知；签发由部署者身份与 ACME 客户端完成
+  prerequisites: [domain]
+  preflight: [acme-endpoint]             # 探测结果由 scripts/module 写成 tls.env 的 TLS_ACME=on|off（--no-acme 时直接 off）
+  requires:
+    - { rule: DEP-005, when: { TLS_MODE: acm }, need: ["TLS_DOMAIN!="] }                                  # ①
+    - { rule: DEP-005, when: { TLS_MODE: acm, TLS_ACME: "off" },                                          # ③ 回退分支（启动时即可求值）
+        need: ["dns | DNS_PROVIDER=external", "cdn | load-balancer"] }
+    # ② 集成证书的挂载条件（cdn / load-balancer / social-api 绑定了自定义域名却缺证书）属部署范围，由 DEP-005 的 deployCheck() 检查
+    - { rule: DEP-015, when: { TLS_FORCE_HTTPS: "true" }, need: ["TLS_MODE!=selfsigned"] }
+  soft: [dns, cdn, load-balancer, social-api]
+  conflicts: []
+  authoritative: false
+  bypass: []
+  stacks:
+    - { name: main,     template: infra/modules/tls.yaml, when: { TLS_ACME: "on" } }                    # ACME 端点、域验证、签发角色
+    - { name: edge,     template: infra/modules/tls.yaml, region: us-east-1, when: cdn }      # CloudFront 集成证书
+    - { name: regional, template: infra/modules/tls.yaml, when: "load-balancer | social-api" }
+  injects:
+    - { target: cdn,           params: { AcmCertificateArn: "${Out.EnvAcmCertArnEdge}", Aliases: "${TLS_DOMAIN}" } }
+    - { target: load-balancer, params: { CertificateArn: "${Out.EnvAcmCertArnRegional}", DomainName: "${TLS_DOMAIN}" } }
+    - { target: social-api,    params: { CertificateArn: "${Out.EnvAcmCertArnRegional}" } }
+  # 本栈接收的注入：HostedZoneId（dns，自动建验证 CNAME）
+  hostSetup: infra/modules/tls/host-setup.sh   # /opt/certbot 虚拟环境、/etc/cloudalbum/tls/server.* 符号链接、cloudalbum-tls-renew.timer
+  migration: none
+  probe: { kind: detector, intervalSec: 300 }
+  lab: { compare: before-after, sideBySide: true, hourlyBilled: false, experiments: [inspect, handshake, cipher-scan, renew-drill] }
+  doc: docs/modules/01-edge-network-scaling.md#tls
+```
+
+- 类型 I；本地档 `TLS_MODE=letsencrypt` 不写 `MODULE_TLS=on`。
+- ACME 端点、域验证、EAB 与 ACME 账户的标识都记入 `.cloudalbum/state.json`，并在 disable 清理清单中逐项删除（第 6 节）。
 
 ### 1. 基线实现（仅 EC2）
 
 `TLS_MODE=selfsigned`（L0 默认）：
 
-- User Data 用 openssl 生成 `/etc/cloudalbum/tls/server.crt`、`server.key`（RSA 2048，`CN=cloudalbum-l0`，SAN 为 `IP:<EIP>`，总纲 2.7）。Nginx 443 配置 `ssl_protocols TLSv1.2 TLSv1.3` 并开启 HTTP/2。
+- User Data 用 openssl 生成 `/etc/cloudalbum/tls/server.crt`、`server.key`（RSA 2048，`CN=cloudalbum-l0`，SAN 为 `IP:<EIP>`，见 00-ec2-base.md）。Nginx 443 配置 `ssl_protocols TLSv1.2 TLSv1.3` 并开启 HTTP/2。`/etc/cloudalbum` 实际位于数据卷（D5），只有数据卷上也没有证书时才生成，所以 network 迁移、重建实例后证书与私钥不变。
 - 80 端口继续正常提供站点，不强制跳转，不加 HSTS（自签名证书加 HSTS 会把用户锁在站外，DEP-015）。
-- 证书路径固定为 `/etc/cloudalbum/tls/server.crt|key`。本地档与 ACM 档都只是把这两个路径改为指向新证书文件的符号链接，然后 `nginx -t && systemctl reload nginx`，主配置不变。
+- 证书路径固定为 `/etc/cloudalbum/tls/server.crt|key`。本地档与 ACM 档都只是把这两个路径改为指向新证书文件的符号链接，然后 `nginx -t && systemctl reload nginx`，主配置不变。TLS 私钥与 certbot 的 ACME 账户密钥按 `keys/*.pem` 同等保护：root:root 0600（Nginx master 以 root 读取），只在数据卷上，不进 `modules.d`、`secrets.env` 或 `state.json`。
+- certbot 的配置目录（ACME 账户密钥、证书、续期配置）统一用 `--config-dir /etc/cloudalbum/letsencrypt`、`--work-dir /var/lib/cloudalbum/certbot/work`、`--logs-dir /var/lib/cloudalbum/logs/certbot`，都在数据卷上。默认的 `/etc/letsencrypt` 在根卷，实例一替换 ACME 账户就丢了，ACM ACME 还得重新签发 EAB 注册。
 
 本地档 `TLS_MODE=letsencrypt`（不涉及 AWS，作为第二个对照组）：
 
-- **有域名**（dns 模块或外部 A 记录指向 EIP）：`scripts/tls/letsencrypt.sh <域名> <邮箱>`。certbot 用 pip 安装到虚拟环境 `/opt/certbot`（AL2023 默认仓库是否提供 certbot 以实际为准）；用 webroot 方式签发：`certbot certonly --webroot -w /var/lib/cloudalbum/acme -d album.example.com`，由 ec2 基础提供的 `cloudalbum.server.d/00-acme-challenge.conf` 在 80 端口提供 `/.well-known/acme-challenge/`。
+- **有域名**（dns 模块或外部 A 记录指向 EIP）：`scripts/tls/letsencrypt.sh <域名> <邮箱>`。certbot 用 pip 安装到虚拟环境 `/opt/certbot`（AL2023 默认仓库是否提供 certbot 以实际为准）；用 webroot 方式签发：`certbot certonly --webroot -w /var/lib/cloudalbum/acme -d album.example.com`（加上述目录参数），由 ec2 基础提供的 `cloudalbum.server.d/00-acme-challenge.conf` 在 80 端口提供 `/.well-known/acme-challenge/`。
 - **没有域名，只有 EIP**：Let's Encrypt 自 2026 年 1 月起正式签发 IP 地址证书，但必须使用 `shortlived` 配置档，有效期约 6 天，只能用 HTTP-01 或 TLS-ALPN-01 验证；Certbot 的支持情况与所需版本以官方文档为准。这样 L0 也能得到受信任的 HTTPS，代价是续期非常频繁，必须完全自动化。`*.compute.amazonaws.com` 主机名通常会被公共 CA 的策略拒绝，不要尝试。
-- 续期：systemd 定时器 `certbot-renew.timer`（每天两次）执行 `certbot renew --deploy-hook /opt/cloudalbum/scripts/tls/deploy-hook.sh`（更新符号链接、`nginx -t`、reload）。签发成功后可以设 `TLS_FORCE_HTTPS=true`：80→443 跳转（只对直连入口，按 `$ca_proto` 判断，避免 ALB/CloudFront 后面出现跳转循环），并加 HSTS（`max-age` 先设小值）。
+- 续期：systemd 定时器 `cloudalbum-tls-renew.timer`（每天两次；模块单元命名为 `cloudalbum-<id>-*`）执行 `certbot renew --deploy-hook /opt/cloudalbum/scripts/tls/deploy-hook.sh`（更新符号链接、`nginx -t`、reload）。签发成功后可以设 `TLS_FORCE_HTTPS=true`：80→443 跳转（只对直连入口，按 `$ca_proto` 判断，避免 ALB/CloudFront 后面出现跳转循环），并加 HSTS（`max-age` 先设小值）。
 
 应用侧：
 
@@ -993,31 +1243,41 @@ CloudShell 中没有 `dig` 时先执行 `sudo dnf install -y bind-utils`。
 
 ### 2. AWS 实现
 
-`TLS_MODE=acm`。ACM 以三种方式提供证书，`scripts/module` 按已启用的模块自动选择：
+`TLS_MODE=acm`。ACM 以三种方式提供证书，`scripts/module` 按已启用的模块与 `TLS_ACME` 自动选择：
 
 | 方式 | 证书在哪里 | 私钥在哪里 | 栈 / 区域 | 续期 | 何时使用 |
 |---|---|---|---|---|---|
-| ACM ACME 端点（2026 年 7 月起提供） | EC2 上的 Nginx | 实例上（certbot 生成，ACM 看不到） | ACME 端点在 ap-northeast-1 | 客户端（certbot）按计划续期；证书有效期 45 天 | 总是（只要有域名）；只有 L0 时这是唯一方式 |
+| ACM ACME 端点（2026-07 新能力，已核实） | EC2 上的 Nginx | 实例上（certbot 生成，ACM 看不到） | `main` 栈，ACME 端点在 ap-northeast-1 | 客户端（certbot）按计划续期；证书有效期 45 天 | `TLS_ACME=on`（默认，探测可用时）；只有 L0 时这是唯一方式 |
 | ACM 集成证书（edge） | CloudFront、Cognito 托管登录页自定义域名 | ACM 托管，不可导出 | `tls-edge` 栈，**us-east-1** | ACM 托管自动续期 | 启用 cdn 并绑定自定义域名 |
 | ACM 集成证书（regional） | ALB、API Gateway 区域自定义域名 | ACM 托管，不可导出 | `tls-regional` 栈，ap-northeast-1 | ACM 托管自动续期 | 启用 load-balancer 或 social-api 自定义域名 |
 
 **ACME 端点（证书装到 Nginx）**
 
-- `infra/modules/tls.yaml` 创建 EAB 使用的 IAM 角色 `cloudalbum-<env>-acme-issuer`：信任策略允许服务主体 `acm-acme.amazonaws.com` 执行 `sts:AssumeRole`、`sts:TagSession`、`sts:SetSourceIdentity`（带 `sts:SourceIdentity` 条件）；权限只有 `acm:RequestCertificate` 与 `acm:RevokeCertificate`，并用 ACM 条件键把域名限制在 `TLS_DOMAIN`（条件键写法以官方文档为准）。
-- ACME 端点、域验证、EAB 由 `scripts/module` 调用 `aws acm create-acme-endpoint`、`create-acme-domain-validation`、`create-acme-external-account-binding` 创建（CloudFormation 是否已支持这些资源以官方文档为准），ARN 记录在 `.cloudalbum/state.json`。端点使用 `PRE_APPROVED` 授权：域验证是一条持久的 CNAME 记录（给出 `DNS_HOSTED_ZONE_ID` 时自动创建），验证通过后客户端申请证书**不需要任何在线挑战**——80 端口不必对公网开放，实例也不需要 AWS 凭证。
-- EAB 凭证（Key ID + MAC Key）设置较短的有效期（例如 1 天），只在首次注册时通过投递通道交给实例上的 certbot，不写入 env 文件：
+- `infra/modules/tls.yaml` 的 `main` 栈创建三样东西（CloudFormation 已提供对应资源类型，已核实）：
+  - EAB 使用的 IAM 角色 `cloudalbum-<env>-acme-issuer`：信任策略允许服务主体 `acm-acme.amazonaws.com` 执行 `sts:AssumeRole`、`sts:TagSession`、`sts:SetSourceIdentity`（带 `sts:SourceIdentity` 条件 `acm-acme-*`）；权限只有 `acm:RequestCertificate` 与 `acm:RevokeCertificate`，并用标准 ACM 条件键把域名限制在 `TLS_DOMAIN`（条件键写法以官方文档为准）。这个角色不附加到应用角色上，应用实例不需要任何 ACM 写权限。
+  - `AWS::CertificateManager::AcmeEndpoint`：`AuthorizationBehavior=PRE_APPROVED`，`CertificateAuthority.PublicCertificateAuthority.AllowedKeyAlgorithms=[EC_prime256v1, RSA_2048]`，`CertificateTags` 带 `Project=CloudAlbum`（供 cost 模块的成本分配标签使用）；`Fn::GetAtt EndpointUrl` 输出为 `EnvTlsAcmeDirectoryUrl`。
+  - `AWS::CertificateManager::AcmeDomainValidation`：`DomainName=TLS_DOMAIN`，范围 `ExactDomain=ENABLED`、`Subdomains`/`Wildcards` 默认 `DISABLED`；给出 `HostedZoneId`（dns 注入）时自动在 Route 53 建 CNAME，否则 `scripts/module` 打印记录让学习者在外部 DNS 添加。域验证是持久资源，验证通过后客户端申请证书**不需要任何在线挑战**——80 端口不必对公网开放，实例也不需要 AWS 凭证。同一域名在不同端点需要各自的 CNAME。
+- **EAB 不放进模板**：CloudFormation 的 `AcmeExternalAccountBinding` 不返回 Key ID 与 MAC Key，凭证只能用 `GetAcmeExternalAccountBindingCredentials` 读取。所以由 `scripts/module` 用部署者身份执行 `aws acm create-acme-external-account-binding --expiration '{"Value":1,"Type":"DAYS"}'`，读取凭证后经投递通道交给实例上的 certbot 完成一次性注册，然后删除该 EAB。吊销或删除 EAB 不影响已注册的 ACME 账户；要停止某个账户继续签发，用 `RevokeAcmeAccount` 或删除整个端点。
+- `.cloudalbum/state.json` 记录：ACME 端点 ARN、域验证 ARN 与 CNAME、EAB ARN（注册后标记为已删除）、ACME 账户 ID（certbot 注册返回）、已签发证书的 ARN。disable 时按这份记录清理（第 6 节）。
+- EAB 凭证（Key ID + MAC Key）设置较短的有效期（例如 1 天），只在首次注册时通过投递通道交给实例上的 certbot，不写入任何 env 文件或 `secrets.env`：
 
 ```bash
 /opt/certbot/bin/certbot certonly --webroot -w /var/lib/cloudalbum/acme --non-interactive --agree-tos \
+  --config-dir /etc/cloudalbum/letsencrypt --work-dir /var/lib/cloudalbum/certbot/work --logs-dir /var/lib/cloudalbum/logs/certbot \
   --email ops@example.com \
   --server "https://acm-acme-enroll.ap-northeast-1.api.aws/<endpoint-id>/directory" \
   --eab-kid "<KeyId>" --eab-hmac-key "<MacKey>" \
   --issuance-timeout 120 \
   -d album.example.com
-# 签发可能需要约 2 分钟，客户端超时要不少于 120 秒；之后 certbot renew 沿用已注册的 ACME 账户自动续期
+# 官方文档：签发最多约 2 分钟，客户端超时至少 120 秒；之后 certbot renew 沿用已注册的 ACME 账户自动续期
+# 官方示例用 --standalone；本项目改用 --webroot，避免与 Nginx 争用 80 端口。PRE_APPROVED 下预期不会有验证请求到达（以实测为准）
 ```
 
-- 签发的证书出现在 ACM 证书清单中（`CertificateKeyPairOrigin=ACME`），可以在控制台看到；但 ACME 证书不能挂到 CloudFront、ALB、API Gateway 上，也不能用 `ExportCertificate` 导出。
+- 签发的证书出现在 ACM 证书清单中（`CertificateKeyPairOrigin=ACME`），但 `ListCertificates` 默认**不列出**它们，要加过滤条件 `--certificate-key-pair-origins ACME`（`SearchCertificates` 默认包含）。同一 ACME 账户以相同域名与密钥算法续期时，证书 ARN 保持不变。ACME 证书不能挂到 CloudFront、ALB、API Gateway 上，不能用 `ExportCertificate` 导出，也不能用 ACM 的 `RevokeCertificate` 吊销（只能经 ACME 的 revoke-cert，例如 `certbot revoke`）。
+- 端点在 `AWS/CertificateManager` 命名空间发布 `CertificateIssuanceSuccess`、`CertificateIssuanceFailed`（维度 `AcmeEndpointArn`），可以设告警。
+- 私有子网出网：实例需要访问 `acm-acme-enroll.<region>.api.aws`（经 NAT，或 ACM 提供的 PrivateLink 方式，见官方文档“Issuing ACME certificates over AWS PrivateLink”）；吊销检查还会访问 `*.amazontrust.com` 的 OCSP/CRL。
+
+**回退分支（`TLS_ACME=off`）**：不创建 ACME 端点与域验证，`main` 栈只保留空壳（或不部署）；Nginx 上的证书保持 `selfsigned` 或 `letsencrypt`，直连入口的 `tls` 段相应显示；ACM 只以集成证书的形式出现在 CloudFront/ALB 上。此时 `TLS_MODE=acm` 表示“入口上的受信任证书来自 ACM”，规则 DEP-005 ③ 要求 cdn 或 load-balancer 与域名解析同时存在。
 
 **集成证书（CloudFront / ALB 上）**
 
@@ -1026,9 +1286,9 @@ CloudShell 中没有 `dig` 时先执行 `sudo dnf install -y bind-utils`。
 - ACM 公有证书的有效期自 2026 年起为 198 天，ACM 在到期前约 45 天自动续期；续期的前提是 DNS 验证记录仍然存在、证书正在被使用（以官方文档为准）。
 - 源站侧：CloudFront 到 EC2 保持 HTTP:8080；ALB 到 EC2 走 VPC 内的 HTTP:80，或设 `LB_TARGET_PROTOCOL=HTTPS` 用实例上的证书再加密一次（ALB 不校验目标证书）。
 
-**其他把证书放到 EC2 上的方式（只作对比）**：ACM 可导出公有证书（收费，申请时必须选择允许导出，导出后要自己安装、续期后要自己重新导出）；ACM for Nitro Enclaves（需要支持 Enclave 的实例类型，t3.small/t4g.small 不适用）。ACME 端点出现之后，本项目不再使用这两种方式。
+**其他把证书放到 EC2 上的方式（只作对比）**：ACM 可导出公有证书（收费，申请时必须选择允许导出，导出后要自己安装、续期后要自己重新导出）；ACM for Nitro Enclaves（需要支持 Enclave 的实例类型，t3.small/t4g.small 不适用）。ACME 端点可用时本项目不使用这两种方式；回退分支下也不使用，而是保持 Let's Encrypt 或自签名。
 
-**Outputs**：`EnvTlsMode`（`acm`）、`EnvTlsDomain`、`EnvAcmCertArnEdge`、`EnvAcmCertArnRegional`、`EnvTlsAcmeDirectoryUrl`、`InfoAcmeIssuerRoleArn`；`PolicyArn` 包含 `acm:DescribeCertificate`、`acm:ListCertificates`（感知器只读）。
+**Outputs**：`EnvTlsMode`（`acm`）、`EnvTlsDomain`、`EnvTlsAcme`（`on`/`off`）、`EnvAcmCertArnEdge`、`EnvAcmCertArnRegional`、`EnvTlsAcmeDirectoryUrl`、`InfoAcmeEndpointArn`、`InfoAcmeDomainValidationArn`、`InfoAcmeIssuerRoleArn`；`PolicyArn` 包含 `acm:DescribeCertificate`、`acm:ListCertificates`、`acm:SearchCertificates`（感知器只读）。
 
 ```mermaid
 flowchart LR
@@ -1059,20 +1319,23 @@ TLS_DOMAIN=album.example.com
 TLS_LE_EMAIL=ops@example.com          # letsencrypt 与 ACME 注册共用
 TLS_LE_PROFILE=classic                # classic | shortlived（IP 地址证书必须用 shortlived，仅 letsencrypt 档）
 TLS_FORCE_HTTPS=false                 # true：直连入口 80→443 跳转 + HSTS，只允许受信任证书（DEP-015）
-TLS_ACME_DIRECTORY_URL=https://acm-acme-enroll.ap-northeast-1.api.aws/<endpoint-id>/directory
+TLS_ACME=on                           # on：Nginx 证书经 ACM ACME 端点签发；off：回退分支，ACM 只用于 CloudFront/ALB（DEP-005 ③）
+TLS_ACME_DIRECTORY_URL=https://acm-acme-enroll.ap-northeast-1.api.aws/<endpoint-id>/directory   # TLS_ACME=off 时为空
+TLS_CERTBOT_CONFIG_DIR=/etc/cloudalbum/letsencrypt   # 在数据卷上；ACME 账户密钥随数据卷保留
 ACM_CERT_ARN_EDGE=arn:aws:acm:us-east-1:111122223333:certificate/...
 ACM_CERT_ARN_REGIONAL=arn:aws:acm:ap-northeast-1:111122223333:certificate/...
 # TLS 终止点不写在 env 里：由感知器按入口计算，写入 capabilities.https.via
 ```
 
-感知器的状态判定：`TLS_MODE=acm` 但直连握手拿到的证书签发者不是 Amazon → `degraded`（符号链接未切换或 reload 失败）；任一入口证书剩余天数低于续期窗口仍未续期 → `degraded`；证书过期或域名不匹配 → `error`。
+感知器的状态判定：`TLS_MODE=acm` 且 `TLS_ACME=on`，但直连握手拿到的证书签发者不是 Amazon → `degraded`（符号链接未切换或 reload 失败）；任一入口证书剩余天数低于续期窗口仍未续期 → `degraded`；证书过期或域名不匹配 → `error`。探针汇总见第 10 节。
 
 ### 4. 依赖与组合
 
-**硬依赖（DEP-005 修订版）**
+**硬依赖（DEP-005 修订版，含回退分支）**
 
-- 拥有域名，并能添加 DNS 验证 CNAME（dns 模块自动添加；外部 DNS 手工添加）。ACM 不能为 IP、`amazonaws.com` 或 `cloudfront.net` 名称签发证书。
-- 只有 L0：证书经 ACME 端点装到 Nginx，没有其他模块依赖；实例需要出站访问 `acm-acme-enroll.<region>.api.aws`（私有子网经 NAT 或 ACM ACME 的 PrivateLink 端点）。
+- 前置条件：拥有域名，并能添加 DNS 验证 CNAME（dns 模块自动添加；外部 DNS 手工添加）。ACM 不能为 IP、`amazonaws.com` 或 `cloudfront.net` 名称签发证书。
+- `TLS_ACME=on`（只有 L0 也可以）：证书经 ACME 端点装到 Nginx，没有其他模块依赖；实例需要出站访问 `acm-acme-enroll.<region>.api.aws`（私有子网经 NAT 或 ACM ACME 的 PrivateLink 方式）。
+- `TLS_ACME=off`（ACME 端点不可用，或学习者选择考试形态）：最小依赖退回 {dns 或外部 DNS, cdn 或 load-balancer}，证书只以集成证书形式挂在 CloudFront/ALB 上（DEP-005 ③）。`profiles/single/tls.env` 生成时按探测结果二选一。
 - 集成证书需要挂载点：cdn（证书在 us-east-1）、load-balancer（证书在 ap-northeast-1）或 social-api 的自定义域名；域名最终要解析到对应资源（dns 的 Alias，或外部 DNS 的 CNAME——外部 DNS 的根域名不能用 CNAME）。
 - 本地档 `letsencrypt`：域名 A 记录指向 EIP（或使用 IP 证书）；HTTP-01 要求 80 端口对公网开放，与 `CDN_DIRECT_ACCESS=closed` 冲突时改用 DNS-01（依赖 dns + iam）或改用 ACM ACME。
 - `TLS_FORCE_HTTPS=true` 只允许在直连入口使用受信任证书时设置（DEP-015）。
@@ -1086,7 +1349,8 @@ ACM_CERT_ARN_REGIONAL=arn:aws:acm:ap-northeast-1:111122223333:certificate/...
 - **waf**：TLS 终止点就是 WAF 能检查明文流量的位置，这也是 WAF 只能挂在 CloudFront、ALB、API Gateway 等服务上的原因之一。
 - **storage=s3、identity-pool**：页面使用 HTTPS 后，所有媒体与上传 URL 也必须是 https，否则浏览器拦截混合内容。
 - **monitoring**：ACM 证书的 `DaysToExpiry` 指标与 EventBridge 的证书即将到期事件；ACME 端点有签发成功/失败指标（`AWS/CertificateManager` 命名空间）。
-- **secrets**：EAB 的 MAC Key 只在注册时使用；Let's Encrypt/ACME 私钥留在实例上（root 600）。
+- **secrets**：EAB 的 MAC Key 只在注册时使用，不进 SecretsPort；Let's Encrypt/ACME 的证书私钥与账户密钥留在实例的数据卷上（root 0600）。
+- **network**：迁移或重建实例后，证书、私钥与 certbot 账户都随数据卷保留；`cloudalbum-postattach` 按 `tls.env` 重放 tls 的 `hostSetup`，重新安装 `/opt/certbot` 虚拟环境与 `cloudalbum-tls-renew.timer`（它们在根卷上）。
 
 **多实例（ASG）**：TLS 必须在 ALB 或 CloudFront 终止。每台实例各自用 Let's Encrypt HTTP-01 签发不可行（验证请求会被分到随机实例，还会触发签发频率限制），ASG-014 会拒绝；实例上的 ACME 证书只在 `LB_TARGET_PROTOCOL=HTTPS` 时有意义，而 ALB 并不校验目标证书，自签名即可。
 
@@ -1103,7 +1367,7 @@ ACM_CERT_ARN_REGIONAL=arn:aws:acm:ap-northeast-1:111122223333:certificate/...
 | 远端用户握手耗时 | 握手往返到东京 | 经 CloudFront 时在附近边缘完成 |
 | 是否依赖入站 80 端口 | Let's Encrypt HTTP-01 需要 | 不需要（预先批准的 DNS 域验证） |
 
-**页面上能直接看到的差异**：地址栏的安全状态；证书查看器中的签发者。`/lab` 的 TLS 卡片按入口（直连、CDN、ALB）列出：签发者、SAN、到期日、剩余天数、续期方式（certbot 定时器或 ACM 托管）、TLS 版本与加密套件、ALPN 协商结果、终止位置、浏览器实测的握手时间（Resource Timing 的 `connectEnd - secureConnectionStart`）。`X-CloudAlbum-Path` 的 `tls` 段显示 `selfsigned@nginx`、`letsencrypt@nginx`、`acm@nginx`、`default@cloudfront`、`acm@cloudfront` 或 `acm@alb`。
+**页面上能直接看到的差异**：地址栏的安全状态；证书查看器中的签发者。`/lab` 的 TLS 卡片按入口（直连、CDN、ALB）列出：签发者、SAN、到期日、剩余天数、续期方式（certbot 定时器或 ACM 托管）、TLS 版本与加密套件、ALPN 协商结果、终止位置、浏览器实测的握手时间（Resource Timing 的 `connectEnd - secureConnectionStart`）。`X-CloudAlbum-Path` 的 `tls` 段显示 `selfsigned@nginx`、`letsencrypt@nginx`、`acm@nginx:acme`、`selfsigned@cloudfront:cf-default`、`acm@cloudfront` 或 `acm@alb`（语法见约定 4）。
 
 **测量指标**：多区域测得的 TLS 握手时间（curl 的 `time_appconnect - time_connect`）；证书剩余天数；续期需要的人工步骤数；支持的协议与套件；ALPN（h2）；自签名证书下跨源 fetch 与 Cognito 回调的失败情况。
 
@@ -1123,26 +1387,42 @@ ACM_CERT_ARN_REGIONAL=arn:aws:acm:ap-northeast-1:111122223333:certificate/...
 
 ### 6. 切换、数据迁移与回滚
 
-**enable**（`scripts/module enable tls --domain album.example.com [--zone-id Z…]`）
+**enable**（`scripts/module enable tls --domain album.example.com [--zone-id Z…] [--no-acme]`）
 
-1. 校验域名；查看已启用的 cdn/load-balancer/social-api，决定要部署哪些栈。
-2. 部署 tls 栈（ACME 签发角色），需要时部署 `tls-edge`（us-east-1）与 `tls-regional`。有 dns 模块时验证记录自动创建；没有时 `scripts/module` 打印需要添加的 CNAME 并等待（集成证书在 CloudFormation 中等待验证，超时后栈失败；ACME 域验证最多等待 72 小时后变为 `INVALID`）。
-3. 创建 ACME 端点与域验证，等待域验证变为 `VALID`；创建短期 EAB。
-4. 通过投递通道在实例上执行 certbot 注册与签发，更新 `/etc/cloudalbum/tls/server.*` 符号链接，`nginx -t` 后 reload；安装 `certbot-renew.timer`。
-5. 通过 `injects` 更新 cdn（`Aliases` + 证书）和/或 load-balancer（HTTPS 监听器 + 重定向）。
+1. 校验域名；**探测 ACME 端点是否可用**（部署者身份调用 `aws acm list-acme-endpoints`：命令不存在、区域不支持、被权限或 SCP 拒绝都算不可用），可用且没有 `--no-acme` 时 `TLS_ACME=on`，否则 `TLS_ACME=off` 并检查 DEP-005 ③；查看已启用的 cdn/load-balancer/social-api，决定要部署哪些栈。
+2. 部署 tls 的 `main` 栈（`TLS_ACME=on` 时含签发角色、ACME 端点与域验证），需要时部署 `tls-edge`（us-east-1）与 `tls-regional`。有 dns 模块时验证记录自动创建；没有时 `scripts/module` 打印需要添加的 CNAME 并等待（集成证书在 CloudFormation 中等待验证，超时后栈失败；ACME 域验证最多验证 72 小时，之后变为 `INVALID`，失败原因 `TIMED_OUT`）。
+3. `TLS_ACME=on`：等待域验证变为 `VALID`；用 CLI 创建 1 天有效的 EAB 并读取凭证（不放进模板，原因见第 2 节）。
+4. `TLS_ACME=on`：通过投递通道在实例上执行 certbot 注册与签发（目录参数见第 1 节），更新 `/etc/cloudalbum/tls/server.*` 符号链接，`nginx -t` 后 reload；安装 `cloudalbum-tls-renew.timer`；删除 EAB；把 ACME 账户 ID 与证书 ARN 写入 `state.json`。
+5. 通过 `injects` 更新 cdn（`Aliases` + 证书）、load-balancer（HTTPS 监听器 + 重定向）和/或 social-api。
 6. 更新 DNS 记录；写入 `tls.env`；需要时设 `TLS_FORCE_HTTPS=true`；重启 api 与 worker（有效入口 URL 变为 https），运行探针。
 
 **数据迁移**：无。
 
 **回滚**：符号链接指回自签名证书并 reload，立即生效；集成证书的挂载通过 `injects` 撤销。
 
-**disable**：先撤销挂载（用空参数更新 cdn、load-balancer 栈；ACM 拒绝删除仍在使用的证书，可查看 `InUseBy`），再删除证书栈；删除 ACME 端点（会同时删除其 EAB 与域验证）；`TLS_MODE` 回到 `selfsigned` 或 `letsencrypt`，直连 Nginx 的证书随之切换。`TLS_FORCE_HTTPS` 与 HSTS 必须先关闭：浏览器在 HSTS 的 `max-age` 内会拒绝回到 HTTP 或自签名证书，这也是 `max-age` 要从小值开始的原因。
+**disable**：先关闭 `TLS_FORCE_HTTPS` 与 HSTS（浏览器在 HSTS 的 `max-age` 内会拒绝回到 HTTP 或自签名证书，这也是 `max-age` 要从小值开始的原因），再按 `state.json` 的清理清单执行：
+
+1. 撤销挂载：用空参数更新 cdn、load-balancer、social-api 栈（ACM 拒绝删除仍在使用的证书，可查看 `InUseBy`）。
+2. Nginx 证书切回 `selfsigned` 或 `letsencrypt`，reload。
+3. 可选：`certbot revoke` 吊销仍在有效期内的 ACME 证书（ACM 的 `RevokeCertificate` 对它无效）。
+4. 删除 tls 的 `main` 栈：ACME 端点删除时会一并删除其 EAB、域验证与已注册的 ACME 账户；签发角色随栈删除。
+5. 删除 `tls-edge`、`tls-regional` 栈（集成证书）。
+6. 删除 DNS 中的验证 CNAME（dns 托管的由栈删除；外部 DNS 由 `scripts/module` 打印提醒）。
+7. 删除实例上的 `cloudalbum-tls-renew.timer` 与 `/etc/cloudalbum/letsencrypt` 中本端点的账户与续期配置；已过期的 ACME 证书可以用 `DeleteCertificate` 删除，ACM 也会在过期一年后自动删除。
+8. `TLS_MODE` 写回 `selfsigned` 或 `letsencrypt`，清理 `state.json` 中的对应记录。
 
 ### 7. SAA 考点
 
+按 D13 分两栏记忆，答题时以左栏为准：
+
+| 考试结论 | 2026 新能力（题库可能尚未覆盖） |
+|---|---|
+| ACM 公有证书只能用在集成服务（CloudFront、ALB、API Gateway 等）上，不能装到 EC2；要在 EC2 终止 TLS，在前面加 ALB/CloudFront，或导入第三方证书 | ACME 端点为自管服务器签发 45 天公有证书，私钥在客户端；这类证书反过来不能挂到集成服务上 |
+| 集成证书免费、ACM 自动续期，DNS 验证记录必须保留 | ACME 证书由客户端续期；按域名在签发与续期时计费；域验证是预先批准的持久 CNAME |
+
 - ACM 公有证书用于集成服务时免费、自动续期；DNS 验证与邮件验证的区别；验证记录必须保留才能自动续期。
 - 证书的区域要求：CloudFront 与 Cognito 托管登录页自定义域名用 us-east-1；ALB 与区域型 API Gateway 用资源所在区域。
-- 普通 ACM 公有证书不能导出；可导出公有证书收费；导入的第三方证书要手动续期；ACM Private CA 用于内部证书；ACME 端点为自管服务器签发证书（新功能，考试题库可能尚未覆盖）。
+- 普通 ACM 公有证书不能导出；可导出公有证书收费；导入的第三方证书要手动续期；ACM Private CA 用于内部证书。
 - SNI 与“一个监听器挂多张证书”；ALB 安全策略。
 - 端到端加密：ALB 到目标可以再加密，ALB 不校验目标证书。
 - CloudFront 的查看器协议策略与源站协议策略。
@@ -1151,9 +1431,9 @@ ACM_CERT_ARN_REGIONAL=arn:aws:acm:ap-northeast-1:111122223333:certificate/...
 
 ### 8. 费用与清理
 
-- 用于 CloudFront、ALB 等集成服务的 ACM 公有证书免费；ACME 签发的证书按域名按月收费（金额很小）；可导出公有证书按证书收费，签发与每次续期都收费；ACM Private CA 有月费，本项目不用；Let's Encrypt 免费。以上以官方定价为准。
-- 间接成本是挂载点本身的费用（ALB 按小时，CloudFront 按流量）。
-- 清理：`scripts/module disable tls` 删除证书栈与 ACME 端点；之后在 ACM 控制台确认没有遗留的 ACME 证书（过期的 ACME 证书会在到期一年后被自动删除，也可以手动删除）。
+- 用于 CloudFront、ALB 等集成服务的 ACM 公有证书免费；ACME 签发的证书按证书中的域名计费，签发与每次续期都计一次（45 天证书意味着一年续期多次），超出免费额度的 API 调用另计；可导出公有证书按域名在签发与续期时收费；ACM Private CA 有月费，本项目不用；Let's Encrypt 免费。以上以 [ACM 定价页](https://aws.amazon.com/certificate-manager/pricing/) 为准，本文不写金额。
+- 间接成本是挂载点本身的费用（ALB 按小时，CloudFront 按流量）。tls 本身不按小时计费（`hourlyBilled: false`）。
+- 清理：`scripts/module disable tls` 按第 6 节的清单删除证书栈与 ACME 端点；之后在 ACM 控制台用 ACME 过滤条件确认没有遗留的 ACME 证书（过期的 ACME 证书会在到期一年后被自动删除，也可以手动删除）。
 
 ### 9. 常见坑
 
@@ -1167,22 +1447,101 @@ ACM_CERT_ARN_REGIONAL=arn:aws:acm:ap-northeast-1:111122223333:certificate/...
 - HTTPS 页面引用 http 资源时，浏览器会拦截混合内容。
 - 在 ALB/CloudFront 后面对直连监听器做 80→443 跳转时，要按 `$ca_proto` 判断，否则会出现跳转循环。
 - 证书仍被使用时无法删除，栈删除顺序必须是“先解除挂载，再删证书”。
+- 用 `aws acm list-certificates` 找不到 ACME 证书：默认不列出，要加 `--certificate-key-pair-origins ACME`。
+- 想用 ACM 的 `RevokeCertificate` 吊销 ACME 证书会失败，只能经 ACME 端点（`certbot revoke`）。
+- 吊销或删除 EAB 并不会让已注册的 ACME 账户失效；要停止签发，吊销账户或删除端点。
+- certbot 用默认的 `/etc/letsencrypt`（根卷）时，实例一替换 ACME 账户和续期配置就丢失；本项目把配置目录放在数据卷上。
+- 考试答题仍按“ACM 证书不能装到 EC2”作答；ACME 端点是 2026 年的新能力，不要拿它推翻题目里的经典结论。
+
+### 10. 探针
+
+tls 是纯基础设施型，探针就是感知器 `detectors/tls.ts`，对每个入口（直连、CDN、ALB、有效入口 URL）分别握手。
+
+| 探针 | 方式 | `degraded` 判据 | `error` 判据 | 所需权限（在 `PolicyArn` 中） | 无凭证时 |
+|---|---|---|---|---|---|
+| 常规（300 秒） | Node `tls.connect` 握手，读取签发者、SAN、`valid_to`、协议版本与 ALPN | `TLS_MODE=acm` 且 `TLS_ACME=on`，但直连证书签发者不是 Amazon；任一入口剩余天数低于续期窗口仍未续期（ACME 证书按 45 天有效期计算窗口）；`cloudalbum-tls-renew.timer` 最近一次运行失败 | 证书过期；域名不匹配；握手失败 | 不需要 | 照常 |
+| 深度（管理员或 enable 健康检查阶段） | `DescribeCertificate`（集成证书的续期状态、`InUseBy`）；`SearchCertificates` 按 `AcmeEndpointArn` 找 ACME 证书 | 集成证书 `RenewalStatus` 异常；验证 CNAME 缺失 | 证书不存在或已吊销 | `acm:DescribeCertificate`、`ListCertificates`、`SearchCertificates` | 跳过，状态 `degraded`（无凭证：控制面感知不可用） |
+
+ACME 端点本身的签发成功/失败由 CloudWatch 指标 `CertificateIssuanceSuccess`、`CertificateIssuanceFailed` 反映，monitoring 启用后可以设告警；应用侧不调用 ACME 控制面 API。
+
+### 11. 前端徽章
+
+| 位置 | 本地实现时 | AWS 实现时 | 数据来源 |
+|---|---|---|---|
+| 页脚状态条“证书” | 证书：自签名（Nginx）· 不受信任／证书：Let's Encrypt（Nginx） | 证书：ACM（ACME → Nginx）／证书：ACM（CloudFront 边缘）／证书：ACM（ALB） | 请求级 `tls=` 段；没有该段时读 capabilities 的 `https.via` |
+| CloudFront 默认证书 | 证书：CloudFront 默认证书（tls 未启用） | — | 请求级 `tls=selfsigned@cloudfront:cf-default` |
+| 登录与注册页 | `AUTH_DRIVER=local` 且经明文 HTTP 提交时显示红色横幅“当前连接未加密”（SEC-005） | 无横幅 | capabilities 与 SEC-005 |
+| `/lab` TLS 卡片 | 各入口的签发者、到期日、续期方式 | 另显示 `TLS_ACME`（on：ACME；off：回退分支·仅集成证书）与考试结论提示 | capabilities |
+
+```yaml
+# registry.yaml：tls.lab.badges
+badges:
+  local:
+    selfsigned: "证书：自签名（Nginx）· 不受信任"
+    letsencrypt: "证书：Let's Encrypt（Nginx）"
+  aws: "证书：ACM（{via}）"                   # via = ACME → Nginx / CloudFront 边缘 / ALB
+  note: "考试结论：ACM 证书只能挂在集成服务上；ACME 端点是 2026 年的新能力"
+```
+
+<a id="waf"></a>
 
 ## waf：Web 应用防护 ↔ AWS WAF
 
 > 一句话总结：没有它时，EC2 上的 Nginx 用 `limit_req` 限速、用几条正则拦截明显的攻击载荷，每个恶意请求都已经到达实例；有了它之后，AWS WAF 在 CloudFront 边缘或 ALB 上按托管规则与限速规则拦截，被拦截的请求根本不会到达 EC2。最直观的区别：攻击期间源站请求数曲线保持平稳，被拦截的响应带有 `waf=aws:block-<规则名>`，而 Nginx 方案的响应是 `waf=nginx:ratelimit`。
 
+### 0. 元数据（registry 摘录）
+
+```yaml
+# modules/registry.yaml 中 waf 的条目（摘录）
+waf:
+  group: A
+  function: Web 应用防护
+  awsService: AWS WAF
+  auxServices: [WAF IP 集合, 托管规则组]
+  type: infra
+  detector: detectors/waf.ts
+  port: BlocklistPort                    # 管理用小端口，adapters/waf/{nginx,aws}.ts，非权威
+  switch: { var: WAF_MODE, values: [nginx, aws], ownedValues: [aws], localTiers: [] }
+  ownsEnv: [WAF_]
+  credentials: optional                  # 写 IP 集合、读拦截计数需要；没有时封禁按钮只读，状态 degraded
+  prerequisites: []
+  requires:
+    - { rule: DEP-006, when: { WAF_MODE: aws }, need: ["cdn | load-balancer"] }
+    - { rule: DEP-018, when: { WAF_MODE: aws }, need: [], severity: warn }   # 运行范围：入口未锁定（CDN_DIRECT_ACCESS=open / PublicHttpIngress=open）时由感知器触发，条件在 rules.ts
+  soft: [threat-detection, logging, monitoring]
+  conflicts: []
+  authoritative: false
+  multiInstanceSafe: { nginx: false, aws: true }   # nginx 限速按实例计数（ASG-013，warn）
+  bypass: []                             # 刻意不提供按请求绕过 WAF 的旁路
+  stacks:
+    - { name: edge,     template: infra/modules/waf.yaml, region: us-east-1, when: cdn }        # CLOUDFRONT 范围；CRED-003 例外
+    - { name: regional, template: infra/modules/waf.yaml, when: load-balancer }   # REGIONAL 范围；已有 edge 时默认不部署（纵深防御需 --also-regional）
+  injects:
+    - { target: cdn, params: { WebAclArn: "${Out.EnvWafWebAclArn}" }, when: { WAF_SCOPE: CLOUDFRONT } }   # CloudFront 只能用分配自身的 WebACLId 关联
+  # 本栈接收的注入：AlbArn（load-balancer，REGIONAL 范围的 WebACLAssociation）
+  hostSetup: infra/modules/waf/host-setup.sh   # 只渲染 WAF_LAB_ALLOW_CIDR 的 Nginx 白名单片段；denylist 的 path 单元归 ec2，与 threat-detection 共用
+  migration: scripts/waf/sync-denylist   # denylist.conf ↔ IP 集合
+  probe: { kind: detector, intervalSec: 60 }
+  lab: { compare: runtime-ab, sideBySide: true, hourlyBilled: false, experiments: [flood, payloads, false-positive, bypass] }
+  doc: docs/modules/01-edge-network-scaling.md#waf
+```
+
+- 类型 I，附带管理用端口 BlocklistPort（不在请求路径上）。BlocklistPort 是非权威端口：写 IP 集合失败只让 waf 变为 `degraded`，本地 denylist 照常生效。
+
 ### 1. 基线实现（仅 EC2）
 
 `WAF_MODE=nginx`，全部在 Nginx 中实现（数值是示例，需要按实际调整）：
 
-- **限速**（总纲 2.5）：`limit_req_zone $binary_remote_addr zone=ca_api:10m rate=20r/s;`、`zone=ca_auth:10m rate=2r/s;`；`/api/` 用 `burst=40 nodelay`，`/api/auth/` 用 `burst=5 nodelay`；`limit_req_status 429`。键 `$binary_remote_addr` 依赖约定 3 的真实 IP 解析。
+- **限速**（ec2 基础提供，见 00-ec2-base.md）：`limit_req_zone $binary_remote_addr zone=ca_api:10m rate=20r/s;`、`zone=ca_auth:10m rate=2r/s;`；`/api/` 用 `burst=40 nodelay`，`/api/auth/` 用 `burst=5 nodelay`；`limit_req_status 429`。键 `$binary_remote_addr` 依赖约定 3 的真实 IP 解析。
 - **特征拦截**：`map $request_uri $ca_block` 用正则匹配 `union select`、`<script`、`../`、`%2e%2e%2f` 等，命中返回 403。它的作用是演示局限性：二次编码、大小写、注释插入等变体能绕过，也容易误杀正常内容。
-- **IP 黑名单**：ec2 基础提供 `/etc/nginx/cloudalbum.server.d/00-waf-blocklist.conf`，内容只有 `include /var/lib/cloudalbum/waf/blocklist.conf;`。管理后台 `/admin/security` 的“封禁 IP”按钮经 BlocklistPort 的 `nginx` 驱动写这个文件（每行 `deny 198.51.100.0/24;`）。Node 进程没有 root 权限，由 systemd path 单元 `cloudalbum-nginx-reload.path` 监听文件变化，触发的服务先逐行校验格式（只允许 `deny <IP 或 CIDR>;`，防止被注入任意 Nginx 指令），再 `nginx -t && systemctl reload nginx`。
-- **请求体大小**：`client_max_body_size 30m`（照片上传，总纲 2.5）。
-- **错误页**：429/403 返回带 `X-CloudAlbum-Path: entry=nginx;waf=nginx:ratelimit`（或 `badinput`、`blocklist`）的 JSON，使用 `add_header … always`。
+- **IP 封禁列表（唯一一份，统一值 C19）**：`/var/lib/cloudalbum/security/denylist.conf`，由 ec2 基础提供的 `geo $ca_denied { default 0; include /var/lib/cloudalbum/security/denylist.conf; }` 读取，80/443 与 8080 的 server 块都有 `if ($ca_denied) { return 403; }`（错误页带 `waf=nginx:denylist`）。文件每行一条 `198.51.100.0/24 1;  # src=admin|fail2ban ts=<时间> note=<说明>`。
+  - 写入方有两个：管理后台 `/admin/security` 的“封禁 IP”按钮经 BlocklistPort 的 `nginx` 驱动写入（`src=admin`）；threat-detection 基线中 fail2ban 的 `cloudalbum-denylist` 动作写入（`src=fail2ban`，带解封时间）。两者都先取 `security/denylist.lock` 的 flock，再“写临时文件 + rename”，不会互相覆盖。
+  - 只有一个 systemd path 单元 `cloudalbum-denylist.path` 监听该文件；触发的服务逐行校验格式（只允许 `<IP 或 CIDR> 1;` 加注释，防止被注入任意 Nginx 指令），再执行 `nginx -t && systemctl reload nginx`。校验失败时保留上一个可用版本并写审计日志。
+  - 上一轮的 `blocklist.conf`（`deny` 指令）与 `00-waf-blocklist.conf` 已删除。
+- **请求体大小**：`client_max_body_size 30m`（照片上传，00-ec2-base.md）。
+- **错误页**：429/403 返回带 `X-CloudAlbum-Path: entry=nginx;waf=nginx:ratelimit`（或 `badinput`、`denylist`）的 JSON，使用 `add_header … always`。
 - **统计**：worker 增量读取 Nginx JSON 访问日志，每分钟按原因汇总 429 与 403 的次数，写入 LabMetricsStore。
-- **分工**：真正的 SQL 注入防护在代码里（Knex 参数化查询）；fail2ban 属于 threat-detection 的基线，可以把频繁触发 429/403 的 IP 在防火墙层封禁，两者互补。
+- **分工**：真正的 SQL 注入防护在代码里（Knex 参数化查询）；fail2ban 属于 threat-detection 的基线，把频繁触发 429/403 的 IP 写进同一份 denylist（在 cdn 或 load-balancer 后面时只能这样封，防火墙层看到的是代理地址），两者互补。sshd 的 jail 仍用 nftables。
 
 ### 2. AWS 实现
 
@@ -1210,7 +1569,7 @@ ACM_CERT_ARN_REGIONAL=arn:aws:acm:ap-northeast-1:111122223333:certificate/...
 - REGIONAL 范围且 ALB 在 CloudFront 后面时，限速规则的聚合键改为 `FORWARDED_IP`（读取 `X-Forwarded-For`），否则看到的都是 CloudFront 的地址。
 - **关联**：CLOUDFRONT 范围通过注入 cdn 栈的 `WebAclArn` 参数写入分配的 `WebACLId`（CloudFront 不使用 `WebACLAssociation`）；REGIONAL 范围用 `AWS::WAFv2::WebACLAssociation` 关联 ALB ARN。
 - **日志**：`AWS::WAFv2::LoggingConfiguration` 投递到 CloudWatch Logs 日志组 `aws-waf-logs-cloudalbum-<env>`（名称必须以 `aws-waf-logs-` 开头，且与 Web ACL 在同一区域——CLOUDFRONT 范围就在 us-east-1）；`RedactedFields` 屏蔽 `authorization` 与 `cookie` 头；`LoggingFilter` 只保留 BLOCK 与 COUNT。
-- **管理后台封禁 IP**：BlocklistPort 的 `aws` 驱动调用 `wafv2:GetIPSet` 取得 `LockToken`，再 `UpdateIPSet`（乐观锁，遇到 `WAFOptimisticLockException` 重试）。CLOUDFRONT 范围的 IP 集合也在 us-east-1，SDK 客户端的区域必须设为 us-east-1。迁移工具 `scripts/waf/import-blocklist` 把 `blocklist.conf` 的条目导入 IP 集合。
+- **IP 封禁（`WAF_MODE=aws`）**：`denylist.conf` 仍是实例上的唯一来源（fail2ban 继续写它，Nginx 继续读它，作为直连入口的保护）；BlocklistPort 的 `aws` 驱动负责把同一份列表同步到 IP 集合 `cloudalbum-blocklist`：管理后台按钮先写 denylist，再立即同步；worker 每分钟比对一次，把 fail2ban 新增或到期的条目增量同步。同步调用 `wafv2:GetIPSet` 取得 `LockToken`，再 `UpdateIPSet`（乐观锁，遇到 `WAFOptimisticLockException` 重试）。CLOUDFRONT 范围的 IP 集合也在 us-east-1，SDK 客户端（由 `adapters/aws/clients.ts` 创建）的区域必须设为 us-east-1。首次启用时 `scripts/waf/sync-denylist` 做一次全量导入。
 - **Outputs**：`EnvWafMode`（`aws`）、`EnvWafScope`、`EnvWafWebAclArn`、`EnvWafIpSetId`、`EnvWafIpSetName`、`EnvWafLogGroup`；`PolicyArn` 包含 `wafv2:GetWebACL`、`GetIPSet`、`UpdateIPSet`（只限两个 IP 集合）、`GetSampledRequests`、`cloudwatch:GetMetricData`。
 
 ```mermaid
@@ -1256,9 +1615,11 @@ export interface BlockEntry { cidr: string; addedAt?: string; note?: string }
 export interface BlocklistPort extends Adapter {
   readonly driver: 'nginx' | 'aws';                // = WAF_MODE
   list(): Promise<BlockEntry[]>;
-  /** nginx：写 blocklist.conf，由 path 单元 reload，秒级生效；aws：UpdateIPSet，在边缘传播后生效 */
+  /** 两种驱动都先写 security/denylist.conf（path 单元校验后 reload，秒级生效）；aws 另外 UpdateIPSet，在边缘传播后生效 */
   add(cidr: string, note: string): Promise<{ effective: 'after-reload' | 'propagating' }>;
   remove(cidr: string): Promise<void>;
+  /** aws：把 denylist.conf 与 IP 集合做增量同步（worker 每分钟调用）；nginx：空操作 */
+  sync(): Promise<{ added: number; removed: number }>;
 }
 // 实现：backend/src/adapters/waf/nginx.ts、backend/src/adapters/waf/aws.ts
 ```
@@ -1271,7 +1632,7 @@ export interface BlocklistPort extends Adapter {
 
 - 挂载点：cdn（CLOUDFRONT 范围，Web ACL 必须建在 us-east-1）或 load-balancer（REGIONAL 范围，与 ALB 同区域）。只有 L0 时不能启用：WAF 不能关联 EC2、EIP 或 NLB（DEP-006）。
 - 防绕过：挂在 CloudFront 上时，源站必须只接受 CloudFront（8080 监听器、前缀列表、`X-Origin-Verify`），且 `CDN_DIRECT_ACCESS≠open`；挂在 ALB 上时，`PublicHttpIngress` 不能是 `open`。否则 waf 状态为 `degraded`（DEP-018）。
-- 管理后台写 IP 集合：需要 AWS 凭证（推荐 iam）具有 `wafv2:GetIPSet`、`UpdateIPSet`；没有时按钮退化为只读。
+- 管理后台写 IP 集合：需要 `IAM_CREDENTIALS≠none`（推荐 role），`PolicyArn` 中有 `wafv2:GetIPSet`、`UpdateIPSet`；没有凭证时只更新本地 denylist，按钮旁注明“未同步到 AWS WAF”，waf 状态 `degraded`。
 
 **与其他模块组合**
 
@@ -1282,7 +1643,7 @@ export interface BlocklistPort extends Adapter {
 - **cache=redis**：可选用 Redis 实现应用层分布式限速，作为多实例下 Nginx 限速的替代基线。
 - **logging / monitoring**：CLOUDFRONT 范围的指标与日志在 us-east-1；可以对 `BlockedRequests` 突增设告警。
 - **analytics**：WAF 日志也可经 Data Firehose（流名称同样必须以 `aws-waf-logs-` 开头）写入 S3，再用 Athena 分析。
-- **threat-detection**：可选把 GuardDuty 发现经 EventBridge 与 Lambda 自动写入 IP 集合。
+- **threat-detection**：基线 fail2ban 与本模块共用 `denylist.conf`（统一值 C19）；`WAF_MODE=aws` 时 fail2ban 封禁的 IP 经 BlocklistPort 的同步也进入 IP 集合，在边缘生效。可选把 GuardDuty 发现经 EventBridge 与 Lambda 自动写入 IP 集合。
 
 **多实例（ASG）**：Nginx 的 `limit_req` 按实例、按 zone 独立计数，实际限额变成 N 倍（ASG-013 警告）；AWS WAF 在整个 Web ACL 范围内统一计数。
 
@@ -1296,7 +1657,7 @@ export interface BlocklistPort extends Adapter {
 | 攻击载荷识别 | 几条正则，编码变体可绕过，易误杀 | 托管规则组持续更新，对编码变体识别更强 |
 | 误杀风险 | 正则误杀 | CRS 会误杀大请求体（上传），需先 Count 调优 |
 | 被拦截时源站负载 | 连接、TLS、日志、带宽都消耗在实例上 | 源站请求数保持平稳 |
-| 封禁 IP | 写 `blocklist.conf` + reload | 更新 IP 集合 |
+| 封禁 IP | 写 `denylist.conf`（geo）+ reload | 同一份 denylist 同步到 IP 集合 |
 | 可观测性 | Nginx 日志汇总 | 采样请求、CloudWatch 指标、WAF 日志 |
 
 **页面上能直接看到的差异**：被拦截时的响应不同——Nginx 返回 `waf=nginx:ratelimit` 的 429，AWS WAF 返回自定义 JSON 与 `waf=aws:block-<规则名>`。`/lab` 的 WAF 卡片显示：当前模式、挂载点、规则列表与动作（count/block）、最近 5 分钟各规则拦截数（AWS：`GetMetricData`；Nginx：日志汇总）、攻击期间源站收到的请求数，以及“经入口但没有 `x-amzn-waf-cloudalbum` 头的请求数”（绕过 WAF 的请求）。管理后台的“封禁 IP”显示生效方式（reload 后生效 / 正在传播）。
@@ -1328,11 +1689,11 @@ export interface BlocklistPort extends Adapter {
 6. 运行 `payloads` 与 `false-positive`，在日志中检查 COUNT 记录是否有误杀；必要时调整规则覆盖或范围缩小语句。
 7. `scripts/module set waf WAF_RULE_ACTION=block`。
 
-**数据迁移**：`scripts/waf/import-blocklist` 把 `blocklist.conf` 的条目导入 IP 集合；disable 时反向导出。
+**数据迁移**：`scripts/waf/sync-denylist` 把 `denylist.conf` 的条目全量导入 IP 集合；之后由 BlocklistPort 增量同步。disable 时不需要反向导出：`denylist.conf` 一直是实例上的唯一来源。
 
 **回滚**：把 `WAF_RULE_ACTION` 改回 `count` 即可停止拦截；或解除关联。
 
-**disable**：恢复 `WAF_MODE=nginx` 与严格的 Nginx 限速；先解除关联（用空的 `WebAclArn` 更新 cdn 栈，或删除 ALB 关联），再删除 Web ACL（仍处于关联状态的 Web ACL 无法删除）；日志组按数据保护约定保留。
+**disable**：恢复 `WAF_MODE=nginx` 与严格的 Nginx 限速，BlocklistPort 回到 `nginx` 驱动并停止 IP 集合同步（`denylist.conf` 保持不变，继续由 Nginx 生效）；先解除关联（用空的 `WebAclArn` 更新 cdn 栈，或删除 ALB 关联），再删除 Web ACL（仍处于关联状态的 Web ACL 无法删除）；日志组按数据保护约定保留。
 
 ### 7. SAA 考点
 
@@ -1364,34 +1725,115 @@ export interface BlocklistPort extends Adapter {
 - 不先用 Count 模式观察就直接 Block，很容易误杀真实用户。
 - 实验机白名单 `allow-lab` 是 Allow 动作，会让该 IP 跳过所有规则；做 waf 自己的实验前必须清空，平时也不要长期保留。
 - 让 Node 写 Nginx 配置文件时，必须在 reload 前校验内容格式，否则一个被攻破的应用进程就能改写 Nginx 配置。
+- 两个写入方（管理后台与 fail2ban）各写各的文件、各有 reload 单元，会出现“这边解封、那边还在封”的不一致；本项目只保留一个 denylist 文件、一把锁、一个 path 单元。
+- 在 CloudFront/ALB 后面用防火墙（nftables）封 IP 无效：看到的是代理地址。应用层封禁要靠 realip 之后的 `geo`，或者在边缘用 WAF IP 集合。
+
+### 10. 探针
+
+| 探针 | 方式 | `degraded` 判据 | `error` 判据 | 所需权限（在 `PolicyArn` 中） | 无凭证时 |
+|---|---|---|---|---|---|
+| 常规（60 秒） | 被动：最近 5 分钟经 CloudFront/ALB 入口的请求中带 `x-amzn-waf-cloudalbum` 的比例（应接近 100%）；“经入口但没有该头”的请求数；`denylist.conf` 最近一次校验与 reload 结果 | 声明启用但比例为 0（Web ACL 未关联）；入口未锁定（DEP-018）；denylist 校验失败、仍在用上一个版本；IP 集合同步落后（最近一次 `sync()` 失败） | — | 不需要 | 照常 |
+| 深度（管理员或 enable 健康检查阶段） | `GetWebACL`（规则与动作，`WAF_RULE_ACTION` 是否一致）、`GetIPSet`（条目数与 denylist 是否一致）、`GetSampledRequests` | 规则动作与声明不一致；IP 集合与 denylist 不一致 | Web ACL 不存在或未关联任何资源 | `wafv2:GetWebACL`、`GetIPSet`、`GetSampledRequests`、`cloudwatch:GetMetricData`（写入另需 `UpdateIPSet`，限两个 IP 集合） | 跳过，状态 `degraded`（无凭证：控制面感知不可用，封禁只在本地生效） |
+
+### 11. 前端徽章
+
+| 位置 | 本地实现时（nginx） | AWS 实现时（aws） | 数据来源 |
+|---|---|---|---|
+| 被拦截时的错误页 | 请求过于频繁 · 已被 Nginx 限速（实例上）／已被 IP 封禁（Nginx） | 已被 AWS WAF 拦截 · 规则 {rule}（边缘） | 请求级 `waf=` 段 |
+| 管理后台 · 安全 | 封禁 IP：reload 后生效（本机） | 封禁 IP：正在传播到 AWS WAF（全局） | BlocklistPort 的 `effective` |
+| `/lab` WAF 卡片 | Nginx 限速与拦截计数 | 规则列表、拦截计数、绕过 WAF 的请求数 | capabilities 与 LabMetricsStore |
+
+```yaml
+# registry.yaml：waf.lab.badges
+badges:
+  local: "已被 Nginx {reason}（实例上）"        # reason = 限速 / 特征拦截 / IP 封禁
+  aws: "已被 AWS WAF 拦截 · 规则 {rule}"
+  degraded: "WAF 降级 · {reason}"              # 例如“源站未锁定，可被绕过”
+```
+
+<a id="load-balancer"></a>
 
 ## load-balancer：负载均衡 ↔ Elastic Load Balancing（Application Load Balancer）
 
 > 一句话总结：没有它时，Nginx 自己就是“负载均衡器”：上游只有本机的一个（或两个）Node 进程，实例本身就是唯一入口；有了它之后，ALB 成为跨 AZ 的托管入口，负责健康检查、HTTPS 终止、`/admin` 的 Cognito 登录与 WAF 挂载。最直观的区别：响应中出现 `entry=alb>nginx` 与 `X-Amzn-Trace-Id`；有两个以上目标时，重启或终止一台实例，用户几乎看不到错误。
 
+### 0. 元数据（registry 摘录）
+
+```yaml
+# modules/registry.yaml 中 load-balancer 的条目（摘录）
+load-balancer:
+  group: A
+  function: 负载均衡
+  awsService: Elastic Load Balancing（Application Load Balancer）
+  auxServices: [目标组, ALB vended logs]
+  type: infra
+  detector: detectors/load-balancer.ts
+  switch: { var: LB_MODE, values: [nginx, alb], ownedValues: [alb], localTiers: [] }   # 本地档 LB_LOCAL_WORKERS=1|2 是子选项，不写 MODULE_LOAD_BALANCER
+  ownsEnv: [LB_]
+  credentials: optional                  # DescribeTargetHealth 等感知需要
+  prerequisites: []
+  requires:
+    - { rule: DEP-017, when: { LB_ADMIN_AUTH: cognito }, need: ["AUTH_DRIVER=cognito", "LB_HTTPS=true"] }
+    - { rule: DEP-011, when: { LB_MODE: alb }, need: ["AUTH_DRIVER=cognito", "LB_HTTPS=true"], severity: warn }   # 只关闭 F12 的 ALB 认证子功能
+    - { rule: DEP-042, when: { LB_ORIGIN_VERIFY: "on" }, need: ["CDN_ORIGIN_TYPE=alb"] }
+  soft: [tls, dns, cdn, auth, waf, network]
+  conflicts: []
+  authoritative: false
+  multiInstanceSafe: { nginx: true, alb: true }
+  bypass: []
+  stacks: [{ name: main, template: infra/modules/load-balancer.yaml }]
+  baseParams:                            # 定义见 00-ec2-base.md 6.2
+    AlbSecurityGroupId: "${Out.EnvLbSgId}"
+    PublicHttpIngress: "${Out.InfoPublicHttpIngress}"   # LB_LOCK_ORIGIN=on → admin-ip；off → open（与其他声明方取最严格）
+  injects:
+    - { target: autoscaling,      params: { TargetGroupArn: "${Out.EnvLbTgArn}" } }
+    - { target: cdn,              params: { AlbOriginDomainName: "${Out.EnvLbDnsName}" }, when: { CDN_ORIGIN_TYPE: alb } }
+    - { target: dns,              params: { TargetDnsName: "${Out.EnvLbDnsName}", TargetHostedZoneId: "${Out.EnvLbCanonicalHostedZoneId}" }, when: { DNS_TARGET_TYPE: alb } }
+    - { target: auth,             params: { AppOrigins: "+${Out.InfoEntryOrigin}" } }       # http(s)://<ALB DNS>
+    - { target: auth,             params: { AlbCallbackUrls: "${Out.InfoAlbCallbackUrl}" }, when: { LB_ADMIN_AUTH: cognito } }   # https://<域名>/oauth2/idpresponse
+    - { target: identity-pool,    params: { AppOrigins: "+${Out.InfoEntryOrigin}" } }
+    - { target: storage,          params: { AppOrigins: "+${Out.InfoEntryOrigin}" } }
+    - { target: image-processing, params: { OriginBaseUrl: "${Out.InfoEntryOrigin}" } }      # 回调地址的主机（DEP-019）
+    - { target: social-api,       params: { OriginBaseUrl: "${Out.InfoEntryOrigin}" } }      # proxy 集成的回源地址
+    - { target: monitoring,       params: { AlbFullName: "${Out.InfoAlbFullName}", TargetGroupFullName: "${Out.InfoTargetGroupFullName}" } }   # 告警维度
+    - { target: waf, stack: regional, params: { AlbArn: "${Out.EnvLbArn}" } }                 # REGIONAL 范围的 WebACLAssociation
+  # 本栈接收的注入：VpcId、SubnetIds（network）；CertificateArn、DomainName（tls）；CognitoUserPoolArn、CognitoAlbClientId、CognitoDomain（auth）；InstanceId（autoscaling 置空）
+  secretParams: [origin-verify]          # 仅 LB_ORIGIN_VERIFY=on
+  nginxFragments: [infra/modules/load-balancer/nginx/load-balancer-realip.conf.tpl]   # cloudalbum.d/load-balancer-realip.conf：set_real_ip_from <VPC CIDR>
+  hostSetup: infra/modules/load-balancer/host-setup.sh   # 写槽位 slot-alb-hops.inc；LB_LOCAL_WORKERS=2 时改写 cloudalbum_upstream.conf 并启用 cloudalbum-api@3001
+  migration: none
+  probe: { kind: detector, intervalSec: 30 }
+  lab: { compare: runtime-ab, sideBySide: true, hourlyBilled: true, experiments: [rolling-restart, health-fail, latency] }
+  doc: docs/modules/01-edge-network-scaling.md#load-balancer
+```
+
+- 类型 I。本地档只有 `LB_LOCAL_WORKERS=2`（统一值 C18；cache 的陈旧读实验复用它，原 `API_CLUSTER_WORKERS` 已删除）。
+- F12（管理后台）的 ALB `authenticate-cognito` 是 auth 与 load-balancer 的**组合子功能**，不是本模块的主机能（评审 G20）；只缺其一时由 DEP-011 关闭该子功能。
+
 ### 1. 基线实现（仅 EC2）
 
 `LB_MODE=nginx`：
 
-- **上游**（总纲 2.5）：`upstream cloudalbum_api { server 127.0.0.1:3000; keepalive 32; }`。路径路由全部在 Nginx 中完成：`/` 是 SPA 静态文件，`/media/` 经 Node 校验后由 Nginx 发送文件，`/api/` 转发到上游；`/admin` 是 SPA 路由，权限由应用层 `requireGroup('admin')` 检查（可选：总纲提到的 Nginx 管理 IP 白名单）。
+- **上游**：`upstream cloudalbum_api` 的成员不写在主配置里，而在 ec2 基础提供的 include 文件 `/etc/nginx/cloudalbum_upstream.conf` 中（00-ec2-base.md）；L0 默认内容为 `server 127.0.0.1:3000 max_fails=1 fail_timeout=5s;`（`keepalive 32` 写在主配置的 upstream 块里，这个文件只放 `server` 行）。路径路由全部在 Nginx 中完成：`/` 是 SPA 静态文件，`/media/` 经 Node 校验后由 Nginx 发送文件，`/api/` 转发到上游；`/admin` 是 SPA 路由，权限由应用层 `requireGroup('admin')` 检查（可选：总纲提到的 Nginx 管理 IP 白名单）。
 - **健康检查端点**（总纲 6.3）：`/api/health/live`（进程存活）、`/api/health/ready`（权威端口都不为 `error`），以及本组新增的 `/api/health/ready?scope=instance`（只看本实例：进程、配置、未处于 draining、本机磁盘可写，见约定 12）。
-- **自愈**：systemd `Restart=on-failure`；`cloudalbum-healthcheck.timer` 每 30 秒执行 `curl -fsS --max-time 3 http://127.0.0.1:3000/api/health/live || systemctl restart cloudalbum-api`。
-- **本地档 `LB_LOCAL_WORKERS=2`**（本机负载均衡演示）：再运行一个模板单元 `cloudalbum-api@3001.service`（与主单元相同，只是 `PORT=3001`），Nginx 上游加入 `server 127.0.0.1:3001`，两者轮询；`max_fails=1 fail_timeout=5s`，`proxy_next_upstream error timeout http_502`（Nginx 默认不重试 POST 等非幂等请求）。`scripts/restart-rolling` 每次只重启一个进程并等待它的 `ready`，在单机上实现接近零停机的重启。SQLite 使用 WAL 模式，可以容忍同一台机器上的多个进程。注意：两个 api 进程时，`CACHE_DRIVER=memory`、进程内推送等“每进程一份”的状态会表现出与多实例相同的不一致，规则引擎给出与 ASG-004 相同内容的警告。
-- **可观测**：Nginx 对代理响应加 `X-CloudAlbum-Upstream: $upstream_addr`，`/lab` 能看到请求在 3000 与 3001 之间轮换；访问日志在本地 JSON 文件中。
+- **自愈**（ec2 基础提供，见 00-ec2-base.md）：systemd `Restart=on-failure`；`cloudalbum-healthcheck.timer` 每 30 秒执行 `curl -fsS --max-time 3 http://127.0.0.1:3000/api/health/live || systemctl restart cloudalbum-api`。
+- **本地档 `LB_LOCAL_WORKERS=2`**（本机负载均衡演示，单机多进程的唯一机制）：用 ec2 基础提供的模板单元再启动 `cloudalbum-api@3001.service`（与主单元相同，只是 `PORT=3001`；同样 `UMask=0027`），load-balancer 的 hostSetup 把 `cloudalbum_upstream.conf` 改写为 `server 127.0.0.1:3000 max_fails=1 fail_timeout=5s; server 127.0.0.1:3001 max_fails=1 fail_timeout=5s;`（只写 `server` 行），两者轮询；`proxy_next_upstream error timeout http_502`（Nginx 默认不重试 POST 等非幂等请求）。`scripts/restart-rolling` 每次只重启一个进程并等待它的 `ready`，在单机上实现接近零停机的重启。SQLite 使用 WAL 模式，可以容忍同一台机器上的多个进程。改回 1 时恢复默认内容并停止 3001。
+- 两个 api 进程时，`CACHE_DRIVER=memory`、进程内推送等“每进程一份”的状态会表现出与多实例相同的不一致。这正是 cache 模块“陈旧读”实验要演示的现象（它复用本档，不另设 `API_CLUSTER_WORKERS`），所以这里不设校验规则，只在 `/lab` 的 load-balancer 卡片与 cache 卡片上提示。
+- **可观测**：处理请求的 Node 进程在路径头中写 `load-balancer=nginx:w3000` 或 `nginx:w3001`（只在 `LB_LOCAL_WORKERS=2` 时出现，约定 4），`/lab` 能看到请求在两个进程之间轮换；Nginx 访问日志记录 `$upstream_addr`。
 
 ### 2. AWS 实现
 
 `infra/modules/load-balancer.yaml`（栈名 `cloudalbum-<env>-load-balancer`）：
 
 - **ALB**：internet-facing（`CDN_ORIGIN_TYPE=vpc-origin` 时改为 internal）；子网：启用 network 时用 `NETWORK_PUBLIC_SUBNET_IDS`，否则用默认 VPC 中至少两个 AZ 的默认子网；属性：`idle_timeout.timeout_seconds=60`、`routing.http.drop_invalid_header_fields.enabled=true`。
-- **安全组**：栈自带 `cloudalbum-<env>-alb-sg`，允许 `0.0.0.0/0` 访问 80/443（`CDN_ORIGIN_TYPE=alb` 时改为只允许 CloudFront 托管前缀列表）；通过基础栈参数 `AlbSecurityGroupId` 让实例安全组放行来自 ALB 安全组的 80（总纲 9.1）。`LB_LOCK_ORIGIN=on` 时 `PublicHttpIngress` 至少为 `admin-ip`，用户无法绕过 ALB。
+- **安全组**：栈自带 `cloudalbum-<env>-alb-sg`，允许 `0.0.0.0/0` 访问 80/443（`CDN_ORIGIN_TYPE=alb` 时改为只允许 CloudFront 托管前缀列表）；通过基础栈参数 `AlbSecurityGroupId`（00-ec2-base.md）让实例安全组放行来自 ALB 安全组的 80。`LB_LOCK_ORIGIN=on` 时 `PublicHttpIngress` 至少为 `admin-ip`，用户无法绕过 ALB。ALB 绑定子网与 VPC，属于 DEP-016 所说的 VPC 绑定模块。
 - **目标组** `cloudalbum-<env>-app-tg`：`instance` 类型，HTTP:80，目标是 Nginx，所以静态文件与 `/media` 的处理与基线一致；健康检查 `/api/health/ready?scope=instance`，匹配码 200，间隔 15 秒，健康/不健康阈值都是 2；`deregistration_delay` 30 秒；关闭粘性会话；算法 `round_robin`（可选 `least_outstanding_requests`）。`DEPLOY_MODE=single` 时注册 L0 实例（参数 `InstanceId`）；启用 autoscaling 后由 ASG 管理目标。
 - **监听器**：HTTP:80——有区域证书（`LB_HTTPS=true`）时 301 到 HTTPS，否则直接转发；HTTPS:443 只在 tls 注入了区域证书时创建，`SslPolicy` 选 TLS 1.3 系列策略（名称以官方文档为准）。
 - **监听器规则**：
 
 | 优先级 | 条件 | 动作 |
 |---|---|---|
-| 1 | `LB_ORIGIN_VERIFY=on` 时：请求头 `X-Origin-Verify` 等于密钥 | 转发；同时默认动作改为固定响应 403 |
+| 1 | `LB_ORIGIN_VERIFY=on` 时：请求头 `X-Origin-Verify` 等于密钥（逻辑名 `origin-verify`，与 cdn 共用；以 NoEcho 栈参数传入） | 转发；同时默认动作改为固定响应 403 |
 | 10 | 路径 `/admin*`（`LB_ADMIN_AUTH=cognito`） | `authenticate-cognito`（未登录时跳转登录）→ 转发 |
 | 11 | 路径 `/api/admin/*`（`LB_ADMIN_AUTH=cognito`） | `authenticate-cognito`，`OnUnauthenticatedRequest=deny`（返回 401，而不是让 fetch 收到跨域跳转）→ 转发 |
 | 20 | 路径 `/api/*` | 转发 |
@@ -1400,9 +1842,9 @@ export interface BlocklistPort extends Adapter {
   `authenticate-cognito` 需要 User Pool ARN、一个**带客户端密钥**的 App Client（回调地址 `https://<域名>/oauth2/idpresponse`，与 SPA 使用的无密钥客户端分开）以及 User Pool 域名，这些由 auth 模块的输出提供。
 - **访问日志**：参数 `LogDestination=s3|cloudwatch|none`。传统访问日志写入本栈创建的 S3 桶（桶策略的写法因区域而异，以官方文档为准）；自 2026 年 7 月起，ALB 的访问日志、连接日志、健康检查日志也可以作为 vended logs 投递到 CloudWatch Logs 或 Data Firehose（按 vended logs 计费）。
 - **应用侧**：
-  - 投放 `/etc/nginx/cloudalbum.d/lb-realip.conf`（`set_real_ip_from <VPC CIDR>;`），见约定 3。
+  - 投放 `/etc/nginx/cloudalbum.d/load-balancer-realip.conf`（`set_real_ip_from <VPC CIDR>;`，见约定 3），并把 VPC CIDR 写进 ec2 预留的槽位 `slot-alb-hops.inc`（`<VPC CIDR> 1;`，供 00-entry.conf 判断上一跳是否为 ALB）；禁用时清空槽位、保留空文件。
   - `LB_ADMIN_AUTH=cognito` 时，应用必须校验 ALB 传来的 `x-amzn-oidc-data`：按 JWT 头中的 `kid` 从 `https://public-keys.auth.elb.ap-northeast-1.amazonaws.com/<kid>` 取 ES256 公钥验签，检查 `signer` 等于本 ALB 的 ARN、`exp` 未过期。`x-amzn-oidc-data` 携带的是用户信息端点返回的声明，通常不含组；组信息在 ALB 一并转发的访问令牌 `x-amzn-oidc-accesstoken` 中，用 auth 模块 cognito 驱动的 `verifyAccessToken()` 校验后读取 `cognito:groups` 是否含 `admin`（字段以官方文档为准）。ALB 生成的令牌编码中带填充字符，部分 JWT 库不接受，按官方示例处理。不能盲目信任这个请求头：直连 EC2 时任何人都能伪造它。
-- **Outputs**：`EnvLbMode`（`alb`）、`EnvLbDnsName`、`EnvLbArn`、`EnvLbTgArn`、`EnvLbSgId`、`EnvLbCanonicalHostedZoneId`、`EnvLbHttps`、`EnvLbLogDestination`；`PolicyArn` 包含 `elasticloadbalancing:DescribeTargetHealth`、`DescribeLoadBalancers`、`DescribeTargetGroups`。
+- **Outputs**：`EnvLbMode`（`alb`）、`EnvLbDnsName`、`EnvLbArn`、`EnvLbTgArn`、`EnvLbSgId`、`EnvLbCanonicalHostedZoneId`、`EnvLbHttps`、`EnvLbLogDestination`；供 `baseParams` / `injects` 使用的 `InfoPublicHttpIngress`（栈参数 `LockOrigin=on` → `admin-ip`，否则 `open`）、`InfoEntryOrigin`（`http(s)://<ALB DNS 或 DomainName>`）、`InfoAlbCallbackUrl`（`https://<DomainName>/oauth2/idpresponse`，`DomainName` 由 tls 注入）、`InfoAlbFullName`、`InfoTargetGroupFullName`（CloudWatch 维度）；`PolicyArn` 包含 `elasticloadbalancing:DescribeTargetHealth`、`DescribeLoadBalancers`、`DescribeTargetGroups`。
 
 ```mermaid
 flowchart LR
@@ -1501,7 +1943,7 @@ LB_LOG_DESTINATION=s3                    # s3 | cloudwatch | none
 
 1. 校验子网与 AZ；部署栈（创建 ALB 需要数分钟，`scripts/module` 显示进度）。
 2. 更新基础栈参数 `AlbSecurityGroupId`；注册 L0 实例，等待状态变为 `healthy`。
-3. 投放 `lb-realip.conf`，`nginx -t` 后 reload。
+3. 执行 hostSetup：投放 `load-balancer-realip.conf`、写槽位 `slot-alb-hops.inc`，`nginx -t` 通过后 reload。
 4. 写入 `load-balancer.env`；有效入口 URL 自动变为 ALB 地址（没有 dns、没有 cdn 时）；启用了 dns 时通过 `injects` 更新 Alias；启用了 cdn 且选择 `--cdn-origin alb` 时把源站切到 ALB。
 5. 重启 api 与 worker；探针：经 ALB 访问 `/api/health/ready` 能看到 `entry=alb>nginx`。
 6. 过渡期保留 EIP 直连用于对比，之后可设 `LB_LOCK_ORIGIN=on`。
@@ -1510,7 +1952,7 @@ LB_LOG_DESTINATION=s3                    # s3 | cloudwatch | none
 
 **回滚**：DNS 与 cdn 源站切回 EIP；`LB_LOCK_ORIGIN=off`。
 
-**disable**：反向依赖校验（autoscaling、cdn 以 ALB 为源站、dns Alias 指向 ALB 时拒绝）→ 先把 DNS 与 cdn 切回 EC2 的 EIP，等待 TTL → 删除 realip 片段 → 删除栈；基础栈的 `AlbSecurityGroupId` 清空。访问日志桶按数据保护约定保留。
+**disable**：反向依赖校验（autoscaling、cdn 以 ALB 为源站、dns Alias 指向 ALB 时拒绝）→ 先把 DNS 与 cdn 切回 EC2 的 EIP，等待 TTL → `hostSetup revert`（删除 `load-balancer-realip.conf`、清空 `slot-alb-hops.inc`）→ 删除栈；基础栈的 `AlbSecurityGroupId` 清空。访问日志桶按数据保护约定保留。
 
 ### 7. SAA 考点
 
@@ -1542,17 +1984,88 @@ LB_LOG_DESTINATION=s3                    # s3 | cloudwatch | none
 - `X-Forwarded-For` 可以被伪造，只信任 ALB 追加的最右侧值（由 Nginx realip 统一处理）。
 - 直连入口开启 80→443 跳转时，ALB 的 HTTP 监听器转发过来的请求也会被跳转到 ALB 没有监听的 443，形成死链；跳转要按 `$ca_proto` 判断（见 tls）。
 - 访问日志桶的桶策略写法因区域而异。
+- 在主配置里直接写 `upstream` 成员，模块就只能改写主配置；成员放在 `cloudalbum_upstream.conf` 里，本地档只改这一个文件。
+- ALB 绑定 VPC：先建 ALB 再把实例迁到另一个 VPC 会被 DEP-016 拒绝；按 Lab 顺序 load-balancer（Lab 19）在 network `public` 迁入（Lab 14）之后，`private` 切换（Lab 20）在同一 VPC 内进行。
+
+### 10. 探针
+
+| 探针 | 方式 | `degraded` 判据 | `error` 判据 | 所需权限（在 `PolicyArn` 中） | 无凭证时 |
+|---|---|---|---|---|---|
+| 常规（30 秒） | 被动：带 `X-Amzn-Trace-Id` 且上一跳属于 VPC CIDR 的请求占比；`ELB-HealthChecker/2.0` 最近一次到达时间；`LB_LOCAL_WORKERS=2` 时两个进程的 `ready` | 声明启用但没有经 ALB 的请求；超过 2 个检查间隔没有收到健康检查；仍有大量绕过 ALB 的公网请求（SEC-002）；本地档某个进程不 ready | — | 不需要 | 照常 |
+| 深度（管理员或 enable 健康检查阶段） | `DescribeTargetHealth`（本实例目标状态）、`DescribeLoadBalancers`、`DescribeTargetGroups` | 本实例目标 `unhealthy` 或 `draining`；HTTPS 监听器缺失而 `LB_HTTPS=true` | ALB 或目标组不存在；本实例不在目标组中 | `elasticloadbalancing:DescribeTargetHealth`、`DescribeLoadBalancers`、`DescribeTargetGroups` | 跳过，状态 `degraded`（无凭证：控制面感知不可用） |
+
+ALB 自己的健康检查打的是 `/api/health/ready?scope=instance`，它和这里的探针是两回事：前者决定 ALB 是否转发，后者决定 capabilities 中 load-balancer 的状态。
+
+### 11. 前端徽章
+
+| 位置 | 本地实现时（nginx） | AWS 实现时（alb） | 数据来源 |
+|---|---|---|---|
+| 页脚状态条“入口” | 入口：Nginx · i-0abc…（`LB_LOCAL_WORKERS=2` 时附“· 进程 3001”） | 入口：ALB → Nginx · i-0def… · ap-northeast-1c | 请求级 `entry=`、`inst=`、`az=`、`load-balancer=` 段 |
+| 管理后台登录 | 应用自己的登录页 | 先跳转 Cognito 托管登录（`LB_ADMIN_AUTH=cognito`，F12 组合子功能） | capabilities |
+| `/lab` LB 卡片 | 连续 20 次请求在进程间的分布 | 目标健康列表、请求在实例与 AZ 间的分布、请求头回显 | capabilities 与 `/api/lab/echo` |
+
+```yaml
+# registry.yaml：load-balancer.lab.badges
+badges:
+  local: "入口：Nginx{worker}"                 # worker = 空 / “· 进程 3001”
+  aws: "入口：ALB → Nginx"
+  degraded: "ALB 降级 · {reason}"              # 例如“用户绕过了 ALB”
+```
+
+<a id="autoscaling"></a>
 
 ## autoscaling：弹性伸缩 ↔ Amazon EC2 Auto Scaling
 
 > 一句话总结：没有它时只有一台手工维护的 EC2，扩容要停机换实例类型，实例坏了就是全站中断；有了它之后，应用运行在一组由启动模板批量创建、按负载增减、坏了自动替换的实例上。最直观的区别：连续请求的 `inst=`/`az=` 在多台实例间轮换；压测时 InService 实例数自动增加；手动终止一台后，几分钟内自动补齐，而用户几乎没有感觉。
+
+### 0. 元数据（registry 摘录）
+
+```yaml
+# modules/registry.yaml 中 autoscaling 的条目（摘录）
+autoscaling:
+  group: A
+  function: 弹性伸缩
+  awsService: Amazon EC2 Auto Scaling
+  auxServices: [启动模板, SSM Parameter Store（SecureString 引导配置包）]   # 发布包镜像在工具链栈制品桶的 releases/ 前缀（可选）
+  type: param                            # A·P：DEPLOY_MODE，另有 InstanceLifecyclePort
+  port: InstanceLifecyclePort            # adapters/autoscaling/{single,asg}.ts，非权威
+  switch: { var: DEPLOY_MODE, values: [single, asg], ownedValues: [asg], localTiers: [] }
+  ownsEnv: [DEPLOY_MODE, ASG_]
+  credentials: required                  # 必须是 role（DEP-007）；gen-single 自动并入 iam(role)
+  prerequisites: []
+  requires:
+    - { rule: DEP-007, when: { DEPLOY_MODE: asg }, need: ["IAM_CREDENTIALS=role", "load-balancer"] }
+    # 共享数据库（ASG-002/003：postgres 且 DB_HOST 不在本机）、共享存储（ASG-001：storage(s3) 或 shared-fs(efs)）
+    # 与其余多实例规则 ASG-004～016 不是模块间依赖，条件只写在 rules.ts（总纲 5.1），这里不重复
+  soft: [ami, database, storage, shared-fs, cache, queue, scheduler, secrets, logging, monitoring, shell-access]
+  conflicts: []
+  authoritative: false
+  multiInstanceSafe: { single: true, asg: true }
+  bypass: []
+  stacks: [{ name: main, template: infra/modules/autoscaling.yaml }]
+  baseParams: {}                         # 不改基础栈；L0 实例保留用于回滚
+  injects:
+    - { target: load-balancer, params: { InstanceId: "" } }              # 置空：L0 实例从目标组注销（第 6 节第 6 步）
+    - { target: monitoring,    params: { AsgName: "${Out.EnvAsgName}" } } # 告警与仪表板维度
+  # 本栈接收的注入：SubnetIds（network）；TargetGroupArn（load-balancer）；InstanceProfileName（iam，role 模式）；
+  #   ImageParamArm64、ImageParamX8664（ami，AMI_SOURCE=golden；为空时启动模板引用固定参数 /cloudalbum/<env>/ec2/image-id）；
+  #   KmsKeyArn（kms：scripts/module 写引导配置包 SecureString 时用）
+  secretParams: []                       # 共享密钥随引导配置包分发，不作为栈参数
+  migration: fleet-switch                # 见第 6 节；数据迁移由前置模块完成
+  probe: { kind: active, method: "IMDS target-lifecycle-state + autoscaling:DescribeAutoScalingInstances", intervalSec: 30 }
+  lab: { compare: before-after, hourlyBilled: true, experiments: [stateless-check, scale-out, max-toggle, terminate-drill, refresh] }
+  doc: docs/modules/01-edge-network-scaling.md#autoscaling
+```
+
+- 类型 A·P，带 InstanceLifecyclePort（非权威：生命周期轮询失败只让 autoscaling 变为 `degraded`，ASG 按心跳超时与默认结果继续）。
+- 软依赖 `ami`（EC2 Image Builder，`AMI_SOURCE=userdata|golden`，文档见 06-governance-cost.md#ami）：启用后启动模板改用黄金 AMI，作为 Lab 21 的前置或扩展，对比“启动到 InService”的耗时。
 
 ### 1. 基线实现（仅 EC2）
 
 `DEPLOY_MODE=single`，单台 L0 EC2，手工运维：
 
 - **纵向扩容**：停止实例 → 更换实例类型 → 启动。EIP 与数据卷保持不变，但有分钟级停机。
-- **故障恢复**：进程级由 systemd `Restart=on-failure` 负责；硬件级依赖 EC2 的简化自动恢复（支持的实例类型在系统状态检查失败时默认启用，以官方文档为准），也可以由 monitoring 模块配置 CloudWatch 告警的 recover 动作；需要彻底重建时运行 `scripts/rebuild-instance`：用同一份 User Data 新建实例，把数据卷（同一 AZ）改挂过去，或从备份恢复。
+- **故障恢复**：进程级由 systemd `Restart=on-failure` 负责；硬件级依赖 EC2 的简化自动恢复（支持的实例类型在系统状态检查失败时默认启用，以官方文档为准），也可以由 monitoring 模块配置 CloudWatch 告警的 recover 动作；需要彻底重建时运行 `scripts/rebuild-instance`：用同一份 User Data 新建实例，把数据卷（同一 AZ）改挂过去，或从备份恢复。机密与本地配置在数据卷的 `/var/lib/cloudalbum/etc` 上，新实例沿用而不重新生成；流程与 network 迁移相同，最后比对密钥指纹（见 network 第 6 节）。
 - **发布**：`scripts/deploy` 拉取新版本发布包、切换 `/opt/cloudalbum` 指向、`systemctl restart`，有短暂中断（可用 load-balancer 的本地档 `LB_LOCAL_WORKERS=2` 做滚动重启）。
 - **生命周期端口**（`single` 驱动，`backend/src/adapters/autoscaling/single.ts`）：从 IMDS 读取实例身份（instance-id、可用区、实例类型）；收到 SIGTERM 时进入 draining：`/api/health/ready` 返回 503、worker 停止拉取新任务、`server.close()` 等待在途请求结束，在 systemd `TimeoutStopSec` 内退出。
 - 所有状态都在本机 `/var/lib/cloudalbum` 下，单实例时没有任何一致性问题。
@@ -1562,31 +2075,32 @@ LB_LOG_DESTINATION=s3                    # s3 | cloudwatch | none
 `infra/modules/autoscaling.yaml`（栈名 `cloudalbum-<env>-autoscaling`）：
 
 - **启动模板** `cloudalbum-<env>-lt`：
-  - `ImageId` 通过 SSM 公共参数解析（`resolve:ssm:/aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64`，t4g 用 arm64 版本），架构必须与实例类型一致。
-  - 实例类型 t3.small 或 t4g.small；`IamInstanceProfile` 使用 iam 模块的 `CloudAlbumAppRole`；安全组 = 基础栈的实例安全组 + 各模块的附加安全组（约定 6）。
+  - `ImageId`：**一律引用固定参数，不直接引用 SSM 公共参数**（否则 AWS 每发布一次新 AMI，扩容出来的实例就与机群中已有实例不同，形成不可控的漂移）。`AMI_SOURCE=userdata` 时引用 ec2 基础栈首次部署时固定下来的 `resolve:ssm:/cloudalbum/<env>/ec2/image-id`（00-ec2-base.md E1；混合实例覆盖的另一种架构用 `/cloudalbum/<env>/ec2/image-id-<arch>`，同样由 `scripts/module` 首次解析后固定）；`AMI_SOURCE=golden` 时引用 ami 注入的 `ImageParamArm64` / `ImageParamX8664`（已晋升黄金 AMI 的参数名，预装 Node.js 22、Nginx 与发布包），参数为空时退回上面的固定参数。换 AMI 一律显式进行：更新这个参数（`rebuild-instance --ami latest` 或 `ami promote`），再触发实例刷新。架构必须与实例类型一致。
+  - 实例类型 t3.small 或 t4g.small；`IamInstanceProfile` 使用参数 `InstanceProfileName`（iam 的 `injects` 注入 `CloudAlbumAppRole` 的实例配置文件）；安全组 = 基础栈的实例安全组 + 各模块的附加安全组（约定 6）。
   - `MetadataOptions`：`HttpTokens=required`、`HttpPutResponseHopLimit=1`、`InstanceMetadataTags=enabled`。
   - 只有加密的 gp3 根卷，**没有数据卷**，实例是无状态的。
-  - `UserData`：与 L0 相同的 `l0-bootstrap.sh`，以 `DEPLOY_MODE=asg` 运行：下载**固定版本**的发布包（与 L0 相同的 `APP_ARCHIVE_URL`；私有子网没有 NAT 时改用本栈的发布物桶，经 S3 Gateway Endpoint 访问）；用实例角色读取**引导配置包**——SSM Parameter Store 的 SecureString 参数 `/cloudalbum/<env>/bootstrap/bundle`，内容是压缩后的 `modules.d/*.env` 与共享的 `secrets.env`（`SECRETS_ORIGIN=bundle`）。CloudFormation 不能直接创建 SecureString 参数，所以由 `scripts/module` 用 `aws ssm put-parameter --type SecureString` 写入；标准参数有大小上限，超出时使用高级参数或拆分（限制与计费以官方文档为准）。User Data 中不出现任何密钥。启动时**不运行数据库迁移**（由 `scripts/module` 统一执行一次）。
+  - `UserData`：与 L0 相同的 `l0-bootstrap.sh`（00-ec2-base.md；安装 AL2023 的 nodejs22，以固定 uid/gid 2001 创建 cloudalbum 用户，nginx 加入 cloudalbum 组，服务单元 `UMask=0027`——固定 uid 让多实例共用 EFS 时文件属主一致），以 `DEPLOY_MODE=asg` 运行：下载**固定版本**的发布包（与 L0 相同的 `APP_ARCHIVE_URL`；私有子网没有 NAT 时改用工具链栈制品桶 `releases/` 前缀中的镜像，经 S3 Gateway Endpoint 用实例角色下载，与 network 的单实例私有放置共用同一份镜像）；用实例角色读取**引导配置包**——SSM Parameter Store 的 SecureString 参数 `/cloudalbum/<env>/bootstrap/bundle`（归 autoscaling 模块所有，统一值 C9），内容是压缩后的 `modules.d/*.env` 与共享的 `secrets.env`（`SECRETS_ORIGIN=bundle`）。实例把它们解到 `/etc/cloudalbum/`（ASG 实例没有数据卷，这里就是根卷；唯一的权威副本是 SSM 参数）。CloudFormation 不能直接创建 SecureString 参数，所以由 `scripts/module` 用 `aws ssm put-parameter --type SecureString` 写入；标准参数有大小上限，超出时使用高级参数或拆分（限制与计费以官方文档为准）。User Data 中不出现任何密钥。启动时**不运行数据库迁移**（由 `scripts/module` 统一执行一次）。
 - **ASG** `cloudalbum-<env>-asg`：
-  - 子网：network `private` 时用 `NETWORK_APP_SUBNET_IDS`；`public` 时用 `NETWORK_PUBLIC_SUBNET_IDS`，启动模板设 `AssociatePublicIpAddress=true`（每台实例的公网 IPv4 都单独计费）；没有 network 时用默认 VPC 中至少两个 AZ 的默认子网。
-  - `MinSize=2`、`DesiredCapacity=2`、`MaxSize=4`（实验值）；`TargetGroupARNs=[LB_TG_ARN]`；`HealthCheckType=ELB`；`HealthCheckGracePeriod` 不小于“启动 + 安装”所需时间（实测后设置）；设置 `DefaultInstanceWarmup`；开启组指标收集。
+  - 子网（由 network 注入 `SubnetIds`）：network `private` 时用 app 子网；`public` 时用 public 子网，启动模板设 `AssociatePublicIpAddress=true`（每台实例的公网 IPv4 都单独计费）；没有 network 时用默认 VPC 中至少两个 AZ 的默认子网。
+  - `MinSize=2`、`DesiredCapacity=2`、`MaxSize=4`（实验值）；`TargetGroupARNs=[TargetGroupArn]`（由 load-balancer 注入）；`HealthCheckType=ELB`；`HealthCheckGracePeriod` 不小于“启动 + 安装”所需时间（实测后设置）；设置 `DefaultInstanceWarmup`；开启组指标收集。
   - 可选 `MixedInstancesPolicy`：按需基础容量 1 台，其余用 Spot（`price-capacity-optimized` 分配策略），开启 `CapacityRebalance`。混用 x86（t3）与 arm64（t4g）时，必须按实例类型分别覆盖启动模板（不同架构用不同 AMI）。
 - **伸缩策略**：目标跟踪 `ASGAverageCPUUtilization=50`；可选目标跟踪 `ALBRequestCountPerTarget`；可选预定操作（例如夜间缩到最小）；预测式伸缩只作了解。
 - **生命周期钩子** `terminate-drain`：`EC2_INSTANCE_TERMINATING`，`HeartbeatTimeout=120`，`DefaultResult=CONTINUE`。
 - **实例刷新**：发布与配置变更都通过 Instance Refresh 完成；`MinHealthyPercentage=100` + `MaxHealthyPercentage=200`（先启动新实例再终止旧实例），`SkipMatching=true`（参数组合的行为以官方文档为准）。
-- **发布物桶**（可选）`cloudalbum-<env>-artifacts-<acct>`：开启版本控制，是本模块的辅助资源，不属于 storage 模块。
+- **发布包镜像**（可选）：不再单独建发布物桶，统一使用工具链栈 `cloudalbum-<env>-toolchain` 制品桶的 `releases/<版本>/<架构>.tgz`（`scripts/module` 上传），network 的单实例私有放置也用它；它不属于 storage 模块。
 - **应用侧**（`asg` 驱动，`backend/src/adapters/autoscaling/asg.ts`）：
   - 身份：IMDS 的 instance-id、可用区；ASG 名称来自 `ASG_NAME`，有凭证时用 `DescribeAutoScalingInstances` 确认本实例确实属于该组（IMDS 中 `aws:` 前缀标签是否可读以官方文档为准，不作为唯一依据）。
   - 每 5 秒轮询 IMDS 的 `autoscaling/target-lifecycle-state`；同时轮询 `spot/instance-action`（Spot 中断通知）。
   - 一旦进入终止流程，就进入 draining：`/api/health/ready` 返回 503，worker 停止拉取新任务，等待在途请求与任务完成。ALB 侧的连接排空由目标组的注销延迟负责。
   - 完成后调用 `CompleteLifecycleAction`（需要 iam 权限）；失败时等待心跳超时，ASG 按默认结果 CONTINUE 继续终止。
-- **Outputs**：`EnvDeployMode`（`asg`）、`EnvAsgName`、`EnvAsgMin`、`EnvAsgDesired`、`EnvAsgMax`、`EnvAsgCpuTarget`、`EnvAsgLifecycleHook`、`EnvAsgBootstrapParam`、`EnvAsgArtifactsBucket`；`PolicyArn` 包含 `autoscaling:DescribeAutoScalingGroups`、`DescribeAutoScalingInstances`、`CompleteLifecycleAction`（限本组）、对引导配置参数的 `ssm:GetParameter`（及默认 `aws/ssm` 密钥的解密）、对发布物桶的 `s3:GetObject`。
+- **Outputs**：`EnvDeployMode`（`asg`）、`EnvAsgName`、`EnvAsgMin`、`EnvAsgDesired`、`EnvAsgMax`、`EnvAsgCpuTarget`、`EnvAsgLifecycleHook`、`EnvAsgBootstrapParam`、`EnvAsgArtifactsBucket`；`PolicyArn` 包含 `autoscaling:DescribeAutoScalingGroups`、`DescribeAutoScalingInstances`、`CompleteLifecycleAction`（限本组）、对引导配置参数的 `ssm:GetParameter`（及默认 `aws/ssm` 密钥的解密）、对工具链桶 `releases/*` 的 `s3:GetObject`。
 
 **启动校验**：`backend/src/rules/rules.ts` 中与多实例有关的规则（总纲 5.2 的 ASG 类加上本组修订）。`scripts/module` 在应用配置前先用 `check-config --plan` 演练一次，实例启动时再执行一次；存在 error 时拒绝启动（退出码 78），可覆盖的规则可以用 `CLOUDALBUM_ALLOW_UNSAFE=<规则 ID,…>` 降级为警告（教学用，见第 5 节）。
 
 | 条件（`DEPLOY_MODE=asg`） | 规则 | 级别 | 可覆盖 | 不处理会怎样 / 修复 |
 |---|---|---|---|---|
-| iam 或 load-balancer 未启用 | DEP-007 | error | 否 | 实例拿不到引导配置包；流量无法分发 |
+| `IAM_CREDENTIALS≠role` 或 load-balancer 未启用 | DEP-007 | error | 否 | 实例拿不到引导配置包；流量无法分发 |
+| `IMAGE_PROCESSOR=lambda`、`IMAGE_RESULT_CHANNEL=callback`，回调地址不是负载均衡地址 | DEP-019 | error | 否 | 回调打到某一台实例 → 改为 ALB 地址，或用 queue 通道 |
 | `STORAGE_DRIVER=local` | ASG-001 | error | 是 | 照片只在上传时命中的实例上，其他实例 404 → 启用 storage(s3) 或 shared-fs(efs) |
 | `DB_DRIVER=sqlite` | ASG-002 | error | 否 | 每台实例一个库，数据分叉 → 启用 database |
 | `DB_HOST` 是回环地址或本实例 | ASG-003 | error | 否 | 同上（自建库在会被伸缩的实例上） |
@@ -1632,7 +2146,7 @@ ASG_MAX=4
 ASG_CPU_TARGET=50
 ASG_LIFECYCLE_HOOK=terminate-drain
 ASG_BOOTSTRAP_PARAM=/cloudalbum/lab/bootstrap/bundle
-ASG_ARTIFACTS_BUCKET=                   # 可选；私有子网无 NAT 时必填
+ASG_ARTIFACTS_BUCKET=                   # 可选：工具链栈制品桶名（发布包镜像在 releases/ 前缀）；私有子网无 NAT 时必填
 # 教学用的不安全组合（只对可覆盖规则生效，详见第 5 节）：
 # CLOUDALBUM_ALLOW_UNSAFE=ASG-001,ASG-004,ASG-005,ASG-006,ASG-007
 ```
@@ -1686,13 +2200,14 @@ export interface InstanceLifecyclePort extends Adapter {
 
 **与其他模块组合**
 
-- **config=ssm**：可以替代引导配置包中的业务开关分发；模块配置变更后统一用实例刷新生效。
+- **config=ssm**：只负责运行时业务热键（`/cloudalbum/<env>/runtime/*`，例如 `maintenanceMode`、`feedCacheTtlSec`），各实例在一个轮询周期内收敛；它**不能**改模块驱动（D7）。模块配置（`modules.d`）的变更只经引导配置包 + 实例刷新生效。
 - **secrets**：共享的 JWT 密钥、CDN 源站密钥可以放在 Secrets Manager（`SECRETS_ORIGIN=aws`）。
 - **shell-access**：通过 SSM Run Command 向整个机群下发命令；也是查看单台实例的唯一方便途径。
 - **logging**：生命周期钩子中先刷新日志再终止。**monitoring**：目标跟踪策略自动创建并维护 CloudWatch 告警，与 `METRICS_DRIVER` 无关。
 - **backup**：实例无状态，不需要备份 EBS；备份对象是 RDS、EFS、S3。
 - **network**：子网选择；所有实例经 NAT 出网时有统一的出网 IP。
-- **cdn、dns**：都必须指向 ALB。**image-processing=lambda**：回调地址 `IMAGE_CALLBACK_URL` 必须指向 ALB/CDN，而不是某台实例。
+- **cdn、dns**：都必须指向 ALB。**image-processing=lambda**：callback 通道的回调地址必须是 ALB（DEP-019），不能是某台实例；启用了 cdn 时改用 queue 通道（DEP-020），各实例的结果轮询器竞争消费、幂等写回。
+- **ami**：黄金 AMI 预装运行时与发布包，User Data 只做配置，扩容时“启动到 InService”更快；对比实验见第 5 节的 scale-out 与 refresh。
 - **queue=sqs**：可选“按队列积压量除以实例数”伸缩（SAA 常考）。
 
 ### 5. 对比实验：有 vs 没有
@@ -1725,6 +2240,7 @@ export interface InstanceLifecyclePort extends Adapter {
 5. **实例刷新**：`--scenario refresh`（`experiments/autoscaling/refresh.k6.js`）在负载下执行 `faults/start-refresh.sh`（`start-instance-refresh`），统计错误数。
 6. **不安全组合（教学）**：在 `asg` 状态下，设置 `CLOUDALBUM_ALLOW_UNSAFE=ASG-001,ASG-004,ASG-005,ASG-006,ASG-007`，并把对应驱动改回本地实现（`STORAGE_DRIVER=local`、`CACHE_DRIVER=memory`、`QUEUE_DRIVER=memory`、主机级锁的 cron、实例自己生成的 JWT 密钥），经实例刷新生效后重复第 1 步（`--label unsafe`）。ASG-002/003 不可覆盖，数据库始终是共享的。演示结束立即恢复。
 7. **控制台**：EC2 → Auto Scaling Groups → Activity 与 Monitoring；CloudWatch 中由目标跟踪自动创建的 AlarmHigh/AlarmLow 告警（不要手工修改）。
+8. **（扩展，需要 ami 模块）User Data 与黄金 AMI**：分别在 `AMI_SOURCE=userdata` 与 `golden` 下运行第 2 步与第 5 步，记录每台新实例从 `Pending` 到目标组 `healthy` 的耗时，以及实例刷新的总时长（ASG 活动历史与目标组事件）。预期：黄金 AMI 省掉现场安装，扩容与刷新明显更快；代价是要维护镜像流水线，配置变化仍靠引导配置包。
 
 **预期结果**
 
@@ -1739,7 +2255,7 @@ export interface InstanceLifecyclePort extends Adapter {
 
 **enable**（`scripts/module enable autoscaling [--with-deps]`）
 
-1. **先完成前置模块的启用与数据迁移**：iam；load-balancer；database（建议两步：SQLite → EC2 自建 PostgreSQL → RDS，用 database 模块的迁移工具）；storage(s3) 或 shared-fs(efs)（用 storage 模块的迁移工具把上传目录迁出）。
+1. **先完成前置模块的启用与数据迁移**（按 Lab 顺序它们在 Lab 21 之前都已启用）：iam（`IAM_CREDENTIALS=role`）；load-balancer；database（建议两步：SQLite → EC2 自建 PostgreSQL → RDS，用 database 模块的迁移工具）；storage(s3) 或 shared-fs(efs)（用 storage 模块的迁移工具把上传目录迁出）。
 2. 以 `DEPLOY_MODE=asg` 执行一次 `check-config --plan`，所有 error 必须清零。
 3. 构建并发布固定版本的发布包，确定 `ASG_APP_VERSION`。
 4. 渲染引导配置包（`modules.d/*.env` + 共享 `secrets.env`，`SECRETS_ORIGIN=bundle`），用 `put-parameter --type SecureString` 写入 SSM。
@@ -1765,7 +2281,7 @@ export interface InstanceLifecyclePort extends Adapter {
 - 实例刷新；暖池；混合实例策略与 Spot（`price-capacity-optimized`、两分钟中断通知、Capacity Rebalance）。
 - 无状态设计：会话放在 ElastiCache 或 DynamoDB，文件放在 S3 或 EFS；粘性会话的代价。
 - 按 SQS 积压量除以实例数来伸缩。
-- 黄金 AMI 与 User Data 启动的取舍（启动速度与灵活性）；EC2 Image Builder。
+- 黄金 AMI 与 User Data 启动的取舍（启动速度与灵活性）；EC2 Image Builder（新增的 ami 模块，Lab 21 的前置或扩展）。
 - 纵向扩展与横向扩展；IMDSv2。
 
 ### 8. 费用与清理
@@ -1779,7 +2295,7 @@ export interface InstanceLifecyclePort extends Adapter {
 
 - 健康检查宽限期太短时，实例还在安装软件就被判定不健康并终止，形成反复替换的循环。
 - 健康检查依赖共享依赖（数据库）时，数据库一故障所有实例都被判不健康，ASG 反复替换而问题依旧；目标组使用 `ready?scope=instance`。
-- 依赖 User Data 现场安装会让扩容变慢，可以用黄金 AMI 或暖池缓解。
+- 依赖 User Data 现场安装会让扩容变慢，可以用黄金 AMI（ami 模块）或暖池缓解。
 - 健康检查类型保持默认的 EC2 时，应用层故障不会触发替换，要改为 ELB。
 - 缩容会终止正在处理任务的实例，需要生命周期钩子加优雅退出；SQS 可见性超时也要设置合理。
 - 每台实例启动时都运行数据库迁移会并发执行，应改为统一执行一次。
@@ -1793,3 +2309,58 @@ export interface InstanceLifecyclePort extends Adapter {
 - 混合实例策略混用 x86 与 arm64 时，必须按实例类型覆盖启动模板，否则会用错误架构的 AMI 启动失败。
 - 实例的出网 IP 各不相同，第三方 IP 白名单会失效；需要固定出网 IP 时让实例在私有子网经 NAT 出网。
 - 从单一 IP 压测会被 Nginx 与 WAF 限速，测出来的是“限速”而不是“扩容”；按约定 13 临时加白名单。
+- 用 `useradd --system` 让系统自动分配 uid：各实例的 cloudalbum uid 不同，共用 EFS 时文件属主错乱；ec2 基础固定为 2001。
+
+### 10. 探针
+
+| 探针 | 方式 | `degraded` 判据 | `error` 判据 | 所需权限（在 `PolicyArn` 中） | 无凭证时 |
+|---|---|---|---|---|---|
+| 常规（30 秒，`asg` 驱动） | IMDS `autoscaling/target-lifecycle-state` 与 `spot/instance-action`；本实例配置哈希与 `ASG_APP_VERSION` | 进入 `Terminating`/draining（预期中的降级，detail 写原因）；配置哈希与机群多数不一致（配置漂移） | — | 不需要 | 不适用（`credentials: required`，`IAM_CREDENTIALS=none` 时 CRED-001 已拒绝启动） |
+| 深度（管理员或 enable 健康检查阶段） | `DescribeAutoScalingInstances`（本实例确实属于 `ASG_NAME`）、`DescribeAutoScalingGroups`（InService 数、活动历史）；读取引导配置参数的版本 | InService 数低于 min；引导配置包版本与本实例不一致 | `DEPLOY_MODE=asg` 但本实例不属于该组；引导配置参数不可读 | `autoscaling:DescribeAutoScalingGroups`、`DescribeAutoScalingInstances`、`ssm:GetParameter`（限引导配置参数） | 同上 |
+| `single` 驱动 | SIGTERM 处理器已注册；IMDS 可读 | IMDS 不可读（身份信息退化为主机名） | — | 不需要 | 照常 |
+
+### 11. 前端徽章
+
+| 位置 | 本地实现时（single） | AWS 实现时（asg） | 数据来源 |
+|---|---|---|---|
+| 页脚状态条 | i-0abc… · single | i-0def… · ap-northeast-1c · ASG | 请求级 `inst=`、`az=` 段与 capabilities |
+| 顶部横幅 | — | 使用 `CLOUDALBUM_ALLOW_UNSAFE` 时红色“不安全实验模式” | capabilities 的 `validation.overridden` |
+| `/lab` ASG 卡片 | 单实例信息 | 一致性表（不一致的格子标红）、请求分布、实例数时间线 | capabilities 与 `/api/lab/instance-fingerprint` |
+
+```yaml
+# registry.yaml：autoscaling.lab.badges
+badges:
+  local: "{inst} · single"
+  aws: "{inst} · {az} · ASG"
+  degraded: "ASG 降级 · {reason}"              # 例如“配置漂移”“正在排空”
+```
+
+## 修订记录
+
+### 2026-10-13：按完整性评审与统一决策 D1～D15 收敛
+
+- **D13 ACME 核实**：在 AWS 官方来源（What's New 2026-07-06、ACM 用户指南 ACME 各页、CloudFormation 资源参考、ACM 定价页）确认了 ACM ACME 端点，tls 保留“只有 L0 也能用 ACM”的主路径；新增“考试结论 / 2026 新能力”两栏；保留回退分支 `TLS_ACME=off`（最小依赖 {dns 或外部 DNS, cdn 或 load-balancer}，DEP-005 ③）；ACME 端点与域验证改用 CloudFormation 资源，EAB 由 `scripts/module` 创建（模板拿不到凭证）；`state.json` 记录与 disable 清理清单；修正 ACME 计费维度、`ListCertificates` 默认不列 ACME 证书、只能经 ACME 吊销等细节；certbot 目录移到数据卷。
+- **DEP-016** 只在 `VpcId` 变化时触发；同一 VPC 内 `public` → `private` 只检查 DEP-009。cdn、dns 的独立安全组经 network 的 `injects` 随迁移重建，不算 VPC 绑定模块。network 迁移拆成 Lab 14（public 迁入）与 Lab 20（同 VPC 改 private）两种，并加入密钥指纹校验（G2）。
+- **单机多进程**只保留 `LB_LOCAL_WORKERS`，upstream 成员拆到 `cloudalbum_upstream.conf`；删除 `X-CloudAlbum-Upstream`，改用路径段 `load-balancer=nginx:w3000|w3001`；不再为本机双进程设校验警告。
+- **IP 封禁**统一为 `/var/lib/cloudalbum/security/denylist.conf`（`geo $ca_denied`），BlocklistPort(nginx) 与 fail2ban 共用一把锁、一个 path 单元；`WAF_MODE=aws` 时同步到 IP 集合；删除 `blocklist.conf`、`00-waf-blocklist.conf`、`import-blocklist`。
+- **ec2 基础参数**改为引用 00-ec2-base.md，本文不再定义；各模块只声明 `baseParams`。
+- **机密**（D5）：`cdn.env` 删除 `CDN_ORIGIN_VERIFY_SECRET`，改用逻辑名 `origin-verify`、`cloudfront-signing-key`；明确机密实际存放在数据卷。
+- **凭证**（D1）：统一为 `IAM_CREDENTIALS`；每个模块标注 `credentials`（仅 autoscaling 为 required）；DEP-007 要求 role。
+- **injects**（D2）：只保留提供方声明的 `injects`，删除 `reconfigureOn`；补齐 network → 各 VPC 绑定模块、load-balancer → autoscaling/cdn、autoscaling → load-balancer、dns/cdn/lb → auth 等注入。
+- **规则编号**（D3）：规则表改为本组相关规则的说明，补入 CRED-001～003、DEP-007/010/011、DEP-019～021、DEP-028、SEC-002；ASG-015 的引用改为 ASG-013。
+- **统一值落地**：声明型开关（`DNS_PROVIDER` 等）、路径头语法（`tls` 段改为 `<TLS_MODE>@<终止点>[:<证书>]`，waf 规则名小写）、trust proxy、健康检查路径、非权威端口分类、Lab 顺序与预设档位（约定 11 改为引用）。
+- **模板**（D10）：每个模块增加稳定锚点、第 0 节“元数据（registry 摘录）”、第 10 节“探针”、第 11 节“前端徽章”。
+- **新增模块**（D11）：autoscaling 引入 ami 软依赖与 User Data / 黄金 AMI 对比扩展实验；cost 模块使用各节列出的计费维度。
+- **其他**：F12 标为组合子功能（G20）；DEP-028（storage=s3 而媒体源站仍是 ec2）落到 cdn；cdn 不放行 `/internal/*`，lambda 回写在启用 cdn 时用 queue 通道（DEP-020）；固定 uid 2001、nginx 加入 cloudalbum 组的前提写入 cdn 与 autoscaling。
+
+### 2026-10-13：第 3 轮（审计修复）
+
+- **registry 摘录按总纲 3.5 重写**：7 个模块的 `requires` 每一项都带 `rule:`——network 标 DEP-009、DEP-016；cdn 标 DEP-010、DEP-014、DEP-028、DEP-038、DEP-039；dns 标 DEP-040、DEP-041；tls 标 DEP-005（①③ 两条）与 DEP-015；waf 改为 `{ rule: DEP-006, when: {WAF_MODE: aws} }` 并补 DEP-018；load-balancer 标 DEP-011、DEP-017、DEP-042；autoscaling 只保留 `{ rule: DEP-007, when: {DEPLOY_MODE: asg}, need: [IAM_CREDENTIALS=role, load-balancer] }`，ASG-001～003 等条件只在 `rules.ts`。DEP-038～042 由总纲 5.2 新编号，约定 10 的规则表同步补入；DEP-011 的条件改正为 `AUTH_DRIVER≠cognito`。
+- **字段写法**：`injects` 统一为 `{ target, stack?, params: { 参数: "${Out.X}" }, when? }`；`baseParams` 改为映射；`hostSetup` 改为脚本路径，片段移到 `nginxFragments`；cdn 的开关改为 `{ var, kind: param }`；cdn 注入 dns 的参数统一为 `TargetDnsName`（ALB 另有 `TargetHostedZoneId`）；auth 的回调参数统一为 `AppOrigins`（各入口以 `+` 追加取并集）。
+- **补齐提供方注入**：dns / cdn / load-balancer → auth、identity-pool、storage 的 `AppOrigins`；load-balancer → image-processing、social-api 的 `OriginBaseUrl`，→ monitoring 的 `AlbFullName`、`TargetGroupFullName`，→ waf(regional) 的 `AlbArn`，→ auth 的 `AlbCallbackUrls`；autoscaling → monitoring 的 `AsgName`；network → ami 的 `VpcId`、`SubnetId`；tls → load-balancer 增加 `DomainName`。autoscaling 第 0 节注明接收 iam 的 `InstanceProfileName`、ami 的 `ImageParamArm64` / `ImageParamX8664`。
+- **Nginx / systemd 与 ec2 契约对齐**（00-ec2-base.md 6.7～6.9）：cdn 不再在 `cdn-origin.conf` 中定义 `map $ca_cdn_verified`，改由 hostSetup 只写槽位 `slot-origin-verify.inc`（`"<值>" 1;`，root 0600），`nginx -t` 通过后 reload；8080 server 块补 `if ($ca_block) { return 403; }`；`lb-realip.conf` → `load-balancer-realip.conf`，并由 load-balancer 写槽位 `slot-alb-hops.inc`；`cloudalbum_upstream.conf` 只写 `server` 行；`cloudalbum-cf-ranges.timer` → `cloudalbum-cdn-cf-ranges.timer`，`certbot-renew.timer` → `cloudalbum-tls-renew.timer`。
+- **Lab 14 / Lab 20 的引导期出网**：network 的 public 子网改为 `MapPublicIpOnLaunch=true`（app、data 仍为 false），满足 `preflight: ec2-public-ipv4-at-boot`；`InterfaceEndpoints=ops` 增加 `cloudformation`；`NatMode=none` 时发布包改从工具链栈制品桶 `releases/` 前缀经 S3 Gateway Endpoint 下载（需要 role），写进 DEP-009 的出网条件。autoscaling 也改用同一份镜像，不再单独建发布物桶。
+- **AMI 固定**：autoscaling 启动模板在 userdata 档也引用固定参数 `/cloudalbum/<env>/ec2/image-id`（golden 档引用 ami 注入的 `ImageParam*`），换 AMI 只能显式更新参数后实例刷新。
+- **其他**：约定 12 的端口数改为 24（23 个模块端口 + LockPort）；l8-ha / Lab 19 注明没有域名时不设 `LB_ADMIN_AUTH`；cdn 的 origin-verify 槽位文件按总纲 D5 的“派生副本”例外说明。
+
+未采纳：审计第 19 条建议把 origin-verify 槽位文件渲染到 `/run/cloudalbum-nginx/`。理由：`00-entry.conf` 在 Nginx 启动时就要 include 该文件，`/run` 在重启后为空，Nginx 会先于 hostSetup 启动失败；改为按 D5 派生副本例外处理（根卷、root 0600、可重放、leak-scan 列出）。

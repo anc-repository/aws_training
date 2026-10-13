@@ -1,36 +1,118 @@
 # D 组：计算、异步与通知
 
-本组 7 个模块负责“HTTP 请求之外的工作”：生成缩略图（image-processing ↔ AWS Lambda）、任务排队（queue ↔ Amazon SQS）、通知扇出（notification ↔ Amazon SNS）、发邮件（email ↔ Amazon SES）、定时任务（scheduler ↔ Amazon EventBridge Scheduler）、图片识别与审核（tagging ↔ Amazon Rekognition），以及点赞评论这组社交 API 的托管入口（social-api ↔ Amazon API Gateway）。在 L0（仅 EC2）下，这些机能全部由 EC2 上的 `cloudalbum-api` 和 `cloudalbum-worker` 两个进程完成：sharp 在“上传完成”请求内生成缩略图，后台任务当场同步执行，通知写站内信并把邮件写进本地 outbox，node-cron 触发定时任务，照片只有从元数据算出的基础属性标签，社交接口就是 Express 的 `/social/*` 路由。每启用一个模块，就把其中一项交给 AWS，并且能在 `/lab` 上直接看到差别：上传接口快了多少、EC2 的 CPU 降了多少、重启后任务丢没丢、邮件到底是谁发出去的、EC2 停机时哪些功能还活着。
+本组 7 个模块负责“HTTP 请求之外的工作”：生成缩略图（image-processing ↔ AWS Lambda）、任务排队（queue ↔ Amazon SQS）、通知扇出（notification ↔ Amazon SNS）、发邮件（email ↔ Amazon SES）、定时任务（scheduler ↔ Amazon EventBridge Scheduler）、图片识别与审核（tagging ↔ Amazon Rekognition），以及点赞评论这组社交 API 的托管入口（social-api ↔ Amazon API Gateway）。在 L0（仅 EC2）下，这些机能全部由 EC2 上的 `cloudalbum-api` 和 `cloudalbum-worker` 两个进程完成：sharp 在“上传完成”请求内生成缩略图，后台任务当场同步执行，通知写站内信并把邮件写进本地 outbox（管理员在 `/admin/outbox`、用户本人在 `/me/outbox` 查看），node-cron 触发定时任务，照片只有从元数据算出的基础属性标签，社交接口就是 Express 的 `/social/*` 路由。每启用一个模块，就把其中一项交给 AWS，并且能在 `/lab` 上直接看到差别：上传接口快了多少、EC2 的 CPU 降了多少、重启后任务丢没丢、邮件到底是谁发出去的、EC2 停机时哪些功能还活着。
+
+本文是 D 组的定稿设计手册，遵循 [modular-design.md](../modular-design.md)（下称“总纲”）的框架。本轮按完整性评审的统一值和主设计者的统一决策（D1～D15）收敛，修订摘要见文末“修订记录”。
+
+- **相关的新增模块**：workflow（AWS Step Functions，机能“照片处理流程编排”，开关 `WORKFLOW_DRIVER=inline|stepfunctions`）按 D10/D11 写在 [06-governance-cost.md](06-governance-cost.md#workflow)，作为 Lab 11 的扩展；它与 image-processing 的分工见 image-processing 第 2 节末尾的“扩展：workflow”。
+- **ec2 基础契约不在本文定义**：Nginx 的 include 点（包括按 registry `internalEndpoints` 生成的内部端点 location）、systemd drop-in 点、`l0-bootstrap.sh`、`cloudalbum` 用户的固定 uid/gid 2001，统一以 [00-ec2-base.md](00-ec2-base.md) 为准。
+- **锚点**：每个模块的二级标题前有显式锚点（`#image-processing`、`#queue`、`#notification`、`#email`、`#scheduler`、`#tagging`、`#social-api`），registry 的 `doc` 字段写成 `docs/modules/04-compute-async.md#<id>`。
+- **每个模块的结构**：按总纲附录 A 的新模板，第 0 节“元数据（registry 摘录）”，第 1～9 节沿用原结构（基线实现、AWS 实现、开关与配置、依赖与组合、对比实验、切换迁移回滚、SAA 考点、费用与清理、常见坑），第 10 节“探针”，第 11 节“前端徽章”。正文中“见第 N 节”的引用仍指原来的编号。
 
 ## 本组模块一览
 
-| 模块 id | 机能 | 主 AWS 服务 | 开关 | 硬依赖 | 能否在 L0 上单独启用 |
-|---|---|---|---|---|---|
-| image-processing | 图片处理（缩略图） | AWS Lambda | `IMAGE_PROCESSOR=inline\|worker\|lambda`（worker 为本地档） | lambda 档：storage=s3（DEP-003）、工具链栈、回写通道可达；worker 档：`QUEUE_DRIVER≠sync`（DEP-004） | 否：lambda 档需要 storage；本地档 worker 只需 queue 的本地档 memory，不花钱 |
-| queue | 异步任务队列 | Amazon SQS | `QUEUE_DRIVER=sync\|memory\|sqs`（memory 为本地档） | 无模块依赖（只需 AWS 凭证与 SQS 端点可达） | 是 |
-| notification | 通知扇出 | Amazon SNS | `NOTIFY_DRIVER=db\|sns` | 无模块依赖；需要一个能点击确认的管理员邮箱 | 是 |
-| email | 邮件发送 | Amazon SES | `EMAIL_DRIVER=outbox\|ses` | 无模块依赖；前置条件：已验证的发件身份（邮箱或域名） | 是（沙盒期只能发给已验证地址） |
-| scheduler | 定时任务 | Amazon EventBridge Scheduler | `SCHEDULER_DRIVER=cron\|eventbridge` | 无模块依赖（tick 队列由本模块自带） | 是 |
-| tagging | 图片识别与审核 | Amazon Rekognition | `TAGGER_DRIVER=none\|rekognition` | 无模块依赖（storage=local 时以字节方式调用） | 是 |
-| social-api | API 托管（点赞、评论、分享） | Amazon API Gateway（HTTP API） | `SOCIAL_API_BASE_URL`（空 = EC2 上的 Express `/social/*`） | proxy 集成：EC2 源站对公网可达；lambda 集成：social-store=dynamodb，且授权器不为 none | 是（proxy 集成）；lambda 集成否 |
+| 模块 id | 机能 | 主 AWS 服务（辅助服务） | 开关（首个取值 = 本地实现 = 默认） | 类型 | 凭证（registry `credentials`） | 模块级硬依赖（规则 ID） | 能否在 L0 上单独启用 | 文档锚点 |
+|---|---|---|---|---|---|---|---|---|
+| image-processing | 图片处理（缩略图） | AWS Lambda（EventBridge 规则；模块自带 SQS：失败、结果、缓冲） | `IMAGE_PROCESSOR=inline\|worker\|lambda`（本地档 worker） | A | required（lambda 档） | worker 档：`QUEUE_DRIVER≠sync`（DEP-004）；lambda 档：storage(s3)（DEP-003）、工具链栈、一条可用的回写通道（DEP-019～021）；lambda 档与 `WORKFLOW_DRIVER=stepfunctions` 互斥（MUTEX-005） | worker 档是（配合 queue 的本地档 memory，不花钱）；lambda 档否：{iam, storage} | `#image-processing` |
+| queue | 异步任务队列 | Amazon SQS（DLQ） | `QUEUE_DRIVER=sync\|memory\|sqs`（本地档 memory） | A | required | — | 是（+iam）；批量上传的主对比要同时用本地档 `IMAGE_PROCESSOR=worker` | `#queue` |
+| notification | 通知扇出 | Amazon SNS（模块自带 SQS 收件队列与订阅级 DLQ） | `NOTIFY_DRIVER=db\|sns` | A | required | —（人工前置：确认订阅邮件） | 是（+iam） | `#notification` |
+| email | 邮件发送 | Amazon SES（模块自带 SNS + SQS 反馈通道） | `EMAIL_DRIVER=outbox\|ses` | A | required | —（人工前置：已验证的发件身份；沙盒期收件人也须验证） | 是（+iam，需发件身份） | `#email` |
+| scheduler | 定时任务 | Amazon EventBridge Scheduler（模块自带 tick 队列与 DLQ） | `SCHEDULER_DRIVER=cron\|eventbridge` | A | required | —（`SCHEDULER_TARGET=ssm` 时 DEP-026） | 是（+iam） | `#scheduler` |
+| tagging | 图片识别与审核 | Amazon Rekognition | `TAGGER_DRIVER=none\|rekognition` | A | required | —（`TAGGER_INPUT=s3` 时 DEP-027） | 是（+iam） | `#tagging` |
+| social-api | API 托管（点赞、评论、分享） | Amazon API Gateway HTTP API（Lambda 集成、Lambda 授权器） | `SOCIAL_API_BASE_URL`（空 = EC2 上的 Express `/social`） | A·P | optional（EC2 侧只用于控制面探针） | proxy 集成：—；lambda 集成：social-store(dynamodb)（DEP-022）+ 授权器不为 none（DEP-024）+ 工具链栈；jwt 授权器：auth(cognito)（DEP-023） | proxy 集成是；lambda 集成否：{iam, social-store} | `#social-api` |
 
-**“能否在 L0 上单独启用”的含义**：“是”表示在 L0 上只满足“AWS 凭证可用”这个通用前提（推荐先 `scripts/module enable iam`，见总纲 CRED-001 与 B 组 iam 模块），不再启用其他任何应用模块，这个模块就能完整运行，对比实验也能做。“否”表示它的 AWS 档还依赖别的应用模块。本组所有“本地档”（`IMAGE_PROCESSOR=worker`、`QUEUE_DRIVER=memory`）都不需要任何 AWS 资源，用 `scripts/module enable <id> --driver <值>` 写入配置，跳过部署栈的步骤。
+**“能否在 L0 上单独启用”的含义**：“是（+iam）”表示在 L0 上只需满足凭证前置（`IAM_CREDENTIALS≠none`，即先 `scripts/module enable iam`，推荐 role），不再依赖其他任何模块，这个模块就能完整运行，对比实验也能做；凭证前置不写进 `requires`，由 registry 的 `credentials` 字段加规则 CRED-001 统一表达（公共约定 1）。“否”表示它的 AWS 档还依赖别的模块，并给出最小集合。本组所有“本地档”（`IMAGE_PROCESSOR=worker`、`QUEUE_DRIVER=memory`）都不需要任何 AWS 资源：用 `scripts/module enable <id> --driver <值>` 写入 `modules.d/<id>.env`（不含 `MODULE_<ID>=on`，registry 的 `localTiers` 让 CFG-004 豁免），跳过部署栈。
 
 **本组公共约定**
 
-1. **凭证与权限。** 本组每个 AWS 驱动都要调用 AWS API，启动时由规则 CRED-001 校验凭证。每个模块栈输出一条客户托管策略 `PolicyArn`（含业务所需最小权限和总纲 6.2 所列探针权限），由 `scripts/module` 附加到应用角色上（总纲 9.1、9.2）。本组的 Lambda 函数（缩略图、社交 API、授权器）使用各自栈内的执行角色，不复用应用角色。
-2. **模块自带的辅助队列不等于启用 queue 模块。** 为了让每个模块都能在 L0 上单独启用，而且不需要 EC2 开放额外的入站端口，下面几条 SQS 队列由各自模块的栈创建，`/lab` 卡片上标注“模块自带”：
+1. **凭证是统一前置，不是模块依赖（D1）。**
+   - 开关只有一个：iam 模块的 `IAM_CREDENTIALS=none|role|keys`。`none` 是 L0 的本地实现；`role`、`keys` 都由 iam 栈提供。总纲旧稿的 `AWS_CREDENTIALS_SOURCE` 与 `scripts/module credentials --static` 已删除，长期密钥的反面教材是 `scripts/module enable iam --mode keys`。
+   - 本组 6 个适配器型模块的 AWS 驱动都要调用 AWS API，registry 标 `credentials: required`；social-api 在 EC2 侧只用 `apigateway:GET` 做控制面探针，标 `optional`。
+   - **CRED-001**（error，退出码 78）：`credentials: required` 的模块开关取 AWS 值（`MODULE_<ID>=on`），而 `IAM_CREDENTIALS=none`。**CRED-002**（warn）：`IAM_CREDENTIALS=keys`。**CRED-004**（warn）：social-api 已启用而 `IAM_CREDENTIALS=none`，控制面探针关闭，只保留经网关的 HTTP 探针，状态为 `degraded`。
+   - `scripts/module enable <id>` 的计划校验命中 CRED-001 时提示先执行 `scripts/module enable iam`；带 `--with-deps` 或由 `profile gen-single` 生成档位时自动并入 iam(role)。旧稿中的 `requireAwsCredentials()`、`DependencyError`、“按 last-known-good 装配”一律不存在：配置错误由规则引擎在启动时一次性报告，退出码 78。
+   - 本组的 Lambda 函数（缩略图、社交 API 后端、Lambda 授权器）使用各自栈内的执行角色，不复用应用角色，与 `IAM_CREDENTIALS` 无关；scheduler 调用目标的权限在 Scheduler 的执行角色上。
+2. **策略与跨栈参数（D2）。**
+   - 禁止 CloudFormation `Export` / `Fn::ImportValue`。每个模块栈只创建并输出**一条**客户托管策略 `PolicyArn`（命名 `cloudalbum-<env>-<id>`，包含业务所需最小权限和第 10 节探针所需的只读权限），模板不写 `Roles` / `Users`；由 `scripts/module` 附加到 `CloudAlbumAppRole`（keys 模式下附加到演示用户），附加关系记入 `.cloudalbum/state.json`，disable 时据此分离；超过托管策略配额时由 `scripts/module` 打包（总纲 9.1）。
+   - 跨模块参数只通过“提供方在 registry 中声明的 `injects`”传递。实例 ID、EIP、VPC / 子网、实例安全组属于框架提供的基础上下文（ec2 基础栈），不算跨模块引用。被注入方不得声明“我依赖谁的输出”（原 `reconfigureOn` 已删除）；提供方被禁用时，`scripts/module` 先用空值更新被注入的栈，再删除自己的栈。本组涉及的注入：
 
-   | 队列 | 所属模块 | 用途 | 谁消费 |
+   | 提供方 | 被注入的模块栈 | 参数 | 声明位置 |
    |---|---|---|---|
-   | `cloudalbum-<env>-image-processing-failures` | image-processing | Lambda 异步调用的失败目标、EventBridge 规则的死信队列 | worker：把对应照片标为 FAILED 并记录原因 |
-   | `cloudalbum-<env>-image-processing-results` | image-processing（仅 `IMAGE_RESULT_CHANNEL=queue`） | Lambda 处理结果的回写通道 | worker |
-   | `cloudalbum-<env>-image-processing-buffer` | image-processing（仅 `IMAGE_TRIGGER=buffer-queue`） | EventBridge → SQS → Lambda 事件源映射的缓冲队列 | Lambda（ESM） |
-   | `cloudalbum-<env>-notification-inbox` | notification | SNS 主题的 SQS 订阅者，演示 SNS + SQS 扇出；也承接来自 Lambda 的事件 | worker |
-   | `cloudalbum-<env>-email-feedback` | email | SES 投递、退信、投诉事件（经 SNS） | worker |
-   | `cloudalbum-<env>-scheduler-tick` | scheduler | EventBridge Scheduler 的目标 | worker |
+   | storage | image-processing、tagging | `RawBucketName`、`MediaBucketName`（tagging 只用原图桶） | C 组 storage（03 已声明） |
+   | kms | 本组所有带 `KmsKeyArn` 参数的栈 | `KmsKeyArn` | B 组 kms（`target: "*"`，已声明） |
+   | load-balancer | image-processing、social-api | `OriginBaseUrl`（ALB 地址；未注入时 `scripts/module` 用基础上下文中的 `http://<EIP>`） | A 组 load-balancer（01 已声明） |
+   | tls | social-api | 区域自定义域名的 `CertificateArn` | A 组 tls（01 已声明） |
+   | auth | social-api | `UserPoolId`、`UserPoolClientId`（jwt 授权器，以及 Lambda 授权器的 cognito 分支） | B 组 auth（02 已声明） |
+   | social-store | social-api | `SocialTableName` | C 组 social-store（03 已声明） |
+   | notification | social-api | `NotifyTopicArn`（DEP-025 的首选通知路径） | 本组 notification |
+   | queue | social-api | `JobsQueueUrl`（DEP-025 的备选通知路径） | 本组 queue |
+   | email | auth | `SesIdentityArn`（仅 `EMAIL_FOR_COGNITO=on`） | 本组 email（02 已接收） |
+   | tagging | workflow | `EnableRekognition=true` | 本组 tagging（06 workflow 接收） |
+   | queue、image-processing、social-api | monitoring | `QueueName` / `DlqName`、`ThumbFunctionName`、`SocialApiId`（告警维度） | 本组（05 monitoring 接收） |
 
-3. **cloudalbum-worker 的职责随配置装配。** `container.ts` 只装配当前配置需要的轮询器，没有启用的模块不会产生任何后台循环：
+3. **规则只有一处，编号统一（D3）。** 所有规则只写在 `backend/src/rules/rules.ts` 一张表里；模块之间的依赖只用 registry 的 `requires` / `conflicts` 表达式书写，每一项都带 `rule:`。本组上一轮自编的 `DEP-D01～D09` 一律改为统一编号 DEP-019～027，总纲原 DEP-008 废止（由 DEP-022～025 取代）。结构或语义错误一律退出码 78，并一次性打印全部错误和修复命令。本组涉及的规则：
+
+   | 统一编号 | 原编号 | 级别 | 可覆盖 | 范围 | 违规条件 | 说明 / 修复 |
+   |---|---|---|---|---|---|---|
+   | DEP-003 | — | error | 否 | 启动 | `IMAGE_PROCESSOR=lambda` 且 `STORAGE_DRIVER≠s3` | Lambda 读不到 EC2 的 EBS；先启用 storage |
+   | DEP-004 | — | error | 否 | 启动 | `IMAGE_PROCESSOR=worker` 且 `QUEUE_DRIVER=sync` | 自相矛盾；不做“自动换队列”的隐式降级。`worker + memory` 由 api 进程消费，`worker + sqs` 由 worker 进程消费 |
+   | DEP-019 | D01 | error | 否 | 启动 | `IMAGE_PROCESSOR=lambda`、`IMAGE_RESULT_CHANNEL=callback`、`DEPLOY_MODE=asg`，且 `IMAGE_CALLBACK_URL` 的主机不是负载均衡地址 | 回调会打到某一台实例；改为 ALB 地址，或改用 queue 通道 |
+   | DEP-020 | D02 | warn | — | 启动 | `IMAGE_RESULT_CHANNEL=callback` 且 cdn 已启用 | cdn 的 8080 监听器与 CloudFront 行为都不放行 `/internal/*`（01 cdn）：回调只能走直连 80，`CDN_DIRECT_ACCESS` 收紧后就不通了。改用 queue 通道（`scripts/module` 检测到时自动选择 queue 并说明原因；预设 l4-async 已固定） |
+   | DEP-021 | D03 | warn | — | 启动 | `IMAGE_CALLBACK_URL` 以 `http://` 开头 | 回调走明文：HMAC 能防伪造、防篡改，不能防窃听（载荷只含对象键、宽高和耗时） |
+   | DEP-022 | D04 | error | 否 | 启动 | social-api 集成档为 `lambda`，但 `SOCIAL_DRIVER≠dynamodb` | Lambda 访问不到 EC2 上的 SQLite |
+   | DEP-023 | D05 | error | 否 | 启动 | social-api 授权器为 `jwt`，但 `AUTH_DRIVER≠cognito` | HTTP API 的 JWT 授权器只支持 RSA 系列算法，本地令牌是 ES256（D8）；改用 `lambda` 授权器 |
+   | DEP-024 | D06 | error | 否 | 启动 | social-api 集成档为 `lambda`，但授权器为 `none` | Lambda 后端拿不到“当前用户是谁” |
+   | DEP-025 | D07 | warn | — | 启动 | social-api 集成档为 `lambda`，且 `NOTIFY_DRIVER≠sns`、`QUEUE_DRIVER≠sqs` | 经 Lambda 写入的评论不产生站内通知，notification 为 `degraded` |
+   | DEP-026 | D08 | error | 否 | 部署 | `SCHEDULER_TARGET=ssm`，但实例不是 SSM 托管节点 | 需要 `IAM_CREDENTIALS=role` 且角色带托管节点权限（启用 shell-access 即可） |
+   | DEP-027 | D09 | error | 否 | 启动 | `TAGGER_INPUT=s3` 且 `STORAGE_DRIVER≠s3` | 字节方式（`bytes` 或 `auto`）不需要 S3 |
+   | MUTEX-004 | — | error | 否 | 部署 | 原图桶或媒体桶的 `NotificationConfiguration` 中出现 `EventBridgeConfiguration` 以外的配置 | image-processing 的 EventBridge 规则建在自己的栈里，不碰桶 |
+   | MUTEX-005 | — | error | 否 | 启动 | `WORKFLOW_DRIVER=stepfunctions` 且 `IMAGE_PROCESSOR=lambda` | 状态机与缩略图 Lambda 消费同一个 S3 事件，会重复处理（06 workflow） |
+   | ASG-005 | — | error | 是 | 启动 | `DEPLOY_MODE=asg` 且 `QUEUE_DRIVER=memory` | 缩容时任务随进程消失 |
+   | ASG-006 | — | error | 是 | 启动 | `DEPLOY_MODE=asg`、`SCHEDULER_DRIVER=cron` 且 LockPort 的 `scope=host` | 每台实例各跑一次日报 |
+   | ASG-011 | — | warn | — | 启动 | `DEPLOY_MODE=asg` 且 `EMAIL_DRIVER=outbox` | `.eml` 文件分散在各实例，`outbox_emails` 表是共享的 |
+   | ASG-013 | — | warn | — | 启动 | `DEPLOY_MODE=asg` 且 `CACHE_DRIVER≠redis` | Express `/social` 的限流计数按实例分别统计 |
+
+   registry 中的写法（各模块第 0 节给出完整条目）：
+
+   ```yaml
+   # modules/registry.yaml（本组规则节选）
+   image-processing:
+     requires:
+       - { rule: DEP-003, when: { IMAGE_PROCESSOR: lambda }, need: ["STORAGE_DRIVER=s3"] }
+       - { rule: DEP-004, when: { IMAGE_PROCESSOR: worker }, need: ["QUEUE_DRIVER!=sync"] }
+       - { rule: DEP-019, when: { IMAGE_PROCESSOR: lambda, IMAGE_RESULT_CHANNEL: callback, DEPLOY_MODE: asg }, need: ["load-balancer"] }
+       - { rule: DEP-020, when: { IMAGE_PROCESSOR: lambda, IMAGE_RESULT_CHANNEL: callback }, need: ["CDN_BASE_URL="], severity: warn }
+       - { rule: DEP-021, when: { IMAGE_PROCESSOR: lambda, IMAGE_RESULT_CHANNEL: callback }, need: [], severity: warn }   # 条件见 rules.ts 的 check()
+     conflicts:
+       - { rule: MUTEX-005, when: { IMAGE_PROCESSOR: lambda }, need: ["WORKFLOW_DRIVER!=stepfunctions"] }
+   social-api:
+     requires:
+       - { rule: DEP-022, when: { SOCIAL_API_INTEGRATION: lambda }, need: ["social-store"] }
+       - { rule: DEP-023, when: { SOCIAL_API_AUTHORIZER: jwt }, need: ["auth"] }
+       - { rule: DEP-024, when: { SOCIAL_API_INTEGRATION: lambda }, need: ["SOCIAL_API_AUTHORIZER!=none"] }
+       - { rule: DEP-025, when: { SOCIAL_API_INTEGRATION: lambda }, need: ["notification | queue"], severity: warn }
+   scheduler:
+     requires:
+       - { rule: DEP-026, when: { SCHEDULER_TARGET: ssm }, need: ["IAM_CREDENTIALS=role"] }   # 托管节点状态由 rules.ts 的 deployCheck() 查询
+   tagging:
+     requires:
+       - { rule: DEP-027, when: { TAGGER_INPUT: s3 }, need: ["STORAGE_DRIVER=s3"] }
+   ```
+
+   说明：`need` 里的模块 id 表示“该模块的 AWS 实现已启用”，所以 `social-store` 等价于 `SOCIAL_DRIVER=dynamodb`，`notification | queue` 等价于“`NOTIFY_DRIVER=sns` 或 `QUEUE_DRIVER=sqs`”。DEP-019 的“回调主机不是负载均衡地址”与 DEP-021 的“URL 以 `http://` 开头”是取值前缀条件，总纲的三种表达式写不出来：registry 只声明触发范围，精确条件写在 `rules.ts` 同 ID 条目的 `check()` 中（需总纲 5.1 确认这种写法，见修订记录）。
+4. **模块自带的辅助队列（registry `auxQueues`）不属于 queue 模块。** 为了让每个模块都能在 L0 上单独启用，而且 EC2 不需要开放额外的入站端口，下面这些 SQS 队列由各自模块的栈创建，物理名统一为 `cloudalbum-<env>-<模块 id>-<后缀>`。queue 模块只拥有应用任务队列 `queue-jobs` 及其 DLQ；“有 / 没有 SQS”的对比只针对应用任务队列（QueuePort）。`/lab` 的 queue 卡片另起一栏“模块自带的 SQS 队列（不属于 queue 模块）”，列出已启用模块的 `auxQueues`；capabilities 中 queue 的 detail 只统计自己的两条队列。
+
+   | registry `auxQueues.name` | 物理队列名 | 所属模块（何时创建） | 用途 | 谁消费 |
+   |---|---|---|---|---|
+   | `image-failed` | `…-image-processing-failures` | image-processing（lambda 档） | Lambda 异步调用的失败目标、EventBridge 规则目标的 DLQ、缓冲队列的 redrive 目标 | worker：把对应照片标为 FAILED 并记录原因 |
+   | `image-results`（带 DLQ） | `…-image-processing-results` | image-processing（仅 `IMAGE_RESULT_CHANNEL=queue`） | Lambda 处理结果的回写通道 | worker |
+   | `image-buffer` | `…-image-processing-buffer` | image-processing（仅 `IMAGE_TRIGGER=buffer-queue`） | EventBridge → SQS → Lambda 事件源映射的缓冲队列 | Lambda（ESM） |
+   | `workflow-results` | 见 06 workflow | workflow（`WORKFLOW_DRIVER=stepfunctions`） | 状态机的结果回写 | worker |
+   | `notification-inbox`、`notification-dlq` | `…-notification-inbox`、`…-notification-dlq` | notification（sns 档） | SNS 主题的 SQS 订阅者（演示 SNS + SQS 扇出，也承接来自 Lambda 的事件）；订阅级 DLQ | worker |
+   | `email-feedback`（带 DLQ） | `…-email-feedback` | email（ses 档） | SES 投递、退信、投诉事件（经 SNS） | worker |
+   | `scheduler-tick`、`scheduler-tick-dlq`、`scheduler-dlq` | `…-scheduler-tick`、`…-scheduler-tick-dlq`、`…-scheduler-dlq` | scheduler（eventbridge 档） | Scheduler 的目标；tick 的 redrive 目标；Scheduler 重试用尽后的 DLQ | worker |
+
+   所以“只启用 notification（或 email、scheduler）也会创建 SQS 资源”是预期行为，不代表启用了 queue 模块。
+5. **cloudalbum-worker 的职责随配置装配。** `container.ts` 只装配当前配置需要的轮询器，没有启用的模块不会产生任何后台循环：
 
    | 后台循环 | 何时装配 | 来源 |
    |---|---|---|
@@ -38,58 +120,48 @@
    | node-cron 调度器 | `SCHEDULER_DRIVER=cron`（eventbridge 档只保留对照任务 `lab.heartbeat`） | scheduler |
    | tick 队列轮询器 | `SCHEDULER_DRIVER=eventbridge` | scheduler |
    | 图片结果 / 失败队列轮询器 | `IMAGE_PROCESSOR=lambda` | image-processing |
+   | 编排结果队列轮询器 | `WORKFLOW_DRIVER=stepfunctions` | workflow（06） |
    | 通知收件队列轮询器 | `NOTIFY_DRIVER=sns` | notification |
    | SES 反馈队列轮询器 | `EMAIL_DRIVER=ses` | email |
 
-   `QUEUE_DRIVER=memory` 的消费者在 api 进程内（总纲 2.6），不在 worker 里。
-4. **内部回调端点只有一个。** 本组只开放 `POST /internal/hooks/image-processed`（HMAC 签名，image-processing 的 callback 回写通道）。总纲的 Nginx 主配置没有 `/internal/` 路由，由 image-processing 投放 server 级片段只放行这一个精确路径；其他 `/internal/*` 一律不经 Nginx 暴露。
-5. **运行时 A/B 只用总纲定义的旁路键。** 本组用到 `queue`、`image`、`tagger` 三个键（总纲 8.3）。notification、email、scheduler 属于“权威数据或全局状态”，业务流量只做“切换前 / 切换后”；另外各提供一个**只供管理员、不碰业务数据的对照端点**（`POST /api/lab/notification/compare`、`POST /api/lab/email/compare`、调度器的 `lab.heartbeat` 双触发），属于总纲 8.1 中的 `functional` 对比。social-api 用“按 URL 的 A/B”：两个入口同时在线，实验脚本分别请求即可。
-6. **`X-CloudAlbum-Path` 结果词表（本组部分，补充总纲 7.2）：**
+   `QUEUE_DRIVER=memory` 的消费者在 api 进程内（总纲 2.6），不在 worker 里。两个服务单元都带 `UMask=0027`、以固定 uid/gid 2001 的 `cloudalbum` 用户运行（D6，见 00-ec2-base.md），worker 写出的衍生图因此对 nginx（已加入 `cloudalbum` 组）可读。
+6. **内部端点由 registry 声明，本组只有一个（D9 统一值）。** 本组只有 image-processing 对外暴露 `POST /internal/hooks/image-processed`（registry `internalEndpoints`：`exposure: public-hmac`、`secret: callback-hmac-key`、`when: { IMAGE_RESULT_CHANNEL: callback }`）。它的 Nginx location 由构建期按 registry 生成在 ec2 基础的 `cloudalbum_locations.conf` 中，其余 `/internal/*` 一律 404；未启用或不是 callback 通道时 Node 对该路径返回 404。本组不投放任何 Nginx 片段。cdn 的 8080 监听器与 CloudFront 行为都不放行 `/internal/*`（01 cdn），所以启用 cdn 后改用 queue 通道（DEP-020）。全项目另一个内部端点是 auth lazy 迁移变体的 `/internal/legacy-auth`（02），每个端点使用自己的逻辑密钥。
+7. **机密（D5）。** 本组用到的 SecretName：`callback-hmac-key`（image-processing 回调签名）与 `origin-verify`（social-api proxy 集成的回源校验，与 cdn 共用同一个值）。值只放在 `/etc/cloudalbum/secrets.env`（`CALLBACK_HMAC_KEY`、`ORIGIN_VERIFY`；`root:cloudalbum 0640`，实际位于数据卷 `/var/lib/cloudalbum/etc`）或 Secrets Manager 的 `cloudalbum/<env>/<逻辑名>`；`modules.d` 只写 `*_SECRET_ARN` 或逻辑名（CFG-002）。需要把机密交给 Lambda 时，registry 用 `secretParams` 声明：secrets=env 时 `scripts/module` 从 `secrets.env` 读出（不存在才生成并写回）后作为 `NoEcho` 参数传入；secrets=secretsmanager 时只传 ARN，函数在初始化时读取并缓存。Lambda 环境变量对有 `lambda:GetFunctionConfiguration` 权限的人可见，这是 secrets=env 档的已知代价（见 image-processing 第 9 节）。
+8. **运行时 A/B 只用总纲定义的旁路键。** 本组用到 `queue`、`image`、`tagger` 三个键（总纲 8.3）。notification、email、scheduler 属于“权威数据或全局状态”，业务流量只做“切换前 / 切换后”；另外各提供一个**只供管理员、不碰业务数据的对照端点**（`POST /api/lab/notification/compare`、`POST /api/lab/email/compare`、调度器的 `lab.heartbeat` 双触发），即总纲 8.3 所说的功能对照。social-api 用“按 URL 的 A/B”：两个入口同时在线，实验脚本分别请求即可。
+9. **`X-CloudAlbum-Path` 结果词表（本组部分，与总纲 7.2 一致）。** 键只能是模块 id 或 `entry`、`inst`、`az`、`bypass`、`more`；值为 `driver[@host][:outcome]`，第一部分是驱动名（= 开关取值）。模块代码只通过 `ctx.path.mark(module, outcome)` 报告结果，不自己拼头部。
 
    | 段 | 取值 |
    |---|---|
-   | `image-processing` | `inline:sync`、`worker:async`、`lambda:async`、`lambda:bypass-inline`、`worker:bypass-inline` |
+   | `image-processing` | `inline:sync`、`worker:async`、`lambda:async`、`inline:bypass`（管理员旁路，本次在 API 进程内同步处理） |
    | `queue` | `sync:inline`、`memory:queued`、`sqs:queued`、`sqs:bypass-inline`、`sqs:error` |
    | `notification` | `db:email`、`db:none`（收件人未开邮件）、`sns:published`、`sns:error` |
-   | `email` | `outbox:stored`、`ses:sent`、`ses:rejected`、`ses:suppressed`、`ses:error` |
+   | `email` | `outbox:stored`、`outbox:preview`（`/me/outbox` 读取）、`ses:sent`、`ses:rejected`、`ses:suppressed`、`ses:error` |
    | `scheduler` | `cron:manual`、`eventbridge:manual`（只出现在“立即运行”请求上） |
-   | `tagging` | `none:basic`、`rekognition@s3:analyzed`、`rekognition@bytes:analyzed`、`rekognition:bypass`、`rekognition:error-basic` |
-   | `entry`（social-api） | `apigw>nginx`（proxy 集成）、`apigw>lambda`（lambda 集成，由 Lambda 端的同一套观测库生成） |
+   | `tagging` | `none:basic`、`rekognition:s3-object`、`rekognition:bytes`、`rekognition:bypass`（只在实验端点上）、`rekognition:error-basic` |
+   | `entry`（social-api） | `apigw>nginx`（proxy 集成，由 Nginx `00-entry.conf` 按网关注入的 `X-CloudAlbum-Via: apigw` 计算）、`apigw>lambda`（lambda 集成，由 Lambda 端的同一套观测库生成，总纲 7.2 已收录） |
 
-7. **Lambda 运行时用 `nodejs22.x`（arm64）。** 统一约定写的是 Node.js 20，但 Lambda 的 `nodejs20.x` 运行时已于 2026-04-30 弃用：控制台不能再新建，CloudFormation / CLI 在“阻止创建”日期之前仍可创建，之后会被阻止（日期以官方运行时页面为准）。本组的 Lambda 代码只用 Node 20 也支持的语法，所以运行时选 `nodejs22.x`（也可选 `nodejs24.x`），不影响与 EC2 共用 `packages/image-core` 和 `backend/src/social/service.ts`。
-8. **本组新增的校验规则（建议并入总纲 5.2）。** 规则 ID 用 `D` 前缀，避免与其他组冲突：
-
-   | ID | 级别 | 可覆盖 | 范围 | 违规条件 | 说明 / 修复 |
-   |---|---|---|---|---|---|
-   | DEP-D01 | error | 否 | 启动 | `IMAGE_PROCESSOR=lambda`、`IMAGE_RESULT_CHANNEL=callback`、`DEPLOY_MODE=asg`，且 `IMAGE_CALLBACK_URL` 的主机不是负载均衡地址 | 回调会打到某一台实例的弹性 IP；改为 ALB 地址，或改用 queue 通道 |
-   | DEP-D02 | warn | — | 启动 | `IMAGE_RESULT_CHANNEL=callback` 且 cdn 已启用 | cdn 的源站校验片段必须放行 `/internal/hooks/`（该路径自带 HMAC 校验），否则回调被 403；或改用 queue 通道 |
-   | DEP-D03 | warn | — | 启动 | `IMAGE_CALLBACK_URL` 以 `http://` 开头 | 回调走明文：HMAC 能防伪造、防篡改，不能防窃听（载荷只含对象键和宽高） |
-   | DEP-D04 | error | 否 | 启动 | social-api 集成档为 `lambda`，但 `SOCIAL_DRIVER≠dynamodb` | Lambda 访问不到 EC2 上的 SQLite（取代总纲 DEP-008 的前半句） |
-   | DEP-D05 | error | 否 | 启动 | social-api 授权器为 `jwt`，但 `AUTH_DRIVER≠cognito` | HTTP API 的 JWT 授权器目前只支持 RSA 系列算法，本地令牌是 ES256（见 B 组 auth 模块）；改用 `lambda` 授权器 |
-   | DEP-D06 | error | 否 | 启动 | social-api 集成档为 `lambda`，但授权器为 `none` | Lambda 后端拿不到“当前用户是谁” |
-   | DEP-D07 | warn | — | 启动 | social-api 集成档为 `lambda`，且 `NOTIFY_DRIVER≠sns`、`QUEUE_DRIVER≠sqs` | 经 Lambda 写入的评论不会产生站内通知，notification 状态标 `degraded` |
-   | DEP-D08 | error | 否 | 部署 | scheduler 的 `Target=ssm`，但实例不是 SSM 托管节点 | 先启用 iam（含 `AmazonSSMManagedInstanceCore`）或 shell-access |
-   | DEP-D09 | error | 否 | 启动 | `TAGGER_INPUT=s3` 且 `STORAGE_DRIVER≠s3` | 字节方式（`bytes` 或 `auto`）不需要 S3 |
-
-9. **与总纲（`docs/modular-design.md`）的偏差与细化（附理由）**
-   - (a) **image-processing 增加回写通道 `queue`**：`IMAGE_RESULT_CHANNEL=callback|queue`，默认 `callback`，与总纲的 HMAC 回调一致。理由：callback 要求 Lambda 能从公网访问 EC2 源站。启用 cdn（源站只认带 `X-Origin-Verify` 的请求）、network 私有放置或者源站没有受信证书时，回调会被挡住或只能走明文；queue 通道不需要任何入站流量，EC2 宕机时结果留在队列里等它恢复。`ImageProcessorPort` 因此多一个可选方法 `acceptResult()`，回调签名参数改为带时间戳的形式。
-   - (b) **image-processing 的 lambda 档增加可选触发变体**：`IMAGE_TRIGGER=eventbridge|buffer-queue`。默认仍是总纲的 S3 → EventBridge → Lambda（异步调用）；`buffer-queue` 在中间加一条**模块自带**的 SQS 队列，由 Lambda 事件源映射消费，用来演示批处理、`MaximumConcurrency` 限流和部分批失败。缓冲队列属于 image-processing 栈，不依赖 queue 模块。
-   - (c) **scheduler 的任务名增加 `lab.heartbeat`**：一个无副作用的对照任务，可以同时由 node-cron 和 EventBridge 触发，在同一部署中比较两边的准时性、重复与漏跑，而不会让业务任务执行两次。
-   - (d) **social-api 的依赖规则调整**（取代总纲 DEP-008）：lambda 集成只硬依赖 social-store=dynamodb，再加上“授权器不为 none”。auth=local 也可以用 lambda 集成，由 Lambda 授权器用 JWKS 公钥校验本地 ES256 令牌，不需要共享任何密钥。理由：B 组文档（`02-identity-security.md`）中，本地认证签发的是 ES256 令牌并发布 `/.well-known/jwks.json`（总纲写的是 HS256）；而 HTTP API 的 JWT 授权器只支持 RSA 系列算法，所以 auth=local 时不能用 JWT 授权器，但可以用 Lambda 授权器。
-   - (e) **tagging 的启动探针图片改为不小于 80×80 像素**（本文用 128×128）。总纲 6.2 写的是 64px，但 Rekognition 要求图片的宽和高都不小于 80 像素，64px 的图会被直接拒绝。
-   - (f) **Lambda 运行时用 `nodejs22.x`**，理由见第 7 条。
-   - (g) **考虑过、但没有采用的取值**：`QUEUE_DRIVER=db`（SQLite 任务表）、`TAGGER_DRIVER=exif`、管理员请求头 `X-Compare-Processor`。一律回到总纲的取值：queue 为 `sync|memory|sqs`；tagging 的 `none` 驱动本身就生成基础属性标签（原先设想的 EXIF 启发式规则并入 `none`）；运行时 A/B 只用 `X-Compare-Bypass: image`。理由：开关取值是跨组共享的契约（zod 模式、规则表、实验清单、前端徽章都依赖它），为单个模块新增取值会让其他组的文档与代码失配。
-10. **数量与价格。** 本文所有限额、价格和时延都只给定性描述和数量级；具体数值以官方文档和官方定价页为准。2025 年起 AWS 的免费套餐改为新账号抵扣额度制，“12 个月免费额度”的说法不再普遍适用；Lambda、SQS、SNS 等服务另有长期免费额度。是否覆盖你的账号，以官方定价页为准。
+10. **运行时统一为 Node.js 22 LTS（D4）。** EC2 安装 AL2023 的 `nodejs22`，本组的 Lambda（缩略图、社交 API 后端、Lambda 授权器）一律 `nodejs22.x`、arm64。理由：Node.js 20 已于 2026-04-30 停止上游支持。Lambda 运行时页面（2026-10-13 核实，日期为官方预测值，以页面为准）显示：`nodejs20.x` 已于 2026-04-30 弃用，阻止创建与更新的日期在 2027 年；`nodejs22.x` 的弃用日期为 2027-04-30，届时随项目统一升级，本组不单独选用其他主版本。EC2 与 Lambda 同一主版本，`packages/image-core` 与 `backend/src/social/service.ts` 在两边行为一致；sharp 仍需按 linux-arm64 构建（见 image-processing 第 9 节）。
+11. **端口文件、驱动名与权威分类（D9）。** `ports/image-processor.ts`（`adapters/image-processing/{inline,worker,lambda}.ts`）、`ports/queue.ts`（`adapters/queue/{sync,memory,sqs}.ts`）、`ports/notifier.ts`（`adapters/notification/{db,sns}.ts`）、`ports/email.ts`（`adapters/email/{outbox,ses}.ts`）、`ports/scheduler.ts`（`adapters/scheduler/{cron,eventbridge}.ts`）、`ports/tagger.ts`（`adapters/tagging/{none,rekognition}.ts`）；social-api 是参数型，没有端口，只有感知器 `backend/src/modules/detectors/social-api.ts`。AWS SDK 客户端只由 `backend/src/adapters/aws/clients.ts` 创建，驱动 id 等于开关取值。**权威端口**：image-processing、queue（运行时故障返回 503 并置 `error`，绝不回退本地实现）；**非权威端口**：notification、email、scheduler、tagging（允许降级，但必须置 `degraded`、计数并在路径头中标出）。
+12. **启用顺序与档位（D11、D12）。** 以完整性评审的 Lab 顺序与预设档位为准，本文不再自定顺序。与本组有关的是：
+    - Lab 0 第二部分 / 档位 `l0-plus-local-tiers`：`QUEUE_DRIVER=memory` 配合 `IMAGE_PROCESSOR=worker`，不产生 AWS 费用。
+    - Lab 9 启用 email + notification，Lab 10 启用 queue，Lab 11 启用 image-processing + tagging（workflow 作为 Lab 11 的扩展，见 06），Lab 12 启用 scheduler；对应档位 `l3-identity`（`EMAIL_DRIVER=ses`、`NOTIFY_DRIVER=sns`）与 `l4-async`（`QUEUE_DRIVER=sqs`、`IMAGE_PROCESSOR=lambda` 且因 cdn 已启用固定 `IMAGE_RESULT_CHANNEL=queue`、`TAGGER_DRIVER=rekognition`、`SCHEDULER_DRIVER=eventbridge`）。
+    - Lab 17 启用 social-store + social-api，档位 `l7-serverless-social`（`Integration=lambda`、`Authorizer=jwt`，auth 在 JIT 建档时写入 `custom:app_uid`）。
+    - 档位 `l9-full`：image-processing 加 `--param Tracing=Active`（05 tracing）。
+    - 变体 `x-named-comparisons`：queue(sqs)、image-processing(lambda，`IMAGE_RESULT_CHANNEL=queue`)。
+    - `profiles/single/<id>.env`：gen-single 自动并入 iam(role)；`single/queue.env` 额外写入本地档 `IMAGE_PROCESSOR=worker`（见 queue 第 5 节）；email 的发件身份、notification 的确认订阅在冒烟矩阵中标为“需人工”。旧档位名（`l5-async`、`l6-serverless-social`、`l7-full` 等）作废。
+13. **与总纲的关系（只细化，不推翻）。** 上一轮列出的偏差已全部被总纲吸收：`IMAGE_RESULT_CHANNEL=callback|queue` 与 `IMAGE_TRIGGER=eventbridge|buffer-queue`（总纲 4.2、4.4）、`ScheduledJobName` 中的 `lab.heartbeat`（4.2）、DEP-022～025 取代 DEP-008（5.2）、tagging 探针改为 128×128（6.2）、Lambda 用 `nodejs22.x`（D4）。仍属本组细化、需要总纲登记的项目见文末修订记录“仍需其他文件配合”。考虑过、但没有采用的取值保持不变：`QUEUE_DRIVER=db`（SQLite 任务表）、`TAGGER_DRIVER=exif`、管理员请求头 `X-Compare-Processor`。queue 为 `sync|memory|sqs`；tagging 的 `none` 驱动本身就生成基础属性标签（EXIF 启发式规则并入 `none`）；运行时 A/B 只用 `X-Compare-Bypass: image`。理由：开关取值是跨组共享的契约（zod 模式、规则表、实验清单、前端徽章都依赖它），为单个模块新增取值会让其他组的文档与代码失配。
+14. **数量与价格（D14）。** 本文所有限额、价格和时延都只给定性描述和数量级；具体数值以官方文档和官方定价页为准。2025 年起 AWS 的免费套餐改为新账号抵扣额度制，“12 个月免费额度”的说法不再普遍适用；Lambda、SQS、SNS 等服务另有长期免费额度。是否覆盖你的账号，以官方定价页为准。
 
 **有 Lambda 与没有 Lambda 的速查（横切本组与其他组）**
 
-本项目里 Lambda 只在 image-processing 中作为**主服务**；在其他模块里它是可选的辅助服务。每个用到 Lambda 的地方都有一个能在 EC2 上运行的替代做法，所以 L0 不需要任何 Lambda。
+本项目里 Lambda 只在 image-processing 中作为**主服务**；在其他模块里它是可选的辅助服务。每个用到 Lambda 的地方都有一个能在 EC2 上运行的替代做法，所以 L0 不需要任何 Lambda。本组的 Lambda 一律 `nodejs22.x`、arm64（公共约定 10）。
 
 | 位置 | 所属模块 | 有 Lambda 时 | 没有 Lambda 时（EC2 上的做法） | 能直接看到的区别 |
 |---|---|---|---|---|
 | 缩略图生成 | image-processing | S3 → EventBridge → Lambda（或经缓冲队列 + ESM），结果经 HMAC 回调或结果队列写回 | inline：上传完成的请求内 sharp；worker：入队后台处理 | 上传接口延迟、EC2 CPU 曲线、突发时“排队”还是“并行”、冷启动 |
+| 照片处理编排 | workflow（06） | Step Functions 状态机调用缩略图 Lambda，再经 SDK 集成调用 Rekognition，结果写入模块自带结果队列 | `PhotoPipeline` 在进程内按顺序编排（`WORKFLOW_DRIVER=inline`） | 执行历史与 Retry/Catch 可视化；EC2 宕机时流程是否继续 |
 | 社交 API 后端 | social-api | API Gateway → Lambda → DynamoDB | API Gateway 代理回源到 Express，或不用网关 | 停掉 `cloudalbum-api` 后点赞评论是否还能用；冷启动 |
-| 社交 API 授权 | social-api | Lambda 授权器（校验本地 ES256 或 Cognito 令牌） | JWT 授权器（仅 Cognito），或由 Express 自己校验 | 401 发生在网关还是 EC2 |
+| 社交 API 授权 | social-api | Lambda 授权器（用 JWKS 公钥校验本地 ES256 令牌，或校验 Cognito 令牌） | JWT 授权器（只支持 RSA 系列算法，所以仅限 Cognito），或 proxy 集成下由 Express 自己校验 | 401 发生在网关还是 EC2 |
 | 定时任务 | scheduler | Scheduler → Lambda（选读，要求数据不在 SQLite） | Scheduler → 模块自带 tick 队列 → worker（默认） | 不用 Lambda 也能做到“每个计划时刻只执行一次、宕机后补跑” |
 | 打标签 | tagging | 选做变体：EventBridge / SQS → Lambda → Rekognition | worker 执行 `image.tag` 任务调用 Rekognition（默认） | 标签结果相同；差别在由谁消费、能否随积压自动扩展 |
 | 退信处理 | email | 可以用 Lambda 订阅 SNS | SNS → 模块自带 SQS → worker（默认） | 功能上没有差别；EC2 不需要入站端口 |
@@ -97,9 +169,68 @@
 
 总体结论（定性）：Lambda 把 CPU 密集、突发的工作从 EC2 上拿走，上传接口延迟和 EC2 CPU 都变得平稳；并发随事件数自动扩展，直到预留并发或账号并发上限；代价是冷启动、额外的部署包与执行角色，以及最重要的一课——**Lambda 读不到 EC2 的 EBS 和 SQLite**，所以一旦用 Lambda，状态就必须外置：文件放 S3，数据放 RDS 或 DynamoDB，结果经队列或签名回调送回。这正是从单机走向云原生的关键一步。
 
+<a id="image-processing"></a>
 ## image-processing：图片处理（缩略图） ↔ AWS Lambda
 
 > 一句话总结：没有 Lambda 时，缩略图由 EC2 上的 sharp 生成——默认 inline 在“上传完成”请求内同步生成，本地档 worker 则入队后台生成，CPU 都由这台 EC2 承担；启用后原图直传 S3，S3 经 EventBridge 触发 Lambda 生成缩略图，结果用 HMAC 签名回调（或结果队列）写回 EC2。最直观的区别：一次批量上传 200 张，“上传完成”接口从秒级降到几十毫秒级，EC2 的 CPU 曲线几乎不动，缩略图几乎同时冒出来，前几张带“冷启动”徽章。
+
+### 0. 元数据（registry 摘录）
+
+```yaml
+image-processing:
+  group: D
+  function: 图片处理（缩略图）
+  awsService: AWS Lambda
+  auxServices: [Amazon EventBridge（规则）, Amazon SQS（模块自带：失败、结果、缓冲）]
+  type: adapter
+  port: ImageProcessorPort                    # ports/image-processor.ts；adapters/image-processing/{inline,worker,lambda}.ts
+  switch: { var: IMAGE_PROCESSOR, values: [inline, worker, lambda], ownedValues: [lambda], localTiers: [worker] }
+  ownsEnv: [IMAGE_]
+  credentials: required                       # 只对 lambda 档生效；inline / worker 不调用 AWS
+  prerequisites: [toolchain]                  # lambda 档的部署包放在工具链栈的制品桶
+  requires:
+    - { rule: DEP-003, when: { IMAGE_PROCESSOR: lambda }, need: ["STORAGE_DRIVER=s3"] }
+    - { rule: DEP-004, when: { IMAGE_PROCESSOR: worker }, need: ["QUEUE_DRIVER!=sync"] }
+    - { rule: DEP-019, when: { IMAGE_PROCESSOR: lambda, IMAGE_RESULT_CHANNEL: callback, DEPLOY_MODE: asg }, need: ["load-balancer"] }
+    - { rule: DEP-020, when: { IMAGE_PROCESSOR: lambda, IMAGE_RESULT_CHANNEL: callback }, need: ["CDN_BASE_URL="], severity: warn }
+    - { rule: DEP-021, when: { IMAGE_PROCESSOR: lambda, IMAGE_RESULT_CHANNEL: callback }, need: [], severity: warn }
+  conflicts:
+    - { rule: MUTEX-005, when: { IMAGE_PROCESSOR: lambda }, need: ["WORKFLOW_DRIVER!=stepfunctions"] }
+  soft: [queue, tagging, kms, tracing, monitoring]
+  authoritative: true                         # lambda 档故障时 complete 返回 503，不偷偷改用 inline
+  multiInstanceSafe: { inline: true, worker: true, lambda: true }   # worker 档在 ASG 下另受 ASG-005（必须 sqs）约束
+  bypass: [image]
+  internalEndpoints:
+    - { path: /internal/hooks/image-processed, exposure: public-hmac, secret: callback-hmac-key, when: { IMAGE_RESULT_CHANNEL: callback } }
+  auxQueues:
+    - { name: image-failed,  purpose: "Lambda 异步调用失败目标 / 规则目标 DLQ / 缓冲队列 redrive" }
+    - { name: image-results, purpose: "IMAGE_RESULT_CHANNEL=queue 的结果回写" }
+    - { name: image-buffer,  purpose: "IMAGE_TRIGGER=buffer-queue 时的缓冲队列（Lambda ESM 消费）" }
+  secretParams: [callback-hmac-key]           # 值已在 secrets.env；secrets=secretsmanager 时只传 ARN
+  injects:
+    - { target: monitoring, params: { ThumbFunctionName: "${Out.InfoFunctionName}" } }
+  # 本栈接收的注入：RawBucketName、MediaBucketName（storage）；OriginBaseUrl（load-balancer）；Tracing（tracing）；KmsKeyArn（kms）
+  systemdDropIns: [infra/modules/image-processing/systemd/50-image-processing.conf]   # worker 的 CPUWeight / Nice / MemoryMax
+  stacks: [{ name: main, template: infra/modules/image-processing.yaml }]
+  migration: scripts/migrate/image-processing # 无数据，只有可选的 --backfill
+  probe: { kind: active, method: "lambda:GetFunctionConfiguration + events:DescribeRule + sqs:GetQueueAttributes", intervalSec: 30 }
+  billing:
+    - { resource: "Lambda 请求与 GB-秒（含 INIT 阶段）", dimension: request }
+    - { resource: "模块自带 SQS 队列的请求", dimension: request }
+  lab:
+    summary:
+      local: "inline：上传完成的请求内由 sharp 生成；本地档 worker：入队后台生成"
+      aws: "S3 → EventBridge → Lambda 生成缩略图，结果经 HMAC 回调或结果队列写回"
+    compare: before-after                     # inline ↔ 当前驱动另有运行时 A/B（bypass=image）
+    keyMetrics: ["POST /api/photos/:id/complete 的 p50 / p95", "EC2 CPU 峰值", "缩略图就绪时间 p95", "冷启动次数"]
+    hourlyBilled: false
+    experiments: [upload-burst, neighbor, cold-start, throttle, failures, cost]
+    badges: { local: "缩略图由 EC2 生成", aws: "缩略图由 AWS Lambda 生成", degraded: "缩略图处理降级", error: "缩略图处理故障" }
+  doc: docs/modules/04-compute-async.md#image-processing
+```
+
+- 只有 `IMAGE_PROCESSOR=lambda` 时写 `MODULE_IMAGE_PROCESSING=on`；本地档 worker 也写 `modules.d/image-processing.env`，但不含这一行（CFG-004 由 `localTiers` 豁免）。
+- DEP-019 的“回调主机不是负载均衡地址”、DEP-021 的“回调地址是 `http://`”属于取值前缀条件，精确判断在 `rules.ts` 同 ID 条目的 `check()` 中（公共约定 3）。
 
 ### 1. 基线实现（仅 EC2）
 
@@ -117,16 +248,16 @@
 
 **上传流程（L0，与总纲 2.8 的 F6、F7 一致）**
 
-1. `POST /api/photos`，请求体 `{albumId, filename, contentType, size}`：插入 `photos` 行（`status=UPLOADING`，`raw_key=raw/<userId>/<photoId>.<ext>`），调用 `StoragePort(local).createUploadTarget()`，返回 `{photoId, upload: {method: 'PUT', url: '/api/storage/upload?key=…&exp=…&sig=…', headers}}`。
-2. 浏览器把原图 PUT 到这个 URL。Nginx 的 `location /api/storage/upload` 关闭了请求缓冲，`client_max_body_size 30m`；Node 校验 HMAC 签名、有效期、大小和 Content-Type 后，把文件流式写入 `/var/lib/cloudalbum/uploads/raw/<userId>/<photoId>.<ext>`。
+1. `POST /api/photos`，请求体 `{albumId, filename, contentType, size}`：插入 `photos` 行（`status=UPLOADING`，`raw_key=raw/<userId>/<photoId>.<ext>`），调用 `StoragePort(local).createUploadTarget()`，返回 `{photoId, upload: {method: 'PUT', url: '/api/storage/upload?key=…&ct=…&max=…&exp=…&sig=…', headers}}`（`UploadTarget`，总纲 2.8 F6）。
+2. 浏览器把原图 PUT 到这个 URL。Nginx 的 `location /api/storage/upload` 关闭了请求缓冲，`client_max_body_size 30m`（ec2 基础的 `cloudalbum_locations.conf`）；Node 校验 HMAC 签名（`upload-hmac-key`）、有效期、大小（上限只用运行时配置 `maxUploadMb`）和 Content-Type 后，把文件流式写入 `/var/lib/cloudalbum/uploads/raw/<userId>/<photoId>.<ext>`（目录 750、文件 640，属 `cloudalbum` 组，nginx 已加入该组，D6）。
 3. `POST /api/photos/:id/complete`：`PhotoPipeline` 把状态改为 `PROCESSING`，记下 `processing_started_at`，然后调用 `images.submit(job)`。
 4. inline 适配器当场执行 `render()`：用 `StoragePort.getObject(raw_key)` 读原图，用 `putObject()` 写出 `variants/<photoId>/thumb_200.webp` 和 `variants/<photoId>/display_1080.webp`，然后执行 `UPDATE photos SET status='READY', thumb_key, display_key, width, height, processed_by, ready_at`。`processed_by` 是 JSON：`{driver, durationMs, host, coldStart}`。
 5. 入队 `image.tag`（QUEUE_DRIVER=sync 时也在本请求内执行，见 tagging 模块），最后返回 `200` 和照片对象（状态 READY）。
 
 **并发与资源保护**
 
-- `IMAGE_INLINE_CONCURRENCY`（默认 1）：api 进程内的信号量，再加上 `sharp.concurrency(1)`。超出的“上传完成”请求在信号量上排队。批量上传时请求排长队、甚至被 Nginx `proxy_read_timeout 60s` 截断成 504，正是这里造成的，也是本模块最重要的对照现象。
-- 一张 12MP 的照片解码后要占几十 MB 内存。t3.small / t4g.small 只有 2 GiB 内存，所以默认并发设为 1；总纲 2.7 的 1 GiB swap 只是保险。
+- `IMAGE_INLINE_CONCURRENCY`（默认 2，与总纲 4.4 的 zod 默认值一致，对应 2 个 vCPU）：api 进程内的信号量，每个任务再加上 `sharp.concurrency(1)`。超出的“上传完成”请求在信号量上排队。批量上传时请求排长队、甚至被 Nginx `proxy_read_timeout 60s` 截断成 504，正是这里造成的，也是本模块最重要的对照现象。
+- 一张 12MP 的照片解码后要占几十 MB 内存。t3.small / t4g.small 只有 2 GiB 内存，内存安全靠 `limitInputPixels` 兜底；总纲 2.7 的 1 GiB swap 只是保险。想让排队现象更明显，实验时可以把并发调到 1。
 
 **本地档 worker（不需要 AWS）**
 
@@ -145,9 +276,9 @@
   2. 否则在 `processing_attempts < IMAGE_MAX_ATTEMPTS` 时重新提交；
   3. 再否则标为 `FAILED`，并写明原因。
   
-  这个任务是 singleton，由 LockPort 保证同一时刻只执行一次。
+  这个任务是 singleton，由 LockPort 保证同一时刻只执行一次。它顺带清理 F14 本地前缀令牌上传留下的 `uploads/.incoming/` 中超过 1 天的残留分片（B 组 identity-pool 的约定）。“衍生图已存在、直接补记 READY”的张数不进端口返回值，而是记为指标 `biz.image_reconcile_recovered`，供 `/lab` 展示。
 - **前端**：上传页每张照片有一条阶段时间线（已上传 → 处理中 → 就绪 / 失败），PROCESSING 期间显示灰色占位图；`GET /api/photos/:id` 按退避间隔轮询（1s 起，最长 5s）。照片详情显示徽章“缩略图由 EC2 生成 · {durationMs} ms（inline / worker）”（总纲 12.3）。
-- **能力注册**：`image-processing = {driver: 'inline', awsService: 'AWS Lambda', status: 'off', localHealth: 'ok', detail: '缩略图在“上传完成”请求内由 sharp 生成（并发 1）'}`；worker 档的 detail 写“入队 image.process → 由 api 进程内存队列消费 / 由 cloudalbum-worker 经 SQS 消费”。
+- **能力注册**：`image-processing = {driver: 'inline', awsService: 'AWS Lambda', status: 'off', localHealth: 'ok', detail: '缩略图在“上传完成”请求内由 sharp 生成（并发 2）'}`；worker 档的 detail 写“入队 image.process → 由 api 进程内存队列消费 / 由 cloudalbum-worker 经 SQS 消费”。
 
 ### 2. AWS 实现
 
@@ -184,17 +315,17 @@ sequenceDiagram
 
 | 资源 | 关键配置 |
 |---|---|
-| `ThumbnailFunction`：`cloudalbum-<env>-image-processing-thumbnail` | `nodejs22.x`、`arm64`；内存参数 `MemorySize`（默认 1024MB，用 Lambda Power Tuning 在 1024～1769MB 之间找性价比，1769MB 约等于 1 个 vCPU）；超时 30 秒；`/tmp` 用默认值（不落盘，全程用 Buffer）。代码在 `lambdas/image-thumbnail/`，用 esbuild 打包；sharp 必须按 linux-arm64 安装（`npm install --os=linux --cpu=arm64 sharp`）后一起打进 zip，或做成 Layer。由 `aws cloudformation package` 上传到工具链栈 `cloudalbum-<env>-toolchain` 的制品桶 |
+| `ThumbnailFunction`：`cloudalbum-<env>-image-processing-thumbnail` | `nodejs22.x`、`arm64`（D4）；参数 `Tracing=PassThrough\|Active`（默认 PassThrough；tracing 模块启用 xray 后用 `--param Tracing=Active` 开启主动追踪，并给执行角色加 X-Ray 写权限，见 05 tracing）；内存参数 `MemorySize`（默认 1024MB，用 Lambda Power Tuning 在 1024～1769MB 之间找性价比，1769MB 约等于 1 个 vCPU）；超时 30 秒；`/tmp` 用默认值（不落盘，全程用 Buffer）。代码在 `lambdas/image-thumbnail/`，用 esbuild 打包；sharp 必须按 linux-arm64 安装（`npm install --os=linux --cpu=arm64 sharp`）后一起打进 zip，或做成 Layer。由 `aws cloudformation package` 上传到工具链栈 `cloudalbum-<env>-toolchain` 的制品桶 |
 | `ThumbnailLogGroup` | `/aws/lambda/<函数名>`，显式创建并设置保留期（例如 14 天），否则日志永久保存 |
 | `ThumbnailInvokeConfig`（`AWS::Lambda::EventInvokeConfig`） | `MaximumRetryAttempts: 2`、`MaximumEventAgeInSeconds: 3600`；`DestinationConfig.OnFailure` 指向 `FailureQueue` |
 | 预留并发 | 参数 `ReservedConcurrency`，默认留空（不设置）。只能预留到“未预留账号并发 − 100”；**新账号的并发配额可能远低于 1000**，这时设置任何正数都会失败。设置后它既是保底，也是上限，用来保护回调的下游（EC2 或数据库） |
-| `RawObjectCreatedRule`（`AWS::Events::Rule`） | 默认事件总线；事件模式见下方；目标为函数（`Trigger=eventbridge`）或缓冲队列（`Trigger=buffer-queue`）；目标的 `RetryPolicy` 与 `DeadLetterConfig`（指向 `FailureQueue`）只处理“投递给目标失败”的情况 |
+| `RawObjectCreatedRule`（`AWS::Events::Rule`） | 默认事件总线；事件模式见下方（`Object Created` 包含 PutObject、CopyObject、CompleteMultipartUpload，所以经 identity-pool 暂存桶 CopyObject 导入的照片同样会被处理）；目标为函数（`Trigger=eventbridge`）或缓冲队列（`Trigger=buffer-queue`）；目标的 `RetryPolicy` 与 `DeadLetterConfig`（指向 `FailureQueue`）只处理“投递给目标失败”的情况 |
 | `RulePermission`（`AWS::Lambda::Permission`） | 主体 `events.amazonaws.com`，`SourceArn` 为该规则 |
 | `FailureQueue`：`…-image-processing-failures` | 标准队列，SSE-SQS，保留期 14 天；队列策略允许本规则（`events.amazonaws.com`，用 `aws:SourceArn` 限定）发送，Lambda 失败目标与缓冲队列的 redrive 则靠执行角色的 IAM 权限和同账号的队列关系。三种来源的消息格式不同（Lambda 异步调用的失败记录、EventBridge 原始事件、缓冲队列的原消息），worker 按格式分别解析出 `photoId` |
 | `BufferQueue` + `BufferMapping`（条件：`Trigger=buffer-queue`） | 规则把事件投进缓冲队列，由 `AWS::Lambda::EventSourceMapping` 消费：`BatchSize: 5`、`MaximumBatchingWindowInSeconds: 2`、`FunctionResponseTypes: [ReportBatchItemFailures]`、`ScalingConfig.MaximumConcurrency`（参数，2～1000）；队列可见性超时取函数超时的 6 倍（180 秒）；`RedrivePolicy.maxReceiveCount: 3` → `FailureQueue` |
 | `ResultQueue`（条件：`ResultChannel=queue`） | `…-image-processing-results`，长轮询 20 秒，SSE-SQS；带自己的 DLQ |
 | `ThumbnailRole`（执行角色） | `s3:GetObject` 仅限原图桶的 `raw/*`；`s3:PutObject` 仅限媒体桶的 `variants/*`；对 `FailureQueue` 的 `sqs:SendMessage`；queue 通道加对 `ResultQueue` 的 `sqs:SendMessage`；buffer-queue 变体加对 `BufferQueue` 的 `sqs:ReceiveMessage`、`DeleteMessage`、`GetQueueAttributes`；参数 `KmsKeyArn` 非空时加 `kms:Decrypt`、`kms:GenerateDataKey`；写日志的权限只针对上面的日志组 |
-| `AppPolicy`（输出为 `PolicyArn`，挂到应用角色） | 探针：`lambda:GetFunctionConfiguration`、`events:DescribeRule`；对账重投：`lambda:InvokeFunction`（只针对本函数）；对 `FailureQueue`、`ResultQueue` 的 `sqs:ReceiveMessage`、`DeleteMessage`、`GetQueueAttributes` |
+| `AppPolicy`：客户托管策略 `cloudalbum-<env>-image-processing`（输出为 `PolicyArn`；模板不写 `Roles` / `Users`，由 `scripts/module` 附加并记入 state.json） | 探针：`lambda:GetFunctionConfiguration`、`events:DescribeRule`、`sqs:GetQueueAttributes`；对账重投：`lambda:InvokeFunction`（只针对本函数）；对 `FailureQueue`、`ResultQueue` 的 `sqs:ReceiveMessage`、`DeleteMessage`；队列使用 CMK 时加 `kms:Decrypt` |
 
 ```yaml
 # 规则的事件模式（S3 → EventBridge，由 storage 栈在桶上开启 EventBridgeConfiguration）
@@ -208,8 +339,11 @@ EventPattern:
 
 - **为什么不用 S3 事件通知**：总纲 3.2 的决定 1 规定原图桶上不能写 `NotificationConfiguration`（规则 MUTEX-004），所有消费者都各自在自己的栈里建 EventBridge 规则。这样 image-processing 和其他想监听上传事件的模块互不干扰，也不会碰到“同一事件类型不能配置前缀重叠的多个目标”的限制。
 - **防止递归调用**：输入是原图桶的 `raw/`，输出是媒体桶的 `variants/`，两者不在同一个桶，函数不会被自己的输出再次触发。不要依赖 Lambda 自带的递归循环检测：它只覆盖部分服务组合（以官方文档为准）。
-- **参数**（由 `scripts/module` 从其他栈的 Outputs 和本机状态读出后传入）：`RawBucketName`、`MediaBucketName`（storage 栈）、`CallbackUrl`、`CallbackHmacKey`（`NoEcho`；secrets 已启用时改传 `CallbackSecretArn`）、`KmsKeyArn`、`Trigger`、`ResultChannel`、`MemorySize`、`ReservedConcurrency`、`MaxConcurrency`。
-- **Outputs**：`EnvImageProcessor=lambda`、`EnvImageLambdaFunction`、`EnvImageTrigger`、`EnvImageResultChannel`、`EnvImageCallbackUrl`、`EnvImageResultQueueUrl`（仅 queue 通道）、`EnvImageFailureQueueUrl`、`InfoRuleName`、`InfoLogGroup`、`PolicyArn`。
+- **参数**（没有 `ImportValue`，D2）：
+  - 由提供方的 `injects` 注入：`RawBucketName`、`MediaBucketName`（storage）、`KmsKeyArn`（kms，空 = 不用 CMK）、`OriginBaseUrl`（load-balancer；未注入时由 `scripts/module` 用基础上下文中的 `http://<EIP>`）。`CallbackUrl` = `OriginBaseUrl + /internal/hooks/image-processed`，也可以用 `--param CallbackUrl=` 显式指定。
+  - 机密（registry `secretParams: [callback-hmac-key]`）：secrets=env 时，`scripts/module` 从 `secrets.env` 读出 `CALLBACK_HMAC_KEY`，作为 `NoEcho` 参数 `CallbackHmacKey` 传入；secrets=secretsmanager 时改传 `CallbackSecretArn`。
+  - 本模块自己的：`Trigger`、`ResultChannel`、`MemorySize`、`ReservedConcurrency`、`MaxConcurrency`、`Tracing`。
+- **Outputs**：`EnvImageProcessor=lambda`、`EnvImageLambdaFunction`、`EnvImageTrigger`、`EnvImageResultChannel`、`EnvImageCallbackUrl`、`EnvImageResultQueueUrl`（仅 queue 通道）、`EnvImageFailureQueueUrl`、`InfoFunctionName`（注入 monitoring 的告警维度）、`InfoRuleName`、`InfoLogGroup`、`PolicyArn`。不输出任何密钥值。
 
 **Lambda 函数的处理逻辑（`lambdas/image-thumbnail/handler.ts`）**
 
@@ -227,20 +361,27 @@ EventPattern:
 - **callback（默认，与总纲一致）**：
   - 地址：`POST {IMAGE_CALLBACK_URL}`，默认是“源站地址 + `/internal/hooks/image-processed`”。源站地址在 L0 是 `http://<EIP>`，启用 load-balancer 后是 ALB 域名。**不要**填 CloudFront 域名。
   - 请求头：`X-CloudAlbum-Timestamp: <unix 秒>`、`X-CloudAlbum-Signature: v1=<hex(HMAC-SHA256(key, timestamp + "." + rawBody))>`。
-  - 密钥：总纲 2.7 中 User Data 生成的 `CALLBACK_HMAC_KEY`（SecretsPort 中的逻辑名为 `callback-hmac-key`）。secrets=env 时，经 `NoEcho` 参数注入 Lambda 的环境变量；Lambda 的环境变量静态加密，但任何有 `lambda:GetFunctionConfiguration` 权限的人都能看到，所以 secrets 启用后改为由 Lambda 在初始化时读取 Secrets Manager 并缓存。
-  - Express 端（`backend/src/http/routes/internal-hooks.ts`）：读取原始请求体；用 `crypto.timingSafeEqual` 比较签名；只接受 ±300 秒内的时间戳；按“状态只前进”幂等更新。
-  - Nginx：本模块投放 server 级片段 `/etc/nginx/cloudalbum.server.d/image-processing-callback.conf`：`location = /internal/hooks/image-processed { limit_req zone=ca_api burst=50 nodelay; client_max_body_size 64k; include /etc/nginx/cloudalbum_proxy.conf; }`。
-  - 传输：源站是 `http://` 时，回调走明文（DEP-D03 警告）。载荷只含对象键、宽高和耗时，不含用户数据；HMAC 能防伪造和篡改，不能防窃听。源站有受信证书（tls + load-balancer）时用 `https://`。
+  - 密钥：SecretsPort 中的逻辑名 `callback-hmac-key`；secrets=env 时对应 `secrets.env` 的 `CALLBACK_HMAC_KEY`（由 `l0-bootstrap.sh` 在数据卷 `/var/lib/cloudalbum/etc` 上生成，数据卷上已有时不重新生成，D5）。secrets=env 时，经 `NoEcho` 参数注入 Lambda 的环境变量；Lambda 的环境变量静态加密，但任何有 `lambda:GetFunctionConfiguration` 权限的人都能看到，所以 secrets 启用后改为由 Lambda 在初始化时读取 Secrets Manager 并缓存。
+  - Express 端（`backend/src/http/routes/internal-hooks.ts`）：只在 `IMAGE_RESULT_CHANNEL=callback` 时挂载，否则对该路径返回 404；用 `express.raw({ limit: '64kb' })` 读取原始请求体；用 `crypto.timingSafeEqual` 比较签名；只接受 ±300 秒内的时间戳；按“状态只前进”幂等更新。
+  - Nginx：本模块**不投放片段**。registry 的 `internalEndpoints` 声明了这个路径（`exposure: public-hmac`），构建期据此在 ec2 基础的 `cloudalbum_locations.conf` 中生成精确匹配的 `location = /internal/hooks/image-processed`，其余 `/internal/*` 一律 404（总纲 2.5）。
+  - 传输：源站是 `http://` 时，回调走明文（DEP-021 警告）。载荷只含对象键、宽高和耗时，不含用户数据；HMAC 能防伪造和篡改，不能防窃听。源站有受信证书（`TLS_MODE=letsencrypt` / ACME 证书，或 tls + load-balancer）时用 `https://`。
   - Lambda 不在 VPC 时出口 IP 不固定，没办法用安全组做白名单，只能靠签名防伪造。
-- **queue（本组细化）**：Lambda 把结果 `SendMessage` 到 `ResultQueue`；worker 用 20 秒长轮询接收，调用 `images.acceptResult()`。EC2 不需要任何入站流量；EC2 宕机时结果留在队列里，恢复后继续写回。在以下场景推荐用它：启用了 cdn（源站校验会挡住回调，DEP-D02）、network 私有放置、多实例部署且没有 ALB。`scripts/module enable image-processing` 部署时如果检测到这些情况，会自动选择 queue，并打印原因。
+- **queue（本组细化）**：Lambda 把结果 `SendMessage` 到 `ResultQueue`；worker 用 20 秒长轮询接收，调用 `images.acceptResult()`。EC2 不需要任何入站流量；EC2 宕机时结果留在队列里，恢复后继续写回。在以下场景推荐用它：启用了 cdn（cdn 的 8080 监听器与 CloudFront 行为都不放行 `/internal/*`，回调只能走直连 80，`CDN_DIRECT_ACCESS` 收紧后就不通了，DEP-020）、network 私有放置、多实例部署且没有 ALB。`scripts/module enable image-processing` 部署时如果检测到这些情况，会自动选择 queue，并打印原因；预设 `l4-async` 与 `x-named-comparisons` 直接固定 `IMAGE_RESULT_CHANNEL=queue`。
 - **兜底（始终开启）**：对账任务对 PROCESSING 超时的照片先 `HeadObject` 媒体桶里的衍生图。如果已经存在，就用对象元数据补记为 READY（回调丢了也能恢复）；不存在则用 `lambda:InvokeFunction`（`InvocationType=Event`，载荷与 EventBridge 事件同构）重投，超过次数后标为 FAILED。worker 同时轮询 `FailureQueue`，把里面的照片标为 FAILED，并在 `/lab` 上显示失败原因。
-- **进阶（选做，不在开关里）**：architecture.md 原设计中 Lambda 直接写 RDS 的做法——函数放进 VPC，经 RDS Proxy 执行 `UPDATE photos`。前提是 database 模块已启用，且 VPC 内有 S3 网关终端节点或 NAT，否则函数访问 S3 会一直卡到超时。本模块默认不这样做，因为它会让 image-processing 依赖 database，在 SQLite 下就用不了了。
+- **进阶（选做，不在开关里）**：architecture.md 原设计中 Lambda 直接写 RDS 的做法——函数放进 VPC，经 RDS Proxy（db-proxy 模块，见 06）执行 `UPDATE photos`。前提是 database 与 db-proxy 已启用，且 VPC 内有 S3 网关终端节点或 NAT，否则函数访问 S3 会一直卡到超时；放进 VPC 的 Lambda 还会成为 DEP-016 所说的“VPC 绑定资源”。本模块默认不这样做，因为它会让 image-processing 依赖 database，在 SQLite 下就用不了了。
 
 **API 侧的变化**
 
 - 上传目标改由 storage 模块签发 S3 预签名 PUT URL，浏览器直传原图桶；前端代码没有分支（总纲 12.2）。
 - `POST /api/photos/:id/complete` 调用 `lambda.ts` 的 `submit()`：只把状态改为 PROCESSING，记下 `expectedBy = now + IMAGE_STUCK_AFTER_SEC`，然后立即返回 202。真正触发 Lambda 的是 S3 事件，不是这次请求。
-- 能力注册的 detail 示例：`lambda@arm64 · 触发 eventbridge · 回写 callback(http) · 最近 5 分钟回调 p95 1.8s · 冷启动 3 次`。探针内容见总纲 6.2：`GetFunctionConfiguration`（检查 `State` 和 `LastUpdateStatus`）以及 `DescribeRule`（检查 `ENABLED`）；有照片 PROCESSING 超时时标为 `degraded`。
+- 能力注册的 detail 示例：`lambda@arm64 · 触发 eventbridge · 回写 callback(http) · 最近 5 分钟回调 p95 1.8s · 冷启动 3 次`（数值仅为示意）。探针见第 10 节。
+- 权威端口（公共约定 11）：lambda 档状态为 `error`（函数不存在、规则被禁用）时，`POST /api/photos/:id/complete` 返回 `503 IMAGE_PROCESSOR_UNAVAILABLE`，照片保持 UPLOADING，不会偷偷改用 inline；管理员仍可用 `X-Compare-Bypass: image` 做对照。
+
+**扩展：workflow（AWS Step Functions，Lab 11 扩展，详见 [06 workflow](06-governance-cost.md#workflow)）**
+
+- 分工：image-processing 回答“缩略图在哪里算”（EC2 还是 Lambda）；workflow 回答“上传后的多个步骤由谁编排”（进程内 `PhotoPipeline` 还是 Step Functions 状态机）。`WORKFLOW_DRIVER=stepfunctions` 时，S3 → EventBridge 启动 Standard 状态机：缩略图任务（workflow 栈自带的 Lambda，复用同一份 `packages/image-core`）→ tagging=rekognition 时由 tagging 的 `injects`（`EnableRekognition=true`）打开 Rekognition SDK 集成 → Choice → 结果写入 workflow 自带的结果队列，worker 消费后按本模块相同的写回规则（READY 可覆盖 UPLOADING / PROCESSING / FAILED，永不覆盖 READY / BLOCKED）更新照片状态；通知仍由 EC2 侧的 NotifierPort 发出。
+- 互斥：状态机与 `IMAGE_PROCESSOR=lambda` 消费同一个 S3 事件，二者只能选一个（MUTEX-005）。workflow 启用时，`IMAGE_PROCESSOR` 只取 inline 或 worker，用于 `X-Compare-Bypass: image` 与对账重试。
+- 对比焦点：同样是“Lambda 生成缩略图”，在状态机里多了执行历史、Retry/Catch 的可视化和逐步耗时；EC2 宕机时状态机照常推进，结果留在队列里，恢复后写回。
 
 ### 3. 开关与配置
 
@@ -252,7 +393,7 @@ IMAGE_PROCESSOR=lambda              # inline | worker | lambda（inline = 本地
 # —— 本地实现与本地档共用（写在本文件；缺省时取下列默认值）——
 IMAGE_SIZES=thumb_200,display_1080
 IMAGE_MAX_PIXELS=40000000           # sharp limitInputPixels
-IMAGE_INLINE_CONCURRENCY=1          # inline：api 进程内信号量
+IMAGE_INLINE_CONCURRENCY=2          # inline：api 进程内信号量（总纲 zod 默认 2）
 IMAGE_WORKER_CONCURRENCY=1          # worker：image.process 的消费并发
 IMAGE_STUCK_AFTER_SEC=120           # 对账阈值
 IMAGE_MAX_ATTEMPTS=3
@@ -264,15 +405,15 @@ IMAGE_RESULT_CHANNEL=callback       # callback | queue
 IMAGE_CALLBACK_URL=http://203.0.113.10/internal/hooks/image-processed
 IMAGE_RESULT_QUEUE_URL=             # 仅 queue 通道
 IMAGE_FAILURE_QUEUE_URL=https://sqs.ap-northeast-1.amazonaws.com/<acct>/cloudalbum-lab-image-processing-failures
-# 回调密钥不写在这里：secrets.env 的 CALLBACK_HMAC_KEY，或 secrets 模块中的 callback-hmac-key
+# 回调密钥不写在这里（CFG-002）：secrets.env 的 CALLBACK_HMAC_KEY，或 Secrets Manager 的 cloudalbum/<env>/callback-hmac-key
 ```
 
-本模块的 `ownsEnv` 为 `IMAGE_`。下面是 zod 分段（细化总纲 4.4 中的 `Image`）：
+本模块的 `ownsEnv` 为 `IMAGE_`。下面是 zod 分段（细化总纲 4.4 中的 `Image`：`IMAGE_WORKER_CONCURRENCY` 与 `IMAGE_FAILURE_QUEUE_URL` 已由总纲第 3 轮登记；“通道与地址必须匹配”用分段级 `superRefine` 表达）：
 
 ```ts
 // backend/src/config/schema.ts（image 分段）
 export const Image = section('IMAGE_PROCESSOR', 'inline', z.discriminatedUnion('IMAGE_PROCESSOR', [
-  z.object({ IMAGE_PROCESSOR: z.literal('inline'), IMAGE_INLINE_CONCURRENCY: z.coerce.number().int().min(1).default(1) }),
+  z.object({ IMAGE_PROCESSOR: z.literal('inline'), IMAGE_INLINE_CONCURRENCY: z.coerce.number().int().min(1).default(2) }),
   z.object({ IMAGE_PROCESSOR: z.literal('worker'), IMAGE_WORKER_CONCURRENCY: z.coerce.number().int().min(1).default(1) }),
   z.object({
     IMAGE_PROCESSOR: z.literal('lambda'),
@@ -282,34 +423,41 @@ export const Image = section('IMAGE_PROCESSOR', 'inline', z.discriminatedUnion('
     IMAGE_CALLBACK_URL: optUrl,
     IMAGE_RESULT_QUEUE_URL: optUrl,
     IMAGE_FAILURE_QUEUE_URL: z.string().url(),
-  }).refine((v) => v.IMAGE_RESULT_CHANNEL === 'queue' ? !!v.IMAGE_RESULT_QUEUE_URL : !!v.IMAGE_CALLBACK_URL,
-            { message: 'callback 通道需要 IMAGE_CALLBACK_URL；queue 通道需要 IMAGE_RESULT_QUEUE_URL' }),
-]));
+  }),
+])).superRefine((v: any, ctx) => {          // discriminatedUnion 的成员必须是纯 z.object，跨字段校验放在分段级
+  if (v.IMAGE_PROCESSOR === 'lambda' && !(v.IMAGE_RESULT_CHANNEL === 'queue' ? v.IMAGE_RESULT_QUEUE_URL : v.IMAGE_CALLBACK_URL))
+    ctx.addIssue({ code: 'custom', message: 'callback 通道需要 IMAGE_CALLBACK_URL；queue 通道需要 IMAGE_RESULT_QUEUE_URL（CFG-001）' });
+});
 ```
 
-端口接口（总纲 4.2 + 本组细化）：
+端口接口（方法名与参数沿用总纲 4.2；本组细化只有一处：回写方法的返回值加上 `ImageFailure`，让 Lambda 报告的永久错误也走同一条幂等写回，需总纲登记）：
 
 ```ts
 // backend/src/ports/image-processor.ts
-export interface ImageJob { photoId: string; rawKey: string; ownerId: string; reason?: 'upload' | 'reconcile' | 'backfill' }
+export interface ImageJob { photoId: string; rawKey: string; ownerId: string }
+export interface ImageMeta { width: number; height: number; format: string; dominantColor: string; takenAt?: string }
 export interface ImageResult {
   photoId: string;
   variants: Array<{ name: 'thumb_200' | 'display_1080'; key: string; width: number; height: number; bytes: number }>;
   meta: ImageMeta;
   processedBy: { driver: 'inline' | 'worker' | 'lambda'; durationMs: number; coldStart?: boolean; host: string };
 }
-export interface ImageFailure { photoId: string; error: string; permanent: boolean; processedBy: ImageResult['processedBy'] }
+/** 本组细化：永久错误（格式不支持、超过像素上限、文件损坏）由执行方直接报告，不重试 */
+export interface ImageFailure { photoId: string; error: string; permanent: true; processedBy: ImageResult['processedBy'] }
 
 export interface ImageProcessorPort extends Adapter {
   readonly placement: 'inline' | 'worker' | 'lambda';
   submit(job: ImageJob): Promise<{ mode: 'sync'; result: ImageResult } | { mode: 'async'; expectedBy: string }>;
-  /** callback 通道：校验时间戳与签名后交给 acceptResult（细化：签名参数带时间戳） */
-  acceptCallback?(rawBody: Buffer, h: { timestamp: string; signature: string }): Promise<ImageResult | ImageFailure>;
-  /** 本组细化：callback 与 queue 两个通道共用的幂等写回 */
-  acceptResult?(r: ImageResult | ImageFailure): Promise<'applied' | 'ignored-duplicate' | 'ignored-stale'>;
-  reconcile(stuckBefore: Date): Promise<{ resubmitted: number; failed: number; recovered: number }>;
+  /** lambda 档 + callback 通道：校验带时间戳的 HMAC（±300 秒）后写回 */
+  acceptCallback?(rawBody: Buffer, headers: { signature: string; timestamp: string }): Promise<ImageResult | ImageFailure>;
+  /** lambda 档 + queue 通道：worker 从模块自带的结果队列取到消息后调用，写回逻辑与 callback 共用 */
+  acceptResult?(message: unknown): Promise<ImageResult | ImageFailure>;
+  /** 对账（scheduler 的 image.reconcile 调用）；“补记 READY”的张数记为指标 biz.image_reconcile_recovered */
+  reconcile(stuckBefore: Date): Promise<{ resubmitted: number; failed: number }>;
 }
 ```
+
+写回的结果（`applied`、`ignored-duplicate`、`ignored-stale`）由仓储层返回并计数（`/lab` 卡片上的“被忽略的重复结果”），不进入端口签名。
 
 “状态只前进”的写回（仓储层，两种方言通用）：
 
@@ -321,7 +469,8 @@ await db('photos')
   .whereIn('status', ['UPLOADING', 'PROCESSING', 'FAILED'])
   .update({ status: 'READY', thumb_key, display_key, width, height,
             processed_by: JSON.stringify(r.processedBy), ready_at: db.fn.now() });
-// 受影响行数为 0 → 返回 'ignored-duplicate'（已是 READY）或 'ignored-stale'（已被拦截）
+// 受影响行数为 0 → 记为 'ignored-duplicate'（已是 READY）或 'ignored-stale'（已被拦截）
+// ImageFailure：只把 UPLOADING / PROCESSING 改为 FAILED（写入原因），不覆盖 READY / BLOCKED
 ```
 
 运行时旁路（总纲 8.3 的 `image` 键）在 `PhotoPipeline.complete()` 中处理：
@@ -331,7 +480,7 @@ await db('photos')
 const forceInline = ctx.bypass.has('image');          // 只有管理员能带 X-Compare-Bypass: image
 const proc = forceInline ? container.inlineImages : container.images;   // inline 适配器始终装配（sharp 始终安装）
 const r = await proc.submit(job);
-ctx.path.mark('image-processing', forceInline ? `${container.images.placement}:bypass-inline`
+ctx.path.mark('image-processing', forceInline ? 'inline:bypass'          // 总纲 7.2 的结果词表写法
                                               : `${proc.placement}:${r.mode === 'sync' ? 'sync' : 'async'}`);
 ```
 
@@ -339,11 +488,12 @@ ctx.path.mark('image-processing', forceInline ? `${container.images.placement}:b
 
 **硬依赖**
 
-- AWS 凭证（CRED-001），推荐先启用 iam。
-- `IMAGE_PROCESSOR=lambda` 要求 `STORAGE_DRIVER=s3`（DEP-003）：Lambda 读不到 EC2 的 EBS；EFS 方案要把函数放进 VPC，超出本模块范围。storage 栈在原图桶上开启了 `EventBridgeConfiguration`，这是 storage 模块的默认行为。
-- 工具链栈 `cloudalbum-<env>-toolchain`（`scripts/module bootstrap` 创建），用来存放 Lambda 部署包。
-- 至少一条能用的回写通道：callback 要求 Lambda 能从公网访问 `IMAGE_CALLBACK_URL`（L0 的弹性 IP 满足）；queue 没有额外前提。
+- 凭证前置（lambda 档）：`IAM_CREDENTIALS≠none`，否则 CRED-001；推荐先 `scripts/module enable iam`（role）。inline / worker 不调用 AWS。
+- `IMAGE_PROCESSOR=lambda` 要求 `STORAGE_DRIVER=s3`（DEP-003）：Lambda 读不到 EC2 的 EBS；EFS 方案要把函数放进 VPC，超出本模块范围。storage 栈在原图桶上只开启 `EventBridgeConfiguration`（MUTEX-004），这是 storage 模块的默认行为。所以 lambda 档的最小集合是 {iam, storage}。
+- 人工 / 一次性前置 `toolchain`：工具链栈 `cloudalbum-<env>-toolchain`（`scripts/module bootstrap` 创建），用来存放 Lambda 部署包。
+- 至少一条能用的回写通道：callback 要求 Lambda 能从公网访问 `IMAGE_CALLBACK_URL`（L0 的弹性 IP 满足，DEP-019～021）；queue 没有额外前提。
 - 本地档 worker 要求 `QUEUE_DRIVER≠sync`（DEP-004）。
+- 与 workflow 互斥：`IMAGE_PROCESSOR=lambda` 时不能 `WORKFLOW_DRIVER=stepfunctions`（MUTEX-005）。
 
 **与其他模块组合时的行为变化**
 
@@ -354,18 +504,19 @@ ctx.path.mark('image-processing', forceInline ? `${container.images.placement}:b
 | tagging | READY 后入队 `image.tag`；tagging 直接使用 `ImageMeta`（`none` 驱动）或衍生图（`rekognition` 驱动的字节方式） |
 | kms | 原图桶用 SSE-KMS 时，执行角色需要 `kms:Decrypt`；媒体桶用 SSE-KMS 时，还需要 `kms:GenerateDataKey`。kms 栈的密钥策略把授权委托给 IAM（见 B 组 kms 模块），所以只改本栈的角色即可 |
 | secrets | 回调密钥改从 Secrets Manager 读取；轮换密钥后要重新部署本栈（或让函数缓存过期后重新读取） |
-| cdn | 衍生图经 CloudFront `/media/*` 提供。照片 READY 之前前端不能请求衍生图 URL，否则 404/403 可能被 CloudFront 的错误缓存缓存住；cdn 模块应把 `/media/*` 的错误缓存 TTL 设得很短。callback 通道还会碰到源站校验（DEP-D02） |
+| cdn | 衍生图经 CloudFront `/media/*` 提供。照片 READY 之前前端不能请求衍生图 URL，否则 404/403 可能被 CloudFront 的错误缓存缓存住；cdn 模块应把 `/media/*` 的错误缓存 TTL 设得很短。cdn 不放行 `/internal/*`，callback 通道只能走直连 80，所以启用 cdn 时改用 queue 通道（DEP-020） |
 | network（私有放置） | callback 必须经 ALB；推荐改用 queue 通道。worker 访问 SQS 需要 NAT 或 SQS 接口终端节点（总纲 DEP-009） |
-| load-balancer / waf | 回调地址改为 ALB；ALB 监听器规则对 `/internal/*` 默认拒绝，只放行 `/internal/hooks/image-processed`（应用仍然校验签名）；WAF 托管规则可能误拦回调的 JSON 请求体，需要为这个路径加排除规则 |
-| monitoring | 告警：Lambda 的 `Errors`、`Throttles`、`AsyncEventsDropped`（异步事件被丢弃的次数，指标名以官方文档为准），`FailureQueue` 可见消息数大于 0 |
-| tracing | 函数开启 X-Ray 主动追踪；回调请求头带 `traceparent`，Express 端把它接到同一条链路上 |
+| load-balancer / waf | 回调地址改为 ALB（load-balancer 的 `injects` 更新本栈的 `OriginBaseUrl`）；ALB 监听器规则对 `/internal/*` 默认拒绝，只放行 `/internal/hooks/image-processed`（应用仍然校验签名）；WAF 托管规则可能误拦回调的 JSON 请求体，需要为这个路径加排除规则 |
+| monitoring | 本模块的 `injects` 把 `ThumbFunctionName` 交给 monitoring 栈；告警：Lambda 的 `Errors`、`Throttles`、`AsyncEventsDropped`（异步事件被丢弃的次数，指标名以官方文档为准），`FailureQueue` 可见消息数大于 0 |
+| tracing | `TRACING_DRIVER=xray` 后执行 `scripts/module enable image-processing --param Tracing=Active`（重新 enable = 栈更新），函数开启 X-Ray 主动追踪；回调请求头带 `traceparent`，Express 端把它接到同一条链路上；上传与缩略图 Lambda 是两条 trace，用 `photo_id` 注解关联（05 tracing） |
+| workflow | 互斥（MUTEX-005）：workflow 启用后由状态机生成缩略图，本模块退回 inline / worker，只用于旁路对照与对账重试（见第 2 节末尾“扩展：workflow”） |
 | logging | Lambda 日志在 `/aws/lambda/<函数名>`，与应用日志组分开 |
-| database | 对“写回”没有影响（回写由 EC2 完成）。只有选做的“Lambda 直写 RDS”才依赖它 |
+| database / db-proxy | 对“写回”没有影响（回写由 EC2 完成）。只有选做的“Lambda 直写 RDS”才依赖它们 |
 
 **多实例（ASG）**
 
 - inline / worker 档的 CPU 消耗会触发 ASG 按 CPU 扩容。worker 档必须配合 `QUEUE_DRIVER=sqs`：memory 档会命中 ASG-005。
-- lambda 档的扩缩容与 EC2 无关。callback 地址必须是 ALB（DEP-D01），任意一台实例收到回调都能写共享数据库；queue 通道下每台实例的结果轮询器竞争消费，写回是幂等的。
+- lambda 档的扩缩容与 EC2 无关。callback 地址必须是 ALB（DEP-019），任意一台实例收到回调都能写共享数据库；queue 通道下每台实例的结果轮询器竞争消费，写回是幂等的。
 - `image.reconcile` 是 singleton 任务，在多实例下靠 cluster 级的锁（pg 或 redis）保证只执行一次（总纲 ASG-006）。
 
 ### 5. 对比实验：有 vs 没有
@@ -391,7 +542,7 @@ ctx.path.mark('image-processing', forceInline ? `${container.images.placement}:b
   - lambda：按钮立即返回，几秒内缩略图几乎同时出现，前几张标“冷启动”。
 - 照片详情的“缩略图”徽章：“由 EC2 生成 · 820 ms”或“由 AWS Lambda 生成 · 640 ms · 冷启动”（数值来自 `processed_by`，这里仅为示意）。
 - `/lab/m/image-processing` 卡片：EC2 CPU 曲线（LabMetricsStore 的 `lab_host_samples`）与 Lambda `ConcurrentExecutions` 曲线并排显示，lambda 档下 EC2 的 CPU 曲线几乎是一条平线；`FailureQueue` 深度；最近 20 次回调的延迟分布；“被忽略的重复结果”计数（旁路实验时产生）。
-- 路径追踪抽屉：`image-processing=inline:sync`、`worker:async`、`lambda:async`、`lambda:bypass-inline`。
+- 路径追踪抽屉：`image-processing=inline:sync`、`worker:async`、`lambda:async`、`inline:bypass`（旁路请求另带 `bypass=image` 段）。
 
 **测量指标**
 
@@ -409,8 +560,8 @@ ctx.path.mark('image-processing', forceInline ? `${container.images.placement}:b
 2. 邻居影响：在第 1 步运行期间，另开一个终端执行 `k6 run -e BASE=http://<EIP> -e RUN=<runId> experiments/image-processing/neighbor.k6.js`，以每秒 5 次的速率持续读取 `/api/feed`。
 3. 本地档：
    - `scripts/module enable queue --driver memory && scripts/module enable image-processing --driver worker`，然后用 `--label worker-memory` 重复第 1、2 步；
-   - 再 `scripts/module enable queue`（切到 sqs），用 `--label worker-sqs` 重复。
-4. 启用 Lambda：`scripts/module enable storage && scripts/module enable image-processing`（如需迁移已有原图，storage 的 enable 会自动迁移），用 `--label after` 重复第 1、2 步。
+   - 再 `scripts/module enable iam && scripts/module enable queue`（切到 sqs，凭证前置见公共约定 1），用 `--label worker-sqs` 重复。
+4. 启用 Lambda：`scripts/module enable iam && scripts/module enable storage && scripts/module enable image-processing`（或 `scripts/module enable image-processing --with-deps`；如需迁移已有原图，storage 的 enable 会自动迁移），用 `--label after` 重复第 1、2 步。已启用 cdn 时（Lab 11 的正常顺序），`scripts/module` 会自动选用 queue 回写通道（DEP-020）。
 5. 运行时 A/B：`npm run exp -- image-processing --label after --scenario upload-burst --ab`。k6 交替发送带和不带 `X-Compare-Bypass: image` 的 complete 请求，同一时段、同一批图片，一半由 EC2 当场处理，一半由 Lambda 处理。旁路的那一半 Lambda 也会处理（事件是 S3 发的），它的结果会被幂等忽略，并计入“被忽略的重复结果”。
 6. 冷启动：`npx tsx experiments/image-processing/cold-start.ts --idle 15m --samples 3`。脚本闲置 15 分钟后上传 1 张，再连续上传 5 张，并用 CloudWatch Logs Insights 查询：
 
@@ -424,6 +575,7 @@ ctx.path.mark('image-processing', forceInline ? `${container.images.placement}:b
 8. 失败路径：`npx tsx experiments/image-processing/failures.ts`。脚本上传一张损坏的 JPEG（永久错误：应该很快变成 FAILED，没有重试），再在函数环境变量 `FAULT_RATE=0.5` 下上传 10 张（暂时错误：观察重试、`FailureQueue` 中的消息，以及照片最终被对账任务处理）。实验结束后脚本会还原环境变量。
 9. 费用：`npx tsx experiments/image-processing/cost.ts --run <runId> --price-request <每百万次请求单价> --price-gbs <每 GB-秒单价> --price-ec2-hour <实例小时单价>`。脚本从 REPORT 日志中汇总 Billed Duration 和内存，按“请求数 × 单价 + Σ(计费时长 × 内存 GB) × GB-秒单价”计算；单价请从官方定价页抄入，脚本不内置任何价格。
 10. 报告：`npm run exp:report -- image-processing --before latest --after latest`。
+11. Lab 11 扩展（workflow，见 06）：先把本模块切回 inline 或 worker（`scripts/module disable image-processing`，避免 MUTEX-005），再 `scripts/module enable workflow`，用同一个 `upload-burst` 场景跑 `npm run exp -- workflow --label after`。对照点不是“快多少”，而是执行历史、Retry/Catch 的可视化，以及停掉 EC2 后状态机是否继续推进。
 
 **预期结果（定性 + 数量级）**
 
@@ -439,9 +591,9 @@ ctx.path.mark('image-processing', forceInline ? `${container.images.placement}:b
 
 **启用**：`scripts/module enable image-processing [--param Trigger=eventbridge|buffer-queue] [--param ResultChannel=callback|queue]`
 
-1. 计划校验：DEP-003（storage=s3）、CRED-001、工具链栈存在；callback 通道下检查 DEP-D01、D02、D03，必要时自动改用 queue 通道并说明原因。
-2. `aws cloudformation package` → `deploy`，得到 Outputs，附加 `PolicyArn`。
-3. 投放 Nginx 片段（仅 callback 通道），然后 `nginx -t && systemctl reload nginx`。
+1. 计划校验：CRED-001、DEP-003（storage=s3）、MUTEX-005、`prerequisites: [toolchain]`（工具链栈存在）；callback 通道下检查 DEP-019～021，必要时自动改用 queue 通道并说明原因。
+2. `aws cloudformation package` → `deploy`（参数含 storage、kms、load-balancer 的注入值与 `secretParams`），得到 Outputs；`PolicyArn` 由 `scripts/module` 附加到 `CloudAlbumAppRole`（keys 模式下附加到演示用户），附加关系记入 state.json；执行本模块的 `injects`（更新 monitoring 栈的 `ThumbFunctionName`）。
+3. 不需要投放 Nginx 片段：`/internal/hooks/image-processed` 的 location 早已按 registry `internalEndpoints` 生成，Node 只在 callback 通道下响应它。
 4. 写入 `modules.d/image-processing.env`；先重启 worker（让结果 / 失败队列的轮询器先跑起来），再重启 api。
 5. 健康探针：以系统用户 `_probe` 上传 `fixtures/probe.jpg` 到 `raw/_probe/<uuid>.jpg`，等待回调（或结果消息）到达，并确认衍生图已出现在媒体桶。超时则恢复 `.bak` 并重启（退出码 5），栈保留。
 
@@ -451,10 +603,10 @@ ctx.path.mark('image-processing', forceInline ? `${container.images.placement}:b
 
 **停用**：`scripts/module disable image-processing`
 
-1. 反向依赖：本模块没有被其他模块硬依赖。
+1. 反向依赖：本模块没有被其他模块硬依赖（monitoring 只是被注入方，先用空值更新它的 `ThumbFunctionName`）。
 2. 写入新配置（回到 inline，或用 `--driver worker` 回到本地档），然后只重启 api：新上传立即改由 EC2 处理；如果 storage 仍是 s3，EC2 通过 StoragePort 从 S3 读原图。
 3. 等待 Lambda 侧在途的照片写回：worker 保持运行，直到没有 `processed_by.driver=lambda` 且仍在 PROCESSING 的照片，并且结果队列清空；剩下的交给对账任务按新驱动重投。然后重启 worker。
-4. 导出 `FailureQueue` 中的消息（`node dist/cli.js image failures export`），删除 Nginx 片段，删除栈。Lambda 日志组随栈删除；如需保留，删除前先导出。
+4. 导出 `FailureQueue` 中的消息（`node dist/cli.js image failures export`），分离 `PolicyArn`，删除栈。Lambda 日志组随栈删除；如需保留，删除前先导出。
 
 **回滚**：衍生图和数据库记录不随驱动变化，切回任何一档都不需要数据迁移；失败时 `scripts/module` 自动恢复 `.bak`。
 
@@ -466,7 +618,8 @@ ctx.path.mark('image-processing', forceInline ? `${container.images.placement}:b
 - 内存与 CPU 成比例（1769MB 约等于 1 个 vCPU）；Lambda Power Tuning；arm64（Graviton）的性价比
 - 预留并发（同时是保底和上限，最多预留到“未预留并发 − 100”）与预置并发（消除冷启动、按时长计费）；新账号的并发配额可能较低；冷启动与 `Init Duration`
 - 最长 15 分钟超时；`/tmp` 512MB～10GB；部署包大小限制；Layer 与容器镜像两种打包方式
-- Lambda 放进 VPC 后访问 S3、SQS 需要网关 / 接口终端节点或 NAT；用 RDS Proxy 防止大量并发把数据库连接打满（选做路径）
+- Lambda 放进 VPC 后访问 S3、SQS 需要网关 / 接口终端节点或 NAT；用 RDS Proxy 防止大量并发把数据库连接打满（选做路径，db-proxy 模块见 06）
+- 编排（Step Functions）与编舞（事件驱动、各自消费）的区别：本模块是编舞，workflow（06）是编排；Standard 与 Express 工作流的取舍
 - 避免递归调用：输出写到不同的桶或前缀
 - 作为 ESM 事件源时，SQS 可见性超时至少设为函数超时的 6 倍；`ReportBatchItemFailures`；`MaximumConcurrency`（2～1000）与预留并发的关系
 - EC2 与 Lambda 的取舍：稳定的长期负载 vs 突发的事件驱动；T3/T4g 的 CPU 积分与 unlimited 模式
@@ -490,15 +643,83 @@ ctx.path.mark('image-processing', forceInline ? `${container.images.placement}:b
 - S3 事件可能早于浏览器的 complete 请求到达：写回逻辑必须接受 `UPLOADING → READY`。
 - 照片 READY 之前前端就请求衍生图，404/403 可能被 CloudFront 的错误缓存缓存住。
 - 原图桶使用 SSE-KMS 时，执行角色缺少 `kms:Decrypt` 会导致 AccessDenied；同时还受 KMS 请求配额约束（以官方文档为准）。
-- 回调地址填成 CloudFront 域名，或启用 cdn 后没有放行 `/internal/hooks/`，回调会被 403；回调地址是 `http://` 时载荷走明文。
+- 回调地址填成 CloudFront 域名会被拒：cdn 的 8080 监听器与 CloudFront 行为都不放行 `/internal/*`（这是刻意的，DEP-020），启用 cdn 后应改用 queue 通道；回调地址是 `http://` 时载荷走明文（DEP-021）。
+- secrets=env 时回调密钥以 `NoEcho` 参数进入 Lambda 环境变量，有 `lambda:GetFunctionConfiguration` 权限的人能看到；启用 secrets 模块后改为初始化时读取 Secrets Manager。
 - 永久错误（格式不支持、文件损坏）不要抛异常，否则会白白重试，最后还要进失败队列。
 - 用 SQS ESM 时，失败处理靠队列的 redrive 策略，异步调用的失败目标不起作用，两套机制不要混淆。EventBridge 规则目标的重试策略只处理“投递给 Lambda 失败”，函数执行失败的重试归 Lambda 的异步调用配置管。
-- inline 模式解码大图很占内存，t3.small 只有 2 GiB，可能 OOM：务必设置 `limitInputPixels`，并把并发设为 1。
+- inline 模式解码大图很占内存，t3.small / t4g.small 只有 2 GiB，可能 OOM：务必设置 `limitInputPixels`；内存紧张时把 `IMAGE_INLINE_CONCURRENCY` 从默认的 2 调到 1。
+- worker 写出的衍生图如果权限不对（例如 umask 不是 0027、nginx 不在 `cloudalbum` 组），`/media/variants/...` 会全部 403；L0 冒烟测试专门断言它返回 200（D6，总纲 2.9）。
 - 没有给 Lambda 日志组设置保留期，日志会永久保存并持续计费。
 
+### 10. 探针
+
+| 驱动 | 常规探针（30 秒 ±5 秒） | 深度探针 | `degraded` 判据 | `error` 判据 | 所需权限 |
+|---|---|---|---|---|---|
+| `inline`（本地实现） | 无 AWS 调用；`status=off`。`localHealth`：sharp 可加载、`uploads/variants/` 可写、信号量排队长度 | 在内存中对内置的 `fixtures/probe.jpg` 渲染一次（不落盘） | `localHealth=degraded`：有照片 PROCESSING 超过 `IMAGE_STUCK_AFTER_SEC`；最近 5 分钟有 504 | `localHealth=error`：sharp 无法加载；目录不可写 | — |
+| `worker`（本地档） | 同 inline，另读 `QueuePort.stats()` 中 `image.process` 的积压与最老任务年龄 | 同上 | 同上；积压持续增长 | 同上；`QUEUE_DRIVER=sync`（不会出现，DEP-004 已在启动时拒绝） | — |
+| `lambda` | `GetFunctionConfiguration`（`State=Active`、`LastUpdateStatus=Successful`）；规则 `DescribeRule` 为 `ENABLED`；失败 / 结果队列 `GetQueueAttributes` | 最近结果的写回延迟 p95；`scripts/module enable` 的健康检查阶段另做端到端探针：上传 `fixtures/probe.jpg` 到 `raw/_probe/<uuid>.jpg`，等待写回并确认衍生图出现在媒体桶 | 有照片 PROCESSING 超时；失败队列深度 > 0；最近 5 分钟有签名校验失败的回调；DEP-020 / DEP-021 命中 | 函数不存在或 `State≠Active`；规则被禁用；连续 3 次探针失败 | 本栈 `PolicyArn`：`lambda:GetFunctionConfiguration`、`events:DescribeRule`、`sqs:GetQueueAttributes` |
+
+- image-processing 是权威端口：lambda 档为 `error` 时 `/api/health/ready` 返回 503，`complete` 返回 503（第 2 节），不回退到 inline。
+- inline 适配器始终装配（旁路对照与对账重试都要用它），它的健康写在 `localHealth` 中，与 lambda 档的 `status` 互不混淆（总纲 6.1）。
+
+### 11. 前端徽章
+
+| 位置 | 本地实现（inline） | 本地档（worker） | AWS 实现（lambda） | 数据来源 |
+|---|---|---|---|---|
+| 照片详情 · 缩略图 | 灰色“缩略图由 EC2 生成 · {durationMs} ms（inline）” | 灰色“缩略图由 EC2 生成 · {durationMs} ms（worker）” | 橙色“缩略图由 AWS Lambda 生成 · {durationMs} ms”，冷启动时加“· 冷启动” | `photo.processedBy`（随照片保存，与当前驱动无关） |
+| 上传页阶段时间线 | 徽章 `inline` | 徽章 `worker` | 徽章 `lambda`（冷启动额外标注） | 同上 |
+| 旁路请求（仅管理员） | — | — | 紫色“本次由 EC2 当场处理（bypass）” | 请求级：`image-processing=inline:bypass` |
+| `/lab` 卡片 | 灰色“EC2 · inline” | 灰色“EC2 · worker（本地档）” | 橙色“AWS Lambda · 触发 eventbridge / buffer-queue · 回写 callback / queue” | capabilities：image-processing |
+
+- registry 的 `lab.badges` 写法见第 0 节；`degraded` / `error` 时徽章变黄 / 红，并在文案后附“降级”或“故障”（总纲 12.3）。
+- workflow 启用后，照片详情的徽章由 workflow 的 `lab.badges` 提供（“由 Step Functions 编排”），文案定义在 06。
+
+<a id="queue"></a>
 ## queue：异步任务队列 ↔ Amazon SQS
 
 > 一句话总结：没有 SQS 时，后台任务要么在 HTTP 请求里当场执行（sync，默认），要么放进 api 进程的内存队列（本地档 memory，进程一重启就丢）；启用后任务进入 SQS 标准队列，由 `cloudalbum-worker` 长轮询消费，失败自动重试，超过次数进入 DLQ。最直观的区别：批量上传时按钮立即返回；处理到一半 `kill -9` worker，任务一个不丢；故意投递的“坏消息”出现在 DLQ 里，可以一键重放。
+
+> 边界：本模块只管应用任务队列（`QueuePort`，`queue-jobs` + DLQ）。image-processing、workflow、notification、email、scheduler 各自带的 SQS 队列（registry `auxQueues`）**不属于本模块**，启用它们不等于启用 queue（见第 2 节“边界”与公共约定 4）。
+
+### 0. 元数据（registry 摘录）
+
+```yaml
+queue:
+  group: D
+  function: 异步任务队列
+  awsService: Amazon SQS
+  auxServices: []                             # DLQ 属于主服务本身
+  type: adapter
+  port: QueuePort                             # ports/queue.ts；adapters/queue/{sync,memory,sqs}.ts
+  switch: { var: QUEUE_DRIVER, values: [sync, memory, sqs], ownedValues: [sqs], localTiers: [memory] }
+  ownsEnv: [QUEUE_, SQS_]
+  credentials: required
+  requires: []                                # 只需凭证前置与 SQS 端点可达（私有子网由 DEP-009 检查）
+  soft: [kms, monitoring, tracing]
+  authoritative: true                         # sqs 档故障时入队返回 503，不偷偷改成 sync / memory
+  multiInstanceSafe: { sync: true, memory: false, sqs: true }   # memory 在 ASG 下命中 ASG-005
+  bypass: [queue]
+  injects:
+    - { target: monitoring, params: { QueueName: "${Out.InfoQueueName}", DlqName: "${Out.InfoDlqName}" } }
+    - { target: social-api, params: { JobsQueueUrl: "${Out.InfoQueueUrl}" }, when: { SOCIAL_API_INTEGRATION: lambda } }
+  stacks: [{ name: main, template: infra/modules/queue.yaml }]
+  migration: scripts/migrate/queue            # 不迁移消息：切换前 drain()
+  probe: { kind: active, method: "sqs:GetQueueAttributes（主队列 + DLQ）", intervalSec: 30 }
+  billing: [{ resource: "SQS 请求", dimension: request }]
+  lab:
+    summary:
+      local: "sync：任务在请求内当场执行；本地档 memory：api 进程内的 p-queue，重启即丢"
+      aws: "SQS 标准队列 + DLQ，由 cloudalbum-worker 长轮询消费，至少一次投递"
+    compare: before-after                     # sync ↔ sqs 另有运行时 A/B（bypass=queue）
+    keyMetrics: ["POST /api/photos/:id/complete 的 p95", "排空时间", "biz.jobs_lost", "DLQ 深度"]
+    hourlyBilled: false
+    experiments: [upload-burst, poison, dlq-replay]
+    badges: { local: "任务在本机执行", aws: "任务经 Amazon SQS 排队", degraded: "队列有积压或死信", error: "队列不可用" }
+  doc: docs/modules/04-compute-async.md#queue
+```
+
+- 只有 `QUEUE_DRIVER=sqs` 时写 `MODULE_QUEUE=on`；本地档 memory 写 `modules.d/queue.env` 但不含这一行。
+- `experiments/queue/experiment.json` 的 `upload-burst` 场景要求 `image-processing.driver=worker`（`l0` 基线标签除外，见第 5 节）；gen-single 据此在 `profiles/single/queue.env` 中自动写入本地档 `IMAGE_PROCESSOR=worker`。
 
 ### 1. 基线实现（仅 EC2）
 
@@ -526,7 +747,7 @@ ctx.path.mark('image-processing', forceInline ? `${container.images.placement}:b
 
 **观察入口**：`/lab/m/queue` 卡片与 `/admin/jobs` 页面都调用 `queue.stats()`。memory 档读内存计数，sync 档恒为 0。
 
-**为什么没有“SQLite 任务表”档位**：曾考虑过加一个 `QUEUE_DRIVER=db`（SQLite jobs 表 + 轮询），最终不采用，理由有三：开关取值是跨组共享的契约（见本组公共约定 9g）；“持久、可跨进程、至少一次”正是 SQS 要对比的价值，在 SQLite 上自己实现一套，只会把对比变成“两个队列实现谁更好”；SQLite 只有一个写者，任务表的轮询和状态更新会与业务写入争抢写锁，反而干扰其他实验。想看“数据库任务表”的读者可以在 database 模块启用 PostgreSQL 后自行阅读 `SELECT … FOR UPDATE SKIP LOCKED` 的做法，本项目不提供这个驱动。
+**为什么没有“SQLite 任务表”档位**：曾考虑过加一个 `QUEUE_DRIVER=db`（SQLite jobs 表 + 轮询），最终不采用，理由有三：开关取值是跨组共享的契约（见本组公共约定 13）；“持久、可跨进程、至少一次”正是 SQS 要对比的价值，在 SQLite 上自己实现一套，只会把对比变成“两个队列实现谁更好”；SQLite 只有一个写者，任务表的轮询和状态更新会与业务写入争抢写锁，反而干扰其他实验。想看“数据库任务表”的读者可以在 database 模块启用 PostgreSQL 后自行阅读 `SELECT … FOR UPDATE SKIP LOCKED` 的做法，本项目不提供这个驱动。
 
 ### 2. AWS 实现
 
@@ -537,17 +758,32 @@ ctx.path.mark('image-processing', forceInline ? `${container.images.placement}:b
 | `JobsQueue`：`cloudalbum-<env>-queue-jobs` | 标准队列；`ReceiveMessageWaitTimeSeconds: 20`（长轮询）；`VisibilityTimeout: 120`（参数，取最长任务耗时乘安全系数）；`MessageRetentionPeriod` 4 天；加密：参数 `KmsKeyArn` 为空时 `SqsManagedSseEnabled: true`，否则用 `KmsMasterKeyId` + `KmsDataKeyReusePeriodSeconds`；`RedrivePolicy: {deadLetterTargetArn: DLQ, maxReceiveCount: 3}`（参数） |
 | `JobsDlq`：`cloudalbum-<env>-queue-jobs-dlq` | 保留期设为最长（14 天），一定要比源队列长；`RedriveAllowPolicy: {redrivePermission: byQueue, sourceQueueArns: [JobsQueue]}` |
 | 队列策略 | **不建**：只有本账号的应用角色收发，IAM 策略就够了。S3、SNS、EventBridge 这类服务要往队列里投递时才需要队列策略，本项目里它们投递的都是各模块自带的队列 |
-| `AppPolicy` | 对两个队列的 `sqs:SendMessage`、`ReceiveMessage`、`DeleteMessage`、`ChangeMessageVisibility`、`GetQueueAttributes`；DLQ 重放所需的 `sqs:StartMessageMoveTask`、`ListMessageMoveTasks`、`CancelMessageMoveTask`；卡片读取“最老消息年龄”所需的 `cloudwatch:GetMetricData`（只读）；使用 CMK 时加 `kms:GenerateDataKey`、`kms:Decrypt` |
+| `AppPolicy`：客户托管策略 `cloudalbum-<env>-queue`（输出为 `PolicyArn`，由 `scripts/module` 附加） | 对两个队列的 `sqs:SendMessage`、`ReceiveMessage`、`DeleteMessage`、`ChangeMessageVisibility`、`GetQueueAttributes`；DLQ 重放所需的 `sqs:StartMessageMoveTask`、`ListMessageMoveTasks`、`CancelMessageMoveTask`；卡片读取“最老消息年龄”所需的 `cloudwatch:GetMetricData`（只读）；使用 CMK 时加 `kms:GenerateDataKey`、`kms:Decrypt` |
 
-Outputs：`EnvQueueDriver=sqs`、`EnvSqsQueueUrl`、`EnvSqsDlqUrl`、`EnvSqsWaitTimeSec=20`、`InfoQueueArn`、`InfoDlqArn`、`PolicyArn`。
+Outputs：`EnvQueueDriver=sqs`、`EnvSqsQueueUrl`、`EnvSqsDlqUrl`、`EnvSqsWaitTimeSec=20`、`InfoQueueArn`、`InfoDlqArn`、`InfoQueueName`、`InfoDlqName`、`InfoQueueUrl`（后三项供 `injects` 使用）、`PolicyArn`。参数只有本模块自己的 `VisibilityTimeout`、`MaxReceiveCount` 与 kms 注入的 `KmsKeyArn`。
 
 **为什么只建一条队列**：总纲中 S3 事件走 EventBridge、scheduler 有自己的 tick 队列、Lambda 不消费本队列，所以不需要为不同消费者拆队列。一条队列加按任务名分配并发已经够用。进阶做法是把耗时长的 `image.process` 单独放一条队列，避免它占满消费并发、拖慢邮件（见第 9 节）。
+
+**边界：queue 模块与模块自带的队列（registry `auxQueues`）**
+
+“有 / 没有 SQS”的对比只针对应用任务队列（`QueuePort`）。其他模块为了能在 L0 上单独启用、又不让 EC2 开放入站端口，在自己的栈里各带 SQS 队列（完整清单见公共约定 4）。二者的区别：
+
+| 维度 | 本模块的 `queue-jobs`（+ DLQ） | 模块自带的队列（`auxQueues`） |
+|---|---|---|
+| 谁创建、谁删除 | `infra/modules/queue.yaml`；`disable queue` 删除 | 各自模块的栈；随该模块的 disable 删除，与 queue 是否启用无关 |
+| 谁生产 | 应用代码经 `QueuePort.enqueue()`（`image.process`、`image.tag`、`email.send`、`notify.fanout`、`analytics.flush`） | AWS 服务：EventBridge 规则、Lambda 失败目标、SNS 订阅、SES 事件、EventBridge Scheduler、Step Functions |
+| 消息格式 | `JobEnvelope` | 各服务自己的格式，由各模块的轮询器解析 |
+| 关闭 queue 模块后 | 回到 sync / memory，任务在本机执行 | 照常存在、照常工作 |
+| `/lab` 展示 | queue 卡片的主体：深度、处理中、最老消息、DLQ | queue 卡片另起一栏“模块自带的 SQS 队列（不属于 queue 模块）”，只列名称、所属模块和深度；详情在各自模块的卡片里 |
+| capabilities | `queue.detail` 只统计这两条队列 | 各自模块的 `detail` 与探针 |
+
+这条边界也说明了一个 SAA 设计点：SQS 是“每个集成点一条专用队列”的积木，而不是全局唯一的消息总线；把不同生产者的消息塞进同一条队列，会让消息格式、可见性超时、DLQ 策略和权限都纠缠在一起。
 
 **生产者（`adapters/queue/sqs.ts`）**
 
 - `SendMessage`：消息体是 `JobEnvelope` 的 JSON；消息属性 `name`（便于在控制台筛选）；`delaySec` 映射为 `DelaySeconds`（最多 15 分钟）；有 X-Ray 时把追踪头放进系统属性 `AWSTraceHeader`，W3C `traceparent` 放在消息体里。
 - 一次产生多条任务时（例如通知扇出），用 `SendMessageBatch`（每批最多 10 条）减少请求数。
-- 消息大小：本项目的消息都只有几百字节。SQS 的单条消息上限已经提高到 1 MiB（2025 年起；以官方文档为准）；计费时每 64KB 算一次请求。
+- 消息大小：本项目的消息都只有几百字节。SQS 的单条消息上限已经提高到 1 MiB（2025-08 发布；2026-10-13 核实 AWS What's New 公告与 SQS 配额页，以官方文档为准）；计费时每 64KB 算一次请求。
 
 **消费者（cloudalbum-worker 内）**
 
@@ -572,9 +808,9 @@ flowchart LR
 - 收到 SIGTERM：停止接收，等待在途任务完成（不超过 `TimeoutStopSec`）；没完成的消息在可见性超时后自动重新出现。
 - 语义：`{durable: true, consumer: 'worker', delivery: 'at-least-once'}`。
 
-**L0 + queue 单独启用的形态**：storage 仍是 local，原图在 EBS 上。`image.process` 的消息体只有 `{photoId, rawKey}`，同一台 EC2 上的 worker 收到后读取本地文件。这时 SQS 只是任务的持久化中转站，但“重启不丢任务、坏消息进 DLQ、接口只含入队时间”这三个差别已经完全可见。要让批量上传走队列，需要同时启用本地档 `IMAGE_PROCESSOR=worker`（见 image-processing）；只启用 queue 时，缩略图仍按 inline 在请求内生成，走队列的只有打标签、邮件、通知等任务。
+**L0 + queue 单独启用的形态**：storage 仍是 local，原图在 EBS 上。`image.process` 的消息体只有 `{photoId, rawKey}`，同一台 EC2 上的 worker 收到后读取本地文件。这时 SQS 只是任务的持久化中转站，但“重启不丢任务、坏消息进 DLQ、接口只含入队时间”这三个差别已经完全可见。要让批量上传走队列，必须同时使用本地档 `IMAGE_PROCESSOR=worker`（不需要 AWS 资源，见 image-processing）；只启用 queue 时，缩略图仍按 inline 在请求内生成，走队列的只有打标签、邮件、通知等任务，批量上传几乎看不出差别。因此：`upload-burst` 实验在 `experiment.json` 中要求 `image-processing.driver=worker`（第 5 节）；`scripts/module profile gen-single` 生成 `profiles/single/queue.env` 时，自动写入本地档 `IMAGE_PROCESSOR=worker`（gen-single 读取该场景 `requires.after` 中属于 registry `localTiers` 的取值，需要 AWS 资源的取值不会被自动加入）。
 
-**能力注册**：`queue = {driver: 'sqs', awsService: 'Amazon SQS', status: 'ok', detail: '可见 12 · 处理中 4 · DLQ 0 · 最老 35s'}`。探针见总纲 6.2：DLQ 深度大于 0，或最老消息超过 5 分钟，标为 `degraded`。
+**能力注册**：`queue = {driver: 'sqs', awsService: 'Amazon SQS', status: 'ok', detail: '可见 12 · 处理中 4 · DLQ 0 · 最老 35s'}`（数值仅为示意；只统计本模块的两条队列）。探针见第 10 节。queue 是权威端口：sqs 档 `SendMessage` 失败时，入队方得到错误、接口返回 503，不会悄悄改为当场执行。
 
 ### 3. 开关与配置
 
@@ -592,7 +828,7 @@ SQS_DLQ_URL=https://sqs.ap-northeast-1.amazonaws.com/<acct>/cloudalbum-lab-queue
 SQS_WAIT_TIME_SEC=20
 ```
 
-本模块的 `ownsEnv` 为 `QUEUE_`、`SQS_`。其他模块自带的队列使用自己的前缀（`IMAGE_`、`NOTIFY_`、`SES_`、`SCHEDULER_`），不会与本模块冲突（CFG-002、CFG-003）。
+本模块的 `ownsEnv` 为 `QUEUE_`、`SQS_`。其他模块自带的队列使用自己的前缀（`IMAGE_`、`WORKFLOW_`、`NOTIFY_`、`SES_`、`SCHEDULER_`），不会与本模块冲突（CFG-002、CFG-003）。`QUEUE_CONCURRENCY` 等都是启动配置，不是 RuntimeConfig 的热键，ConfigPort 不能远程修改它们（D7）。
 
 端口接口要点（总纲 4.2，未改动）与 handler 注册：
 
@@ -627,7 +863,7 @@ export function bindJobs(c: Container) {
 
 **硬依赖**
 
-- AWS 凭证（CRED-001）。
+- 凭证前置：`IAM_CREDENTIALS≠none`（CRED-001），推荐先 `scripts/module enable iam`（role）。
 - EC2 能访问 SQS 的区域端点：默认 VPC 的公有子网经 IGW 即可；network 模块把实例放进私有子网后，需要 NAT 或 SQS 接口终端节点（总纲 DEP-009）。
 - 不依赖 S3、Lambda、RDS 或其他任何应用模块。
 
@@ -640,12 +876,13 @@ export function bindJobs(c: Container) {
 | email=ses | `email.send` 的消费并发要与 SES 的发送速率匹配；sync 档下 SES 的调用延迟会直接加到注册、评论等请求上 |
 | notification | `notify.fanout` 走队列。notification 的 SNS → SQS 扇出用的是它**自带的** inbox 队列，不是本队列 |
 | scheduler | 互不依赖：scheduler 的 tick 队列是它自带的 |
-| social-api（lambda 集成） | notification 未启用 sns 时，social Lambda 可以把 `notify.fanout` 任务直接投进本队列，由 worker 写站内信（DEP-D07 的两个满足条件之一） |
+| social-api（lambda 集成） | notification 未启用 sns 时，social Lambda 可以把 `notify.fanout` 任务直接投进本队列（本模块经 `injects` 把 `JobsQueueUrl` 交给 social-api 栈，并在该栈的执行角色上授予 `sqs:SendMessage`），由 worker 写站内信（DEP-025 的两个满足条件之一） |
 | database=postgres | 对本模块没有影响；`processed_jobs` 放在共享库里，多实例去重才有效 |
 | kms | 队列使用 CMK 时，应用角色需要 `kms:GenerateDataKey`（发送）和 `kms:Decrypt`（接收）。如果以后有 AWS 服务往这条队列投递，密钥策略还要授权该服务主体 |
 | monitoring | 告警：`ApproximateAgeOfOldestMessage` 超过阈值；DLQ 的 `ApproximateNumberOfMessagesVisible > 0` |
 | tracing | 经 `AWSTraceHeader` 系统属性传播 X-Ray 追踪上下文，生产者与消费者出现在同一条链路里 |
-| config | `QUEUE_CONCURRENCY` 属于启动配置，修改后需要重启；只有不改变驱动的参数才允许做成运行时配置（B 组约定 5e） |
+| config | 无交集：`QUEUE_CONCURRENCY` 属于启动配置，由 `scripts/module enable queue --param …` 写入 `modules.d`，修改后重启；ConfigPort 只管 RuntimeConfig 热键，不能修改模块驱动或启动参数（D7，CFG-009） |
+| image-processing、workflow、notification、email、scheduler | 它们的辅助队列不属于本模块（第 2 节“边界”）；启用或禁用 queue 不影响这些队列 |
 
 **多实例（ASG）**
 
@@ -670,7 +907,8 @@ export function bindJobs(c: Container) {
 **页面上能直接看到的差异**
 
 - `/lab/m/queue` 卡片实时显示：待处理数、处理中数、最老任务年龄、死信数，以及每秒入队 / 出队曲线。数据来源随驱动变化（memory 读内存计数；sqs 调 `GetQueueAttributes`，最老消息年龄读 CloudWatch，有分钟级延迟）。
-- 批量上传页（配合 `IMAGE_PROCESSOR=worker`）：sync 下按钮转很久；memory、sqs 下按钮立即返回。
+- 批量上传页（必须配合本地档 `IMAGE_PROCESSOR=worker`，否则缩略图仍在请求内生成）：sync + inline 下按钮转很久；memory、sqs 下按钮立即返回。
+- `/lab/m/queue` 卡片的第二栏“模块自带的 SQS 队列（不属于 queue 模块）”：列出已启用模块的 `auxQueues` 与深度。只启用 notification 或 scheduler 时这里也有队列，但第一栏显示“本模块未启用（sync）”，一眼就能看出两者的区别。
 - 重启之后：memory 档重启 api 后，一批照片停在“处理中”，直到对账任务把它们找回（分钟级），而同一批照片的“上传成功”通知邮件就真的丢了；sqs 档 `kill -9` worker 后，这些照片在可见性超时后继续完成，邮件一封不少。
 - `/admin/jobs` 的 DLQ 列表：每条消息显示接收次数、首次入队时间、最后一次错误，带“重放”按钮。
 
@@ -685,13 +923,23 @@ export function bindJobs(c: Container) {
 
 **操作步骤**（`experiments/queue/`）
 
-1. 基线：L0（`QUEUE_DRIVER=sync`、`IMAGE_PROCESSOR=inline`）。执行 `npm run exp -- queue --label before --scenario upload-burst --vus 10 --duration 60s`。`upload-burst.k6.js` 上传 200 张小图（`_lib/k6/common.js` 生成），记录每个请求的延迟，然后轮询直到全部 READY。
-2. 本地档：`scripts/module enable queue --driver memory && scripts/module enable image-processing --driver worker`，然后 `npm run exp -- queue --label memory --scenario upload-burst`。`experiment.json` 中为该场景声明了故障注入：第 30 秒执行 `faults/restart-api.sh`（`sudo systemctl restart cloudalbum-api`）。
-3. 启用 SQS：`scripts/module enable queue`，再执行 `npm run exp -- queue --label after --scenario upload-burst`。第 30 秒执行 `faults/kill-worker.sh`（`sudo systemctl kill -s SIGKILL cloudalbum-worker`，systemd 随后会自动拉起）。
+`upload-burst` 场景的前置条件（`experiments/queue/experiment.json`，与总纲 8.2 的示例一致）：主对比是 `before`（memory + worker）对 `after`（sqs + worker），**两边都要求 `IMAGE_PROCESSOR=worker`**，这样缩略图生成真正经过队列；`l0` 标签只作为“全部在请求内执行”的参照。运行器先校验 capabilities，不匹配就拒绝运行。
+
+```json
+"requires": {
+  "l0":     { "queue.driver": "sync",   "image-processing.driver": "inline" },
+  "before": { "queue.driver": "memory", "image-processing.driver": "worker" },
+  "after":  { "queue.driver": "sqs",    "image-processing.driver": "worker", "queue.status": ["ok", "degraded"] }
+}
+```
+
+1. 参照（L0）：`QUEUE_DRIVER=sync`、`IMAGE_PROCESSOR=inline`。执行 `npm run exp -- queue --label l0 --scenario upload-burst --vus 10 --duration 60s`。`upload-burst.k6.js` 上传 200 张小图（`_lib/k6/common.js` 生成），记录每个请求的延迟，然后轮询直到全部 READY。（sync 不能配 worker：DEP-004。）
+2. 本地档（切换前）：`scripts/module enable queue --driver memory && scripts/module enable image-processing --driver worker`，然后 `npm run exp -- queue --label before --scenario upload-burst`。`experiment.json` 中为该标签声明了故障注入：第 30 秒执行 `faults/restart-api.sh`（`sudo systemctl restart cloudalbum-api`）。
+3. 启用 SQS（切换后）：`scripts/module enable iam && scripts/module enable queue`（`IMAGE_PROCESSOR` 保持 worker），再执行 `npm run exp -- queue --label after --scenario upload-burst`。第 30 秒执行 `faults/kill-worker.sh`（`sudo systemctl kill -s SIGKILL cloudalbum-worker`，systemd 随后会自动拉起）。单模块冒烟时直接 `scripts/module profile apply single/queue`，档位里已经带上 iam(role) 与本地档 `IMAGE_PROCESSOR=worker`。
 4. 坏消息：`npx tsx experiments/queue/poison.ts --count 1`。脚本用部署者凭证直接往 SQS 发一条 `name` 合法、但 payload 格式错误的消息，然后每 10 秒执行一次 `aws sqs get-queue-attributes --attribute-names ApproximateNumberOfMessages ApproximateNumberOfMessagesNotVisible`（同时查源队列和 DLQ），直到消息出现在 DLQ。接着执行 `npx tsx experiments/queue/dlq-replay.ts`：调用 `start-message-move-task` 把它移回源队列（handler 修好之前它会再次进入 DLQ），或者在 `/admin/jobs` 上点“导出到 failed_jobs”。
 5. 运行时 A/B：`npm run exp -- queue --label after --scenario upload-burst --ab`。k6 交替发送带和不带 `X-Compare-Bypass: queue` 的 complete 请求，同一时段里一半任务当场执行、一半进 SQS。
 6. 控制台对照：SQS 控制台的“监控”页查看 `ApproximateAgeOfOldestMessage`、`NumberOfMessagesSent`、`NumberOfMessagesDeleted`、`NumberOfEmptyReceives`（长轮询能显著减少空接收）。
-7. 报告：`npm run exp:report -- queue --before latest --after latest`；memory 那一轮用 `--after <文件名>` 单独对比。
+7. 报告：`npm run exp:report -- queue --before latest --after latest`（memory 对 sqs）；`l0` 那一轮用 `--before <文件名>` 单独对比。
 
 **预期结果（定性 + 数量级）**
 
@@ -706,7 +954,7 @@ export function bindJobs(c: Container) {
 
 **启用**：`scripts/module enable queue`
 
-1. 部署栈、附加策略，写入 `queue.env`。
+1. 计划校验（CRED-001；从 memory 切换时先排空，见下）→ 部署栈 → `PolicyArn` 附加到 `CloudAlbumAppRole`（keys 模式下附加到演示用户）并记入 state.json → 执行本模块的 `injects`（monitoring 的 `QueueName` / `DlqName`；social-api 为 lambda 集成时的 `JobsQueueUrl`）→ 写入 `queue.env`。
 2. **先重启 worker**（消费者先就位），**再重启 api**（开始往 SQS 生产）。
 3. 健康探针：投递一条 `name=analytics.flush`、payload 为 `{probe: true}` 的任务，等待它出现在 `processed_jobs` 中。
 
@@ -718,7 +966,7 @@ export function bindJobs(c: Container) {
 2. 写入新配置后**只重启 api**：新任务从此进入本地驱动，SQS 不再有新消息。
 3. worker 仍按旧配置运行，继续消费 SQS，直到可见消息数和处理中消息数都为 0（`scripts/module` 轮询 `GetQueueAttributes`）；然后重启 worker。
 4. DLQ 中还有消息时，执行 `node dist/cli.js queue export-dlq`，把它们导入 `failed_jobs`（`source=sqs-dlq`），以后可以在本地重放。
-5. 删除栈。
+5. 用空值更新被注入的栈（monitoring、social-api），分离 `PolicyArn`，删除栈。各模块自带的队列不受影响。
 
 **回滚**：队列里没有权威数据，失败时 `scripts/module` 恢复 `.bak` 并重启即可；已经进入 SQS 的消息在删除栈之前都可以被 worker 消费完。
 
@@ -753,10 +1001,74 @@ export function bindJobs(c: Container) {
 - 一条队列承载所有任务时，慢任务可能占满消费并发，拖慢邮件这类快任务：按任务名限制并发，或者把慢任务拆到单独的队列。
 - `ApproximateNumberOfMessages` 是近似值，而且 CloudWatch 指标有分钟级延迟，不要用它们做精确的业务判断。
 - 在 sync 档下，后台任务的失败也会体现在请求延迟上（例如 SES 超时），排查慢请求时先看 `Server-Timing` 里的 `queue` 段。
+- 把“模块自带的队列”当成 queue 模块的一部分：误以为 disable queue 后账号里就没有 SQS 了，或者把 SNS 投递的原始消息当成 `JobEnvelope` 去解析。两者的边界见第 2 节。
 
+### 10. 探针
+
+| 驱动 | 常规探针（30 秒 ±5 秒） | 深度探针 | `degraded` 判据 | `error` 判据 | 所需权限 |
+|---|---|---|---|---|---|
+| `sync`（本地实现） | 无 AWS 调用；`status=off`。`localHealth`：最近 5 分钟 `failed_jobs` 新增数 | — | `localHealth=degraded`：最近 5 分钟新增 `failed_jobs` | — | — |
+| `memory`（本地档） | 同上，另读内存计数（深度、在途） | — | 深度持续增长；有任务重试耗尽进入 `failed_jobs` | — | — |
+| `sqs` | 主队列与 DLQ 的 `GetQueueAttributes`（可见、处理中、DLQ 深度）；最老消息年龄读 CloudWatch（分钟级延迟，结果缓存 60 秒） | 无 | DLQ 深度 > 0；最老消息 > 5 分钟 | 队列不存在 / AccessDenied；连续 3 次失败；30 秒内连续 5 次 `SendMessage` 失败 | 本栈 `PolicyArn`：`sqs:GetQueueAttributes`、`cloudwatch:GetMetricData` |
+
+- queue 是权威端口：`error` 时 `/api/health/ready` 返回 503；入队失败的接口返回 503，不改为当场执行。
+- 探针只看本模块的两条队列；模块自带队列的深度由各自模块的探针报告。
+
+### 11. 前端徽章
+
+| 位置 | 本地实现（sync） | 本地档（memory） | AWS 实现（sqs） | 数据来源 |
+|---|---|---|---|---|
+| 上传页阶段时间线 | 无“已入队”阶段 | “已入队（本机内存）” | “已入队（Amazon SQS）” | 请求级：`queue=` 段 |
+| `/admin/jobs` 顶部 | 灰色“任务在请求内执行” | 灰色“任务在 api 进程内存中排队（重启即丢）” | 橙色“任务经 Amazon SQS 排队 · DLQ n” | capabilities：queue |
+| `/lab` queue 卡片 | 第一栏灰色“本模块未启用（sync）”；第二栏列出模块自带队列 | 第一栏灰色“memory（本地档）” | 第一栏橙色“SQS · 可见 / 处理中 / DLQ / 最老” | capabilities：queue + registry `auxQueues` |
+| 旁路请求（仅管理员） | — | — | 紫色“本次任务当场执行（bypass）” | 请求级：`queue=sqs:bypass-inline` |
+
+- registry 的 `lab.badges` 写法见第 0 节；DLQ 深度大于 0 时徽章变黄并附“降级”。
+
+<a id="notification"></a>
 ## notification：通知扇出 ↔ Amazon SNS
 
 > 一句话总结：没有 SNS 时，“有人评论了你的照片”这类事件由 EC2 自己写站内信，再逐个调用 EmailPort 发邮件，每多一个接收人、每多一种渠道，EC2 就多干一份活；启用后 EC2 只调用一次 SNS `Publish`，SNS 按订阅过滤策略把消息推给邮件订阅者、模块自带的 SQS 收件队列等多个端点。最直观的区别：在设置页打开“邮件通知”后，先收到一封 AWS 发来的“确认订阅”邮件；`/lab` 上能看到一次 Publish 被扇出成多份投递，未确认的订阅、被过滤掉的消息一目了然。
+
+### 0. 元数据（registry 摘录）
+
+```yaml
+notification:
+  group: D
+  function: 通知扇出
+  awsService: Amazon SNS
+  auxServices: [Amazon SQS（模块自带收件队列与订阅级 DLQ）]
+  type: adapter
+  port: NotifierPort                          # ports/notifier.ts；adapters/notification/{db,sns}.ts
+  switch: { var: NOTIFY_DRIVER, values: [db, sns], ownedValues: [sns], localTiers: [] }
+  ownsEnv: [NOTIFY_]
+  credentials: required
+  prerequisites: [confirm-email]              # 管理员与用户都要点击 AWS 的确认订阅邮件
+  requires: []
+  soft: [email, queue, kms, monitoring]
+  authoritative: false                        # 站内信始终由核心写库；SNS 故障只影响站外扇出（degraded）
+  multiInstanceSafe: { db: true, sns: true }
+  bypass: []                                  # 全局状态，不做运行时 A/B；功能对照见 /api/lab/notification/compare
+  auxQueues:
+    - { name: notification-inbox, purpose: "SNS → SQS 扇出的收件队列（原始消息传递）" }
+    - { name: notification-dlq,   purpose: "订阅级 DLQ" }
+  injects:
+    - { target: social-api, params: { NotifyTopicArn: "${Out.InfoTopicArn}" }, when: { SOCIAL_API_INTEGRATION: lambda } }
+  stacks: [{ name: main, template: infra/modules/notification.yaml }]
+  migration: scripts/migrate/notification     # up：为已开通邮件通知的用户创建订阅；down：删除订阅
+  probe: { kind: active, method: "sns:GetTopicAttributes", intervalSec: 30 }
+  billing: [{ resource: "SNS 发布与投递（按协议）", dimension: request }, { resource: "收件队列的 SQS 请求", dimension: request }]
+  lab:
+    summary:
+      local: "站内信 + 逐个调用 EmailPort 发邮件"
+      aws: "一次 Publish，SNS 按 userId / audience 过滤策略扇出到邮件订阅与模块自带的 SQS 收件队列"
+    compare: functional                       # 业务流量切换前 / 切换后；另有功能对照端点
+    keyMetrics: ["一次事件的扇出耗时与接收人数的关系", "EC2 发出的请求数", "被过滤掉的消息数"]
+    hourlyBilled: false
+    experiments: [fanout, filter, compare, worker-stop]
+    badges: { local: "站内通知 + 本地 outbox 邮件", aws: "通知经 Amazon SNS 扇出", degraded: "通知扇出降级", error: "通知主题不可用" }
+  doc: docs/modules/04-compute-async.md#notification
+```
 
 ### 1. 基线实现（仅 EC2）
 
@@ -788,9 +1100,9 @@ export function bindJobs(c: Container) {
 | `InboxQueue`：`…-notification-inbox` | SQS 标准队列，SSE-SQS；队列策略只允许本主题（`aws:SourceArn`）以 `sns.amazonaws.com` 身份发送 |
 | `InboxSubscription` | 协议 `sqs`，开启原始消息传递（`RawMessageDelivery: true`），不设过滤策略（接收全部事件）；订阅级 `RedrivePolicy` 指向 `…-notification-dlq`，演示“订阅级 DLQ” |
 | `NotificationDlq` | 接收 SNS 投递失败的消息；队列策略同样只允许本主题 |
-| `AppPolicy` | `sns:Publish`、`sns:Subscribe`、`sns:Unsubscribe`、`sns:GetSubscriptionAttributes`、`sns:SetSubscriptionAttributes`、`sns:ListSubscriptionsByTopic`、`sns:GetTopicAttributes`（均限本主题）；对 `InboxQueue`、`NotificationDlq` 的 `sqs:ReceiveMessage`、`DeleteMessage`、`GetQueueAttributes`；卡片读指标用的 `cloudwatch:GetMetricData`；使用 CMK 时加 `kms:GenerateDataKey`、`kms:Decrypt` |
+| `AppPolicy`：客户托管策略 `cloudalbum-<env>-notification`（输出为 `PolicyArn`，由 `scripts/module` 附加） | `sns:Publish`、`sns:Subscribe`、`sns:Unsubscribe`、`sns:GetSubscriptionAttributes`、`sns:SetSubscriptionAttributes`、`sns:ListSubscriptionsByTopic`、`sns:GetTopicAttributes`（均限本主题）；对 `InboxQueue`、`NotificationDlq` 的 `sqs:ReceiveMessage`、`DeleteMessage`、`GetQueueAttributes`；卡片读指标用的 `cloudwatch:GetMetricData`；使用 CMK 时加 `kms:GenerateDataKey`、`kms:Decrypt` |
 
-Outputs：`EnvNotifyDriver=sns`、`EnvNotifyTopicArn`、`EnvNotifyInboxQueueUrl`、`EnvNotifyDlqUrl`、`PolicyArn`。
+Outputs：`EnvNotifyDriver=sns`、`EnvNotifyTopicArn`、`EnvNotifyInboxQueueUrl`、`EnvNotifyDlqUrl`、`InfoTopicArn`（供 `injects` 交给 social-api）、`PolicyArn`。参数：`AdminEmail`（不是机密）、kms 注入的 `KmsKeyArn`。
 
 **发布**
 
@@ -839,16 +1151,16 @@ NOTIFY_INBOX_QUEUE_URL=https://sqs.ap-northeast-1.amazonaws.com/<acct>/cloudalbu
 NOTIFY_DLQ_URL=https://sqs.ap-northeast-1.amazonaws.com/<acct>/cloudalbum-lab-notification-dlq
 ```
 
-本模块的 `ownsEnv` 为 `NOTIFY_`。端口接口（总纲 4.2，加一个可选字段）：
+本模块的 `ownsEnv` 为 `NOTIFY_`。端口接口（与总纲 4.2 一致；上一轮本组提出的 `eventId`、`audience`、`origin` 已被总纲吸收为必填字段）：
 
 ```ts
 // backend/src/ports/notifier.ts
 export interface NotificationEvent {
+  eventId: string;                   // 幂等键：跨 EC2 / Lambda 去重
   type: 'comment.created' | 'like.created' | 'photo.blocked' | 'report.ready';
+  audience: 'user' | 'admin';        // admin = 管理员广播（订阅过滤策略用 $or）
+  origin: 'ec2' | 'lambda';          // lambda = social-api 的 lambda 集成写入，由 worker 代写站内信
   recipientUserId: string;           // audience='admin' 时为 '*'
-  audience?: 'user' | 'admin';       // 本组细化：管理员广播
-  eventId?: string;                  // 本组细化：跨 EC2 / Lambda 去重
-  origin?: 'ec2' | 'lambda';
   title: string; body: string; link?: string; data?: Record<string, string>;
 }
 export interface NotifierPort extends Adapter {
@@ -868,9 +1180,9 @@ await sns.send(new PublishCommand({
   MessageAttributes: {
     eventType: { DataType: 'String', StringValue: evt.type },
     userId:    { DataType: 'String', StringValue: evt.recipientUserId },
-    audience:  { DataType: 'String', StringValue: evt.audience ?? 'user' },
-    origin:    { DataType: 'String', StringValue: evt.origin ?? 'ec2' },
-    eventId:   { DataType: 'String', StringValue: evt.eventId ?? ulid() },
+    audience:  { DataType: 'String', StringValue: evt.audience },
+    origin:    { DataType: 'String', StringValue: evt.origin },
+    eventId:   { DataType: 'String', StringValue: evt.eventId },
   },
 }));
 ```
@@ -879,7 +1191,7 @@ await sns.send(new PublishCommand({
 
 **硬依赖**
 
-- AWS 凭证（CRED-001）。
+- 凭证前置：`IAM_CREDENTIALS≠none`（CRED-001），推荐先 `scripts/module enable iam`（role）。
 - 一个能点击确认链接的管理员邮箱（参数 `AdminEmail`）。不确认也能启用，只是管理员广播不会投递，卡片上显示“待确认”。
 - 不依赖 queue、email 或其他任何应用模块；SNS → SQS 扇出用的是本模块自带的收件队列。
 
@@ -889,7 +1201,7 @@ await sns.send(new PublishCommand({
 |---|---|
 | email | db 驱动的站外渠道就是 EmailPort（outbox 或 SES）；sns 驱动不经过 SES，邮件由 SNS 发出。注册验证、找回密码永远走 email 模块 |
 | queue | `notify.fanout` 任务走队列；sync 下 Publish 的延迟算在发表评论的请求里（十几到几十毫秒量级），db 驱动下则是 N 次 EmailPort 调用的总和 |
-| social-api（lambda 集成） | Lambda 写评论后直接 Publish（`origin=lambda`），worker 从收件队列取到后代写站内信。这是 DEP-D07 推荐的满足方式 |
+| social-api（lambda 集成） | Lambda 写评论后直接 Publish（`origin=lambda`），worker 从收件队列取到后代写站内信。这是 DEP-025 推荐的满足方式：本模块经 `injects` 把 `NotifyTopicArn` 交给 social-api 栈，后者在 Lambda 执行角色上授予 `sns:Publish` |
 | tagging | `photo.blocked` 同时通知照片主人（`userId`）和管理员（`audience=admin`） |
 | scheduler | 日报完成后发布 `report.ready`（`audience=admin`） |
 | monitoring | 运维告警走 monitoring 自带的主题，与本主题无关；可以给本主题的 `NumberOfNotificationsFailed` 设告警 |
@@ -950,7 +1262,7 @@ await sns.send(new PublishCommand({
 
 **启用**：`scripts/module enable notification --param AdminEmail=<邮箱>`
 
-1. 部署栈、附加策略、写 env、重启 api 和 worker。
+1. 计划校验（CRED-001；人工前置 `confirm-email` 只提示，不阻塞）→ 部署栈 → `PolicyArn` 附加并记入 state.json → 执行 `injects`（social-api 为 lambda 集成时更新它的 `NotifyTopicArn`）→ 写 env，重启 api 和 worker。
 2. 健康探针：发布一条带消息属性 `probe=true` 的消息。管理员订阅的过滤策略只匹配 `audience`，不会收到它；收件队列会收到。探针等待 worker 在 `notification_deliveries` 中记下这条消息。
 3. 提醒管理员去邮箱确认订阅。
 
@@ -961,7 +1273,7 @@ await sns.send(new PublishCommand({
 1. 写入新配置（回到 db），重启 api：站外通知立即恢复为 EmailPort 发送；`notification_prefs.email_enabled` 一直保留在本地，所以用户设置不受影响。
 2. `migrate-module notification down`：删除全部用户订阅（`Unsubscribe`）。
 3. 等 worker 把收件队列消费完，再重启 worker。
-4. 删除栈：主题删除后，剩下的订阅随之删除。
+4. 用空值更新被注入的 social-api 栈（此后 DEP-025 视 queue 是否为 sqs 给出警告），分离 `PolicyArn`，删除栈：主题删除后，剩下的订阅随之删除。
 
 **回滚**：站内信和用户偏好都在本地，切换驱动不影响它们。
 
@@ -996,9 +1308,70 @@ await sns.send(new PublishCommand({
 - HTTPS 订阅端点要校验 SNS 消息签名，并正确处理 `SubscriptionConfirmation`，否则容易被伪造请求。
 - 用户点了邮件里的退订链接，SNS 侧的订阅就没了，应用要定期同步状态，否则设置页会一直显示“已开启”。
 
+### 10. 探针
+
+| 驱动 | 常规探针（30 秒 ±5 秒） | 深度探针 | `degraded` 判据 | `error` 判据 | 所需权限 |
+|---|---|---|---|---|---|
+| `db`（本地实现） | 无 AWS 调用；`status=off`。`localHealth`：`notifications`、`notification_deliveries` 可读写 | — | `localHealth=degraded`：最近 5 分钟站外投递（EmailPort）失败 | 表不可写 | — |
+| `sns` | `GetTopicAttributes`（已确认 / 待确认订阅数）；收件队列与订阅级 DLQ 的 `GetQueueAttributes` | `ListSubscriptionsByTopic`，与 `notification_prefs` 比对确认状态 | 管理员订阅仍为待确认；订阅级 DLQ 深度 > 0；最近 5 分钟 `Publish` 失败；DEP-025 命中 | 主题不存在 / AccessDenied；连续 3 次失败 | 本栈 `PolicyArn`：`sns:GetTopicAttributes`、`sns:ListSubscriptionsByTopic`、`sqs:GetQueueAttributes` |
+
+- notification 是非权威端口：SNS 故障时站内信照常写入（核心服务写库），站外扇出失败计数并标 `degraded`，路径头记 `notification=sns:error`；不会改用 db 驱动逐个发邮件（那等于静默回退）。
+
+### 11. 前端徽章
+
+| 位置 | 本地实现（db） | AWS 实现（sns） | 数据来源 |
+|---|---|---|---|
+| 设置页 · 邮件通知 | “站内通知 + 本地 outbox 邮件”，开关立即生效 | “通知经 Amazon SNS 扇出”；订阅状态“等待确认（请查收 AWS Notifications 的邮件）/ 已开启” | capabilities：notification；`notification_prefs.sns_status` |
+| `/lab` 卡片 | 灰色“db · 逐个发信” | 橙色“SNS · 已确认 n / 待确认 m” | capabilities：notification |
+| 对照端点结果 | 并排显示两种驱动的耗时与调用次数 | 同左 | `POST /api/lab/notification/compare` |
+
+- registry 的 `lab.badges` 写法见第 0 节（与总纲 12.3 “通知设置”一行一致）。
+
+<a id="email"></a>
 ## email：邮件发送 ↔ Amazon SES
 
 > 一句话总结：没有 SES 时，所有邮件（注册验证、找回密码、评论提醒、日报）都只写进 EC2 上的 outbox（`.eml` 文件 + `outbox_emails` 表），由管理员在 `/admin/outbox` 代为查看，用户的真实邮箱什么也收不到；启用后同一份 MIME 内容经 SES API 真正发出，投递、退信、投诉事件经模块自带的 SNS → SQS 回流到 EC2。最直观的区别：注册后真实邮箱收到验证邮件，邮件原文里有 `DKIM-Signature`；沙盒期发给未验证的地址会被拒绝，并在 `/admin/outbox` 中标红。
+
+### 0. 元数据（registry 摘录）
+
+```yaml
+email:
+  group: D
+  function: 邮件发送
+  awsService: Amazon SES
+  auxServices: [Amazon SNS（模块自带事件主题）, Amazon SQS（模块自带反馈队列）]
+  type: adapter
+  port: EmailPort                             # ports/email.ts；adapters/email/{outbox,ses}.ts
+  switch: { var: EMAIL_DRIVER, values: [outbox, ses], ownedValues: [ses], localTiers: [] }
+  ownsEnv: [EMAIL_, SES_]
+  credentials: required
+  prerequisites: [ses-identity]               # 已验证的发件身份；沙盒期收件人也须验证
+  requires: []
+  soft: [dns, kms, queue, monitoring]
+  authoritative: false                        # SES 故障时邮件记为 failed，不改写 outbox 冒充“已发送”
+  multiInstanceSafe: { outbox: true, ses: true }   # outbox 在 ASG 下 .eml 分散（ASG-011，warn）
+  bypass: []                                  # 对外副作用，不做运行时 A/B；功能对照见 /api/lab/email/compare
+  auxQueues:
+    - { name: email-feedback, purpose: "SES 投递 / 退信 / 投诉事件经 SNS 回流（带 DLQ）" }
+  injects:
+    - { target: auth, params: { SesIdentityArn: "${Out.InfoIdentityArn}" }, when: { EMAIL_FOR_COGNITO: "on" } }
+  stacks: [{ name: main, template: infra/modules/email.yaml }]
+  migration: null                             # 无数据迁移，outbox_emails 原地保留
+  probe: { kind: active, method: "ses:GetAccount + ses:GetEmailIdentity", intervalSec: 30 }
+  billing: [{ resource: "SES 发送封数", dimension: request }, { resource: "反馈通道的 SNS / SQS 请求", dimension: request }]
+  lab:
+    summary:
+      local: "邮件只写进本机 outbox（.eml + outbox_emails），管理员在 /admin/outbox、本人在 /me/outbox 查看"
+      aws: "同一份 MIME 经 SES API 真正发出，退信与投诉经 SNS → SQS 回流"
+    compare: functional
+    keyMetrics: ["是否送达收件箱", "SPF / DKIM / DMARC 结果", "退信回流延迟", "沙盒拒信比例"]
+    hourlyBilled: false
+    experiments: [send-matrix, compare, sandbox, register-latency]
+    badges: { local: "邮件未真正发出（本地 outbox）", aws: "已通过 Amazon SES 发送", degraded: "SES 沙盒 / 发送受限", error: "邮件发送不可用" }
+  doc: docs/modules/04-compute-async.md#email
+```
+
+- 只有 `EMAIL_DRIVER=ses` 时写 `MODULE_EMAIL=on`。`EMAIL_FOR_COGNITO=on`（`--param ForCognito=true` 写入）时，本模块通过 `injects` 把发件身份 ARN 交给 auth 栈的 `SesIdentityArn` 参数（02 auth 已接收），User Pool 改用 SES 发信。
 
 ### 1. 基线实现（仅 EC2）
 
@@ -1013,12 +1386,19 @@ await sns.send(new PublishCommand({
 - 同时写 `outbox_emails` 表：`id、message_id、to_addrs、subject、category、transport(outbox|ses)、status(queued|sent|failed)、delivery_status(none|delivered|bounced|complained|rejected|delayed)、provider_message_id、error、user_id、eml_path、created_at、sent_at`。
 - `send()` 返回 `{messageId, transport: 'outbox', delivered: false}`：`delivered=false` 明确表示“邮件没有真正发出去”。
 - 发送经 queue 端口的 `email.send` 任务执行（QUEUE_DRIVER=sync 时在请求内完成），任务带 `dedupKey`，防止至少一次投递导致重复发信。
-- `/admin/outbox` 页面（仅管理员，总纲 12.2；B 组文档中称 `/lab/outbox`，指的是同一个页面）：
+- `/admin/outbox` 页面（仅管理员，总纲 12.2；旧稿中的 `/lab/outbox` 已统一为这个路径）：
   - 按收件人、类别、状态筛选；
   - 用 `iframe sandbox` + `srcdoc` 预览 HTML，并设置 CSP 禁止脚本和外部资源；
   - 可以下载 `.eml`；
   - 邮件里的验证链接可以直接点击，这就是 L0 下“收到邮件”的等价物。
-- auth=local 的注册流程（见 B 组 auth 模块）：注册成功页提示“本站未启用真实邮件，验证邮件已写入 outbox，请联系管理员”。
+- **本人邮件预览 `/me/outbox`（outbox 档，本组新增，解决“单人练习时只能找管理员代看验证邮件”的问题）**：
+  - 接口：`GET /api/me/outbox?limit=20`（列表）、`GET /api/me/outbox/:id`（正文，与 `/admin/outbox` 相同的 `iframe sandbox` + CSP 预览）。只返回 `outbox_emails.user_id` 等于当前用户、或 `to_addrs` 只含当前用户邮箱的邮件；不含 `password-reset` 类别（忘记密码的人本来就登录不了，展示它没有意义）。路径头记 `email=outbox:preview`。
+  - 页面顶部固定提示“**本地实现，未真正发信**：这些邮件只保存在本站服务器上，没有发到你的邮箱”。
+  - 谁能访问：已登录用户；auth=local 注册后签发的“未验证”受限会话也能访问（只允许 `/api/auth/*`、`/api/me`、`/api/me/outbox*`），所以注册 → 打开 `/me/outbox` → 点击验证链接这条路径一个人就能走完（总纲 2.9 的 L0 冒烟测试第 2 条）。受限会话的签发由 B 组 auth 模块负责。
+  - 开关：运行时配置 `featureFlags['email.selfPreview']`（ConfigPort 热键，L0 默认 `true`；`overlay-public-demo` 覆盖层设为 `false`）。关闭后页面显示“请联系管理员在 /admin/outbox 查看”。
+  - 安全含义（也是一个对照点）：outbox 档下“邮箱验证”不能证明邮箱归属——任何人都可以用别人的地址注册，再在 `/me/outbox` 里看到验证链接。所以 outbox 档的 `email_verified=true` 只表示“走完了验证流程”；启用 ses 档后验证邮件真正发到收件箱，验证才有意义。`/lab/m/email` 卡片把这一点列为“有 / 没有 SES”的差别之一。
+  - ses 档下：`/me/outbox` 只显示发送记录（不含正文），并提示“邮件已由 Amazon SES 发出，请查收邮箱”；只有被 `EMAIL_SANDBOX_POLICY=outbox` 改写进 outbox 的邮件才显示正文。
+- auth=local 的注册流程（见 B 组 auth 模块）：注册成功页提示“本站未启用真实邮件，验证邮件已写入 outbox”，并给出 `/me/outbox` 的链接（`featureFlags['email.selfPreview']=false` 时改为“请联系管理员”）。
 - 保留期：`outbox.retention` 定时任务删除超过 `OUTBOX_RETENTION_DAYS` 的 `.eml` 和记录。outbox 里有验证链接等敏感令牌，不能无限期保存。
 - **不在 EC2 上自建 postfix 直接投递**：EC2 默认限制出站 25 端口（可以申请解除）；而且从 EC2 弹性 IP 直接发出的邮件信誉很差，大概率进垃圾箱。这正是 SES 要解决的问题。
 - `users.email_status`（`ok|bounced|complained`）在 L0 下恒为 `ok`；启用 SES 后由反馈事件更新。
@@ -1045,10 +1425,10 @@ await sns.send(new PublishCommand({
 | `EventsTopic`：`…-email-events` + `ConfigSetSnsDestination` | 事件类型：发送、投递、退信、投诉、拒绝、投递延迟；主题策略允许 `ses.amazonaws.com` 发布，并用 `aws:SourceAccount` 限定来源 |
 | `ConfigSetCloudWatchDestination` | 以 `category` 标签作为维度，把发送事件写成 CloudWatch 指标 |
 | `FeedbackQueue`：`…-email-feedback`（+ DLQ） | 订阅 `EventsTopic`，原始消息传递；队列策略只允许该主题。worker 用长轮询消费 |
-| `CognitoSendingPolicy`（条件：参数 `AllowCognito=true`） | 在发件身份上添加发送授权策略，允许 Cognito 用这个身份发信。由 auth 栈的 `EmailViaSes` 参数配合使用；身份所在区域需要满足 Cognito 的要求（以官方文档为准） |
-| `AppPolicy` | `ses:SendEmail`，用条件 `ses:FromAddress` 限定为本身份的地址，资源限定为本身份和本配置集；探针所需的 `ses:GetAccount`、`ses:GetEmailIdentity`；对 `FeedbackQueue` 的 `sqs:ReceiveMessage`、`DeleteMessage`、`GetQueueAttributes` |
+| `CognitoSendingPolicy`（条件：参数 `ForCognito=true`） | 在发件身份上添加允许 Cognito 使用该身份的发送授权（Cognito 是否改用服务关联角色、所需的授权形式以官方文档为准）。与本模块对 auth 的 `injects`（`SesIdentityArn`）配合使用，不再要求在 auth 栈上手工设参数；身份所在区域需要满足 Cognito 的要求（以官方文档为准） |
+| `AppPolicy`：客户托管策略 `cloudalbum-<env>-email`（输出为 `PolicyArn`，由 `scripts/module` 附加） | `ses:SendEmail`，用条件 `ses:FromAddress` 限定为本身份的地址，资源限定为本身份和本配置集；探针所需的 `ses:GetAccount`、`ses:GetEmailIdentity`；对 `FeedbackQueue` 的 `sqs:ReceiveMessage`、`DeleteMessage`、`GetQueueAttributes` |
 
-Outputs：`EnvEmailDriver=ses`、`EnvEmailFrom`、`EnvSesIdentity`、`EnvSesConfigurationSet`、`EnvSesFeedbackQueueUrl`、`InfoIdentityArn`、`InfoDkimRecords`、`PolicyArn`。
+Outputs：`EnvEmailDriver=ses`、`EnvEmailFrom`、`EnvSesIdentity`、`EnvSesConfigurationSet`、`EnvSesFeedbackQueueUrl`、`EnvEmailForCognito`（`on|off`，由参数 `ForCognito` 决定）、`InfoIdentityArn`（供 `injects` 交给 auth）、`InfoDkimRecords`、`PolicyArn`。参数 `HostedZoneId` 由 dns 模块的 `injects` 提供（待 01 声明），kms 注入 `KmsKeyArn`。
 
 **反馈处理**
 
@@ -1075,7 +1455,7 @@ flowchart LR
 - `/api/capabilities` 的探针调用 `GetAccount`，读取 `ProductionAccessEnabled`、`SendingEnabled`、`SendQuota`。仍在沙盒时 `status=degraded`，detail 写“沙盒：只能发给已验证地址 · 今日已发 37 / 上限 200”（上限数字来自 `GetAccount`，不是写死的）。
 - SES 邮箱模拟器（`success@`、`bounce@`、`complaint@`、`suppressionlist@`、`ooto@simulator.amazonses.com`）在沙盒中也能用，用来演练退信和投诉，而且不会损害发件信誉。
 
-**与 Cognito 的关系**（详见 B 组 auth 模块）：auth=cognito 时，验证码和重置密码邮件由 Cognito 自己发送，不经过 EmailPort。Cognito 默认邮件功能的每日额度很低，发件人也是通用地址（以官方文档为准）。设置 `AllowCognito=true`，并在 auth 栈设置 `EmailViaSes=true` 后，Cognito 改用本模块的身份发送。应用自己的邮件（评论提醒、日报等）始终走 EmailPort。
+**与 Cognito 的关系**（详见 B 组 auth 模块）：auth=cognito 时，验证码和重置密码邮件由 Cognito 自己发送，不经过 EmailPort。Cognito 默认邮件功能的每日额度很低，发件人也是通用地址（以官方文档为准）。执行 `scripts/module enable email --param ForCognito=true` 后，`EMAIL_FOR_COGNITO=on`，本模块通过 `injects` 把 `InfoIdentityArn` 写进 auth 栈的 `SesIdentityArn` 参数（D2；auth 侧见 02），User Pool 的 `EmailConfiguration` 改为 `DEVELOPER` 并使用本模块的身份发送。应用自己的邮件（评论提醒、日报等）始终走 EmailPort。注意：SES 仍在沙盒时，Cognito 也只能发给已验证地址。
 
 **不使用 SMTP 接口**：走 SES API（HTTPS）不需要 SMTP 凭证。只有改用 SMTP 接口（587 端口）时，才需要从 IAM 用户派生 SMTP 密码，并交给 secrets 模块保存。
 
@@ -1087,6 +1467,7 @@ MODULE_EMAIL=on
 EMAIL_DRIVER=ses                    # outbox | ses（outbox = 本地实现 = 默认）
 EMAIL_SEND_RATE_PER_SEC=1           # 消费者限速，不超过 SES 账号的最大发送速率
 EMAIL_SANDBOX_POLICY=fail           # fail（被拒记为 failed，在 /admin/outbox 标红）| outbox（被拒时改写 outbox，便于演示）
+EMAIL_FOR_COGNITO=off               # on：经 injects 让 Cognito 用本模块的身份发信（--param ForCognito=true）
 # —— 由 infra/modules/email.yaml 的 Env* Outputs 生成 ——
 EMAIL_FROM=CloudAlbum <no-reply@mail.example.com>
 SES_IDENTITY=mail.example.com
@@ -1128,7 +1509,7 @@ export async function sendTemplate(c: Container, t: Template, to: string, vars: 
 
 **硬依赖**
 
-- AWS 凭证（CRED-001）。
+- 凭证前置：`IAM_CREDENTIALS≠none`（CRED-001），推荐先 `scripts/module enable iam`（role）。
 - 至少一个已验证的发件身份：邮箱身份要点击验证邮件；域名身份要能写 DNS（dns 模块，或在外部 DNS 服务商手动添加 DKIM CNAME）。
 - 想给任意用户发信，必须先申请生产访问；沙盒期收件人也必须是已验证的地址。
 - 不依赖 notification、queue 或其他任何应用模块。
@@ -1138,7 +1519,7 @@ export async function sendTemplate(c: Container, t: Template, to: string, vars: 
 | 组合 | 行为 |
 |---|---|
 | auth=local | 注册验证、找回密码完全依赖 EmailPort。沙盒期新用户收不到验证邮件，所以本模块启用后，`EMAIL_SANDBOX_POLICY=outbox` 可以让被拒的邮件改写 outbox，演示时不至于卡住 |
-| auth=cognito | 认证邮件由 Cognito 发送；`AllowCognito=true` + auth 栈 `EmailViaSes=true` 后经本模块的身份发送。总纲 DEP-013 会提示“auth=cognito 且 email=outbox 时，outbox 里看不到验证码” |
+| auth=cognito | 认证邮件由 Cognito 发送；`EMAIL_FOR_COGNITO=on` 时本模块经 `injects` 把 `SesIdentityArn` 交给 auth 栈，之后经本模块的身份发送。总纲 DEP-013 会提示“auth=cognito 且 email=outbox 时，outbox 里看不到验证码”；`/me/outbox` 同样看不到 |
 | notification | 个性化邮件归本模块，广播和 SNS 邮件订阅归 notification；notification 的 db 驱动经本模块发信 |
 | queue | `email.send` 的消费速率要匹配 SES 的发送速率；sync 档下 SES 的调用延迟会计入注册、评论等请求的延迟 |
 | scheduler | 日报、每周摘要邮件 |
@@ -1154,7 +1535,8 @@ export async function sendTemplate(c: Container, t: Template, to: string, vars: 
 
 | 维度 | 没有 SES（基线 outbox） | 有 SES |
 |---|---|---|
-| 用户能否收到邮件 | 不能，管理员在 `/admin/outbox` 代看 | 能（沙盒期只能发给已验证地址） |
+| 用户能否收到邮件 | 不能：管理员在 `/admin/outbox` 代看，本人在 `/me/outbox` 预览（页面标注“本地实现，未真正发信”） | 能（沙盒期只能发给已验证地址） |
+| 邮箱验证能否证明归属 | 不能（任何人都能在 `/me/outbox` 看到以自己名义注册的地址的验证链接） | 能（链接只发到真实收件箱） |
 | 发送耗时 | 写文件和数据库，毫秒级 | 一次 HTTPS API 调用，几十到上百毫秒量级 |
 | 发信信誉 | 不涉及（没有真正发出） | SES 的 IP 信誉 + DKIM 签名 + SPF/DMARC 对齐 |
 | 退信 / 投诉 | 不存在 | 事件回流，自动停止给无效地址发信 |
@@ -1164,7 +1546,7 @@ export async function sendTemplate(c: Container, t: Template, to: string, vars: 
 
 **页面上能直接看到的差异**
 
-- 注册后：outbox 档提示“验证邮件已写入 outbox”，管理员在 `/admin/outbox` 里打开这封邮件并点击链接；ses 档下邮件真正到达收件箱。
+- 注册后：outbox 档提示“验证邮件已写入 outbox”，用户本人在 `/me/outbox` 打开它并点击链接（或由管理员在 `/admin/outbox` 代看）；ses 档下 `/me/outbox` 只显示“已由 Amazon SES 发出”的记录，邮件真正到达收件箱。
 - 沙盒中发给未验证的地址：`/admin/outbox` 中这一行显示 `failed`，错误为 `MessageRejected`，并附带原因。
 - 在邮箱客户端选择“显示原始邮件”：能看到 `DKIM-Signature`，`Authentication-Results` 中为 `dkim=pass`；配好自定义 MAIL FROM 后，还能看到 `spf=pass`。
 - `/admin/outbox` 中每封邮件显示 transport、SES MessageId、投递状态徽章（已投递 / 退信 / 投诉 / 拒绝）。
@@ -1192,7 +1574,7 @@ export async function sendTemplate(c: Container, t: Template, to: string, vars: 
 
 **预期结果（定性 + 数量级）**
 
-- outbox：写数据库和文件，毫秒级；用户收不到任何邮件，只能由管理员代看。功能能闭环，但不能对外服务。
+- outbox：写数据库和文件，毫秒级；用户的真实邮箱收不到任何邮件，只能在 `/me/outbox` 自助预览或由管理员代看。功能能闭环（单人练习也能自己完成注册验证），但不能对外服务，验证也证明不了邮箱归属。
 - ses：每封多一次 HTTPS API 调用，几十到上百毫秒量级；放进 SQS 队列后，用户感觉不到这段延迟（sync 档下注册接口会相应变慢）。模拟器产生的退信、投诉在秒到分钟量级回流，并被标记出来。DKIM 签名通过；配好 DMARC 和自定义 MAIL FROM 后，进垃圾箱的概率明显降低。沙盒期发给未验证地址的邮件会被拒绝。
 
 **运行时 A/B 还是切换重启**：业务流量只能“切换前 / 切换后”（邮件是对外的副作用，不能让一半请求假装发信）。`/api/lab/email/compare` 是只发给管理员指定地址的功能对照。
@@ -1201,19 +1583,19 @@ export async function sendTemplate(c: Container, t: Template, to: string, vars: 
 
 **启用**：`scripts/module enable email --param Domain=<域名>`（或 `--param Email=<邮箱>`）
 
-1. 部署栈。dns 模块已启用时自动写入 DKIM 记录，否则打印需要手动添加的记录。
+1. 计划校验（CRED-001；人工前置 `ses-identity`）→ 部署栈。dns 模块已启用时（它的 `injects` 提供 `HostedZoneId`）自动写入 DKIM 记录，否则打印需要手动添加的记录。
 2. 等待身份的验证状态和 DKIM 状态都变成成功：DNS 生效需要几分钟到更久，以官方文档为准。`scripts/module` 轮询 `GetEmailIdentity`，超时则提示稍后重试，不写 env。
-3. 写入 env，重启 api 和 worker。
+3. `PolicyArn` 附加到 `CloudAlbumAppRole`（keys 模式下附加到演示用户），附加关系记入 state.json；然后写入 env，重启 api 和 worker。
 4. 健康探针：发一封邮件到 `success@simulator.amazonses.com`，等待反馈队列收到它的投递事件。
-5. 提醒：生产访问需要另外申请（人工审核）；让 Cognito 走 SES 是单独的一步：`scripts/module enable email --param AllowCognito=true`，然后 `scripts/module enable auth --param EmailViaSes=true`。
+5. 提醒：生产访问需要另外申请（人工审核）；让 Cognito 走 SES 是单独的一步：`scripts/module enable email --param ForCognito=true`（栈更新 + 执行对 auth 的 `injects`；auth 未启用时只记录，等 auth 启用时由 `scripts/module` 汇总注入值）。
 
 **切换瞬间**：已经在队列里的 `email.send` 任务，被消费时使用当时的驱动。没有数据需要迁移，`outbox_emails` 的历史记录原样保留（总纲 9.3）。
 
 **停用**：`scripts/module disable email`
 
-1. 反向依赖检查：Cognito 用户池还在使用本身份（auth 栈 `EmailViaSes=true`）时拒绝，否则 Cognito 的邮件会中断。
+1. 撤销注入：`EMAIL_FOR_COGNITO=on` 时，先用空值更新 auth 栈的 `SesIdentityArn`（User Pool 回到 `COGNITO_DEFAULT`，默认邮件的每日额度很低，提示确认），再继续；不再需要“拒绝禁用”。
 2. 写入新配置（回到 outbox），重启。
-3. 等 worker 把反馈队列消费完，删除栈。域名身份删除后，DKIM 记录如果是本栈写入 Route 53 的，会一并删除。
+3. 等 worker 把反馈队列消费完，分离 `PolicyArn`，删除栈。域名身份删除后，DKIM 记录如果是本栈写入 Route 53 的，会一并删除。
 
 **回滚**：把 `EMAIL_DRIVER` 改回 outbox 即可，历史发送记录保留。
 
@@ -1242,14 +1624,77 @@ export async function sendTemplate(c: Container, t: Template, to: string, vars: 
 - 域名验证依赖 DNS 记录：DKIM 的 CNAME 生效之前，发送会失败，或者邮件不带签名。
 - 退信率或投诉率过高会导致账号被审查甚至暂停发送：必须处理反馈事件，停止给退信地址发信。
 - 从 EC2 直接用 25 端口发信会被限流，而且容易进垃圾箱；应该走 SES API（HTTPS），或 SMTP 的 587 端口。
-- Cognito 走 SES 时，SES 身份所在的区域必须在 Cognito 支持的范围内，身份上还要有允许 Cognito 使用的授权策略（以官方文档为准）。
+- Cognito 走 SES 时，SES 身份所在的区域必须在 Cognito 支持的范围内，身份上还要有允许 Cognito 使用的授权（以官方文档为准）；禁用 email 时要先撤销对 auth 的注入，否则 User Pool 仍指向已删除的身份。
+- 把 outbox 档的“邮箱已验证”当真：`/me/outbox` 能看到任何以本人名义注册的地址收到的验证链接，outbox 档不能证明邮箱归属（第 1 节）。
 - `/admin/outbox` 里有验证链接等敏感令牌，只能让管理员看到，并且要定期清理。
 - 多实例时 `.eml` 文件只在生成它的那台实例上，outbox 页面要以数据库记录为准。
 - 邮件任务至少一次投递：没有 `dedupKey` 时，worker 被杀后的重投会让用户收到两封同样的邮件。
 
+### 10. 探针
+
+| 驱动 | 常规探针（30 秒 ±5 秒） | 深度探针 | `degraded` 判据 | `error` 判据 | 所需权限 |
+|---|---|---|---|---|---|
+| `outbox`（本地实现） | 无 AWS 调用；`status=off`。`localHealth`：`OUTBOX_DIR` 可写、`outbox_emails` 可读写、数据卷剩余空间 | — | `localHealth=degraded`：数据卷剩余 < 15%；保留期任务连续失败 | 目录不可写 | — |
+| `ses` | `GetAccount`（`SendingEnabled`、`ProductionAccessEnabled`、`SendQuota`）；`GetEmailIdentity`（验证与 DKIM 状态）；反馈队列 `GetQueueAttributes` | 发一封到 `success@simulator.amazonses.com` 并等待投递事件（只在 `scripts/module enable` 的健康检查阶段） | 处于沙盒（detail 写“沙盒：只能发给已验证地址 · 今日已发 n / 上限 m”，上限取自 `GetAccount`）；最近 5 分钟有 `MessageRejected`；反馈 DLQ 深度 > 0 | `SendingEnabled=false`；发件身份未验证；AccessDenied | 本栈 `PolicyArn`：`ses:GetAccount`、`ses:GetEmailIdentity`、`sqs:GetQueueAttributes` |
+
+- email 是非权威端口：SES 调用失败时该邮件记为 `failed`（`/admin/outbox` 标红），路径头 `email=ses:error`，模块 `degraded`；不会悄悄改写到 outbox 冒充“已发送”（`EMAIL_SANDBOX_POLICY=outbox` 是显式选择的演示选项，改写的邮件同样标为“未真正发出”）。
+
+### 11. 前端徽章
+
+| 位置 | 本地实现（outbox） | AWS 实现（ses） | 数据来源 |
+|---|---|---|---|
+| 管理后台 · 邮件（`/admin/outbox`） | 灰色“邮件未真正发出（本地 outbox）” | 橙色“已通过 Amazon SES 发送 · 沙盒 / 生产”；每行带投递状态徽章（已投递 / 退信 / 投诉 / 拒绝） | capabilities：email；`outbox_emails.delivery_status` |
+| `/me/outbox` 顶部 | 灰色横幅“本地实现，未真正发信” | 橙色“邮件已由 Amazon SES 发出，请查收邮箱” | capabilities：email；`featureFlags['email.selfPreview']` |
+| 注册成功页 | “验证邮件已写入 outbox · 打开 /me/outbox” | “验证邮件已发送到你的邮箱” | capabilities：email、auth |
+| `/lab` 卡片 | 灰色“outbox · 本机” | 橙色“SES · 沙盒 / 生产 · 今日已发 n” | capabilities：email |
+
+- registry 的 `lab.badges` 写法见第 0 节（与总纲 12.3 “管理后台 · 邮件”一行一致）。
+
+<a id="scheduler"></a>
 ## scheduler：定时任务 ↔ Amazon EventBridge Scheduler
 
 > 一句话总结：没有 EventBridge Scheduler 时，定时任务由 `cloudalbum-worker` 进程里的 node-cron 触发——触发那一刻 worker 不在线，这一次就漏掉了；多实例时每台各跑一次。启用后由 EventBridge Scheduler 按时间（含时区）把 tick 消息投进模块自带的 SQS 队列，worker 取到才执行：宕机期间的 tick 在队列里等着补跑，多实例时只有一台能拿到。最直观的区别：`/admin/jobs` 的运行记录里 trigger 从 `cron` 变成 `eventbridge`；停掉 worker 跨过一个触发点再启动，cron 档这一次标红“漏跑”，eventbridge 档随后补跑。
+
+### 0. 元数据（registry 摘录）
+
+```yaml
+scheduler:
+  group: D
+  function: 定时任务
+  awsService: Amazon EventBridge Scheduler
+  auxServices: [Amazon SQS（模块自带 tick 队列与 DLQ）]
+  type: adapter
+  port: SchedulerPort                         # ports/scheduler.ts；adapters/scheduler/{cron,eventbridge}.ts
+  switch: { var: SCHEDULER_DRIVER, values: [cron, eventbridge], ownedValues: [eventbridge], localTiers: [] }
+  ownsEnv: [SCHEDULER_]
+  credentials: required
+  requires:
+    - { rule: DEP-026, when: { SCHEDULER_TARGET: ssm }, need: ["IAM_CREDENTIALS=role"] }   # 托管节点状态由 deployCheck() 查询
+  soft: [database, cache, shell-access, kms, monitoring]   # database / cache 决定 LockPort 范围
+  authoritative: false                        # 调度失败只影响定时任务（degraded），不影响请求路径
+  multiInstanceSafe: { cron: false, eventbridge: true }    # cron 在 ASG 下由 ASG-006 按 LockPort 范围判断
+  bypass: []                                  # lab.heartbeat 双触发即运行时对照
+  auxQueues:
+    - { name: scheduler-tick,     purpose: "EventBridge Scheduler 的目标（模板化目标 SQS SendMessage）" }
+    - { name: scheduler-tick-dlq, purpose: "tick 消息处理失败的 redrive 目标" }
+    - { name: scheduler-dlq,      purpose: "Scheduler 重试用尽后的 DLQ" }
+  stacks: [{ name: main, template: infra/modules/scheduler.yaml }]
+  migration: null                             # job_runs 原地保留
+  probe: { kind: active, method: "scheduler:GetSchedule ×8 + sqs:GetQueueAttributes", intervalSec: 30 }
+  billing: [{ resource: "Scheduler 调用次数", dimension: request }, { resource: "tick 队列的 SQS 请求", dimension: request }]
+  lab:
+    summary:
+      local: "worker 内的 node-cron：worker 不在线就漏跑，多实例时重复执行"
+      aws: "EventBridge Scheduler 把 tick 投进模块自带的 SQS 队列：宕机后补跑，每个计划时刻只执行一次"
+    compare: runtime-ab                       # 仅 lab.heartbeat 双触发；业务任务切换前 / 切换后
+    keyMetrics: ["每个计划时刻的执行次数", "漏跑次数", "触发延迟分布", "skipped-duplicate 数"]
+    hourlyBilled: false
+    experiments: [heartbeat, missed-run, second-worker, dlq-fault]
+    badges: { local: "定时任务由 EC2 上的 node-cron 触发", aws: "定时任务由 EventBridge Scheduler 触发", degraded: "调度漂移或积压", error: "调度不可用" }
+  doc: docs/modules/04-compute-async.md#scheduler
+```
+
+- 只有 `SCHEDULER_DRIVER=eventbridge` 时写 `MODULE_SCHEDULER=on`。cron 档也可以有 `modules.d/scheduler.env`（例如对照用的 `SCHEDULER_COMPARE_HEARTBEAT=on`），但不含这一行。
 
 ### 1. 基线实现（仅 EC2）
 
@@ -1264,13 +1709,17 @@ export async function sendTemplate(c: Container, t: Template, to: string, vars: 
 | `image.reconcile` | `* * * * *` | 是 | 处理 PROCESSING 超时的照片（见 image-processing） |
 | `outbox.retention` | `30 3 * * *` | 是 | 清理过期的 outbox 邮件、`processed_jobs` 等 |
 | `lab.compact` | `0 4 * * *` | 是 | 把 2 天前的实验指标压缩为小时级（总纲 7.3） |
-| `lab.heartbeat`（本组新增） | `*/5 * * * *` | 否 | 无副作用的对照任务，只写一行 `job_runs`；仅在 `SCHEDULER_COMPARE_HEARTBEAT=on` 时注册 |
+| `lab.heartbeat` | `*/5 * * * *` | 否 | 无副作用的对照任务，只写一行 `job_runs`；仅在 `SCHEDULER_COMPARE_HEARTBEAT=on` 时注册 |
+| `analytics.retention` | `15 3 * * *` | 是 | 分批删除超过保留期的 `click_events`（firehose 档立即返回，由 S3 生命周期负责；定义见 03 analytics） |
+| `audit.retention` | `45 3 * * *` | 是 | 删除超过 `AUDIT_RETENTION_DAYS` 的 `audit_log` 行（定义见 05 audit） |
+
+共 8 个任务，与总纲 4.2 的 `ScheduledJobName` 一一对应；表达式是本模块给出的默认值，各任务的业务含义以所属模块文档为准。告警评估、安全分析、合规自检这类 worker 内循环不是定时任务，不在这张表里。
 
 **cron 驱动**
 
 - 在 worker 进程内用 node-cron 注册上表中的任务。不放在 api 进程里，避免与 api 的多进程、多实例叠加。
 - 每次触发调用统一入口 `runJob(name, {trigger, scheduledAt})`：
-  1. singleton 任务先调用 `LockPort.tryAcquire(name)`。L0 下是文件锁（`flock /run/cloudalbum`），作用范围是本机；拿不到锁就记为 `skipped-locked`。
+  1. singleton 任务先调用 `LockPort.tryAcquire(name)`。L0 下是文件锁（`flock`，目录 `LOCK_FILE_DIR`，默认 `/run/cloudalbum`，总纲 4.2），作用范围是本机；拿不到锁就记为 `skipped-locked`。
   2. 插入一行 `job_runs`（`run_id、name、scheduled_at、started_at、finished_at、status、host、trigger、error`）。`(name, scheduled_at)` 上有唯一索引，重复插入的记为 `skipped-duplicate`。
   3. 执行 handler，回写状态。
 - 已知局限：
@@ -1289,11 +1738,11 @@ export async function sendTemplate(c: Container, t: Template, to: string, vars: 
 | 资源 | 关键配置 |
 |---|---|
 | `ScheduleGroup`（`AWS::Scheduler::ScheduleGroup`） | 名称 `cloudalbum-<env>`；删除分组会删除其中所有 schedule |
-| `TickQueue`：`…-scheduler-tick` | 标准队列，SSE-SQS，长轮询 20 秒，可见性超时 300 秒；`RedrivePolicy` → `TickDlq`（`maxReceiveCount: 3`） |
+| `TickQueue`：`…-scheduler-tick` | 标准队列，SSE-SQS（kms 注入 `KmsKeyArn` 时改用 CMK），长轮询 20 秒，可见性超时 300 秒；`RedrivePolicy` → `TickDlq`（`…-scheduler-tick-dlq`，`maxReceiveCount: 3`） |
 | `SchedulerDlq`：`…-scheduler-dlq` | Scheduler 在重试用尽后把调用失败的事件投进这里（`DeadLetterConfig`） |
 | `ScheduleRole`（执行角色） | 信任 `scheduler.amazonaws.com`，条件 `aws:SourceAccount` 为本账号；权限：对 `TickQueue` 和 `SchedulerDlq` 的 `sqs:SendMessage`；用 CMK 时加 `kms:GenerateDataKey` |
-| 每个任务一个 `AWS::Scheduler::Schedule`（固定 6 个，与注册表一一对应） | `ScheduleExpression`：参数（默认值与注册表一致，例如 `cron(0 9 * * ? *)`）；`ScheduleExpressionTimezone: Asia/Tokyo`；`FlexibleTimeWindow`：`report.daily` 为 `OFF`，清理类任务为 `FLEXIBLE`（`MaximumWindowInMinutes: 5`，把触发时间打散）；`State`：参数（首次部署为 `DISABLED`）；`Target`：见下；`RetryPolicy`：`MaximumRetryAttempts` 与 `MaximumEventAgeInSeconds` 设为较小的值（例如 10 次、1 小时），`DeadLetterConfig` → `SchedulerDlq` |
-| `AppPolicy` | 对 `TickQueue`、`TickDlq`、`SchedulerDlq` 的 `sqs:ReceiveMessage`、`DeleteMessage`、`GetQueueAttributes`；探针和 `diffRemote` 所需的 `scheduler:GetSchedule`、`scheduler:ListSchedules` |
+| 每个任务一个 `AWS::Scheduler::Schedule`（共 8 个，与注册表一一对应；`lab.heartbeat` 的 `State` 跟随参数 `CompareHeartbeat`） | `ScheduleExpression`：参数（默认值与注册表一致，例如 `cron(0 9 * * ? *)`）；`ScheduleExpressionTimezone: Asia/Tokyo`；`FlexibleTimeWindow`：`report.daily` 为 `OFF`，清理类任务为 `FLEXIBLE`（`MaximumWindowInMinutes: 5`，把触发时间打散）；`State`：参数（首次部署为 `DISABLED`）；`Target`：见下；`RetryPolicy`：`MaximumRetryAttempts` 与 `MaximumEventAgeInSeconds` 设为较小的值（例如 10 次、1 小时），`DeadLetterConfig` → `SchedulerDlq` |
+| `AppPolicy`：客户托管策略 `cloudalbum-<env>-scheduler`（输出为 `PolicyArn`，由 `scripts/module` 附加） | 对 `TickQueue`、`TickDlq`、`SchedulerDlq` 的 `sqs:ReceiveMessage`、`DeleteMessage`、`GetQueueAttributes`；探针和 `diffRemote` 所需的 `scheduler:GetSchedule`、`scheduler:ListSchedules` |
 
 ```yaml
 # 默认目标：模板化目标 SQS SendMessage，用上下文属性把计划时间传给 worker
@@ -1305,7 +1754,7 @@ Target:
   DeadLetterConfig: { Arn: !GetAtt SchedulerDlq.Arn }
 ```
 
-Outputs：`EnvSchedulerDriver=eventbridge`、`EnvSchedulerGroup`、`EnvSchedulerTarget`、`EnvSchedulerTickQueueUrl`、`EnvSchedulerDlqUrl`、`PolicyArn`。
+Outputs：`EnvSchedulerDriver=eventbridge`、`EnvSchedulerGroup`、`EnvSchedulerTarget`、`EnvSchedulerTickQueueUrl`、`EnvSchedulerDlqUrl`、`PolicyArn`。参数：8 个 `*Expression`（由 `scheduler export` 生成）、`Target`、`CompareHeartbeat`、`InstanceId`（`ssm` 变体，来自基础上下文）、kms 注入的 `KmsKeyArn`。
 
 **worker 侧（tick 队列轮询器）**
 
@@ -1329,7 +1778,7 @@ flowchart LR
 **目标变体**（参数 `Target`）
 
 - `tick-queue`（默认）：如上。不需要入站端口，不需要 Lambda，也不依赖 queue 模块（总纲 3.2 的决定 2）。
-- `ssm`：通用目标 `arn:aws:scheduler:::aws-sdk:ssm:sendCommand`，`Input` 中指定 `DocumentName: AWS-RunShellScript`、`InstanceIds: [<实例 ID>]`，命令为 `sudo -u cloudalbum node /opt/cloudalbum/backend/dist/cli.js job run <name> --trigger eventbridge`。不需要队列，演示“通用目标可以调用任意 AWS API”。前提是实例是 SSM 托管节点（DEP-D08）。指定 `InstanceIds` 而不是按标签选实例，避免 ASG 下所有实例都执行；即便如此，命令里仍然先抢 cluster 锁。实例停机时 SendCommand 本身会成功，但命令在实例上执行不了，**不会补跑**。在 `Input` 中嵌入上下文属性的支持范围以官方文档为准，所以这个变体由 CLI 自己取当前时间作为 `scheduledAt`。
+- `ssm`：通用目标 `arn:aws:scheduler:::aws-sdk:ssm:sendCommand`，`Input` 中指定 `DocumentName: AWS-RunShellScript`、`InstanceIds: [<实例 ID>]`，命令为 `sudo -u cloudalbum node /opt/cloudalbum/backend/dist/cli.js job run <name> --trigger eventbridge`。不需要队列，演示“通用目标可以调用任意 AWS API”。前提是实例是 SSM 托管节点（DEP-026：`IAM_CREDENTIALS=role` 且角色带托管节点权限，启用 shell-access 即可）。指定 `InstanceIds` 而不是按标签选实例，避免 ASG 下所有实例都执行；即便如此，命令里仍然先抢 cluster 锁。实例停机时 SendCommand 本身会成功，但命令在实例上执行不了，**不会补跑**。在 `Input` 中嵌入上下文属性的支持范围以官方文档为准，所以这个变体由 CLI 自己取当前时间作为 `scheduledAt`。
 
 **选读（模板不实现）**
 
@@ -1341,7 +1790,7 @@ flowchart LR
 
 **EventBridge Scheduler 与 EventBridge 定时规则的区别**：旧式的“定时规则”是事件总线上的一种规则，没有时区设置（按 UTC），也没有一次性调度、灵活时间窗口和单个调度的重试 / DLQ 配置；Scheduler 是独立的服务，能支撑海量调度，支持时区、一次性调度和通用目标。新设计优先用 Scheduler。
 
-**能力注册**：`scheduler = {driver: 'eventbridge', status: 'ok', detail: '6 个 schedule 均 ENABLED · tick 积压 0 · DLQ 0 · 无漂移'}`，探针见总纲 6.2。
+**能力注册**：`scheduler = {driver: 'eventbridge', status: 'ok', detail: '8 个 schedule 均 ENABLED · tick 积压 0 · DLQ 0 · 无漂移'}`，探针见第 10 节。
 
 ### 3. 开关与配置
 
@@ -1359,12 +1808,14 @@ SCHEDULER_TICK_QUEUE_URL=https://sqs.ap-northeast-1.amazonaws.com/<acct>/cloudal
 SCHEDULER_DLQ_URL=https://sqs.ap-northeast-1.amazonaws.com/<acct>/cloudalbum-lab-scheduler-dlq
 ```
 
-本模块的 `ownsEnv` 为 `SCHEDULER_`。端口要点（总纲 4.2 + 本组新增的 `lab.heartbeat`）：
+本模块的 `ownsEnv` 为 `SCHEDULER_`。端口要点（与总纲 4.2 一致；上一轮本组提出的 `lab.heartbeat` 已被吸收，C、E 组的两个保留期任务一并列入）：
 
 ```ts
 // backend/src/ports/scheduler.ts（节选）
-export type ScheduledJobName = 'report.daily' | 'share.cleanup' | 'image.reconcile' | 'outbox.retention' | 'lab.compact'
-                             | 'lab.heartbeat';   // 本组新增：无副作用的对照任务
+export type ScheduledJobName =
+  | 'report.daily' | 'share.cleanup' | 'image.reconcile' | 'outbox.retention' | 'lab.compact'
+  | 'lab.heartbeat'                          // 无副作用的对照任务
+  | 'analytics.retention' | 'audit.retention';
 export interface ScheduledJobDef {
   name: ScheduledJobName; cron: string; timezone: string; singleton: boolean;
   handler: (run: { scheduledAt: Date; runId: string }) => Promise<void>;
@@ -1388,15 +1839,17 @@ ImageReconcileExpression=rate(1 minute)
 OutboxRetentionExpression=cron(30 3 * * ? *)
 LabCompactExpression=cron(0 4 * * ? *)
 LabHeartbeatExpression=rate(5 minutes)
+AnalyticsRetentionExpression=cron(15 3 * * ? *)
+AuditRetentionExpression=cron(45 3 * * ? *)
 ```
 
 ### 4. 依赖与组合
 
 **硬依赖**
 
-- AWS 凭证（CRED-001）：worker 需要从 tick 队列接收、删除消息，读取 schedule 的定义。
+- 凭证前置：`IAM_CREDENTIALS≠none`（CRED-001）：worker 需要从 tick 队列接收、删除消息，读取 schedule 的定义。
 - 默认目标 `tick-queue` 没有其他依赖。
-- `ssm` 变体要求实例是 SSM 托管节点：实例角色带 `AmazonSSMManagedInstanceCore`，或启用了账号级的 Default Host Management Configuration（DEP-D08，与 shell-access 的前提相同）。
+- `ssm` 变体要求实例是 SSM 托管节点：`IAM_CREDENTIALS=role`，实例角色带托管节点所需权限，或启用了账号级的 Default Host Management Configuration（DEP-026，与 shell-access 的前提相同）。
 
 **与其他模块组合时的行为变化**
 
@@ -1443,10 +1896,10 @@ LabHeartbeatExpression=rate(5 minutes)
 
 **操作步骤**（`experiments/scheduler/`）
 
-1. 准备：L0 下设置 `SCHEDULER_COMPARE_HEARTBEAT=on`（写入 `cloudalbum.env`），重启 worker，先跑 1 小时只有 cron 的基线：`npm run exp -- scheduler --label before --scenario heartbeat --duration 60m`。`heartbeat.ts` 每分钟查询 `/api/admin/jobs/runs?name=lab.heartbeat`，统计每个时刻的行数和延迟分布。
+1. 准备：L0 下执行 `scripts/module enable scheduler --driver cron --param CompareHeartbeat=on`（只写 `modules.d/scheduler.env` 的本地设置 `SCHEDULER_COMPARE_HEARTBEAT=on`，不含 `MODULE_SCHEDULER=on`，不部署栈），重启 worker，先跑 1 小时只有 cron 的基线：`npm run exp -- scheduler --label before --scenario heartbeat --duration 60m`。`heartbeat.ts` 每分钟查询 `/api/admin/jobs/runs?name=lab.heartbeat`，统计每个时刻的行数和延迟分布。
 2. 启用：`scripts/module enable scheduler`，然后 `npm run exp -- scheduler --label after --scenario heartbeat --duration 60m`：同一个时刻 cron 与 eventbridge 各触发一次，在同一张图上比较。
 3. 漏跑实验：`bash experiments/scheduler/missed-run.sh --job lab.heartbeat`。脚本在下一个触发点前 1 分钟执行 `sudo systemctl stop cloudalbum-worker`，触发点过去 3 分钟后再 `start`，然后检查这个时刻 cron 档是否缺失、eventbridge 档是否补跑（`started_at − scheduled_at` 约为 3 分钟）。
-4. 重复执行实验：`bash experiments/scheduler/second-worker.sh`。用 `systemd-run --unit cloudalbum-worker-2 --uid cloudalbum` 在同一台机器上临时启动第二个 worker，并设置 `LOCK_FILE_DIR=/run/cloudalbum-2`，模拟“另一台主机上的文件锁”。观察 cron 档的 singleton 任务在同一时刻出现两行（命中 ASG-006 的情形），eventbridge 档仍然只有一行。实验结束后脚本会停止这个临时单元。有 autoscaling 模块时，直接把 desired 设为 2 做同样的观察。
+4. 重复执行实验：`bash experiments/scheduler/second-worker.sh`。用 `systemd-run --unit cloudalbum-worker-2 --uid cloudalbum` 在同一台机器上临时启动第二个 worker，并设置 `LOCK_FILE_DIR=/run/cloudalbum-2`（总纲 4.2 定义的文件锁目录变量），模拟“另一台主机上的文件锁”。观察 cron 档的 singleton 任务在同一时刻出现两行（命中 ASG-006 的情形），eventbridge 档仍然只有一行。实验结束后脚本会停止这个临时单元。有 autoscaling 模块时，直接把 desired 设为 2 做同样的观察。
 5. 目标失败：`bash experiments/scheduler/dlq-fault.sh`。脚本临时给执行角色加一条显式拒绝 `sqs:SendMessage`（只针对 tick 队列）的内联策略，等待两个 heartbeat 周期后删除。观察 Scheduler 的重试，以及事件最终进入 `scheduler-dlq`（时间取决于 `MaximumEventAgeInSeconds`）。
 6. 命令行对照：`aws scheduler list-schedules --group-name cloudalbum-lab`；`aws scheduler get-schedule --group-name cloudalbum-lab --name report-daily`；`aws sqs get-queue-attributes --queue-url <tick 队列> --attribute-names ApproximateNumberOfMessages`。
 7. 报告：`npm run exp:report -- scheduler`。
@@ -1467,7 +1920,7 @@ LabHeartbeatExpression=rate(5 minutes)
 1. `node dist/cli.js scheduler export --format cfn-params`，从注册表生成表达式参数。
 2. 部署栈，**所有 schedule 先以 `State=DISABLED` 创建**。
 3. 写入 env（`SCHEDULER_DRIVER=eventbridge`），重启 worker：被托管的任务不再注册 node-cron。
-4. 由 `scripts/module` 用部署者凭证把 6 个 schedule 更新为 `ENABLED`（通过栈参数更新）。
+4. 由 `scripts/module` 用部署者凭证把 8 个 schedule 更新为 `ENABLED`（通过栈参数更新；`lab.heartbeat` 跟随 `CompareHeartbeat`）。`PolicyArn` 在第 3 步写 env 之前附加，附加关系记入 state.json。
 5. 健康探针：用部署者凭证创建一个一次性调度 `probe-<时间戳>`（`at(<当前时间 + 1 分钟>)`、`ActionAfterCompletion: DELETE`，目标为 tick 队列，任务 `lab.heartbeat`），等待 `job_runs` 中出现一行 `trigger=eventbridge` 的记录。
 
 先以 DISABLED 预建、切换开关后再启用，可以避免切换窗口里“两边都执行”或“两边都不执行”。切换前后各差几分钟的任务（例如每分钟一次的对账）可能在切换窗口里多执行或少执行一次，它们本身是幂等的，影响可以忽略。
@@ -1481,7 +1934,7 @@ LabHeartbeatExpression=rate(5 minutes)
 1. 把所有 schedule 更新为 `DISABLED`。
 2. 写入新配置（回到 cron），重启 worker：node-cron 接管。
 3. 把 tick 队列里剩余的 tick 消费完（它们按幂等键去重），检查 DLQ。
-4. 删除栈（删除分组会一并删除其中的 schedule）。
+4. 分离 `PolicyArn`，删除栈（删除分组会一并删除其中的 schedule）。
 
 **回滚**：失败时恢复 `.bak` 并重启 worker，node-cron 立即接管；栈保留，schedule 仍是 DISABLED，不会重复执行。
 
@@ -1500,7 +1953,7 @@ LabHeartbeatExpression=rate(5 minutes)
 
 ### 8. 费用与清理
 
-- Scheduler 按调用次数计费，有每月免费额度；本项目每天约两千次调用（主要来自每分钟一次的 `image.reconcile`），远在免费额度量级之内，费用可以忽略。tick 队列和两个 DLQ 的 SQS 费用极低。SSM Run Command 的标准用法没有额外费用。具体以官方定价为准。
+- Scheduler 按调用次数计费，有每月免费额度；本项目按表达式推算每天约两千次调用（主要来自每分钟一次的 `image.reconcile`），远在免费额度量级之内，费用可以忽略。tick 队列和两个 DLQ 的 SQS 费用极低。SSM Run Command 的标准用法没有额外费用。具体以官方定价为准。
 - 清理：`scripts/module disable scheduler` 删除栈；探针创建的一次性调度执行后自动删除（`ActionAfterCompletion: DELETE`），如果探针失败，用 `aws scheduler list-schedules --name-prefix probe-` 检查残留。
 
 ### 9. 常见坑
@@ -1513,10 +1966,70 @@ LabHeartbeatExpression=rate(5 minutes)
 - 投递是至少一次，任务必须按 `(name, scheduledAt)` 做幂等。
 - 在控制台直接修改 schedule 会造成与代码的漂移；修改要走注册表 + 栈更新。
 - 删除 schedule 分组会删除其中的全部 schedule，不要把手工创建的 schedule 放进项目的分组。
+- 新增定时任务（例如 C、E 组的 `analytics.retention`、`audit.retention`）只改了代码而没有重新 `scripts/module enable scheduler`：eventbridge 档下这个任务根本不会被触发，`diffRemote()` 会报告“云端缺失”。
 
+### 10. 探针
+
+| 驱动 | 常规探针（30 秒 ±5 秒） | 深度探针 | `degraded` 判据 | `error` 判据 | 所需权限 |
+|---|---|---|---|---|---|
+| `cron`（本地实现） | 无 AWS 调用；`status=off`。`localHealth`：worker 心跳、node-cron 已注册的任务数（应为 8，`lab.heartbeat` 视开关而定）、最近一次各任务的结果 | — | `localHealth=degraded`：有 singleton 任务连续失败；出现漏跑的计划时刻 | worker 不在线超过 2 个周期 | — |
+| `eventbridge` | 每个任务 `GetSchedule`（`State=ENABLED`）；tick 队列与两个 DLQ 的 `GetQueueAttributes` | `diffRemote()`：逐个比较表达式、时区、状态与代码中的注册表 | 漂移（表达式或时区不一致）；tick 积压持续增长；任一 DLQ 深度 > 0 | 有任务缺失或为 `DISABLED`（切换窗口之外）；AccessDenied | 本栈 `PolicyArn`：`scheduler:GetSchedule`、`scheduler:ListSchedules`、`sqs:GetQueueAttributes` |
+
+- scheduler 是非权威端口：故障只让定时任务延后或漏跑，状态标 `degraded` / `error`，不影响请求路径，也不会自动改回 node-cron（那会在恢复后造成双重执行）。
+
+### 11. 前端徽章
+
+| 位置 | 本地实现（cron） | AWS 实现（eventbridge） | 数据来源 |
+|---|---|---|---|
+| 管理后台 · 定时任务（`/admin/jobs`） | 灰色“定时任务由 EC2 上的 node-cron 触发”；trigger 列 `cron` | 橙色“定时任务由 EventBridge Scheduler 触发”；trigger 列 `eventbridge` | capabilities：scheduler；`job_runs.trigger` |
+| `/lab` 卡片 | 灰色“cron · 依赖 worker 在线” | 橙色“Scheduler · 8 个 schedule · tick 积压 n” | capabilities：scheduler |
+| `lab.heartbeat` 时间线 | 只有 cron 点 | cron 与 eventbridge 两列点，横向偏移即触发延迟差 | `job_runs` |
+
+- registry 的 `lab.badges` 写法见第 0 节；漂移时徽章变黄并附“降级”。
+
+<a id="tagging"></a>
 ## tagging：图片识别与审核 ↔ Amazon Rekognition
 
 > 一句话总结：没有 Rekognition 时，照片只有 EC2 从图片元数据算出的“基础属性标签”（横图 / 竖图、主色、分辨率档、拍摄年份和季节），审核结论恒为通过，违规内容只能靠用户举报加管理员复核；启用后每张照片调用一次 DetectLabels 和一次 DetectModerationLabels，出现“狗 98%”“海滩 91%”这样的内容标签，可以按标签搜索，疑似违规的照片自动进入复核或被拦截。最直观的区别：照片详情页的标签 chips，以及“已被自动审核拦截”的占位图。
+
+### 0. 元数据（registry 摘录）
+
+```yaml
+tagging:
+  group: D
+  function: 图片识别与审核
+  awsService: Amazon Rekognition
+  auxServices: []
+  type: adapter
+  port: TaggerPort                            # ports/tagger.ts；adapters/tagging/{none,rekognition}.ts
+  switch: { var: TAGGER_DRIVER, values: [none, rekognition], ownedValues: [rekognition], localTiers: [] }
+  ownsEnv: [TAGGER_]
+  credentials: required
+  requires:
+    - { rule: DEP-027, when: { TAGGER_INPUT: s3 }, need: ["STORAGE_DRIVER=s3"] }
+  soft: [storage, queue, kms, notification, cdn]
+  authoritative: false                        # 故障时退回基础标签（rekognition:error-basic），状态 degraded
+  multiInstanceSafe: { none: true, rekognition: true }
+  bypass: [tagger]                            # 只在 POST /api/lab/tagger/analyze 上有效
+  injects:
+    - { target: workflow, params: { EnableRekognition: "true" } }   # workflow 状态机打开 Rekognition SDK 集成（06）
+  stacks: [{ name: main, template: infra/modules/tagging.yaml }]     # 只有一条策略
+  migration: scripts/migrate/tagging          # 无数据，只有可选的 --backfill（按调用计费，先 --dry-run）
+  probe: { kind: passive, method: "最近 5 分钟真实调用的成功率与延迟；启动时对 128×128 JPEG 调用一次 DetectLabels", intervalSec: 30 }
+  billing: [{ resource: "Rekognition 图像分析（每张照片 2 次调用）", dimension: request }]
+  lab:
+    summary:
+      local: "只有元数据算出的基础属性标签，审核恒为通过"
+      aws: "DetectLabels + DetectModerationLabels：内容标签可搜索，疑似违规自动复核或拦截"
+    compare: runtime-ab                       # 仅实验端点（bypass=tagger）；业务流程切换前 / 切换后
+    keyMetrics: ["标签命中率", "按标签搜索的召回", "审核拦截与误判数", "每张耗时"]
+    hourlyBilled: false
+    experiments: [eval, upload-and-search, throttle, moderation]
+    badges: { local: "基础属性标签（本地）", aws: "标签来自 Amazon Rekognition", degraded: "标签服务降级（已退回基础标签）", error: "标签服务不可用" }
+  doc: docs/modules/04-compute-async.md#tagging
+```
+
+- 原图桶名由 storage 的 `injects` 写入本栈参数 `RawBucketName`（S3Object 输入方式用），不使用 `ImportValue`（D2）。
 
 ### 1. 基线实现（仅 EC2）
 
@@ -1573,7 +2086,7 @@ LabHeartbeatExpression=rate(5 minutes)
 - sync 档下当场退回基础标签，路径头记为 `tagging=rekognition:error-basic`，模块状态置为 `degraded`；
 - 队列档下让任务重试，超过次数后保留基础标签，并在照片上记 `analyzed_by.driver='none'`、`fallback=true`。
 
-**探针**（修正总纲 6.2）：被动统计最近 5 分钟真实调用的成功率与延迟；启动时对内置的 **128×128** JPEG 调用一次 `DetectLabels`（总纲写的 64px 低于 Rekognition 的 80px 下限，会被拒绝）。`TAGGER_STARTUP_PROBE=off` 可以关闭，以免每次重启都产生一次计费调用。
+**探针**（与总纲 6.2 一致，上一轮本组提出的 128×128 已被吸收）：被动统计最近 5 分钟真实调用的成功率与延迟；启动时对内置的 **128×128** JPEG 调用一次 `DetectLabels`（Rekognition 要求宽高都不小于 80 像素）。`TAGGER_STARTUP_PROBE=off` 可以关闭，以免每次重启都产生一次计费调用。详见第 10 节。
 
 **CloudFormation：`infra/modules/tagging.yaml`**
 
@@ -1581,7 +2094,7 @@ LabHeartbeatExpression=rate(5 minutes)
 
 | 资源 | 内容 |
 |---|---|
-| `AppPolicy` | `rekognition:DetectLabels`、`rekognition:DetectModerationLabels`：这两个 API 不支持资源级权限，`Resource` 只能写 `*`。参数 `RawBucketName` 非空时，加对 `raw/*` 的 `s3:GetObject`；参数 `KmsKeyArn` 非空时加 `kms:Decrypt` |
+| `AppPolicy`：客户托管策略 `cloudalbum-<env>-tagging`（输出为 `PolicyArn`，由 `scripts/module` 附加） | `rekognition:DetectLabels`、`rekognition:DetectModerationLabels`：这两个 API 不支持资源级权限，`Resource` 只能写 `*`。参数 `RawBucketName`（storage 的 `injects`）非空时，加对 `raw/*` 的 `s3:GetObject`；参数 `KmsKeyArn`（kms 的 `injects`）非空时加 `kms:Decrypt` |
 
 Outputs：`EnvTaggerDriver=rekognition`、`EnvTaggerRegion`、`PolicyArn`。
 
@@ -1589,7 +2102,7 @@ Outputs：`EnvTaggerDriver=rekognition`、`EnvTaggerRegion`、`PolicyArn`。
 
 **变体（选做，模板不实现）**：architecture.md 原设计的 “S3 → SQS → Lambda → Rekognition” 打标签。在本项目中可以这样做：image-processing 的规则再加一个目标，指向一条打标签队列，由 `lambdas/image-labeler` 用 ESM 消费，结果经 image-processing 的回写通道送回 EC2。它把“谁来消费”从 worker 换成 Lambda，标签结果完全一样，所以默认不做，作为 ESM 的补充练习。
 
-**能力注册**：`tagging = {driver: 'rekognition', status: 'ok', detail: '最近 5 分钟 42 次调用，成功率 100%，p95 610ms · 输入方式 bytes'}`。
+**能力注册**：`tagging = {driver: 'rekognition', status: 'ok', detail: '最近 5 分钟 42 次调用，成功率 100%，p95 610ms · 输入方式 bytes'}`（数值仅为示意）。
 
 ### 3. 开关与配置
 
@@ -1597,7 +2110,7 @@ Outputs：`EnvTaggerDriver=rekognition`、`EnvTaggerRegion`、`PolicyArn`。
 # /etc/cloudalbum/modules.d/tagging.env（L0 没有这个文件 = none）
 MODULE_TAGGING=on
 TAGGER_DRIVER=rekognition            # none | rekognition（none = 本地实现 = 默认）
-TAGGER_INPUT=auto                    # auto | bytes | s3（s3 需要 storage=s3，DEP-D09）
+TAGGER_INPUT=auto                    # auto | bytes | s3（s3 需要 storage=s3，DEP-027）
 TAGGER_MIN_CONFIDENCE=75
 TAGGER_MAX_LABELS=15
 TAGGER_MODERATION_MIN=60
@@ -1640,7 +2153,7 @@ const image = useS3
 
 **硬依赖**
 
-- AWS 凭证（CRED-001）。
+- 凭证前置：`IAM_CREDENTIALS≠none`（CRED-001），推荐先 `scripts/module enable iam`（role）。
 - 所选区域提供 Rekognition 图像 API（ap-northeast-1 提供，以官方区域表为准）。如果改用其他区域（`TAGGER_REGION`），只能用字节方式：S3Object 要求桶与端点在同一区域。
 - 不依赖 storage、queue、Lambda 或其他任何应用模块。
 
@@ -1658,6 +2171,7 @@ const image = useS3
 | analytics | 可以按标签统计浏览量 |
 | monitoring | Rekognition 的成功次数、限流次数、响应时间等指标（名称以官方文档为准）；被拦截数的自定义指标 |
 | tracing | Rekognition 调用记为子段 |
+| workflow | 本模块经 `injects` 把 `EnableRekognition=true` 交给 workflow 栈：状态机里由 Rekognition SDK 集成直接打标签（06），结果随状态机结果队列写回，标签表与本模块共用；此时 worker 不再为该照片执行 `image.tag` |
 
 **多实例（ASG）**：无状态，任何实例的 worker 都可以消费 `image.tag`；标签表在共享数据库中；Rekognition 的 TPS 配额是账号级的，实例越多越要靠队列统一限速。
 
@@ -1710,7 +2224,7 @@ const image = useS3
 
 **启用**：`scripts/module enable tagging`
 
-1. 部署栈（只有策略），附加到应用角色；storage=s3 时自动传入原图桶名。
+1. 计划校验（CRED-001、DEP-027）→ 部署栈（只有策略；storage=s3 时由 storage 的 `injects` 传入原图桶名）→ `PolicyArn` 附加到 `CloudAlbumAppRole`（keys 模式下附加到演示用户），记入 state.json → 执行本模块的 `injects`（workflow 已启用时打开其 Rekognition 步骤）。
 2. 写 env，重启 api 和 worker。
 3. 健康探针：对内置的 128×128 JPEG 调用一次 `DetectLabels`（会产生一次计费调用）。
 
@@ -1720,7 +2234,7 @@ const image = useS3
 
 1. 写入新配置（回到 none），重启：新照片只生成基础标签。
 2. 已有的 Rekognition 标签保留（`source` 列可以区分来源），搜索仍然能用；已被拦截的照片保持 `BLOCKED`，直到管理员复核。
-3. 删除栈（只有策略）。
+3. 用空值更新 workflow 栈的 `EnableRekognition`（如已注入），分离 `PolicyArn`，删除栈（只有策略）。
 
 **回滚**：标签表与驱动无关，切换不需要迁移数据。
 
@@ -1755,9 +2269,78 @@ const image = useS3
 - 换到别的区域调用 Rekognition 时，S3Object 方式会失败（桶必须与端点同区域）。
 - sync 档下，Rekognition 的延迟和故障都会体现在上传接口上；要么接受退回基础标签，要么启用队列。
 
+### 10. 探针
+
+| 驱动 | 常规探针（30 秒 ±5 秒） | 深度探针 | `degraded` 判据 | `error` 判据 | 所需权限 |
+|---|---|---|---|---|---|
+| `none`（本地实现） | 无 AWS 调用；`status=off`。`localHealth`：`photo_labels`、`moderation_results` 可读写 | — | — | 表不可写 | — |
+| `rekognition` | **被动**：最近 5 分钟真实调用的成功率、延迟与限流次数；启动时对内置 128×128 JPEG 调用一次 `DetectLabels`（`TAGGER_STARTUP_PROBE=off` 可关闭） | 同启动探针（管理员手动触发，会产生一次计费调用） | 成功率 < 99%；出现 `ThrottlingException`；有照片因故障退回基础标签（`fallback=true`） | AccessDenied；连续失败；启动探针失败 | 本栈 `PolicyArn`：`rekognition:DetectLabels`、`rekognition:DetectModerationLabels` |
+
+- tagging 是非权威端口：故障时照片照常发布，只带基础标签，路径头 `tagging=rekognition:error-basic`，状态 `degraded`。Rekognition 没有免费的只读“健康”接口，所以常规探针只能是被动的（总纲 6.2）。
+
+### 11. 前端徽章
+
+| 位置 | 本地实现（none） | AWS 实现（rekognition） | 数据来源 |
+|---|---|---|---|
+| 照片详情 · 标签 chips | 灰色来源徽章“基础属性标签（本地）” | 橙色来源徽章“标签来自 Amazon Rekognition”；基础标签仍显示灰色徽章 | `labels[].source`（随照片保存，与当前驱动无关） |
+| 被拦截照片 | 不会出现自动拦截（只有管理员复核后的 `BLOCKED`） | “已被自动审核拦截”占位图 | `moderation_results.verdict` |
+| `/lab` 卡片“并排分析” | 左栏：基础标签 | 右栏：内容标签、审核结论、耗时 | `POST /api/lab/tagger/analyze`（带 / 不带 `X-Compare-Bypass: tagger`） |
+
+- registry 的 `lab.badges` 写法见第 0 节（与总纲 12.3 “照片详情 · 标签”一行一致）。
+
+<a id="social-api"></a>
 ## social-api：API 托管（点赞、评论、分享） ↔ Amazon API Gateway
 
 > 一句话总结：没有 API Gateway 时，点赞、评论、分享接口就是 EC2 上 Express 的 `/social/*` 路由，同源访问，限流靠 Nginx 和 express-rate-limit，所有请求（包括恶意的、未登录的）都会打到 EC2；启用后前端改为调用 API Gateway HTTP API——proxy 集成时网关在前面做限流、授权和访问日志，再回源到 EC2；lambda 集成时请求根本不经过 EC2，由 Lambda 读写 DynamoDB。最直观的区别：浏览器网络面板里请求的域名变成 `execute-api`，响应头多了 `apigw-requestid`；狂点赞时 429 由网关返回，EC2 的 Nginx 日志里根本看不到这些请求；lambda 集成下停掉 `cloudalbum-api`，点赞评论照常可用。
+
+### 0. 元数据（registry 摘录）
+
+```yaml
+social-api:
+  group: D
+  function: API 托管（点赞、评论、分享）
+  awsService: Amazon API Gateway（HTTP API）
+  auxServices: [AWS Lambda（lambda 集成与 Lambda 授权器）]
+  type: param
+  port: null                                  # 参数型：没有端口；感知器 modules/detectors/social-api.ts
+  switch: { var: SOCIAL_API_BASE_URL, kind: param }   # 空 = EC2 上的 Express /social（capabilities 驱动名 express）；非空 = apigw
+  ownsEnv: [SOCIAL_API_]
+  credentials: optional                       # EC2 侧只有控制面探针 apigateway:GET；缺凭证时 CRED-004
+  prerequisites: [toolchain]                  # 仅 lambda 集成或 Lambda 授权器需要部署包
+  requires:
+    - { rule: DEP-022, when: { SOCIAL_API_INTEGRATION: lambda }, need: ["social-store"] }
+    - { rule: DEP-023, when: { SOCIAL_API_AUTHORIZER: jwt }, need: ["auth"] }
+    - { rule: DEP-024, when: { SOCIAL_API_INTEGRATION: lambda }, need: ["SOCIAL_API_AUTHORIZER!=none"] }
+    - { rule: DEP-025, when: { SOCIAL_API_INTEGRATION: lambda }, need: ["notification | queue"], severity: warn }
+  soft: [auth, social-store, notification, queue, tls, cdn, load-balancer, monitoring]
+  authoritative: false                        # 参数型入口；社交数据的权威性在 social-store
+  multiInstanceSafe: { express: true, apigw: true }   # proxy 回源必须指向 ALB（多实例时）
+  bypass: []                                  # 按 URL 的 A/B：Express /social 一直在线
+  secretParams: [origin-verify]               # 与 cdn 共用；值在 secrets.env，没有才生成
+  injects:
+    - { target: monitoring, params: { SocialApiId: "${Out.InfoApiId}" } }
+  # 本栈接收的注入：OriginBaseUrl（load-balancer）；CertificateArn（tls）；UserPoolId、UserPoolClientId（auth）；SocialTableName（social-store）；
+  #   NotifyTopicArn（notification）、JobsQueueUrl（queue）；KmsKeyArn（kms）
+  stacks: [{ name: main, template: infra/modules/social-api.yaml }]
+  migration: null                             # 本模块没有数据；社交数据迁移归 social-store
+  detector: detectors/social-api.ts           # 统计带 X-CloudAlbum-Via: apigw 的请求占比
+  probe: { kind: active, method: "GET {SOCIAL_API_BASE_URL}/social/health（经网关）+ apigateway:GET", intervalSec: 30 }
+  billing: [{ resource: "HTTP API 请求", dimension: request }, { resource: "Lambda 集成 / 授权器的请求与 GB-秒", dimension: request }]
+  lab:
+    summary:
+      local: "Express /social 路由，同源访问，限流与 401 都发生在 EC2"
+      aws: "API Gateway HTTP API：网关层限流、授权、访问日志；lambda 集成时请求不经过 EC2"
+    compare: before-after                     # 另有按 URL 的 A/B（两个入口同时在线）
+    sideBySide: false
+    keyMetrics: ["端到端 p50 / p95", "Latency − IntegrationLatency", "限流时 EC2 实际收到的请求数", "EC2 停机时社交功能是否可用"]
+    hourlyBilled: false
+    experiments: [mixed, compare, throttle, unauth, cold-start, ec2-down]
+    badges: { local: "评论经 Express（EC2）", aws: "评论经 Amazon API Gateway", degraded: "API 网关降级", error: "API 网关不可用" }
+  doc: docs/modules/04-compute-async.md#social-api
+```
+
+- 跨模块参数全部来自提供方的 `injects`（公共约定 2）：auth → `UserPoolId` / `UserPoolClientId`；social-store → `SocialTableName`；notification → `NotifyTopicArn`；queue → `JobsQueueUrl`；tls → `CertificateArn`；load-balancer → `OriginBaseUrl`（即 `ProxyOrigin`）。没有 `ImportValue`。
+- 与本地 ES256 + JWKS 的组合（D8）：HTTP API 的 JWT 授权器只支持 RSA 系列算法（API Gateway 开发者指南“JWT authorizers”，2026-10-13 核实），本地令牌是 ES256，所以 auth=local 时只有两种做法——**Lambda 授权器**（用 `/.well-known/jwks.json` 的公钥校验，不共享任何密钥），或 **proxy 集成 + `Authorizer=none`**（由 Express 用 `AuthPort` 校验）。`jwt` 授权器只与 auth=cognito（RS256）搭配，DEP-023 在启动时拒绝其他组合。
 
 ### 1. 基线实现（仅 EC2）
 
@@ -1777,17 +2360,21 @@ const image = useS3
 **实现要点**
 
 - 业务逻辑放在独立的 `backend/src/social/service.ts`，只依赖 `SocialStorePort`（由 social-store 模块决定是 db 还是 dynamodb）和一个 `PhotoAccess` 接口（判断照片是否存在、是否可见、是否已被拦截）。Lambda 直接复用这个文件，保证两种实现的逻辑一致。
-- 认证：沿用 B 组 auth 模块的会话模型。同源请求带 HttpOnly Cookie `ca_at`；跨域请求带 `Authorization: Bearer <token>`，令牌由前端调用 `GET /api/auth/session` 取得，只保存在内存里。Express 的认证中间件两种都接受，统一调用 `AuthPort.verifyAccessToken()`。Bearer 请求不受 CSRF 影响；Cookie 请求沿用 B 组的双提交 CSRF 校验。
+- 认证：沿用 B 组 auth 模块的会话模型。同源请求带 HttpOnly Cookie `ca_at`；跨域请求带 `Authorization: Bearer <token>`，令牌由前端调用 `GET /api/auth/session?for=social` 取得（B 组 auth 已提供：local 模式返回本地 ES256 访问令牌，cognito 模式返回 ID 令牌），只保存在内存里。Express 的认证中间件两种都接受，统一调用 `AuthPort.verifyAccessToken()`。Bearer 请求不受 CSRF 影响；Cookie 请求沿用 B 组的双提交 CSRF 校验。
 - 限流：`express-rate-limit`，按“用户 + IP”计数，上限为 `SOCIAL_RATE_LIMIT_PER_MIN`。计数存在 `CachePort.incr()` 里：none 或 memory 时按进程计数；cache=redis 时多实例共享（总纲 ASG-013）。
 - 参数校验用 zod；被拦截（`BLOCKED`）的照片拒绝新的评论和点赞。
 - 前端：`frontend/src/api/social.ts` 读取 capabilities 中的 `social-api.public.baseUrl`，为空时使用同源相对路径 `/social`，不需要 CORS（总纲 12.2）。
-- 能力注册：`social-api = {driver: null, status: 'off', detail: '点赞/评论由 EC2 上的 Express /social 路由提供', public: {baseUrl: ''}}`。
+- 能力注册：`social-api = {driver: 'express', status: 'off', localHealth: 'ok', detail: '点赞/评论由 EC2 上的 Express /social 路由提供', public: {baseUrl: ''}}`（与总纲 6.1 示例一致）；启用后 `driver: 'apigw'`，detail 写集成档与授权器。
 
 ### 2. AWS 实现
 
 **CloudFormation：`infra/modules/social-api.yaml`**
 
-模板参数：`Integration=proxy|lambda`、`Authorizer=none|jwt|lambda`、`ProxyOrigin`（proxy 集成的回源地址）、`ThrottleRate`、`ThrottleBurst`、`AppOrigin`（CORS 允许的前端源）、`UserPoolId` / `UserPoolClientId`（jwt 授权器）、`JwksJson`（Lambda 授权器校验本地令牌用的公钥）、`SocialTableName`（lambda 集成）、`NotifyTopicArn`（可选）、`OriginVerifyValue`（`NoEcho`）。
+模板参数（没有 `ImportValue`，D2）：
+- 本模块自己的：`Integration=proxy|lambda`、`Authorizer=none|jwt|lambda`、`ThrottleRate`、`ThrottleBurst`、`AppOrigin`（CORS 允许的前端源，取 capabilities 的有效入口 URL）。
+- 由提供方 `injects` 注入（未注入时为空，模板用 `Condition` 判断）：`ProxyOrigin`（load-balancer 的 `OriginBaseUrl`；未注入时 `scripts/module` 用基础上下文的 `http://<EIP>`）、`UserPoolId` / `UserPoolClientId`（auth）、`SocialTableName`（social-store）、`NotifyTopicArn`（notification）、`JobsQueueUrl`（queue）、`CertificateArn`（tls，区域自定义域名）。
+- 由 `scripts/module` 从实例读取：`JwksJson`（auth=local 时 `GET /.well-known/jwks.json` 的内容，含当前与上一版本的 `kid`；公钥，不是机密）。
+- 机密（registry `secretParams: [origin-verify]`）：`OriginVerifyValue`（`NoEcho`）。secrets=env 时从 `secrets.env` 的 `ORIGIN_VERIFY` 读出（cdn 已生成就复用，否则生成并写回）；secrets=secretsmanager 时改用动态引用。
 
 | 资源 | 关键配置 |
 |---|---|
@@ -1796,12 +2383,12 @@ const image = useS3
 | `AccessLogGroup`：`/cloudalbum/<env>/social-api/access` | JSON 格式，字段包括 `$context.requestId`、`routeKey`、`status`、`integrationLatency`、`responseLatency`、`authorizer.error`、`integrationErrorMessage`；保留 14 天 |
 | 路由 | 每个接口一条显式路由，这样可以按路由决定是否需要授权：GET 类与 `/social/health` 不挂授权器，写操作挂授权器 |
 | proxy 集成（`Integration=proxy`） | `HTTP_PROXY`，`IntegrationUri: ProxyOrigin`；参数映射 `overwrite:path = $request.path`（原样转发路径），`overwrite:header.X-CloudAlbum-Via = apigw`（总纲 3.3 的感知头），`overwrite:header.X-Origin-Verify = OriginVerifyValue`（见下文“源站校验”）；超时上限 30 秒（以官方文档为准） |
-| lambda 集成（`Integration=lambda`） | `AWS_PROXY`，`PayloadFormatVersion: 2.0`，指向函数别名 `live`。函数 `cloudalbum-<env>-social-api-handler`：`nodejs22.x`、`arm64`、256MB、超时 10 秒；代码在 `lambdas/social-api/`，用 esbuild 打包 `backend/src/social/service.ts` 与 social-store 的 dynamodb 适配器；执行角色只允许对 `SocialTableName` 及其索引执行读写，以及可选的对 `NotifyTopicArn` 的 `sns:Publish`；参数 `ReservedConcurrency` 默认留空（新账号的并发配额可能很低） |
+| lambda 集成（`Integration=lambda`） | `AWS_PROXY`，`PayloadFormatVersion: 2.0`，指向函数别名 `live`。函数 `cloudalbum-<env>-social-api-handler`：`nodejs22.x`、`arm64`、256MB、超时 10 秒；代码在 `lambdas/social-api/`，用 esbuild 打包 `backend/src/social/service.ts` 与 social-store 的 dynamodb 适配器；执行角色只允许对 `SocialTableName` 及其索引执行读写，以及可选的对 `NotifyTopicArn` 的 `sns:Publish`、对 `JobsQueueUrl` 的 `sqs:SendMessage`（DEP-025 的两条通知路径）；参数 `ReservedConcurrency` 默认留空（新账号的并发配额可能很低） |
 | `JwtAuthorizer`（`Authorizer=jwt`，仅 auth=cognito） | `IdentitySource: $request.header.Authorization`；`Issuer: https://cognito-idp.<region>.amazonaws.com/<UserPoolId>`；`Audience: [UserPoolClientId]` |
 | `LambdaAuthorizer`（`Authorizer=lambda`） | `REQUEST` 类型，载荷 2.0，`EnableSimpleResponses: true`，`IdentitySource: $request.header.Authorization`，结果缓存 300 秒。函数 `…-social-api-authorizer` 用 `jose` 校验签名：auth=local 时用参数 `JwksJson`（EC2 `/.well-known/jwks.json` 中的 ES256 公钥）；auth=cognito 时从 User Pool 的 JWKS 地址拉取并缓存。返回 `{isAuthorized, context: {userId, groups}}`。**只用公钥，不需要任何共享密钥** |
-| `AppPolicy` | 只有探针用的 `apigateway:GET`（读取本 API 的配置）。proxy 集成下 EC2 运行时不需要其他 AWS 权限 |
+| `AppPolicy`：客户托管策略 `cloudalbum-<env>-social-api`（输出为 `PolicyArn`，由 `scripts/module` 附加） | 只有探针用的 `apigateway:GET`（读取本 API 的配置）。EC2 运行时不需要其他 AWS 权限，所以 `credentials: optional` |
 
-Outputs：`EnvSocialApiBaseUrl`（`https://<apiId>.execute-api.<region>.amazonaws.com`）、`EnvSocialApiIntegration`、`EnvSocialApiAuthorizer`、`EnvSocialApiId`、`InfoAccessLogGroup`、`PolicyArn`。
+Outputs：`EnvSocialApiBaseUrl`（`https://<apiId>.execute-api.<region>.amazonaws.com`）、`EnvSocialApiIntegration`、`EnvSocialApiAuthorizer`、`EnvSocialApiId`、`InfoApiId`（注入 monitoring 的 `SocialApiId`）、`InfoAccessLogGroup`、`PolicyArn`。
 
 **组合矩阵**
 
@@ -1812,17 +2399,19 @@ Outputs：`EnvSocialApiBaseUrl`（`https://<apiId>.execute-api.<region>.amazonaw
 | 3 | cognito | proxy → EC2 | jwt | 否 | 无 | 常用的“不写 Lambda”的网关授权方案 |
 | 4 | cognito | lambda | jwt | 是 | social-store=dynamodb；身份映射（见下） | 目标架构 F9；EC2 宕机时社交功能仍可用 |
 | 5 | local | lambda | lambda | 是 | social-store=dynamodb | 不用 Cognito 的全 Serverless 社交 API |
-| — | local | 任意 | jwt | — | — | **不可行**：HTTP API 的 JWT 授权器目前只支持 RSA 系列算法，本地令牌是 ES256（DEP-D05） |
+| — | local | 任意 | jwt | — | — | **不可行**：HTTP API 的 JWT 授权器目前只支持 RSA 系列算法，本地令牌是 ES256（DEP-023） |
+
+auth=local（ES256 + JWKS，D8）时可用的只有第 1、2、5 行：要么用 proxy 集成让 Express 自己校验（不需要任何 Lambda），要么用 Lambda 授权器读取 JWKS 公钥校验。JWKS 同时发布当前与上一版本的 `kid`，本地签名密钥轮换后要重新 `scripts/module enable social-api` 更新 `JwksJson`（在上一版本 `kid` 撤下之前完成）；站点有受信 HTTPS 后，也可以让授权器改为从 `https://<入口>/.well-known/jwks.json` 拉取并缓存。
 
 **lambda 集成的两个前提：身份映射与照片访问**
 
 Lambda 读不到 EC2 上的 `users` 表和 `photos` 表，而社交数据（点赞、评论）用的是内部用户 ID `users.id`（总纲 3.2 的决定 4），权限判断又需要知道照片是否可见、是否被拦截。所以：
 
 - **用户 ID**：
-  - auth=local：令牌的 `sub` 就是内部用户 ID（本地驱动直接以 `users.id` 作为 subject），Lambda 授权器把它放进 `context.userId`。
-  - auth=cognito：令牌里只有 Cognito 的 `sub`。约定 EC2 在首次登录建档（JIT）时调用 `AdminUpdateUserAttributes`，把内部 ID 写入自定义属性 `custom:app_uid`；前端调用社交 API 时使用 ID 令牌（它包含自定义属性），Lambda 从 `event.requestContext.authorizer.jwt.claims['custom:app_uid']` 读取。没有这个声明时返回 `403 IDENTITY_NOT_LINKED`，提示用户回主站重新登录一次。这需要 auth 栈声明这个自定义属性，并允许应用客户端读取它，属于跨模块约定。
-- **照片访问**：social-store=dynamodb 时，EC2 在照片创建、可见性变化、被拦截时，经 SocialStorePort 写一条照片摘要项（`PHOTO#<id> / META`：owner、visibility、status）。Lambda 的 `PhotoAccess` 实现读这一项；Express 的实现读数据库。这需要 social-store 模块提供该项，属于跨模块约定。
-- **通知**：Lambda 写入评论后直接 `Publish` 到 notification 的主题（`origin=lambda`），由 worker 代写站内信；notification 未启用 sns 而 queue=sqs 时，改为把 `notify.fanout` 任务投进 queue 的队列；两者都没有时，经 Lambda 写入的评论不产生通知（DEP-D07，notification 状态为 `degraded`）。
+  - auth=local：令牌的 `sub` 就是内部用户 ID（B 组 auth 已确认：local 模式下 `users.auth_subject = users.id`），Lambda 授权器把它放进 `context.userId`。
+  - auth=cognito：令牌里只有 Cognito 的 `sub`。约定 EC2 在首次登录建档（JIT）时调用 `AdminUpdateUserAttributes`，把内部 ID 写入自定义属性 `custom:app_uid`；前端调用社交 API 时使用 ID 令牌（它包含自定义属性），Lambda 从 `event.requestContext.authorizer.jwt.claims['custom:app_uid']` 读取。没有这个声明时返回 `403 IDENTITY_NOT_LINKED`，提示用户回主站重新登录一次。B 组 auth 已落地：User Pool 声明 `custom:app_uid`，应用客户端的 `ReadAttributes` 包含它、`WriteAttributes` 不包含它（防止用户冒充别人），JIT 建档与 bulk 迁移时写入。
+- **照片访问**：social-store=dynamodb 时，EC2 在照片创建、可见性变化、被拦截时，调用 `SocialStorePort.upsertPhotoSummary()`（总纲 4.2 已收录）写一条照片摘要项（`PHOTO#<id> / META`：owner、visibility、status）。Lambda 的 `PhotoAccess` 实现读这一项；Express 的实现读数据库。
+- **通知**：Lambda 写入评论后直接 `Publish` 到 notification 的主题（`origin=lambda`），由 worker 代写站内信；notification 未启用 sns 而 queue=sqs 时，改为把 `notify.fanout` 任务投进 queue 的队列；两者都没有时，经 Lambda 写入的评论不产生通知（DEP-025，notification 状态为 `degraded`）。
 - **显示名**：评论项只存 `userId`；前端用 `GET /api/users/brief?ids=…` 向 EC2 批量查询显示名（有缓存）。EC2 停机时显示名退化为“用户 xxxx”，这本身也是一个看得见的差异。
 
 **源站校验与传输安全（proxy 集成）**
@@ -1844,7 +2433,7 @@ flowchart LR
     E --> S[SocialStorePort：SQLite 或 DynamoDB]
 ```
 
-**感知与探针**：参数型模块（A·P），没有适配器切换代码。感知器统计最近 5 分钟带 `X-CloudAlbum-Via: apigw` 的请求占比（proxy 集成）；探针请求 `GET {SOCIAL_API_BASE_URL}/social/health`，经网关绕一圈（总纲 6.2）；lambda 集成下由 Lambda 自己生成路径头 `entry=apigw>lambda;social-store=dynamodb`（用与 EC2 相同的观测库）。
+**感知与探针**：参数型模块（A·P），没有适配器切换代码。感知器统计最近 5 分钟带 `X-CloudAlbum-Via: apigw` 的请求占比（proxy 集成）；探针请求 `GET {SOCIAL_API_BASE_URL}/social/health`，经网关绕一圈（总纲 6.2，详见第 10 节）；lambda 集成下由 Lambda 自己生成路径头 `entry=apigw>lambda;social-store=dynamodb`（用与 EC2 相同的观测库；`apigw>lambda` 需总纲 7.2 的 `entry` 取值表补入）。
 
 ### 3. 开关与配置
 
@@ -1878,7 +2467,7 @@ const base = caps.modules['social-api'].public?.baseUrl ?? '';
 export async function socialFetch(path: string, init: RequestInit = {}) {
   const crossOrigin = base !== '';
   const headers = new Headers(init.headers);
-  // GET /api/auth/session?for=social，只存内存：通常是访问令牌；auth=cognito 且 lambda 集成时返回 ID 令牌（含 custom:app_uid）
+  // GET /api/auth/session?for=social（02 auth 提供），只存内存：local 返回本地 ES256 访问令牌；cognito 返回 ID 令牌（含 custom:app_uid）
   if (crossOrigin) headers.set('Authorization', `Bearer ${await session.socialToken()}`);
   return apiClient(`${base}/social${path}`, { ...init, headers, credentials: crossOrigin ? 'omit' : 'same-origin' });
 }
@@ -1898,8 +2487,8 @@ export const requireGateway = (secrets: SecretsPort): RequestHandler => async (r
 
 - 部署时需要部署者凭证；proxy 集成下 EC2 运行时只需要探针权限 `apigateway:GET`。
 - proxy 集成：EC2 源站对 API Gateway 公网可达（L0 的弹性 IP 即可）；私有源站要经 VPC Link（需要 load-balancer 模块）。
-- lambda 集成：social-store=dynamodb（DEP-D04），授权器不为 none（DEP-D06），工具链栈（部署包）；auth=cognito 时还需要身份映射约定（`custom:app_uid`）。
-- jwt 授权器：auth=cognito（DEP-D05）。
+- lambda 集成：social-store=dynamodb（DEP-022），授权器不为 none（DEP-024），工具链栈（部署包）；auth=cognito 时还需要身份映射约定（`custom:app_uid`，02 已落地）。最小集合 {iam, social-store}。
+- jwt 授权器：auth=cognito（DEP-023）。
 - lambda 授权器：auth=local 时，部署时传入本地 JWKS；本地签名密钥轮换后要重新部署本栈（或让授权器从 HTTPS 地址拉取 JWKS）。
 
 **与其他模块组合时的行为变化**
@@ -1910,7 +2499,7 @@ export const requireGateway = (secrets: SecretsPort): RequestHandler => async (r
 | social-store | lambda 集成要求 dynamodb；proxy 集成时 social-store 是 db 还是 dynamodb 都可以 |
 | cdn | 同源 `/social/*` 行为必须用 `AllViewerExceptHostHeader`；网关回源要带与 cdn 相同的 `X-Origin-Verify` |
 | waf | HTTP API 不能直接关联 WAF，要经 CloudFront 挂；一定要在 API 上挂 WAF，就改用 REST API |
-| notification / queue | lambda 集成下评论通知的两条路径（DEP-D07） |
+| notification / queue | lambda 集成下评论通知的两条路径（DEP-025）；两者分别经 `injects` 提供 `NotifyTopicArn`、`JobsQueueUrl` |
 | tagging | 被拦截的照片拒绝新的互动；lambda 集成下依赖照片摘要项中的状态 |
 | cache | Express 的限流计数在 Redis 中多实例共享；HTTP API 本身没有响应缓存（REST API 才有） |
 | load-balancer / autoscaling | `ProxyOrigin` 改为 ALB；多实例时不能指向单台实例的弹性 IP |
@@ -1976,16 +2565,16 @@ export const requireGateway = (secrets: SecretsPort): RequestHandler => async (r
 
 **启用**：`scripts/module enable social-api --param Integration=… --param Authorizer=…`
 
-1. 计划校验：DEP-D04、D05、D06、D07；proxy 集成检查回源地址可达。
-2. 部署栈（lambda 集成或 Lambda 授权器的部署包经工具链桶上传）。auth=local + Lambda 授权器时，`scripts/module` 先从实例读取 `/.well-known/jwks.json`，作为 `JwksJson` 参数传入。
-3. 写 env（含 `SOCIAL_API_BASE_URL`），重启 api：前端下次加载 capabilities 时改用新地址。
+1. 计划校验：DEP-022～025（lambda 集成时再查 `prerequisites: [toolchain]`）；proxy 集成检查回源地址可达；`IAM_CREDENTIALS=none` 时给出 CRED-004 警告（不阻塞）。
+2. 部署栈（lambda 集成或 Lambda 授权器的部署包经工具链桶上传；参数含各提供方的注入值与 `secretParams`）。auth=local + Lambda 授权器时，`scripts/module` 先从实例读取 `/.well-known/jwks.json`，作为 `JwksJson` 参数传入。
+3. `PolicyArn` 附加到 `CloudAlbumAppRole`（keys 模式下附加到演示用户；`IAM_CREDENTIALS=none` 时跳过并记 CRED-004），附加关系记入 state.json；执行本模块的 `injects`（monitoring 的 `SocialApiId`）；写 env（含 `SOCIAL_API_BASE_URL`），重启 api：前端下次加载 capabilities 时改用新地址。
 4. 健康探针：经网关请求 `GET <base>/social/health`，确认响应头中的路径为 `entry=apigw>…`。
 
 **数据**：本模块没有数据。社交数据从 db 迁到 dynamodb 是 social-store 模块的职责（总纲 9.3）。
 
 **Lambda 发布**：新版本发布到别名 `live`，可以用别名的权重路由做 90/10 灰度。
 
-**停用 / 回滚**：`scripts/module disable social-api`。先把 `SOCIAL_API_BASE_URL` 置空并重启 api，前端立刻回到 Express；如果打开过 `SOCIAL_API_REQUIRE_GATEWAY`，这一步同时把它关掉。确认网关上已经没有流量（访问日志），再删除栈。
+**停用 / 回滚**：`scripts/module disable social-api`。先把 `SOCIAL_API_BASE_URL` 置空并重启 api，前端立刻回到 Express；如果打开过 `SOCIAL_API_REQUIRE_GATEWAY`，这一步同时把它关掉。确认网关上已经没有流量（访问日志），再用空值更新 monitoring 栈的 `SocialApiId`、分离 `PolicyArn`、删除栈。
 
 ### 7. SAA 考点
 
@@ -2012,11 +2601,71 @@ export const requireGateway = (secrets: SecretsPort): RequestHandler => async (r
 
 - CloudFront 回源 API Gateway 时转发了 Host 头，会得到 403，要用 `AllViewerExceptHostHeader` 源请求策略。
 - HTTP API 不能直接挂 WAF，也不支持 X-Ray 主动追踪、API Key 和使用计划；需要这些功能时改用 REST API，或在前面加 CloudFront。
-- JWT 授权器只支持 RSA 系列算法，而且必须能通过 HTTPS 从 issuer 取得公钥：本地 ES256 令牌不能用它，要改用 Lambda 授权器。
+- JWT 授权器只支持 RSA 系列算法，而且必须能通过 HTTPS 从 issuer 取得公钥：本地 ES256 令牌不能用它，要改用 Lambda 授权器，或者干脆用 proxy 集成让 Express 自己校验（DEP-023）。
 - 公钥轮换：API Gateway 会把公钥缓存最长约 2 小时（以官方文档为准），轮换时新旧公钥要同时有效一段时间。
 - Lambda 授权器开启结果缓存后，吊销令牌、禁用用户、修改用户组都不会立刻生效；本地认证的 `token_version` 吊销机制在网关层也看不到，要等令牌过期。
 - proxy 回源到 EC2 时，EC2 仍然暴露在公网，攻击者可以绕过网关直连：应打开 `SOCIAL_API_REQUIRE_GATEWAY`，或改用 VPC Link + 私有 ALB。
 - L0 下网关到 EC2 是明文 HTTP，Bearer 令牌在公网上传输；正式使用前一定要换成受信证书的 HTTPS 源站。
-- lambda 集成而 social-store 仍是 SQLite 时根本无法工作，`scripts/module` 必须拒绝（DEP-D04）。
+- lambda 集成而 social-store 仍是 SQLite 时根本无法工作，`scripts/module` 必须拒绝（DEP-022）。
 - auth=cognito + lambda 集成时，忘了在 JIT 建档时写入 `custom:app_uid`，所有写请求都会返回 `IDENTITY_NOT_LINKED`。
 - 跨域调用时浏览器不会带上主站的 HttpOnly Cookie：要用 `Authorization` 头，并且不要为了图方便把令牌存进 localStorage。
+
+### 10. 探针
+
+| 状态 | 常规探针（30 秒 ±5 秒） | 深度探针 | `degraded` 判据 | `error` 判据 | 所需权限 |
+|---|---|---|---|---|---|
+| 未启用（`express`） | 无 AWS 调用；`status=off`。`localHealth`：`GET /social/health` 在本机返回 200 | — | — | Express 路由不可用（随 api 进程） | — |
+| 已启用（`apigw`） | ① `GET {SOCIAL_API_BASE_URL}/social/health`，经网关绕一圈，确认响应带 `apigw-requestid`、路径头 `entry=apigw>…`；② 被动统计最近 5 分钟带 `X-CloudAlbum-Via: apigw` 的请求占比（proxy 集成） | `apigateway:GET /apis/{id}`：集成类型、授权器、阶段限流与 `SOCIAL_API_*` 一致 | 延迟 > 1 秒；前端仍在用同源入口（占比为 0）；DEP-025 命中；`IAM_CREDENTIALS=none`（CRED-004，只剩探针 ①） | 网关返回非 2xx 连续 3 次；API 不存在 | 本栈 `PolicyArn`：`apigateway:GET`（探针 ① 不需要 AWS 凭证） |
+
+- social-api 是参数型入口，没有运行时回退：网关不可用时浏览器的跨域请求直接失败，前端提示“社交服务暂不可用”，由管理员决定是否 `disable social-api` 切回同源入口；Express `/social` 始终保留，所以按 URL 的 A/B 不受影响。
+
+### 11. 前端徽章
+
+| 位置 | 本地实现（Express） | AWS 实现（API Gateway） | 数据来源 |
+|---|---|---|---|
+| 评论区 | 灰色“评论存于 EC2 数据库 · 经 Express”（social-store=dynamodb 时为“评论存于 DynamoDB · 经 Express”） | 橙色“评论存于 DynamoDB · 经 API Gateway”（proxy 集成 + db 时为“评论存于 EC2 数据库 · 经 API Gateway”） | capabilities：social-store、social-api；请求级：`entry=` 段 |
+| 浏览器网络面板（观察点，不是徽章） | 同源 `/social/*` | `execute-api` 域名、响应头 `apigw-requestid` | — |
+| `/lab` 卡片 | 灰色链路图“浏览器 → Nginx → Express” | 橙色链路图“浏览器 → API Gateway → EC2 / Lambda → DynamoDB”；“入口切换”开关（只影响当前浏览器，保存在 localStorage） | capabilities：social-api |
+| 401 / 429 来源 | “由 EC2 返回” | “由网关返回”（响应没有 `X-CloudAlbum-Path`） | 请求级：是否有路径头 |
+
+- registry 的 `lab.badges` 写法见第 0 节（与总纲 12.3 “评论区”一行一致）。
+
+## 修订记录
+
+### 2026-10-13 第 2 轮：收敛修订（落实完整性评审与主设计者统一决策 D1～D15）
+
+文中 D1～D15 指主设计者在本轮拍板的统一决策；DEP / CRED / CFG / ASG / MUTEX 编号以评审 consistency_issues 的统一编号为准。
+
+**已落实**
+- 规则（D3）：本组 `DEP-D01～D09` 全部改为 DEP-019～027，DEP-008 的引用改为 DEP-022～025；规则只写在 `rules.ts`，依赖只用 registry 的 `requires` / `conflicts` 表达式书写（公共约定 3 给出完整写法，含 MUTEX-004/005、ASG-005/006/011/013）；配置错误一律退出码 78，不做任何回退装配。
+- 凭证（D1）：统一为 `IAM_CREDENTIALS=none|role|keys`；registry 标注 `credentials`（6 个适配器型模块 `required`，social-api `optional`）；CRED-001 / 002 / 004 按新定义书写；各模块“硬依赖”改写为凭证前置。
+- 跨栈（D2）：删除全部 `ImportValue` 式取值，模板参数一律来自提供方的 `injects` 或基础上下文；策略命名 `cloudalbum-<env>-<id>`，由 `scripts/module` 附加并记入 state.json，启停步骤补上附加 / 分离与注入撤销。本组声明的注入：email → auth（`SesIdentityArn`，取代旧稿的 `AllowCognito` + auth `EmailViaSes` 手工两步；禁用 email 不再“拒绝”，改为先撤销注入）、tagging → workflow（`EnableRekognition`）、notification / queue → social-api（`NotifyTopicArn` / `JobsQueueUrl`）、queue / image-processing / social-api → monitoring（告警维度）。
+- queue 边界（评审 gap）：公共约定 4 与 queue 第 2 节列出全部模块自带队列（registry `auxQueues`）及其与 queue 模块的区别；`/lab` queue 卡片第二栏、capabilities 只统计本模块队列；`upload-burst` 的 `experiment.json` 要求 `IMAGE_PROCESSOR=worker`（标签 `l0` / `before` / `after` 与总纲 8.2 一致）；gen-single 为 `single/queue.env` 自动写入本地档 `IMAGE_PROCESSOR=worker`。
+- email（评审 gap）：新增 outbox 档的本人邮件预览 `/me/outbox`（`GET /api/me/outbox`；未验证的受限会话可访问；开关 `featureFlags['email.selfPreview']`；明确标注“本地实现，未真正发信”以及“不能证明邮箱归属”这一对照点）；outbox 页面统一为 `/admin/outbox`。
+- social-api（D8）：写清本地 ES256 + JWKS 与 HTTP API JWT 授权器（只支持 RSA 系列，2026-10-13 核实官方文档）的关系——auth=local 用 Lambda 授权器或 proxy 档；`custom:app_uid`、`GET /api/auth/session?for=social`、“local 令牌的 `sub` 即 `users.id`”按 02 已落地的约定改写；照片摘要项改用总纲已收录的 `upsertPhotoSummary()`；capabilities 驱动名 `express` / `apigw`。
+- image-processing：增加 workflow（Step Functions，06）扩展说明、MUTEX-005 与 Lab 11 扩展步骤；内部端点改由 registry `internalEndpoints` 生成，删除本模块投放 Nginx 片段的步骤；DEP-020 按 01 cdn 的决定（cdn 不放行 `/internal/*`）改写；增加栈参数 `Tracing`（05 tracing 的要求）；端口方法签名对齐总纲 4.2；路径头旁路结果改为 `inline:bypass`；`IMAGE_INLINE_CONCURRENCY` 默认值对齐总纲 zod 的 2；`image.reconcile` 顺带清理 `uploads/.incoming/`（02 的要求）；修正 zod 判别联合成员上不能用 `refine` 的写法。
+- 运行时（D4）：EC2 与 Lambda 统一 Node.js 22 LTS（`nodejs22.x` arm64），删除“也可选 nodejs24.x”；按 Lambda 运行时页面（2026-10-13 核实）注明 `nodejs20.x` 已弃用、`nodejs22.x` 的预测弃用日期。
+- 机密（D5）：`callback-hmac-key`、`origin-verify` 只在 `secrets.env` 或 Secrets Manager，经 registry `secretParams` 以 `NoEcho` 参数交给栈；modules.d 只写 ARN 或逻辑名。D6：worker 产物的权限与 L0 冒烟测试断言写入 image-processing。
+- 路径头与端口（D9）：tagging 改为 `rekognition:s3-object` / `rekognition:bytes`，image-processing 旁路改为 `inline:bypass`，email 增加 `outbox:preview`；端口文件与驱动名、权威（image-processing、queue）/ 非权威（notification、email、scheduler、tagging）分类写入公共约定 11 与各模块第 10 节。
+- scheduler：任务从 6 个增加到 8 个（`analytics.retention`、`audit.retention`），schedule 数、导出参数与探针同步；`LOCK_FILE_DIR` 改为引用总纲 4.2；对照开关 `SCHEDULER_COMPARE_HEARTBEAT` 改写在 `modules.d/scheduler.env`（不再写进基础配置 `cloudalbum.env`）。
+- 档位与 Lab（D11、D12）：公共约定 12 按评审的 Lab 顺序与新档位名改写（l0-plus-local-tiers、l3-identity、l4-async、l7-serverless-social、l9-full、x-named-comparisons、single/<id>）。
+- 模板（D10）：每个模块增加“0. 元数据（registry 摘录）”“10. 探针”“11. 前端徽章”，二级标题前加显式锚点。
+- 事实核实（D14）：SQS 1 MiB 上限、JWT 授权器的 RSA 限制、Lambda Node 运行时日期均于 2026-10-13 对照官方来源，并在文中注明。
+- 本组上一轮 unresolved 的落地：总纲已吸收的项（acceptCallback / acceptResult、`IMAGE_RESULT_CHANNEL` / `IMAGE_TRIGGER`、`lab.heartbeat`、NotificationEvent 的 `audience` / `eventId` / `origin`、DEP-022～025、128×128 探针、`LOCK_FILE_DIR`、Node 22）改为引用总纲；B 组的 `custom:app_uid` 与会话接口、C 组的照片摘要项、A 组“cdn 不放行回调路径”、E 组承接的“EC2 停机告警”实验均按各组定稿改写。
+
+**未采纳或有偏差的评审意见（理由）**
+- 评审建议的子选项 `AUTH_LOCAL_VERIFY=outbox|self-preview`：未采纳，改用运行时热键 `featureFlags['email.selfPreview']`。理由：不为 auth 新增开关取值；可以不重启地关闭；`overlay-public-demo` 统一管理。
+- `ImageProcessorPort` 的回写方法：方法名与参数对齐总纲，但返回值保留本组细化 `ImageResult | ImageFailure`（Lambda 的永久错误也走同一条幂等写回）；原 `reconcile()` 返回的 `recovered` 改为指标 `biz.image_reconcile_recovered`，以免改动总纲签名。
+- 模块自带队列的物理名保持 `cloudalbum-<env>-<模块 id>-<后缀>`，registry `auxQueues.name` 采用总纲示例的短名（`image-failed` 等），两者在公共约定 4 中对照列出。
+- `/me/outbox` 不展示 `password-reset` 类别：忘记密码的用户无法登录，展示它只会扩大 outbox 档“验证不能证明归属”的问题。
+
+**仍需其他文件配合**
+- （第 3 轮核对后更新）第 2 轮在这里列出的多数事项已经完成：总纲 `Image` zod 的两个变量、3.4 的 DEP-020 / DEP-021、5.1 的 `need: []` + `check()` 写法、7.2 的 `apigw>lambda` 与 `email=outbox:preview`、10.2 / 10.3 的新档位名与规则编号；00 的 `CALLBACK_HMAC_KEY` 与 `internalEndpoints` location；01 的 `OriginBaseUrl`、`HostedZoneId` 注入；02 的 auth → social-api 注入；03 的 storage、social-store 注入与 DEP-022；05 monitoring 改为接收注入；06 workflow 接收 `EnableRekognition`。
+- 仍未在总纲登记（不影响依赖校验，留待下一轮）：`Email` 分段的 `EMAIL_SANDBOX_POLICY`、`EMAIL_FOR_COGNITO`；4.2 回写返回值 `ImageFailure`；端点 `/api/me/outbox`、`/api/admin/queue/drain`、`/api/users/brief` 与 `featureFlags['email.selfPreview']`；auth=local 注册后的“未验证”受限会话需 02 组确认。
+- 风险提示：Lambda 运行时页面给出的 `nodejs22.x` 预测弃用日期是 2027-04-30（2026-10-13 核实），D4 的统一版本需要提前规划下一次升级。
+
+### 2026-10-13 第 3 轮：审计修复
+
+- 公共约定 2 的注入表：storage、load-balancer、auth、social-store 对本组的注入已由 03、01、02、03 声明，删除“待 0N 声明”；image-processing 与 social-api 第 0 节补“本栈接收的注入”注释（`OriginBaseUrl`、`UserPoolId` / `UserPoolClientId`、`SocialTableName` 等）。
+- 路径头 `entry=apigw>lambda`、image 分段的 `IMAGE_WORKER_CONCURRENCY` / `IMAGE_FAILURE_QUEUE_URL` 已由总纲 7.2、4.4 收录，相应的“需总纲登记”字样改为已收录；总纲 3.4 的 image-processing 摘录补上 DEP-020、DEP-021。
+- 第 2 轮修订记录中“仍需其他文件配合”的过时事项（总纲 10.2 / 10.3 的旧档位名、`AWS_CREDENTIALS_SOURCE`、DEP-008 等）已删除，只保留仍未登记的 `EMAIL_SANDBOX_POLICY`、`EMAIL_FOR_COGNITO`、`ImageFailure` 与几个端点。
