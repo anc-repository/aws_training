@@ -1,0 +1,49 @@
+#!/usr/bin/env bash
+# /opt/atl/bin/atl-check — the only command of the SSM document ATL-RunCheck (04 §6.1, §6.3).
+# Parameters arrive as SSM_<name> environment variables (interpolationType: ENV_VAR); nothing is ever spliced into a
+# command line. The launcher re-checks every parameter with the document's allowedPattern, selects the bundle directory by
+# the digest the platform pinned, recomputes the manifest digest and only then executes the runner with Node 22.
+# Fixed argv, no shell evaluation of parameters. On failure it prints one ATL-RESULT-V1 line with an errorCode.
+set -u
+umask 077
+
+ATL_ROOT=${ATL_ROOT_OVERRIDE_FOR_TESTS:-/opt/atl}
+
+b64url() { base64 -w0 | tr '+/' '-_' | tr -d '='; }
+
+fail() {
+  local code=$1 msg=$2 now
+  now=$(date -u +%Y-%m-%dT%H:%M:%S.000Z)
+  # values are emitted only when they passed their pattern; anything else is reported as null
+  local rt='null' sid='null' dg='null' cid='null'
+  [[ ${SSM_RunToken:-} =~ ^[A-Za-z0-9_-]{22,64}$ ]] && rt="\"$SSM_RunToken\""
+  [[ ${SSM_SessionId:-} =~ ^s[0-9a-hjkmnp-tv-z]{12}$ ]] && sid="\"$SSM_SessionId\""
+  [[ ${SSM_BundleDigest:-} =~ ^[a-f0-9]{64}$ ]] && dg="\"$SSM_BundleDigest\""
+  [[ ${SSM_CheckId:-} =~ ^(batch|[a-z][a-z0-9-]{1,31}(\.[a-z][a-z0-9-]{1,31})?)$ ]] && cid="\"$SSM_CheckId\""
+  local json
+  json=$(printf '{"schema":"atl.runcheck.result/v1","key":"launcher","checkId":%s,"runToken":%s,"sessionId":%s,"bundle":{"version":null,"digest":%s},"host":{"instanceId":null,"role":null},"startedAt":"%s","durationMs":0,"status":"error","errorCode":"%s","message":"%s","observed":null,"truncated":false}' \
+    "$cid" "$rt" "$sid" "$dg" "$now" "$code" "$msg")
+  printf 'ATL-RESULT-V1 %s\n' "$(printf '%s' "$json" | b64url)"
+  echo "atl-check: $code: $msg" >&2
+  exit 3
+}
+
+for v in SSM_CheckId SSM_ArgsB64 SSM_RunToken SSM_SessionId SSM_BundleDigest SSM_TimeoutSec; do
+  [ -n "${!v:-}" ] || fail RUNNER_UNAVAILABLE "missing $v (SSM Agent too old for ENV_VAR?)"
+done
+[[ $SSM_CheckId =~ ^(batch|[a-z][a-z0-9-]{1,31}(\.[a-z][a-z0-9-]{1,31})?)$ ]] || fail RUNNER_INTEGRITY "bad CheckId param"
+# length checked separately: some regex engines cap {m,n} at 255 (RE_DUP_MAX)
+[[ ${#SSM_ArgsB64} -ge 2 && ${#SSM_ArgsB64} -le 6000 && $SSM_ArgsB64 =~ ^[A-Za-z0-9_-]+$ ]] || fail RUNNER_INTEGRITY "bad ArgsB64 param"
+[[ $SSM_RunToken =~ ^[A-Za-z0-9_-]{22,64}$ ]] || fail RUNNER_INTEGRITY "bad RunToken param"
+[[ $SSM_SessionId =~ ^s[0-9a-hjkmnp-tv-z]{12}$ ]] || fail RUNNER_INTEGRITY "bad SessionId param"
+[[ $SSM_BundleDigest =~ ^[a-f0-9]{64}$ ]] || fail RUNNER_INTEGRITY "bad digest param"
+[[ $SSM_TimeoutSec =~ ^([1-9]|[1-7][0-9]|80)$ ]] || fail RUNNER_INTEGRITY "bad TimeoutSec param"
+
+B="$ATL_ROOT/checks/$SSM_BundleDigest"
+[ -d "$B" ] || fail RUNNER_INTEGRITY "bundle not installed"
+actual=$(sha256sum "$B/manifest.json" 2>/dev/null | cut -d' ' -f1)
+[ "$actual" = "$SSM_BundleDigest" ] || fail RUNNER_INTEGRITY "manifest digest mismatch"
+NODE=$(command -v node || true)
+[ -n "$NODE" ] || fail RUNNER_UNAVAILABLE "node not found"
+# the runner re-validates the parameters and verifies the SHA-256 of every file listed in the manifest before loading it
+exec "$NODE" --disable-warning=ExperimentalWarning "$B/runner.mjs"

@@ -1202,3 +1202,131 @@ cfn-lint 不是 npm 依赖：`pip install cfn-lint` 或设 `ATL_CFN_LINT=<路径
   `dist/content/<digest>/manifest.json` 带 `catalogVersion`。
 - **根 / platform 的 package.json（不在本节路径内）**：`platform/package.json` 的 `publish:s3` 改为转发到 `npm run publish:s3 -w @atl/infra --`；
   `platform:build` 可追加 `npm run package -w @atl/infra`。
+
+## platform-checks
+
+04 的检测引擎、进度、报告与证书（`atl-checks`、`atl-certs`、`atl-public`）以及实验机检查包。名称一律取自 `@atl/shared`。
+
+### 1. 目录
+
+```
+platform/checks/                     实验机检查包（只用 Node 内置模块；README.md 写明构建与发布契约）
+  bin/atl-check                      /opt/atl/bin/atl-check：复核 SSM_* 参数 → 按摘要选目录 → 复算 manifest 摘要 → exec node runner
+  bin/atl-check.mjs                  同一启动器的 Node 版（ATL_DEV_CHECK_RUNNER 与测试用，不进发布包）
+  src/runner.mjs                     参数第三道复核、逐文件 SHA-256、batch（≤ 10）、args schema、ATL-RESULT-V1 行（≤ 16 KB 截断）
+  src/checks/<checkId>.mjs           04 §6.4 的 25 个 checkId（别名 atl.capabilities、atl.lab-metrics、cloudalbum-probe-token）
+  src/args-schemas.mjs src/lib/      args schema、宿主上下文（CloudAlbum CLI、IMDSv2、探测令牌）、HTTP 探测、capabilities 投影
+  build.mjs                          → dist/atl/{bin/atl-check, checks/<bundleDigest>/…}、dist/bundle.json
+platform/api/src/functions/checks/   atl-checks
+  handler.ts index.ts flows.ts       动作：RunChecks、SubmitAttempt、FinalizeAttempt、HealthGate / RunHealthGate、Preflight、StepAction、
+                                     ApplyManualConfirmation / ApplyManualReview、CrossCheckExperiment、ExperimentRegistered、ExpiringPrecheck、
+                                     LateOwnership、CleanupVerify、DriftPatrol；EventBridge 事件 session.state_changed、reclaim.pass_completed
+  lifecycle-gates.ts                 atl-lifecycle 的 Preflight / RunHealthGate 契约（按 lifecycle 的请求与结果形状）
+  types.ts                           04 §5.1 检查定义、结果、证据信封、CheckRun 结果项
+  engine/                            jsonpath、template（{{ ns.path | filter }}、{{$.…}}、{{$check.…}}）、expr（when）、assert（21 个运算符 +
+                                     where / anyOf / severity / pendingIf）、healthy、redact、evidence、runcheck（ATL-RunCheck 客户端）、discovery、
+                                     ownership（栈 → 台账 → 父资源 → OwnershipLookup）、targets、safe-fetch + net（出站防护）、builtins、
+                                     experiments（§7.4）、context（变量命名空间、白名单调用、缓存、重试）、executors、run、facts
+  verifier/allowlist.ts iam-map.ts   04 §5.7 白名单、禁止清单、SDK 操作 → IAM 动作
+  aws/engine-ports.ts                生产端口：扮演 ATLVerifierRole（会话名 atl-<sid>-verify + 会话标签）调用白名单 SDK、SafeFetch、ip-ranges.json
+  dev/engine-ports.ts                ATL_DEV_MODE 端口：FakeAws（dev 约定 + fixtures）、DevHttp（*.dev.atl.test → 本地 CloudAlbum）
+platform/api/src/functions/certs/    atl-certs（报告、导出、分享、证书、吊销列表、JWKS、验证页）；invalidate.ts（CloudFront 失效）
+platform/api/src/functions/public/   atl-public：publicHealth、publicGetCertificate、publicListKeys、publicGetKey
+platform/api/src/services/progress/  store（ItemStore + 乐观锁 mutate）、model（有效结果、步骤状态、完成规则、证据分、徽章等级）、evaluator（折叠结果、
+                                     漂移、步骤重算）、attempt（LabAttempt、LabProgress、徽章、计入）、tracks（路径进度、掌握度）、events
+platform/api/src/services/reports/   report（atl.report/v1 + RFC 8785 摘要、修订）、html（自包含 HTML）、charts（内联 SVG）、publish（导出、分享）
+platform/api/src/services/certificates/  jws（ES256）、service（密钥、资格、载荷、签发、吊销、公开）、static-site（验证页、jwks、离线包）、
+                                     verify-core（验证算法的 JS 源码，验证页 / 离线工具 / 测试共用）
+```
+
+### 2. 关键实现
+
+- **检测流程**：`RunChecks` 由 atl-checks 自己写 `CheckRun`（atl-api 只派发 runId）→ 按 `dependsOn` 排序执行 → 结果只追加 → ProgressEvaluator
+  折叠进 `StepResult.checks`（`lastAuto`、`lastDecisive`、`lastPass`、`passEvidence`、`lastManual`）→ 重算全部步骤 → 事件 `check_run.completed`、
+  `step.state_changed`、`step.drifted`。单次运行预算 180 秒，超出的检查记 `error/TIMEOUT`。
+- **六种类型**：`local`（ATL-RunCheck，`instances: all` 逐台判定）、`capability`（每次运行每实例一份快照，`op: healthy` 用卡片 / 检查级
+  `expectedWarnings`）、`http-header`（`from: platform` 走控制面解析的目标 + SafeFetch，`/api/lab/probe/*` 先经 `probe-token` 取一次性令牌；
+  `from: lab` 走 http-probe；`browser` 只展示，记 `skipped`）、`aws-readonly`（代码白名单 → 扮演 ATLVerifierRole → 分页 ≤ 5 → `expectError` →
+  `ownership`）、`experiment`（ExperimentRun.validity + 变体角色 + 成对可比）、`manual`（运行中记 `not_run`，有效结果来自手动确认）。
+- **伪造响应头的防护**（04 §11.4）：平台探测只连控制面解析出的主机（直连已校验的 IP，SNI / Host 用主机名），佐证 `ip-in-aws-ranges`、`tls-san`、
+  源站日志 nonce 计数、源站直连不得带 CDN 头（失败记 `SPOOF_SUSPECTED`）。探测令牌只在内存中使用，证据中打码。
+- **归属**：栈成员（栈 CreationTime ≥ 边界、带本环境 `atl:env-id`、非导入）→ `SessionResource`（创建者会话名属于本会话 / 同一学员的交接链 /
+  `session-or-start` 的运行器 / 本环境栈中的角色）→ 父资源（`aws:cloudformation:stack-name`、`aws:autoscaling:groupName`）→ atl-reaper
+  `OwnershipLookup`（02 §7.12 的请求与结果）。查不到为 `pending/OWNERSHIP_PENDING`，节奏 2、2、4、4、8 分钟记在 `LabAttempt.ownershipLookups`；
+  超过 `maxWaitMinutes`（从步骤开始起算）→ `fail/OWNERSHIP_MISMATCH`。证据记 `provenance`。
+- **漂移**：must-hold 检查 pass → fail 记 `driftEvents`（config / runtime / behavior / ownership），步骤 `drifted`；`once` 检查通过后保持通过（实验检查
+  除外：对比实验被判无效会让步骤回到 failed）；`supersedes` 生效后被取代步骤的 must-hold 降为 once。最终复核只重测 must-hold 与尚未通过的 once 检查。
+- **定稿** `FinalizeAttempt`：幂等（`LabAttempt.finalize`）、不抛出（失败 → `unverified`）、READY 之前结束 → `void`；重测 → 等在途上传（≤ 预算一半）→
+  完成规则 → 徽章（证据分、等级、计入的服务格）→ 同步调用 atl-certs `GenerateReport` 得到 `reportRevision` → 证书资格。
+- **证书**：载荷 RFC 8785 规范化，JWS `{alg: ES256, typ: atl-cert+jws, kid}`，签名经 `SignerPort`（生产 KMS DIGEST + DER→P1363；dev 本地 P-256）。
+  `kid` = JWK 指纹；`SigningKey` 首次使用时登记，换密钥时旧密钥 `validTo` 关闭；`/.well-known/atl/jwks.json` 含全部用过的公钥与 origins；吊销列表
+  `typ: atl-revocations+jws`、`seq` 递增、全量重签。验证算法只有一份 JS 源码（`verify-core.ts`），验证页 `verify/verify.js`、离线 `verify.mjs` 与测试
+  共用；同一路径重新领取时旧证书以 `superseded` 吊销。
+
+### 3. 设计有歧义时的取舍（偏离或细化 04）
+
+1. **代码位置**：检查包源码在 `platform/checks/`（任务指定；04 §6.2、06 PM-04 写的是 `platform/infra/checks-bundle/`）；检查定义与引擎在
+   `functions/checks/`（04 写的 `platform/api/src/checks/…`、`content/check.ts`）；白名单与映射在 `functions/checks/verifier/`；出站防护库在
+   `engine/safe-fetch.ts`（01 写的 `src/net/safe-fetch.ts`，供 atl-api 预览探测共用，集成时可移动）。
+2. **内容格式** `content/<v>/labs/<id>.json`：接受两种形状——`{schema: 'atl.card/v1', lab, checks, sources?, checkHashes?, pitfalls?}`，或展开后的
+   `atl.lab/v2` 顶层对象另带 `checks`（或 `checkDefs`，按本地 id 的展开检查）、`pitfalls`、`checkSources`、`checkHashes`、`contentDigest`。`checkKey`
+   一律为 `<本卡 id>/<本地 id>`；`finalChecks` 存在伪步骤 `_final`，`cleanup.verify` 的结果只进报告。路径定义取 `content/<v>/tracks/<id>.json`，
+   没有时取 `catalog/index.json` / `index.json` 的 `tracks[]`。
+3. **检查包摘要与文档钉扎**：取 `PlatformConfig.checks.{bundleDigest, runCheckDocumentVersion, runCheckDocumentHash}`，没有时取函数环境变量
+   `ATL_CHECK_BUNDLE_DIGEST`、`ATL_RUNCHECK_DOCUMENT_VERSION`、`ATL_RUNCHECK_DOCUMENT_HASH`（需 01 登记其一）。
+4. **dev 引擎接线**：生产入口传 `prodEnginePorts`；`createChecksHandler(getDeps)` 的缺省也是生产端口，但它在 `ATL_DEV_MODE` 下直接拒绝运行（不会碰
+   AWS）。dev 运行时需要改一行：`createChecksHandler(getDeps, undefined, createDevCheckEngine({ dataDir: cfg.dataDir }))`。
+5. **sample.***：`nonce` 每次运行生成；`assetPath` 取应用首页引用的第一个 `/assets/` 文件名（平台经公网入口自己 GET `/`）；`privateMediaPath` 取
+   `/api/lab/probe/media-url`（06）的 `path` 或 `url` 的路径部分。
+6. **步骤开始时间**：`StepResult.firstViewedAt`，其次第一次检测时写入的 `startedAt`；等待型检查与归属等待都以它起算。
+7. **结果取值**：`manual` 检查在运行中记 `not_run`；`http-header from: browser` 记 `skipped/PRECONDITION`；声明了 `expectError` 但调用成功 → `fail`。
+   步骤状态在 04 §8.3 的函数上补两点：`skipped` 的检查不进分母；没有必需检查的步骤在“已读”后为 `done`。
+8. **证据**：脱敏后 ≤ 4 KB 内联，否则写 `atl-data/evidence/<sid>/<runId>/<checkKey>.json`（checkKey 含 `/`，即子目录）；`CheckRun.results[]` 另带
+   `keyAssertions`、`drift`、`pitfalls`、`pendingCrosscheck`、`simulated`。常见错误按 `pitfalls[id].match` 匹配。
+9. **subject.ref / attemptRef**：HMAC-SHA256，密钥由 `PlatformConfig.installationId` 派生（01 未给 installSalt；它与 installId 都公开，只能避免直接
+   暴露 sub / sid，不能防字典比对；建议 01 增加不公开的盐）。
+10. **健康门**：`caps.profile` 的期望 = 起始档位中 `kind: module` 的条目（驱动 `*`，只判健康）；目标模块不参与（02 §3.6）。卡片内容缺失时健康门照常
+    执行（最小卡片）。`RunHealthGate` 的 `NOT_READY` = 失败全部是通道 / 运行器 / 超时类错误。
+11. **Preflight**：默认 VPC（FAIL `PREFLIGHT_NO_DEFAULT_VPC`）、目标涉及 GuardDuty / Config / CloudTrail 时的已有单例（WARN）、配额只提示；预检型变体的
+    预检键只认 `preflight.tlsAcme`，取 `PlatformConfig.preflight.keys.tlsAcme`，未知时视为可用；基线清点用 `tag:GetResources` 的高成本类型（只覆盖带
+    标签的资源），写 `InventorySnapshot`。
+12. **对比实验交叉校验**：第 4 步的登记时快照由 `ExperimentRegistered`（atl-agent 登记后异步调用）写入 `ExperimentRun.platformDrivers.registration`；
+    第 5 步按 `client.byTarget[kind].requests`（只有一个目标时用总数）与 `lab-metrics` 的 `app.byTarget` 核对；CloudFront 指标未接入；服务端指标不可得
+    或窗口未关闭 → `pending-crosscheck`；最少样本数缺省 5。由 pending 变 invalid 且该次尝试已完成 → 撤回徽章并通知 atl-certs 吊销引用它的路径证书
+    （`evidence-invalidated`）。
+13. **报告**：内容（去掉 revision / generatedAt）不变时不产生新修订；费用一节只列报价与按台账计算的资源时长，不写任何单价或金额（单价归 atl-pricing）；
+    分享副本强制打码（账号、公网 IP、实例 / 分配等 ID 中段、入口主机名、会话名），不显示手动确认备注；分享到期调度 `atl-share-<id>-exp`（组
+    atl-system，载荷 `{kind: SHARE_EXPIRE, shareId}`），shareId → sid 的指针存 `atl-data/reports/_shares/<id>.json`。
+14. **CloudFront 失效**：分配 ID 取 `ATL_WEB_DISTRIBUTION_ID`；未设置或 dev 模式时跳过（这些文件本身短 TTL）。
+15. **ATL-RunCheck 启动器**：`ArgsB64` 的长度单独检查（部分正则引擎的 `{m,n}` 上限为 255）。
+
+### 4. 测试
+
+```bash
+npx vitest run --project atl-api test/checks-pure.test.ts test/checks-bundle.test.ts test/checks-engine.test.ts \
+  test/progress-reports.test.ts test/certs.test.ts                                   # 无需 Docker
+npm run platform:db:up && ATL_IT=1 npx vitest run --project atl-api test/checks-store.int.test.ts
+```
+
+`checks-engine.test.ts` 用真实构建的检查包、dev `LocalRunCommand`、dev 引擎与一个本地 CloudAlbum 替身，覆盖全部检查类型、归属（pending → found、not
+owned）、伪造响应头、一次性探测令牌、漂移、手动确认、对比实验、提交 / 定稿 / 徽章、健康门与预检；`certs.test.ts` 覆盖签名与验证往返（服务端
+WebCrypto、验证页核心、离线工具）、篡改、未知密钥、吊销、取代与 atl-public 路由。
+
+### 5. 需要配合
+
+- 集成：dev 运行时接线（第 3 节第 4 条）；`platform:build` 与 `scripts/release` 调用 `node platform/checks/build.mjs`，发布包放 `atl/bin/atl-check` 与
+  `atl/checks/<digest>/`，`.release-manifest.json` 写 `atlBundleDigest`，平台发布登记同一摘要；dev 设
+  `ATL_DEV_CHECK_RUNNER=platform/checks/dist/atl/bin/atl-check.mjs`。
+- labs:build / dev 内容发布：`labs/<id>.json` 带上展开后的 `checks`（第 3 节第 2 条），否则引擎没有检查可执行。
+- infra：atl-checks 设 `ATL_CHECK_BUNDLE_DIGEST`、`ATL_RUNCHECK_DOCUMENT_VERSION/HASH`（或写 `PlatformConfig.checks`）；atl-certs 设
+  `ATL_WEB_DISTRIBUTION_ID`；`atl-events` 规则把 `session.state_changed`、`reclaim.pass_completed` 投给 atl-checks；`ATLVerifierRole` 的只读语句用
+  `verifierIamActions()` 生成。
+- atl-api：`IssueCertificate` / `RevokeCertificate` / `ExportReport` / `OfflineBundle` 用同步调用（证书错误抛 `Atl.CERT_NOT_ELIGIBLE` 等，带 `reasons`）；
+  `GET …/progress` 轮询时可异步调用 `DriftPatrol`（10 分钟惰性巡检）；trackProgress / mastery 可复用 `services/progress/tracks.ts`。
+- atl-agent：登记实验后异步调用 `ExperimentRegistered { sessionId, runId }`（第 4 步的登记时快照）。
+- atl-reaper：实现 02 §7.12 的 `OwnershipLookup`；台账键用资源所在区域（全局服务为 us-east-1）计算 `resourceKey`。
+- atl-timer：`SHARE_EXPIRE` 把载荷原样转给 atl-certs（handler 按 `kind` 识别）。
+- 06：CloudAlbum CLI（`platform-status`、`capabilities`、`probe-token --count`、`lab-metrics`、`path-seen`、`app-stat`、`module-state`）按 06 的 JSON
+  输出；`/api/lab/probe/media-url` 返回 `path` 或 `url`。
+- 01：登记第 1 节的新动作名、`PlatformConfig.checks`、`ATL_WEB_DISTRIBUTION_ID` 等变量、`LabAttempt` 的新增属性（`ownershipLookups`、`finalize`、
+  `checksSummary`、`evidenceScore`、`missing`、`lastExpiringPrecheckAt`、`lastDriftPatrolAt`）、`InventorySnapshot` 字段、不公开的引用盐。
