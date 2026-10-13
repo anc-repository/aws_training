@@ -413,6 +413,7 @@ Resources:
                   - !Sub '${DataBucket.Arn}/reports/*'
                   - !Sub '${DataBucket.Arn}/exports/*'
                   - !Sub '${DataBucket.Arn}/evidence/*'
+                  - !Sub '${DataBucket.Arn}/experiments/*'
                   - !Sub '${ArtifactsBucket.Arn}/releases/*/private/quiz/*'
               - Sid: Exports
                 Effect: Allow
@@ -456,11 +457,12 @@ Resources:
                 Effect: Allow
                 Action: *logActions
                 Resource: !Sub 'arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/atl-public:*'
+              # GET /public/keys lists the signing keys through GSI1 (partition `KEYS`, Gsi1.signingKey)
               - Sid: CertificatesAndKeysOnly
                 Effect: Allow
                 Action: ['dynamodb:GetItem', 'dynamodb:Query']
-                Resource: !GetAtt AtlMainTable.Arn
-                Condition: { 'ForAllValues:StringLike': { 'dynamodb:LeadingKeys': ['CERT#*', 'KEY#*'] } }
+                Resource: [!GetAtt AtlMainTable.Arn, !Sub '${AtlMainTable.Arn}/index/GSI1']
+                Condition: { 'ForAllValues:StringLike': { 'dynamodb:LeadingKeys': ['CERT#*', 'KEY#*', 'KEYS'] } }
       Tags: *platformTags
 
   AgentFunctionRole:
@@ -883,6 +885,17 @@ Resources:
                 Effect: Allow
                 Action: 'cloudfront:CreateInvalidation'
                 Resource: !Sub 'arn:${AWS::Partition}:cloudfront::${AWS::AccountId}:distribution/${WebDistribution}'
+              # share-link expiry (04 §9.5): atl-certs creates `atl-share-<shareId>-exp` before it publishes the copy and
+              # deletes it on revocation; the schedule's target is atl-timer through ATLSchedulerRole (01 §3.5)
+              - Sid: ShareExpirySchedules
+                Effect: Allow
+                Action: ['scheduler:CreateSchedule', 'scheduler:DeleteSchedule']
+                Resource: !Sub 'arn:${AWS::Partition}:scheduler:${AWS::Region}:${AWS::AccountId}:schedule/atl-system/atl-share-*'
+              - Sid: PassSchedulerRole
+                Effect: Allow
+                Action: 'iam:PassRole'
+                Resource: *schedulerRoleArn
+                Condition: *passToScheduler
       Tags: *platformTags
   CertsSigningPolicy:
     Type: AWS::IAM::RolePolicy

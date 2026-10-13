@@ -423,6 +423,19 @@ describe('health gates and cleanup verification', () => {
     const { preflight, runHealthGate } = await import('../src/functions/checks/lifecycle-gates.js');
     const ok = (await preflight(deps, engine(deps) as never, store, { sessionId: SID, envId: ENV_ID, fresh: true, baseline: true })) as { result: string; items: { id: string }[] };
     expect(await store.get(Keys.inventorySnapshot(ENV_ID))).toMatchObject({ count: 0 });
+    // the baseline is stored in the shape the reclaimer's INVENTORY difference reads ({ type, id, arn, region })
+    engine.aws.on('tag:GetResources', { ResourceTagMappingList: [{ ResourceARN: 'arn:aws:ec2:ap-northeast-1:111122223333:instance/i-0owner00000000001' }, { ResourceARN: 'arn:aws:rds:ap-northeast-1:111122223333:db:owner-db' }] });
+    const ENV2 = '01jc9x3k9cq4m2x8n5b6c0d1zz';
+    await preflight(deps, engine(deps) as never, store, { sessionId: SID, envId: ENV2, fresh: true, baseline: true });
+    const snap = (await store.get<{ items: unknown[]; regions: string[]; resourceArns: string[] }>(Keys.inventorySnapshot(ENV2)))!;
+    expect(snap.items).toEqual(
+      expect.arrayContaining([
+        { type: 'AWS::EC2::Instance', id: 'i-0owner00000000001', arn: 'arn:aws:ec2:ap-northeast-1:111122223333:instance/i-0owner00000000001', region: 'ap-northeast-1' },
+        { type: 'AWS::RDS::DBInstance', id: 'owner-db', arn: 'arn:aws:rds:ap-northeast-1:111122223333:db:owner-db', region: 'ap-northeast-1' },
+      ]),
+    );
+    expect(snap.regions).toEqual(expect.arrayContaining(['ap-northeast-1', 'us-east-1']));
+    engine.aws.on('tag:GetResources', { ResourceTagMappingList: [] });
     expect(['PASS', 'WARN']).toContain(ok.result);
     engine.aws.on('ec2:DescribeVpcs', { Vpcs: [] });
     const noVpc = (await preflight(deps, engine(deps) as never, store, { sessionId: SID, envId: ENV_ID, fresh: false })) as { result: string; failureCode: string };

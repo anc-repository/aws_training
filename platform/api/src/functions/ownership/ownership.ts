@@ -5,13 +5,14 @@
  * the whole platform: 2, 2, 4, 4, 8 minutes, then every 8 minutes; up to the check's `maxWaitMinutes` (default 20,
  * hard limit ≥ 45). Called synchronously by atl-checks (action of atl-reaper).
  */
-import { ATL_OPS, RoleSessionNames } from '@atl/shared';
+import { ATL_OPS, isPortError, RoleSessionNames } from '@atl/shared';
 import type { Ctx } from '../lifecycle/context.js';
 import { MINUTE } from '../lifecycle/context.js';
 import { getEnvironment } from '../lifecycle/store/environments.js';
 import { getConfig } from '../lifecycle/store/platform.js';
 import { getSession } from '../lifecycle/store/sessions.js';
-import { creationEventsFor, extractRefs, parseTrailEvent, type ParsedEvent } from '../reaper/reclaimer/extractors.js';
+import { overwriteSighting } from '../reaper/reclaimer/discovery.js';
+import { creationEventsFor, extractRefs, parseTrailEvent, type ExtractedRef, type ParsedEvent } from '../reaper/reclaimer/extractors.js';
 import { getResource, keyOf, upsertResource } from '../reaper/reclaimer/ledger.js';
 import { awaitLookupToken } from '../reaper/reclaimer/rate.js';
 import { lookupRegion } from '../reaper/reclaimer/rules.js';
@@ -41,6 +42,15 @@ export function retryAfterSeconds(attempt: number): number {
   return OWNERSHIP_RETRY_SECONDS[Math.min(Math.max(0, attempt), OWNERSHIP_RETRY_SECONDS.length - 1)]!;
 }
 
+/** Wait suggested to the check after LookupEvents itself was throttled (the bucket only bounds the platform's share). */
+export const THROTTLE_RETRY_SECONDS = 30;
+
+function isThrottle(e: unknown): boolean {
+  if (isPortError(e, 'Throttled')) return true;
+  const name = (e as { name?: unknown; code?: unknown } | null)?.name ?? (e as { code?: unknown } | null)?.code;
+  return typeof name === 'string' && /Throttl|TooManyRequests|RequestLimitExceeded|Rate ?exceeded/i.test(name);
+}
+
 function scopeNames(sids: string[]): Map<string, string> {
   const m = new Map<string, string>();
   for (const sid of sids) {
@@ -50,10 +60,10 @@ function scopeNames(sids: string[]): Map<string, string> {
   return m;
 }
 
-function matches(ev: ParsedEvent, req: OwnershipLookupRequest): boolean {
+function matching(ev: ParsedEvent, req: OwnershipLookupRequest): ExtractedRef | null {
   const refs = extractRefs(ev) ?? [];
   const ids = new Set([req.resource.id, req.resource.arn].filter((x): x is string => !!x));
-  return refs.some((r) => ids.has(r.id) || (!!r.arn && ids.has(r.arn)));
+  return refs.find((r) => ids.has(r.id) || (!!r.arn && ids.has(r.arn))) ?? null;
 }
 
 export async function ownershipLookup(ctx: Ctx, req: OwnershipLookupRequest): Promise<OwnershipLookupResult> {
@@ -95,18 +105,36 @@ export async function ownershipLookup(ctx: Ctx, req: OwnershipLookupRequest): Pr
 
   let notOwned: { actor: string; eventId: string } | null = null;
   for (const q of queries) {
-    const wait = await awaitLookupToken(ctx, region);
-    if (wait > 0) return { status: 'THROTTLED', retryAfterSeconds: wait };
     let token: string | undefined;
     let pages = 0;
     do {
-      const page = await ctx.ports.trail.lookupEvents({ region, attribute: { key: q.key, value: q.value }, startTime: q.start, endTime: q.end, ...(token ? { nextToken: token } : {}), maxResults: 50 });
+      // one token of the shared per-region bucket per LookupEvents page (02 §7.3: reclaim scans, OwnershipLookup and
+      // the checks share it); an empty bucket or an AWS throttle → THROTTLED, never an error of the check
+      const wait = await awaitLookupToken(ctx, region);
+      if (wait > 0) return { status: 'THROTTLED', retryAfterSeconds: wait };
+      let page: Awaited<ReturnType<typeof ctx.ports.trail.lookupEvents>>;
+      try {
+        page = await ctx.ports.trail.lookupEvents({ region, attribute: { key: q.key, value: q.value }, startTime: q.start, endTime: q.end, ...(token ? { nextToken: token } : {}), maxResults: 50 });
+      } catch (e) {
+        if (isThrottle(e)) return { status: 'THROTTLED', retryAfterSeconds: THROTTLE_RETRY_SECONDS };
+        throw e;
+      }
       pages++;
       for (const raw of page.events) {
         const ev = parseTrailEvent(raw);
         if (ev.errorCode || ev.readOnly) continue;
-        if (!matches(ev, req)) continue;
+        const ref = matching(ev, req);
+        if (!ref) continue;
         const owner = ev.sessionName ? names.get(ev.sessionName) : undefined;
+        if (owner && ref.overwrite) {
+          // the session wrote it (enough for the check), but an overwrite is no creation evidence for the reclaimer
+          await upsertResource(ctx, s.envId, overwriteSighting({ ...ref, type: req.resource.type, id: req.resource.id, region, arn: req.resource.arn ?? ref.arn ?? null }, ev, {
+            sessionId: owner,
+            createdBy: /-prov-/.test(ev.sessionName!) ? 'provisioner' : 'learner',
+            creatorSessionName: ev.sessionName,
+          }));
+          return { status: 'FOUND', sessionId: owner, roleSessionName: ev.sessionName, eventId: ev.eventId, eventName: ev.eventName, eventTime: ev.eventTime, region };
+        }
         if (owner) {
           await upsertResource(ctx, s.envId, {
             type: req.resource.type,

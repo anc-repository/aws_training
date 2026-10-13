@@ -3,6 +3,7 @@
  *
  * Pure functions; randomness comes from WebCrypto (`globalThis.crypto.getRandomValues`, available in Node 22 and browsers).
  */
+import { bytesToBase64Url } from './encoding.js';
 import { RUN_ID_OP_ABBREV, type AtlOp } from './runner.js';
 
 /** Crockford Base32 alphabet, lowercase (no i, l, o, u). */
@@ -168,6 +169,25 @@ export function newCertId(): string {
 
 export function isCertId(value: unknown): value is string {
   return typeof value === 'string' && CERT_ID_RE.test(value);
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// report share links (04 §9.5)
+
+/** Share ID: base64url of 128 random bits (22 characters, not enumerable). */
+export const SHARE_ID_RE = /^[A-Za-z0-9_-]{22}$/;
+/** Share link lifetimes in days (04 §9.5: default 30, or 7 / 90; `null` = never expires). */
+export const SHARE_EXPIRY_DAYS = [7, 30, 90] as const;
+export const DEFAULT_SHARE_EXPIRY_DAYS = 30;
+
+export function newShareId(): string {
+  const bytes = new Uint8Array(16);
+  globalThis.crypto.getRandomValues(bytes);
+  return bytesToBase64Url(bytes);
+}
+
+export function isShareId(value: unknown): value is string {
+  return typeof value === 'string' && SHARE_ID_RE.test(value);
 }
 
 // ---------------------------------------------------------------------------------------------------------------

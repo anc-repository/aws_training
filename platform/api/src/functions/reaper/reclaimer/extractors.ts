@@ -30,6 +30,12 @@ export interface ExtractedRef {
   name?: string | null;
   region?: string;
   meta?: Record<string, unknown>;
+  /**
+   * The event creates *or overwrites* (PutMetricAlarm, PutRule, Route 53 UPSERT, Put*Config*, inspector2 Enable): it
+   * succeeds just as well on a resource that existed before the session, so it is no creation evidence (02 §7.2 rule
+   * 1, §7.3 “只删除本会话创建的记录 / 只处理本会话开启的”). Such refs are recorded for review only.
+   */
+  overwrite?: boolean;
 }
 
 type Obj = Record<string, unknown>;
@@ -75,6 +81,8 @@ export function looksLikeCreation(eventName: string): boolean {
 
 type Extractor = (ev: ParsedEvent) => ExtractedRef[];
 const one = (type: string, id: string | null, extra: Partial<ExtractedRef> = {}): ExtractedRef[] => (id ? [{ type, id, ...extra }] : []);
+/** create-or-overwrite: never creation evidence on its own (see ExtractedRef.overwrite) */
+const upsert = (type: string, id: string | null, extra: Partial<ExtractedRef> = {}): ExtractedRef[] => one(type, id, { ...extra, overwrite: true });
 
 const EXTRACTORS: Record<string, Extractor> = {
   'ec2:RunInstances': (ev) =>
@@ -140,6 +148,7 @@ const EXTRACTORS: Record<string, Extractor> = {
   'wafv2:CreateRuleGroup': (ev) => one('AWS::WAFv2::RuleGroup', s(o(ev.response.summary).aRN) ?? s(o(ev.response.summary).ARN)),
   'acm:RequestCertificate': (ev) => one('AWS::CertificateManager::Certificate', s(ev.response.certificateArn), { arn: s(ev.response.certificateArn) }),
   'route53:CreateHostedZone': (ev) => one('AWS::Route53::HostedZone', s(o(ev.response.hostedZone).id)?.replace(/^\/hostedzone\//, '') ?? null, { region: 'us-east-1' }),
+  // CREATE fails on an existing record (creation evidence); UPSERT also rewrites records of the learner's own zones
   'route53:ChangeResourceRecordSets': (ev) =>
     arr(o(ev.request.changeBatch).changes)
       .map((c) => o(c))
@@ -147,7 +156,8 @@ const EXTRACTORS: Record<string, Extractor> = {
       .flatMap((c) => {
         const rr = o(c.resourceRecordSet);
         const zone = s(ev.request.hostedZoneId);
-        return one('AWS::Route53::RecordSet', zone && s(rr.name) ? `${zone}|${s(rr.name)}|${s(rr.type)}` : null, { region: 'us-east-1' });
+        const id = zone && s(rr.name) ? `${zone}|${s(rr.name)}|${s(rr.type)}` : null;
+        return c.action === 'CREATE' ? one('AWS::Route53::RecordSet', id, { region: 'us-east-1' }) : upsert('AWS::Route53::RecordSet', id, { region: 'us-east-1' });
       }),
   'cognito-idp:CreateUserPool': (ev) => one('AWS::Cognito::UserPool', s(o(ev.response.userPool).id)),
   'cognito-idp:CreateUserPoolDomain': (ev) => one('AWS::Cognito::UserPoolDomain', s(ev.request.domain), { meta: { userPoolId: s(ev.request.userPoolId) } }),
@@ -159,9 +169,9 @@ const EXTRACTORS: Record<string, Extractor> = {
   'ssm:CreateDocument': (ev) => one('AWS::SSM::Document', s(o(ev.response.documentDescription).name) ?? s(ev.request.name)),
   'ssm:CreateAssociation': (ev) => one('AWS::SSM::Association', s(o(ev.response.associationDescription).associationId)),
   'logs:CreateLogGroup': (ev) => one('AWS::Logs::LogGroup', s(ev.request.logGroupName), { name: s(ev.request.logGroupName) }),
-  'monitoring:PutMetricAlarm': (ev) => one('AWS::CloudWatch::Alarm', s(ev.request.alarmName), { name: s(ev.request.alarmName) }),
-  'monitoring:PutDashboard': (ev) => one('AWS::CloudWatch::Dashboard', s(ev.request.dashboardName)),
-  'events:PutRule': (ev) => one('AWS::Events::Rule', s(ev.request.name) ? `${s(ev.request.eventBusName) ?? 'default'}|${s(ev.request.name)}` : null, { arn: s(ev.response.ruleArn) }),
+  'monitoring:PutMetricAlarm': (ev) => upsert('AWS::CloudWatch::Alarm', s(ev.request.alarmName), { name: s(ev.request.alarmName) }),
+  'monitoring:PutDashboard': (ev) => upsert('AWS::CloudWatch::Dashboard', s(ev.request.dashboardName)),
+  'events:PutRule': (ev) => upsert('AWS::Events::Rule', s(ev.request.name) ? `${s(ev.request.eventBusName) ?? 'default'}|${s(ev.request.name)}` : null, { arn: s(ev.response.ruleArn) }),
   'events:CreateEventBus': (ev) => one('AWS::Events::EventBus', s(ev.request.name)),
   'scheduler:CreateSchedule': (ev) => one('AWS::Scheduler::Schedule', s(ev.request.name) ? `${s(ev.request.groupName) ?? 'default'}|${s(ev.request.name)}` : null),
   'scheduler:CreateScheduleGroup': (ev) => one('AWS::Scheduler::ScheduleGroup', s(ev.request.name)),
@@ -177,10 +187,10 @@ const EXTRACTORS: Record<string, Extractor> = {
   'backup:StartCopyJob': (ev) => one('AWS::Backup::RecoveryPoint', s(ev.response.copyJobId)),
   'cloudtrail:CreateTrail': (ev) => one('AWS::CloudTrail::Trail', s(ev.response.trailARN) ?? s(ev.request.name), { arn: s(ev.response.trailARN) }),
   'guardduty:CreateDetector': (ev) => one('AWS::GuardDuty::Detector', s(ev.response.detectorId)),
-  'config:PutConfigurationRecorder': (ev) => one('AWS::Config::ConfigurationRecorder', s(o(ev.request.configurationRecorder).name)),
-  'config:PutDeliveryChannel': (ev) => one('AWS::Config::DeliveryChannel', s(o(ev.request.deliveryChannel).name)),
-  'config:PutConfigRule': (ev) => one('AWS::Config::ConfigRule', s(o(ev.request.configRule).configRuleName)),
-  'inspector2:Enable': (ev) => one('AWS::Inspector2::Enabler', `${(arr(ev.request.resourceTypes) as string[]).sort().join(',') || 'all'}`),
+  'config:PutConfigurationRecorder': (ev) => upsert('AWS::Config::ConfigurationRecorder', s(o(ev.request.configurationRecorder).name)),
+  'config:PutDeliveryChannel': (ev) => upsert('AWS::Config::DeliveryChannel', s(o(ev.request.deliveryChannel).name)),
+  'config:PutConfigRule': (ev) => upsert('AWS::Config::ConfigRule', s(o(ev.request.configRule).configRuleName)),
+  'inspector2:Enable': (ev) => upsert('AWS::Inspector2::Enabler', `${(arr(ev.request.resourceTypes) as string[]).sort().join(',') || 'all'}`),
   'securityhub:EnableSecurityHub': () => one('AWS::SecurityHub::Hub', 'default'),
   'imagebuilder:CreateImagePipeline': (ev) => one('AWS::ImageBuilder::ImagePipeline', s(ev.response.imagePipelineArn), { arn: s(ev.response.imagePipelineArn) }),
   'imagebuilder:CreateImageRecipe': (ev) => one('AWS::ImageBuilder::ImageRecipe', s(ev.response.imageRecipeArn), { arn: s(ev.response.imageRecipeArn) }),

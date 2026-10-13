@@ -28,7 +28,7 @@ import net from 'node:net';
 import path from 'node:path';
 import vm from 'node:vm';
 import { DeleteTableCommand, DynamoDBClient } from '@aws-sdk/client-dynamodb';
-import { canonicalJson, Keys, WebKeys, type LambdaFunctionName } from '@atl/shared';
+import { canonicalJson, Keys, ScheduleNames, WebKeys, type LambdaFunctionName } from '@atl/shared';
 import { createDevApp } from '../dev-server.js';
 import { installDevCustomResources, type DevCustomResources } from './adapters/custom-resources.js';
 import { ScaledClock } from './adapters/clock.js';
@@ -768,6 +768,34 @@ async function loadVerifyPage(rt: DevRuntime): Promise<(jws: string) => Promise<
   };
 }
 
+/** 04 §9.4 / §9.5: the masked export and a share link (create → listed active → revoke), as 07 stage 5 exercises them. */
+async function phaseReportExportAndShare(c: Ctx, sid: string): Promise<void> {
+  const { rt } = c;
+  const exp = await until('masked export', async () => {
+    const r = await call('GET', `/api/v1/sessions/${sid}/report/export?format=json`, { token: LEARNER });
+    return r.status === 200 ? r.body : null;
+  }, 60_000, 500).catch(() => null);
+  const expUrl = (exp?.download as { url?: string } | undefined)?.url ?? '';
+  const expDoc = expUrl.startsWith('file:') ? fs.readFileSync(new URL(expUrl), 'utf8') : '';
+  check('report export (mask=on): atl-certs rendered a masked copy in exports/ and atl-api signed only that copy', expUrl.includes('exports') && expDoc.includes('masked copy') && !expDoc.includes(rt.env.accountId), { status: exp?.status, url: expUrl.slice(-80) });
+  const sh = await call('POST', `/api/v1/sessions/${sid}/report/shares`, { token: LEARNER, body: { expiresInDays: 7 } });
+  const shareId = String(sh.body.shareId ?? '');
+  check('POST /report/shares → 202 with the real link (/share/<22-char id>/index.html)', sh.status === 202 && /^[A-Za-z0-9_-]{22}$/.test(shareId) && sh.body.url === `/share/${shareId}/index.html`, sh.body);
+  const listed = async (status: string) => {
+    const l = await call('GET', `/api/v1/sessions/${sid}/report/shares`, { token: LEARNER });
+    return ((l.body.items as { shareId: string; status: string }[] | undefined) ?? []).find((i) => i.shareId === shareId && i.status === status) ?? null;
+  };
+  const active = await until('share active', () => listed('active'), 60_000, 500).catch(() => null);
+  const html = await rt.objects.get(rt.env.buckets.web, `${WebKeys.share(shareId)}index.html`);
+  const scheduled = rt.scheduler.list().some((x) => x.name === ScheduleNames.shareExpire(shareId));
+  check('share copy published to atl-web/share/<id>/, listed active, expiry schedule atl-share-<id>-exp created', !!active && !!html && scheduled, { active, html: !!html, scheduled });
+  const del = await call('DELETE', `/api/v1/sessions/${sid}/report/shares/${shareId}`, { token: LEARNER });
+  const revoked = await until('share revoked', () => listed('revoked'), 60_000, 500).catch(() => null);
+  const gone = !(await rt.objects.get(rt.env.buckets.web, `${WebKeys.share(shareId)}index.html`));
+  const unscheduled = !rt.scheduler.list().some((x) => x.name === ScheduleNames.shareExpire(shareId));
+  check('DELETE /report/shares/{id} revokes it: copy deleted, schedule deleted, listed revoked', del.status === 202 && !!revoked && gone && unscheduled, { status: del.status, revoked, gone, unscheduled });
+}
+
 async function phaseReportAndCertificate(c: Ctx, sid: string): Promise<void> {
   phase = '7';
   const { rt } = c;
@@ -785,6 +813,7 @@ async function phaseReportAndCertificate(c: Ctx, sid: string): Promise<void> {
     const doc = local ? (JSON.parse(local) as Record<string, unknown>) : null;
     check('report JSON (atl.report/v1) records the checks, manual confirmation and experiments', !!doc && String(doc.schema).startsWith('atl.report/'), doc ? Object.keys(doc).slice(0, 12) : null);
   }
+  await phaseReportExportAndShare(c, sid);
   const progress = await call('GET', '/api/v1/me/progress', { token: LEARNER });
   const mine = ((progress.body.labs ?? progress.body.items) as { labId: string; status: string; badge?: unknown }[] | undefined) ?? [];
   const storage = mine.find((p) => p.labId === LAB);

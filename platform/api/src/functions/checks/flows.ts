@@ -13,7 +13,7 @@ import { mutate, type ItemStore } from '../../services/progress/store.js';
 import type { LabAttemptItem, ManualRecord, StepResultItem } from '../../services/progress/types.js';
 import { evaluateAll } from './engine/assert.js';
 import { RunContext } from './engine/context.js';
-import { experimentVerdict, labelsOf, validateRun, type ExperimentRunRecord, type LabMetrics, type ResultJson } from './engine/experiments.js';
+import { experimentVerdict, labelsOf, runWindowMs, validateRun, type ExperimentRunRecord, type LabMetrics, type ResultJson } from './engine/experiments.js';
 import { FINAL_STEP, loadFacts, loadFactsLenient, planCard, type SessionFacts } from './engine/facts.js';
 import { healthy } from './engine/healthy.js';
 import type { CheckEnginePorts } from './engine/ports.js';
@@ -405,11 +405,13 @@ export async function crossCheckExperiment(deps: FunctionDeps, engine: CheckEngi
         driversNow = Object.fromEntries(Object.entries(mods).map(([k, v]) => [k, v.driver ?? '']));
       }
     }
-    // functional validity: corroborateWith checks with a pass inside the window (+10 min)
+    // functional validity: corroborateWith checks with a pass inside the run (+10 min). The client's startedAt /
+    // finishedAt are clipped to the registered window: a widened interval cannot borrow passes from outside the run
     const passes: string[] = [];
-    if (exp.validity === 'functional') {
-      const from = Date.parse(String(result.startedAt ?? run.startedAt ?? 0));
-      const to = Date.parse(String(result.finishedAt ?? run.finishedAt ?? 0)) + 10 * 60_000;
+    const win = runWindowMs(run.window);
+    if (exp.validity === 'functional' && win) {
+      const from = Math.max(Date.parse(String(result.startedAt ?? run.startedAt ?? '')) || win.from, win.from);
+      const to = Math.min(Date.parse(String(result.finishedAt ?? run.finishedAt ?? '')) || win.to, win.to) + 10 * 60_000;
       for (const st of facts.steps.values()) {
         for (const [id, c] of Object.entries(st.checks ?? {})) {
           const t = c.lastPass ? Date.parse(c.lastPass.at) : NaN;

@@ -4,7 +4,7 @@
  * stacks. Sources: LEDGER (runner ledgers + state.json out-of-band + runner-created names), STACK, TAG, CLOUDTRAIL,
  * INVENTORY (DERIVED runs in BuildDeletionPlan).
  */
-import { DataKeys, Keys, keyPairName, SkPrefix, SsmParams, type DiscoveredBy, type ReclaimPassMode } from '@atl/shared';
+import { DataKeys, Keys, keyPairName, SkPrefix, SsmParams, type DiscoveredBy, type ReclaimPassMode, type ResourceCreatedBy } from '@atl/shared';
 import type { Ctx } from '../../lifecycle/context.js';
 import { MINUTE } from '../../lifecycle/context.js';
 import { WorkflowError } from '../../lifecycle/errors.js';
@@ -13,9 +13,9 @@ import { emit } from '../../lifecycle/store/events.js';
 import type { EnvironmentRecord, ReclaimPassRecord, SessionRecord } from '../../lifecycle/store/model.js';
 import { getSession } from '../../lifecycle/store/sessions.js';
 import { refFromArn } from './arn.js';
-import { extractRefs, looksLikeCreation, parseTrailEvent } from './extractors.js';
+import { extractRefs, looksLikeCreation, parseTrailEvent, type ExtractedRef, type ParsedEvent } from './extractors.js';
 import { attribute, identitySet } from './identity.js';
-import { keyOf, listResources, upsertResource } from './ledger.js';
+import { keyOf, listResources, POSSIBLY_PREEXISTING, upsertResource, type ResourceInput } from './ledger.js';
 import { awaitLookupToken } from './rate.js';
 
 export type DiscoveryTask =
@@ -282,16 +282,35 @@ async function discoverTags(ctx: Ctx, env: EnvironmentRecord, region: string, pa
   }
 }
 
+/**
+ * The baseline of one region as `type|id` and ARN keys. Reads the shape Preflight writes (`items: [{ type, id, arn,
+ * region }]`, lifecycle-gates.ts) and older snapshots that only hold `resourceArns` (parsed with refFromArn).
+ */
+export function baselineKeys(snapshot: Record<string, unknown> | null, region: string): Set<string> {
+  const out = new Set<string>();
+  if (!snapshot) return out;
+  const snapRegion = typeof snapshot.region === 'string' ? snapshot.region : region;
+  for (const x of [...asArray(snapshot.items), ...asArray(snapshot.resources)]) {
+    const r = typeof x.region === 'string' ? x.region : snapRegion;
+    if (r !== region) continue;
+    if (typeof x.type === 'string' && typeof x.id === 'string') out.add(`${x.type}|${x.id}`);
+    if (typeof x.arn === 'string') out.add(x.arn);
+  }
+  for (const arn of Array.isArray(snapshot.resourceArns) ? snapshot.resourceArns : []) {
+    if (typeof arn !== 'string') continue;
+    const ref = refFromArn(arn, snapRegion);
+    if ((ref?.region ?? snapRegion) !== region) continue;
+    out.add(arn);
+    if (ref) out.add(`${ref.type}|${ref.id}`);
+  }
+  return out;
+}
+
 async function discoverInventory(ctx: Ctx, env: EnvironmentRecord, region: string, passNo: number): Promise<void> {
-  const baselineItem = await ctx.main.get(Keys.inventorySnapshot(env.envId));
-  const baseline = new Set<string>(
-    [...asArray(baselineItem?.items), ...asArray(baselineItem?.resources)]
-      .filter((x) => typeof x.id === 'string' && (!x.region || x.region === region))
-      .map((x) => `${String(x.type ?? '')}|${String(x.id)}`),
-  );
+  const baseline = baselineKeys(await ctx.main.get(Keys.inventorySnapshot(env.envId)), region);
   const ledger = new Set((await listResources(ctx, env.envId)).map((r) => r.resourceKey));
   for (const x of await ctx.clouds().reclaim.inventory({ region })) {
-    if (baseline.has(`${x.type}|${x.id}`)) continue;
+    if (baseline.has(`${x.type}|${x.id}`) || (x.arn && baseline.has(x.arn))) continue;
     if (ledger.has(keyOf(region, x.type, x.id, x.arn ?? null))) continue;
     await upsertResource(ctx, env.envId, {
       type: x.type,
@@ -358,6 +377,12 @@ async function discoverTrailPages(ctx: Ctx, env: EnvironmentRecord, task: Extrac
         continue;
       }
       for (const r of refs) {
+        if (r.overwrite) {
+          // create-or-overwrite (PutMetricAlarm, PutRule, Route 53 UPSERT, Put*Config*, inspector2 Enable): the call
+          // succeeds on a resource that existed before the session as well — review only, never deleted automatically
+          await upsertResource(ctx, env.envId, overwriteSighting(r, ev, who, passNo));
+          continue;
+        }
         await upsertResource(ctx, env.envId, {
           type: r.type,
           id: r.id,
@@ -380,6 +405,32 @@ async function discoverTrailPages(ctx: Ctx, env: EnvironmentRecord, task: Extrac
   }
   for (const a of alerts) await ctx.clouds().lifecycle.notify('atl-alerts', 'ATL: unexpected learner role session', a).catch(() => undefined);
   return { task: { ...task, cursor, pages }, more: !!cursor };
+}
+
+/** Ledger input of an overwrite-style write (ExtractedRef.overwrite): CLOUDTRAIL source without creation evidence. */
+export function overwriteSighting(
+  r: ExtractedRef,
+  ev: ParsedEvent,
+  who: { sessionId: string; createdBy?: ResourceCreatedBy; creatorSessionName?: string | null },
+  passNo?: number,
+): ResourceInput {
+  return {
+    type: r.type,
+    id: r.id,
+    region: r.region ?? ev.region,
+    arn: r.arn ?? null,
+    name: r.name ?? null,
+    sessionId: who.sessionId,
+    source: 'CLOUDTRAIL',
+    weak: true,
+    ...(who.createdBy ? { createdBy: who.createdBy } : {}),
+    creatorSessionName: who.creatorSessionName ?? null,
+    cleanupState: 'REVIEW',
+    severity: 'REVIEW',
+    lastError: `${POSSIBLY_PREEXISTING}：${ev.service}:${ev.eventName} 是覆盖式写入，无法证明它是本会话创建的；不会自动删除，请确认它不是账号里原有的资源后再处理`,
+    ...(passNo !== undefined ? { passNo } : {}),
+    meta: { ...(r.meta ?? {}), possiblyPreexisting: true, overwriteEventId: ev.eventId, overwriteEventName: `${ev.service}:${ev.eventName}`, overwriteEventTime: ev.eventTime },
+  };
 }
 
 // ---------------------------------------------------------------------------------------------------------------

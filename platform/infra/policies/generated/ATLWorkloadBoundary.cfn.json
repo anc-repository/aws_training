@@ -305,19 +305,34 @@
       "Action": "*",
       "Resource": [
         {
-          "Fn::Sub": "arn:${AWS::Partition}:cloudfront::${AWS::AccountId}:distribution/${WebDistribution}"
+          "Fn::Sub": "arn:${AWS::Partition}:cloudfront::*:*/${WebDistribution}"
         },
         {
-          "Fn::Sub": "arn:${AWS::Partition}:cognito-idp:${AWS::Region}:${AWS::AccountId}:userpool/${UserPool}"
+          "Fn::Sub": "arn:${AWS::Partition}:cloudfront::*:function/atl-*"
         },
         {
-          "Fn::Sub": "arn:${AWS::Partition}:apigateway:${AWS::Region}::/apis/${HttpApi}"
+          "Fn::Sub": "arn:${AWS::Partition}:cloudfront::*:*/${SpaHeadersPolicy}"
         },
         {
-          "Fn::Sub": "arn:${AWS::Partition}:apigateway:${AWS::Region}::/apis/${HttpApi}/*"
+          "Fn::Sub": "arn:${AWS::Partition}:cloudfront::*:*/${VerifyHeadersPolicy}"
         },
         {
-          "Fn::Sub": "${CertSigningKey.Arn}"
+          "Fn::Sub": "arn:${AWS::Partition}:cloudfront::*:*/${ShareHeadersPolicy}"
+        },
+        {
+          "Fn::Sub": "arn:${AWS::Partition}:cloudfront::*:*/${ShortTtlCachePolicy}"
+        },
+        {
+          "Fn::Sub": "arn:${AWS::Partition}:cloudfront::*:*/${WebOac}"
+        },
+        {
+          "Fn::Sub": "arn:${AWS::Partition}:cognito-idp:*:*:userpool/${UserPool}"
+        },
+        {
+          "Fn::Sub": "arn:${AWS::Partition}:apigateway:*::/apis/${HttpApi}*"
+        },
+        {
+          "Fn::Sub": "arn:${AWS::Partition}:kms:*:*:key/${CertSigningKey}"
         }
       ]
     },
@@ -338,7 +353,7 @@
           "Fn::Sub": "arn:${AWS::Partition}:ssm:*:${AWS::AccountId}:document/ATL-*"
         },
         {
-          "Fn::Sub": "arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:association/${PrepareInstanceAssociation}"
+          "Fn::Sub": "arn:${AWS::Partition}:ssm:*:*:association/${PrepareInstanceAssociation}"
         }
       ]
     },

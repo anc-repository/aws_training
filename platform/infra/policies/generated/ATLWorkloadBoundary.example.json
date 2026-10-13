@@ -214,11 +214,16 @@
       "Effect": "Deny",
       "Action": "*",
       "Resource": [
-        "arn:aws:cloudfront::111122223333:distribution/E2EXAMPLEATL01",
-        "arn:aws:cognito-idp:ap-northeast-1:111122223333:userpool/ap-northeast-1_EXAMPLE12",
-        "arn:aws:apigateway:ap-northeast-1::/apis/a1b2c3d4e5",
-        "arn:aws:apigateway:ap-northeast-1::/apis/a1b2c3d4e5/*",
-        "arn:aws:kms:ap-northeast-1:111122223333:key/1234abcd-12ab-34cd-56ef-1234567890ab"
+        "arn:aws:cloudfront::*:*/E2EXAMPLEATL01",
+        "arn:aws:cloudfront::*:function/atl-*",
+        "arn:aws:cloudfront::*:*/11111111-aaaa-4bbb-8ccc-000000000001",
+        "arn:aws:cloudfront::*:*/11111111-aaaa-4bbb-8ccc-000000000002",
+        "arn:aws:cloudfront::*:*/11111111-aaaa-4bbb-8ccc-000000000003",
+        "arn:aws:cloudfront::*:*/22222222-aaaa-4bbb-8ccc-000000000001",
+        "arn:aws:cloudfront::*:*/E3EXAMPLEOAC01",
+        "arn:aws:cognito-idp:*:*:userpool/ap-northeast-1_EXAMPLE12",
+        "arn:aws:apigateway:*::/apis/a1b2c3d4e5*",
+        "arn:aws:kms:*:*:key/1234abcd-12ab-34cd-56ef-1234567890ab"
       ]
     },
     {
@@ -235,7 +240,7 @@
       ],
       "Resource": [
         "arn:aws:ssm:*:111122223333:document/ATL-*",
-        "arn:aws:ssm:ap-northeast-1:111122223333:association/00000000-0000-4000-8000-000000000000"
+        "arn:aws:ssm:*:*:association/00000000-0000-4000-8000-000000000000"
       ]
     },
     {

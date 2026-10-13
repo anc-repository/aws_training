@@ -20,6 +20,7 @@ import {
 } from '@atl/shared';
 import { Gsi1, Keys, SkPrefix } from '../../data/keys.js';
 import { isConditionFailed, type Item, type SessionItem } from '../../repositories/index.js';
+import { withinRunWindow, type RunWindow } from '../../functions/checks/engine/experiments.js';
 import { experimentLabels } from '../catalog/labs.js';
 import { emitSessionEvents } from '../events/index.js';
 import { mapDownstreamError } from './lifecycle-client.js';
@@ -199,6 +200,10 @@ export async function uploadExperimentResult(
   await ctx.deps.ports.objects.put(ctx.deps.env.buckets.data, key, JSON.stringify(b), { contentType: 'application/json' });
   const env = (b.environment ?? {}) as { drivers?: unknown; capabilitiesHashBefore?: unknown; capabilitiesHashAfter?: unknown };
   const finishedAt = String(b.finishedAt);
+  // 04 §7.4 step 3: a run outside its registered window is kept but never counts (`invalid: OUT_OF_WINDOW`); the
+  // cross-check repeats the verdict from the stored window, the client's times are never trusted beyond it
+  const inWindow = withinRunWindow(run.window as RunWindow | undefined, b.startedAt, b.finishedAt);
+  const validity = inWindow ? { status: 'pending-crosscheck', reasons: [] as string[] } : { status: 'invalid', reasons: ['OUT_OF_WINDOW'] };
   try {
     await ctx.repos.sessions.updateChild(Keys.experimentRun(s.sid, runId), {
       set: {
@@ -212,7 +217,7 @@ export async function uploadExperimentResult(
         summary: { client: b.client ?? null, params: b.params ?? null, targets: b.targets ?? null },
         environment: { drivers: env.drivers ?? null },
         capabilitiesHash: env.capabilitiesHashAfter ?? env.capabilitiesHashBefore ?? null,
-        validity: { status: 'pending-crosscheck', reasons: [] },
+        validity,
         uploadedBy: uploader,
         uploadedAt: ctx.nowIso,
         updatedAt: ctx.nowIso,
@@ -234,7 +239,7 @@ export async function uploadExperimentResult(
     // the record is stored; atl-checks also re-checks pending runs (04 §7.4 “稍后自动复核”)
     console.warn(JSON.stringify({ level: 'warn', msg: 'CrossCheckExperiment not dispatched', runId, error: String(e) }));
   }
-  return { runId, status: 'corroborating' };
+  return inWindow ? { runId, status: 'corroborating' } : { runId, status: 'invalid', validity };
 }
 
 export async function getExperimentRunForAgent(ctx: ServiceContext, s: SessionItem, runId: string): Promise<Record<string, unknown>> {
@@ -282,15 +287,24 @@ export async function reportModuleOp(ctx: ServiceContext, s: SessionItem, source
     }
   } else {
     const existing = await ctx.repos.sessions.getChild(key);
-    await ctx.repos.sessions.updateChild(key, {
-      set: {
-        ...(existing ? {} : { type: 'ModuleOp', ver: 1, createdAt: ctx.nowIso, opId, ...base, startedAt: null }),
-        finishedAt: ctx.nowIso,
-        exitCode: r.exitCode ?? null,
-        summary: r.summary ?? null,
-        updatedAt: ctx.nowIso,
-      },
-    });
+    // a reporter may only finish its own records: the workstation (`agent`, learner has root) must not rewrite the
+    // outcome of a platform action or a runner op it can see in listModuleOps (and vice versa)
+    if (existing && existing.source !== source) throw new AtlError('INVALID_STATE', `module op ${opId} was recorded by ${String(existing.source)}, not by ${source}`);
+    try {
+      await ctx.repos.sessions.updateChild(key, {
+        set: {
+          ...(existing ? {} : { type: 'ModuleOp', ver: 1, createdAt: ctx.nowIso, opId, ...base, startedAt: null }),
+          finishedAt: ctx.nowIso,
+          exitCode: r.exitCode ?? null,
+          summary: r.summary ?? null,
+          updatedAt: ctx.nowIso,
+        },
+        condition: { expression: 'attribute_not_exists(PK) OR #opSource = :opSource', names: { '#opSource': 'source' }, values: { ':opSource': source } },
+      });
+    } catch (e) {
+      if (isConditionFailed(e)) throw new AtlError('INVALID_STATE', `module op ${opId} was recorded by another reporter, not by ${source}`);
+      throw e;
+    }
   }
   const type = r.phase === 'started' ? 'module_op.started' : r.exitCode === 0 ? 'module_op.succeeded' : 'module_op.failed';
   await emitSessionEvents(ctx.deps, ctx.repos, s.sid, [{ type, data: { opId, moduleId: r.moduleId, op: r.op, source, ...(r.actionId ? { actionId: r.actionId } : {}) } }], {

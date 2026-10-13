@@ -422,19 +422,38 @@ export function defineApiScenarios(label: string, make: Make): void {
       const polled = body(await rt.agent(ev('GET', `/api/v1/agent/sessions/${sid}/experiment-runs/${runId}`, { caller: wsCaller(sid) })));
       expect(polled).toMatchObject({ runId, status: 'uploaded', validity: { status: 'pending-crosscheck' } });
       expect(body(await rt.agent(ev('GET', `/api/v1/agent/sessions/${sid}/experiment-runs/01JA3M2C8Y3T5Q6W7E8R9T0Y1U`, { caller: wsCaller(sid) }))).code).toBe('RUN_NOT_FOUND');
+      // 04 §7.4 step 3 regression: times outside the registered window are kept but invalid (OUT_OF_WINDOW), never counted
+      const reg2 = body(await rt.agent(ev('POST', `/api/v1/agent/sessions/${sid}/experiment-runs`, { caller: wsCaller(sid), body: { module: 'queue', experiment: 'burst', label: 'before' } })));
+      const run2 = reg2.runId as string;
+      const win = reg2.window as { notBefore: string; notAfter: string };
+      expect(Date.parse(win.notAfter)).toBeGreaterThan(Date.parse(win.notBefore));
+      const outside = withDigest({ ...experimentResult(sid, run2), startedAt: '2026-10-14T00:00:00Z', finishedAt: '2026-10-14T01:30:00Z' });
+      const up2 = await rt.agent(ev('PUT', `/api/v1/agent/sessions/${sid}/experiment-runs/${run2}/result`, { caller: wsCaller(sid), body: outside }));
+      expect(up2.statusCode, up2.body).toBe(202);
+      expect(body(up2)).toEqual({ runId: run2, status: 'invalid', validity: { status: 'invalid', reasons: ['OUT_OF_WINDOW'] } });
+      const polled2 = body(await rt.agent(ev('GET', `/api/v1/agent/sessions/${sid}/experiment-runs/${run2}`, { caller: wsCaller(sid) })));
+      expect(polled2).toMatchObject({ status: 'uploaded', validity: { status: 'invalid', reasons: ['OUT_OF_WINDOW'] } });
       const att = body(await rt.agent(ev('POST', `/api/v1/agent/sessions/${sid}/experiment-runs/${runId}/attachments`, { caller: wsCaller(sid), body: { name: 'k6-summary.json', size: 1000 } })));
       expect(att).toMatchObject({ key: `experiments/${sid}/${runId}/k6-summary.json`, method: 'PUT' });
       // browser side sees the run across sessions and per session
-      expect(body(await rt.api(ev('GET', `/api/v1/sessions/${sid}/experiment-runs`, { token: OBSERVER }))).items).toHaveLength(1);
+      expect(body(await rt.api(ev('GET', `/api/v1/sessions/${sid}/experiment-runs`, { token: OBSERVER }))).items).toHaveLength(2);
       await rt.api(ev('GET', '/api/v1/me', { token: LEARNER }));
       const detail = body(await rt.api(ev('GET', `/api/v1/experiment-runs/${runId}`, { token: LEARNER })));
       expect(detail).toMatchObject({ runId, download: { url: expect.stringContaining(`experiments/${sid}/${runId}.json`) } });
-      expect(body(await rt.api(ev('GET', '/api/v1/experiment-runs?module=queue&experiment=burst', { token: ASSISTANT }))).items).toHaveLength(1);
+      expect(body(await rt.api(ev('GET', '/api/v1/experiment-runs?module=queue&experiment=burst', { token: ASSISTANT }))).items).toHaveLength(2);
       // module-op report from the workstation
       const mop = body(await rt.agent(ev('POST', `/api/v1/agent/sessions/${sid}/module-ops`, { caller: wsCaller(sid), body: { phase: 'started', op: 'enable', moduleId: 'queue' } })));
       await rt.agent(ev('POST', `/api/v1/agent/sessions/${sid}/module-ops`, { caller: wsCaller(sid), body: { opId: mop.opId, phase: 'finished', op: 'enable', moduleId: 'queue', exitCode: 0 } }));
       const ops = body(await rt.api(ev('GET', `/api/v1/sessions/${sid}/module-ops`, { token: OBSERVER })));
       expect(ops.items).toEqual([expect.objectContaining({ opId: mop.opId, source: 'agent', exitCode: 0 })]);
+      // the workstation cannot rewrite the outcome of a platform action (or a runner op) it sees in the list
+      const platformOp = '01JB3M2C8Y3T5Q6W7E8R9T0Y1P';
+      await rt.repos.table.put({ ...Keys.moduleOp(sid, platformOp), type: 'ModuleOp', ver: 1, opId: platformOp, source: 'platform', op: 'set', moduleId: 'queue', startedAt: '2026-10-14T01:00:00.000Z', finishedAt: '2026-10-14T01:02:00.000Z', exitCode: 1, summary: 'failed' });
+      const tamper = await rt.agent(ev('POST', `/api/v1/agent/sessions/${sid}/module-ops`, { caller: wsCaller(sid), body: { opId: platformOp, phase: 'finished', op: 'set', moduleId: 'queue', exitCode: 0, summary: 'ok' } }));
+      expect(tamper.statusCode).toBe(409);
+      expect(body(tamper).code).toBe('INVALID_STATE');
+      expect(await rt.repos.sessions.getChild(Keys.moduleOp(sid, platformOp))).toMatchObject({ source: 'platform', exitCode: 1, summary: 'failed' });
+      expect(rt.bus.published.filter((e) => JSON.stringify(e.detail).includes(platformOp))).toEqual([]);
       // wrong caller
       expect(body(await rt.agent(ev('GET', `/api/v1/agent/sessions/${sid}/context`, { caller: wsCaller('s0000000000a0') }))).code).toBe('SESSION_MISMATCH');
     });
@@ -483,12 +502,23 @@ export function defineApiScenarios(label: string, make: Make): void {
       await rt.repos.table.put({ ...Keys.report(sid, 1), ...Gsi1.report('u-learner', nowIso, sid), type: 'Report', ver: 1, version: 1, labId: LAB_ID, generatedAt: nowIso, status: 'ready', s3Keys: { json: `reports/${sid}/v1.json`, html: `reports/${sid}/v1.html` } });
       const rep = body(await rt.api(ev('GET', `/api/v1/sessions/${sid}/report`, { token: OBSERVER })));
       expect(rep).toMatchObject({ version: 1, downloads: { html: { url: expect.stringContaining(`reports/${sid}/v1.html`) } }, revisions: [{ version: 1 }] });
-      expect(body(await rt.api(ev('GET', `/api/v1/sessions/${sid}/report/export?format=json`, { token: LEARNER })))).toMatchObject({ download: { url: expect.stringContaining('v1.json') } });
+      // export: atl-certs renders the masked copy first; the authoritative report keys are never signed for an export
+      const rendering = await rt.api(ev('GET', `/api/v1/sessions/${sid}/report/export?format=json`, { token: LEARNER }));
+      expect(rendering.statusCode).toBe(202);
+      expect(body(rendering)).toMatchObject({ status: 'rendering', mask: 'on', format: 'json' });
+      await rt.repos.table.update(Keys.report(sid, 1), { set: { exports: { jsonMasked: `exports/${sid}/report-v1-jsonMasked.json` } } });
+      const ready = body(await rt.api(ev('GET', `/api/v1/sessions/${sid}/report/export?format=json`, { token: LEARNER })));
+      expect(ready).toMatchObject({ status: 'ready', mask: 'on', download: { url: expect.stringContaining(`exports/${sid}/report-v1-jsonMasked.json`) } });
+      expect(JSON.stringify(ready)).not.toContain(`reports/${sid}/v1.json`);
+      expect((await rt.api(ev('GET', `/api/v1/sessions/${sid}/report/export?format=json&mask=off`, { token: LEARNER }))).statusCode).toBe(202);
       expect((await rt.api(ev('GET', `/api/v1/sessions/${sid}/report/export?format=html&mask=off`, { token: LEARNER }))).statusCode).toBe(202);
+      expect((await rt.api(ev('GET', `/api/v1/sessions/${sid}/report/export?format=html&mask=nope`, { token: LEARNER }))).statusCode).toBe(400);
       await rt.api(ev('GET', '/api/v1/me', { token: LEARNER }));
       expect(body(await rt.api(ev('GET', `/api/v1/reports?labId=${LAB_ID}`, { token: ASSISTANT }))).items).toHaveLength(1);
-      const share = body(await rt.api(ev('POST', `/api/v1/sessions/${sid}/report/shares`, { token: LEARNER, body: { expiresInHours: 24 } })));
-      expect(share).toMatchObject({ status: 'creating', expiresAt: '2026-10-15T01:00:00.000Z' });
+      const share = body(await rt.api(ev('POST', `/api/v1/sessions/${sid}/report/shares`, { token: LEARNER, body: { expiresInDays: 7 } })));
+      expect(share).toMatchObject({ status: 'publishing', expiresAt: '2026-10-21T01:00:00.000Z', shareId: expect.stringMatching(/^[A-Za-z0-9_-]{22}$/) });
+      expect(share.url).toBe(`/share/${String(share.shareId)}/index.html`);
+      expect(body(await rt.api(ev('POST', `/api/v1/sessions/${sid}/report/shares`, { token: LEARNER, body: { expiresInHours: 24 } }))).code).toBe('VALIDATION_FAILED');
       const cert = await rt.api(ev('POST', '/api/v1/certificates', { token: LEARNER, body: { scope: 'track', trackId: 'saa-main' } }));
       expect(cert.statusCode).toBe(422);
       expect(body(cert)).toMatchObject({ code: 'CERT_NOT_ELIGIBLE', reasons: [{ code: 'REQUIRED_CARD_MISSING', labId: LAB_ID }, { code: 'GROUP_PICK_UNMET', groupId: 'g1' }] });
@@ -504,6 +534,13 @@ export function defineApiScenarios(label: string, make: Make): void {
       expect(labCert).toMatchObject({ code: 'CERT_NOT_ELIGIBLE', reasons: [{ code: 'LAB_CERTIFICATES_DISABLED', labId: LAB_ID }] });
       await rt.flush();
       expect(rt.calls.map((c) => c.payload.action)).toEqual(expect.arrayContaining(['GenerateReport', 'ExportReport', 'CreateShare', 'IssueCertificate']));
+      // atl-certs uses the id and expiry the API returned (the link in the response is the real one)
+      expect(rt.calls.find((c) => c.payload.action === 'CreateShare')?.payload).toMatchObject({ sessionId: sid, shareId: share.shareId, expiresAt: share.expiresAt, revision: 1 });
+      expect(rt.calls.filter((c) => c.payload.action === 'ExportReport').map((c) => [c.payload.format, c.payload.mask, c.payload.revision])).toEqual([
+        ['json', 'on', 1],
+        ['json', 'off', 1],
+        ['html', 'off', 1],
+      ]);
       expect(rt.calls.find((c) => c.payload.action === 'IssueCertificate')?.payload).toMatchObject({ scope: 'track', trackId: 'saa-main', sub: 'u-learner', labs: [LAB_ID, 'sc-decoupling'] });
       await rt.repos.table.put({ ...Keys.certificate('ATL-7K2M-9Q4X-1ABZ-C3DE'), ...(await import('@atl/shared')).Gsi1.certificate('u-learner', nowIso, 'ATL-7K2M-9Q4X-1ABZ-C3DE'), type: 'Certificate', ver: 1, certId: 'ATL-7K2M-9Q4X-1ABZ-C3DE', sub: 'u-learner', status: 'valid', scope: 'track', trackId: 'saa-main', issuedAt: nowIso, kid: 'kid-0123456789abcdef', jws: 'eyJ.test.sig' });
       expect(body(await rt.api(ev('GET', '/api/v1/certificates', { token: OBSERVER }))).items).toEqual([expect.objectContaining({ certId: 'ATL-7K2M-9Q4X-1ABZ-C3DE', status: 'valid' })]);

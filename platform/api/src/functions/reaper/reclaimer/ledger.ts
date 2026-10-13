@@ -32,7 +32,15 @@ export interface ResourceInput {
   lastError?: string | null;
   meta?: Record<string, unknown>;
   passNo?: number;
+  /**
+   * Weak sighting (an overwrite-style write such as PutMetricAlarm, ExtractedRef.overwrite): adds the source but is no
+   * creation evidence — it never turns a REVIEW item into TRACKED and never records an `eventId` (02 §7.2 rule 1).
+   */
+  weak?: boolean;
 }
+
+/** Reason shown in the manual list for a weak (overwrite-only) sighting. */
+export const POSSIBLY_PREEXISTING = '可能是会话前已存在的资源';
 
 export function keyOf(region: string, type: string, id: string | null | undefined, arn?: string | null): string {
   return id ? resourceKey(region, { resourceType: type, id }) : resourceKey(region, { arn: arn ?? '' });
@@ -89,8 +97,8 @@ export async function upsertResource(ctx: Ctx, envId: string, input: ResourceInp
         sessionId: input.sessionId,
         createdBy: input.createdBy ?? (input.source === 'STACK' || input.source === 'RETAINED' || input.source === 'OUT_OF_BAND' ? 'provisioner' : input.source === 'DERIVED' ? 'service' : 'learner'),
         creatorSessionName: input.creatorSessionName ?? null,
-        eventId: input.eventId ?? null,
-        eventTime: input.eventTime ?? null,
+        eventId: input.weak ? null : (input.eventId ?? null),
+        eventTime: input.weak ? null : (input.eventTime ?? null),
         discoveredBy: input.source,
         sources: [input.source],
         billing: rule.billing,
@@ -117,7 +125,7 @@ export async function upsertResource(ctx: Ctx, envId: string, input: ResourceInp
       continue;
     }
     const sources = prev.sources?.includes(input.source) ? prev.sources : [...(prev.sources ?? [prev.discoveredBy]), input.source];
-    const strong = input.source !== 'TAG' && input.source !== 'INVENTORY';
+    const strong = !input.weak && input.source !== 'TAG' && input.source !== 'INVENTORY';
     const patch: Partial<SessionResourceRecord> = { sources };
     if (strong && prev.cleanupState === 'REVIEW' && !FINAL.includes(prev.cleanupState)) {
       patch.cleanupState = 'TRACKED';
@@ -126,14 +134,15 @@ export async function upsertResource(ctx: Ctx, envId: string, input: ResourceInp
     }
     if (input.arn && !prev.arn) patch.arn = input.arn;
     if (input.name && !prev.name) patch.name = input.name;
-    if (input.eventId && !prev.eventId) {
+    if (input.eventId && !prev.eventId && !input.weak) {
       patch.eventId = input.eventId;
       patch.eventTime = input.eventTime ?? null;
       patch.creatorSessionName = input.creatorSessionName ?? prev.creatorSessionName;
     }
     if (input.stackName && !prev.stackName) patch.stackName = input.stackName;
     if (input.retained && !prev.retained) patch.retained = true;
-    if (input.meta) patch.meta = { ...(prev.meta ?? {}), ...input.meta };
+    // a weak sighting only annotates items that are still under review (it must not relabel a stack resource)
+    if (input.meta && (!input.weak || prev.cleanupState === 'REVIEW')) patch.meta = { ...(prev.meta ?? {}), ...input.meta };
     const changed = Object.entries(patch).some(([k, v]) => JSON.stringify((prev as Record<string, unknown>)[k]) !== JSON.stringify(v));
     if (!changed) return { item: prev, created: false };
     try {

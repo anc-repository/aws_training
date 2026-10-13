@@ -33,11 +33,24 @@ interface Cx {
   w: (svc: Service, cmd: string, input?: Json) => Promise<Json>;
 }
 
+/** Read-only view of a delete (the reaper function role), used to derive the session policy before the first write. */
+export type ReadCx = Pick<Cx, 'ref' | 'ctx' | 'acct' | 'r'>;
+
 interface Handler {
   /** ARNs the delete needs (session policy); null → only `Resource: "*"` works (manual unless confirmed) */
   arns(ref: ResourceRef, acct: string): string[] | null;
-  /** extra statements, e.g. CloudFormation acting on the caller's behalf */
+  /**
+   * The delete runs as a CloudFormation stack deletion: CloudFormation acts on the caller's behalf (`aws:CalledVia`).
+   * Only `AWS::CloudFormation::Stack` (02 §7.6: deleting the learner's own stack); never the Cloud Control fallback.
+   */
   calledVia?: string;
+  /** Cloud Control API delete: `cloudformation:DeleteResource` etc. (no resource-level permissions) besides the ARNs */
+  cloudControl?: boolean;
+  /**
+   * Narrow extra statements derived from reads (e.g. the roles a policy is attached to, as specific ARNs with one
+   * action each) — never `Action: "*"` beyond the item's own ARNs.
+   */
+  scope?(c: ReadCx): Promise<Json[]>;
   exists(c: Cx): Promise<boolean>;
   delete(c: Cx): Promise<StepResult>;
   /** default: gone → DONE, else PENDING */
@@ -461,7 +474,14 @@ const H: Record<string, Handler> = {
   },
 
   'AWS::IAM::Role': {
-    arns: (ref, acct) => [ref.arn ?? `arn:aws:iam::${acct}:role/${ref.id}`, `arn:aws:iam::${acct}:instance-profile/*`],
+    arns: (ref, acct) => [ref.arn ?? `arn:aws:iam::${acct}:role/${ref.id}`],
+    // RemoveRoleFromInstanceProfile acts on the instance profile: only the profiles that hold this role
+    scope: async (c) => {
+      const out = await c.r('iam', 'ListInstanceProfilesForRole', { RoleName: c.ref.id, MaxItems: 100 });
+      if (out.IsTruncated) throw new ScopeTooWide(`role ${c.ref.id} is in more than 100 instance profiles`);
+      const profiles = ((out.InstanceProfiles ?? []) as Json[]).map((ip) => String(ip.Arn ?? `arn:aws:iam::${c.acct}:instance-profile/${ip.InstanceProfileName}`));
+      return profiles.length ? [{ Sid: 'ReapRoleProfiles', Effect: 'Allow', Action: 'iam:RemoveRoleFromInstanceProfile', Resource: profiles }] : [];
+    },
     exists: existsBy(async (c) => !!(await c.r('iam', 'GetRole', { RoleName: c.ref.id })).Role),
     async delete(c) {
       const name = c.ref.id;
@@ -480,7 +500,12 @@ const H: Record<string, Handler> = {
     },
   },
   'AWS::IAM::InstanceProfile': {
-    arns: (ref, acct) => [ref.arn ?? `arn:aws:iam::${acct}:instance-profile/${ref.id}`, `arn:aws:iam::${acct}:role/*`],
+    arns: (ref, acct) => [ref.arn ?? `arn:aws:iam::${acct}:instance-profile/${ref.id}`],
+    scope: async (c) => {
+      const ip = (await c.r('iam', 'GetInstanceProfile', { InstanceProfileName: c.ref.id }).catch((e: unknown) => (isNotFound(e) ? ({} as Json) : Promise.reject(e)))).InstanceProfile as Json | undefined;
+      const roles = ((ip?.Roles ?? []) as Json[]).map((r) => String(r.Arn ?? `arn:aws:iam::${c.acct}:role/${r.RoleName}`));
+      return roles.length ? [{ Sid: 'ReapProfileRoles', Effect: 'Allow', Action: 'iam:RemoveRoleFromInstanceProfile', Resource: roles }] : [];
+    },
     exists: existsBy(async (c) => !!(await c.r('iam', 'GetInstanceProfile', { InstanceProfileName: c.ref.id })).InstanceProfile),
     async delete(c) {
       const ip = (await c.r('iam', 'GetInstanceProfile', { InstanceProfileName: c.ref.id }).catch((e: unknown) => (isNotFound(e) ? ({} as Json) : Promise.reject(e)))).InstanceProfile;
@@ -491,7 +516,23 @@ const H: Record<string, Handler> = {
     },
   },
   'AWS::IAM::ManagedPolicy': {
-    arns: (ref, acct) => [ref.arn ?? (ref.id.startsWith('arn:') ? ref.id : `arn:aws:iam::${acct}:policy/${ref.id}`), `arn:aws:iam::${acct}:role/*`, `arn:aws:iam::${acct}:user/*`, `arn:aws:iam::${acct}:group/*`],
+    arns: (ref, acct) => [ref.arn ?? (ref.id.startsWith('arn:') ? ref.id : `arn:aws:iam::${acct}:policy/${ref.id}`)],
+    // Detach*Policy act on the principal: only the principals this policy is attached to, only for this policy
+    scope: async (c) => {
+      const arn = policyArn(c);
+      const out = await c.r('iam', 'ListEntitiesForPolicy', { PolicyArn: arn, MaxItems: 100 });
+      if (out.IsTruncated) throw new ScopeTooWide(`policy ${arn} is attached to more than 100 principals`);
+      const named = (kind: string, names: string[]) => names.flatMap((n) => [`arn:aws:iam::${c.acct}:${kind}/${n}`, `arn:aws:iam::${c.acct}:${kind}/*/${n}`]);
+      const roles = ((out.PolicyRoles ?? []) as Json[]).map((r) => String(r.RoleName)).filter((n) => n !== APP_ROLE || c.ctx.ownsSharedObjects);
+      const users = ((out.PolicyUsers ?? []) as Json[]).map((u) => String(u.UserName));
+      const groups = ((out.PolicyGroups ?? []) as Json[]).map((g) => String(g.GroupName));
+      const onlyThisPolicy = { ArnEquals: { 'iam:PolicyARN': arn } };
+      return [
+        ...(roles.length ? [{ Sid: 'ReapDetachRoles', Effect: 'Allow', Action: 'iam:DetachRolePolicy', Resource: named('role', roles), Condition: onlyThisPolicy }] : []),
+        ...(users.length ? [{ Sid: 'ReapDetachUsers', Effect: 'Allow', Action: 'iam:DetachUserPolicy', Resource: named('user', users), Condition: onlyThisPolicy }] : []),
+        ...(groups.length ? [{ Sid: 'ReapDetachGroups', Effect: 'Allow', Action: 'iam:DetachGroupPolicy', Resource: named('group', groups), Condition: onlyThisPolicy }] : []),
+      ];
+    },
     exists: existsBy(async (c) => !!(await c.r('iam', 'GetPolicy', { PolicyArn: policyArn(c) })).Policy),
     async delete(c) {
       const arn = policyArn(c);
@@ -510,7 +551,13 @@ const H: Record<string, Handler> = {
     },
   },
   'AWS::IAM::User': {
-    arns: (ref, acct) => [ref.arn ?? `arn:aws:iam::${acct}:user/${ref.id}`, `arn:aws:iam::${acct}:group/*`],
+    arns: (ref, acct) => [ref.arn ?? `arn:aws:iam::${acct}:user/${ref.id}`],
+    // RemoveUserFromGroup acts on the group: only the groups the user is in
+    scope: async (c) => {
+      const out = await c.r('iam', 'ListGroupsForUser', { UserName: c.ref.id }).catch((e: unknown) => (isNotFound(e) ? ({} as Json) : Promise.reject(e)));
+      const groups = ((out.Groups ?? []) as Json[]).map((g) => String(g.Arn ?? `arn:aws:iam::${c.acct}:group/${g.GroupName}`));
+      return groups.length ? [{ Sid: 'ReapUserGroups', Effect: 'Allow', Action: 'iam:RemoveUserFromGroup', Resource: groups }] : [];
+    },
     exists: existsBy(async (c) => !!(await c.r('iam', 'GetUser', { UserName: c.ref.id })).User),
     async delete(c) {
       const u = c.ref.id;
@@ -598,7 +645,7 @@ function scheduleId(c: Cx): { Name: string; GroupName: string } {
   return { Name: name, GroupName: group };
 }
 
-function policyArn(c: Cx): string {
+function policyArn(c: Pick<Cx, 'ref' | 'acct'>): string {
   return c.ref.arn ?? (c.ref.id.startsWith('arn:') ? c.ref.id : `arn:aws:iam::${c.acct}:policy/${c.ref.id}`);
 }
 
@@ -650,8 +697,10 @@ async function disableAndDeleteDistribution(c: Cx): Promise<StepResult> {
 
 /** Cloud Control fallback for types without a dedicated handler. */
 const CLOUD_CONTROL: Handler = {
+  // the downstream calls Cloud Control makes with the caller's credentials are covered by the item's ARNs only (no
+  // `aws:CalledVia` wildcard); a type that needs more is denied → manual list (02 §7.6)
   arns: (ref) => (ref.arn ? [ref.arn, `${ref.arn}/*`] : null),
-  calledVia: 'cloudformation.amazonaws.com',
+  cloudControl: true,
   exists: existsBy(async (c) => !!(await c.r('cloudcontrol', 'GetResource', { TypeName: c.ref.type, Identifier: c.ref.id })).ResourceDescription),
   async delete(c) {
     try {
@@ -669,14 +718,54 @@ function handlerFor(type: string): Handler {
   return H[type] ?? CLOUD_CONTROL;
 }
 
-/** Session policy of one delete (02 §7.6): the item's ARNs (+ CloudFormation acting for the caller when it needs to). */
-export function deleteSessionPolicy(arns: string[], calledVia?: string): string {
+/** AssumeRole: inline session policies are limited to 2,048 plaintext characters (IAM quotas; 07 checks it again). */
+export const SESSION_POLICY_MAX_CHARS = 2048;
+
+/** A delete whose session policy cannot be kept narrow (too many principals / profiles) goes to the manual list. */
+export class ScopeTooWide extends Error {
+  override readonly name = 'ScopeTooWide';
+}
+
+export interface SessionPolicyOptions {
+  /** CloudFormation deleting a stack for the caller (only AWS::CloudFormation::Stack) */
+  calledVia?: string;
+  /** Cloud Control API control-plane actions (no resource-level permissions) */
+  cloudControl?: boolean;
+  /** narrow statements derived by the handler (Handler.scope) */
+  extra?: Json[];
+}
+
+/**
+ * Session policy of one delete (02 §7.6, 01 §6.7): `Action: *` on the item's own ARNs only; anything else is a narrow
+ * statement (one action, specific ARNs). `aws:CalledVia` is only granted to a stack deletion.
+ */
+export function deleteSessionPolicy(arns: string[], opts: SessionPolicyOptions = {}): string {
   const statements: Json[] = [{ Sid: 'ReapItem', Effect: 'Allow', Action: '*', Resource: arns }];
-  if (calledVia) {
-    statements.push({ Sid: 'ReapViaService', Effect: 'Allow', Action: '*', Resource: '*', Condition: { 'ForAnyValue:StringEquals': { 'aws:CalledVia': [calledVia] } } });
+  if (opts.calledVia) {
+    statements.push({ Sid: 'ReapViaService', Effect: 'Allow', Action: '*', Resource: '*', Condition: { 'ForAnyValue:StringEquals': { 'aws:CalledVia': [opts.calledVia] } } });
+  }
+  if (opts.cloudControl) {
     statements.push({ Sid: 'ReapControl', Effect: 'Allow', Action: ['cloudformation:DeleteResource', 'cloudformation:GetResource', 'cloudformation:GetResourceRequestStatus'], Resource: '*' });
   }
+  for (const st of opts.extra ?? []) statements.push(st);
   return JSON.stringify({ Version: '2012-10-17', Statement: statements });
+}
+
+/**
+ * The session policy a delete of `ref` runs with (also used by the tests): `null` when the delete cannot be narrowed to
+ * ARNs and the learner has not confirmed it (manual list first). Throws ScopeTooWide when it would not stay narrow.
+ */
+export async function sessionPolicyFor(ref: ResourceRef, acct: string, ctx: DeleteContext, read: Cx['r']): Promise<string | null> {
+  const h = handlerFor(ref.type);
+  let arns = h.arns(ref, acct);
+  if (!arns) {
+    if (ctx.meta.learnerConfirmed !== true) return null;
+    arns = ['*'];
+  }
+  const extra = h.scope ? await h.scope({ ref, ctx, acct, r: read }) : [];
+  const policy = deleteSessionPolicy(arns, { ...(h.calledVia ? { calledVia: h.calledVia } : {}), ...(h.cloudControl ? { cloudControl: true } : {}), extra });
+  if (policy.length > SESSION_POLICY_MAX_CHARS) throw new ScopeTooWide(`the session policy of ${ref.type} ${ref.id} would exceed ${SESSION_POLICY_MAX_CHARS} characters`);
+  return policy;
 }
 
 export class AwsReclaimCloud implements ReclaimCloud {
@@ -708,21 +797,21 @@ export class AwsReclaimCloud implements ReclaimCloud {
   private async cx(ref: ResourceRef, ctx: DeleteContext, h: Handler): Promise<Cx | StepResult> {
     const acct = this.env.accountId;
     const region = this.regionOf(ref);
-    const arns = h.arns(ref, acct);
-    let policyArns = arns;
-    if (!policyArns) {
-      if (ctx.meta.learnerConfirmed !== true) return manual('the delete cannot be narrowed to an ARN: confirm it in the manual list first', 'REVIEW');
-      policyArns = ['*'];
-    }
-    const policy = deleteSessionPolicy(policyArns, h.calledVia);
+    if (!h.arns(ref, acct) && ctx.meta.learnerConfirmed !== true) return manual('the delete cannot be narrowed to an ARN: confirm it in the manual list first', 'REVIEW');
+    const read: Cx['r'] = (svc, cmd, input = {}) => call(svc, region, cmd, input);
     let creds: Credentials | null = null;
     return {
       ref: { ...ref, region },
       ctx,
       acct,
-      r: (svc, cmd, input = {}) => call(svc, region, cmd, input),
+      r: read,
+      // the session policy is derived right before the first write (Handler.scope reads the current attachments)
       w: async (svc, cmd, input = {}) => {
-        creds ??= await this.assume(ctx, policy);
+        if (!creds) {
+          const policy = await sessionPolicyFor({ ...ref, region }, acct, ctx, read);
+          if (!policy) throw new ScopeTooWide('the delete cannot be narrowed to an ARN');
+          creds = await this.assume(ctx, policy);
+        }
         return call(svc, region, cmd, input, creds);
       },
     };
@@ -737,6 +826,7 @@ export class AwsReclaimCloud implements ReclaimCloud {
       if (h.poll) return await h.poll(cx);
       return (await h.exists(cx)) ? pending(30) : DONE;
     } catch (e) {
+      if (e instanceof ScopeTooWide) return manual(`${e.message}: confirm it in the manual list first`, 'REVIEW');
       if (isNotFound(e)) return DONE;
       if (isThrottled(e)) return retry(errText(e), 30);
       if (isDependency(e)) return retry(errText(e), 30);

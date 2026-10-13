@@ -29,7 +29,7 @@ import { decodeJws } from '../../services/certificates/jws.js';
 import { verifyPageJs } from '../../services/certificates/static-site.js';
 import { emitEvents } from '../../services/progress/events.js';
 import { DynamoItemStore, type ItemStore } from '../../services/progress/store.js';
-import { createShare, exportReport, generateReport, removeShare, type ReportsContext } from '../../services/reports/publish.js';
+import { createShare, exportMask, exportReport, generateReport, removeShare, type ReportsContext } from '../../services/reports/publish.js';
 import { createInvalidator, type Invalidator } from './invalidate.js';
 
 export const FUNCTION_NAME = 'atl-certs';
@@ -78,10 +78,21 @@ export const CERTS_ACTIONS: Record<string, CertsAction> = {
     await emitEvents(c.deps, c.store, r.events);
     return { revision: r.revision, digest: r.digest, created: r.created };
   },
-  ExportReport: async (p, c) => exportReport(c, str(p.sessionId), { format: p.format === 'json' ? 'json' : 'html', ...(p.mask && typeof p.mask === 'object' ? { mask: p.mask as never } : {}), ...(typeof p.revision === 'number' ? { revision: p.revision } : {}) }),
+  // atl-api sends `mask: 'on' | 'off'` (01 §8.2 `?mask=`), other callers `{ accountId, ip }`; `version` = `revision`
+  ExportReport: async (p, c) => {
+    const revision = typeof p.revision === 'number' ? p.revision : typeof p.version === 'number' ? p.version : undefined;
+    return exportReport(c, str(p.sessionId), { format: p.format === 'json' ? 'json' : 'html', mask: exportMask(p.mask), ...(revision !== undefined ? { revision } : {}) });
+  },
+  // the shareId and expiresAt of the link atl-api returned (idempotent per shareId: async retries reuse them)
   CreateShare: async (p, c) => {
     const days = p.expiresInDays === null ? null : typeof p.expiresInDays === 'number' ? p.expiresInDays : undefined;
-    return createShare(c, str(p.sessionId), { ...(days !== undefined ? { expiresInDays: days } : {}), ...(typeof p.revision === 'number' ? { revision: p.revision } : {}) });
+    const expiresAt = p.expiresAt === null ? null : typeof p.expiresAt === 'string' ? p.expiresAt : undefined;
+    return createShare(c, str(p.sessionId), {
+      ...(typeof p.shareId === 'string' ? { shareId: p.shareId } : {}),
+      ...(expiresAt !== undefined ? { expiresAt } : {}),
+      ...(days !== undefined ? { expiresInDays: days } : {}),
+      ...(typeof p.revision === 'number' ? { revision: p.revision } : {}),
+    });
   },
   RevokeShare: async (p, c) => removeShare(c, str(p.shareId), { ...(str(p.sessionId) ? { sessionId: str(p.sessionId) } : {}), reason: 'revoked' }),
   ExpireShare: async (p, c) => removeShare(c, str(p.shareId), { reason: 'expired' }),

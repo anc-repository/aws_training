@@ -43,6 +43,23 @@ export const LAB_SERVICE_ACTIONS = [
 /** Global services exempt from the region deny (01 §6.5 DenyOtherRegions). */
 export const GLOBAL_SERVICE_ACTIONS = ['iam:*', 'sts:*', 'cloudfront:*', 'route53:*', 'budgets:*', 'ce:*', 'health:*', 'pricing:*'] as const;
 
+/**
+ * CloudFront resources of the platform stack (01 §3.8). None of them can carry the `atl:component` tag (CloudFormation
+ * does not tag functions, response headers / cache policies or OACs), and `cloudfront:*` is a global lab service, so each
+ * one is denied by ARN (test/inventory.test.ts checks that every AWS::CloudFront::* resource of the template is covered).
+ * IDs are unique, so the ARNs use `*` for the account and the resource-type segment (keeps ATLWorkloadBoundary within the
+ * managed-policy size limit); the function is matched by its reserved `atl-` name.
+ */
+export const PLATFORM_CLOUDFRONT_ARNS = [
+  'arn:${AWS::Partition}:cloudfront::*:*/${WebDistribution}',
+  'arn:${AWS::Partition}:cloudfront::*:function/atl-*',
+  'arn:${AWS::Partition}:cloudfront::*:*/${SpaHeadersPolicy}',
+  'arn:${AWS::Partition}:cloudfront::*:*/${VerifyHeadersPolicy}',
+  'arn:${AWS::Partition}:cloudfront::*:*/${ShareHeadersPolicy}',
+  'arn:${AWS::Partition}:cloudfront::*:*/${ShortTtlCachePolicy}',
+  'arn:${AWS::Partition}:cloudfront::*:*/${WebOac}',
+] as const;
+
 export const MACROS: Record<string, unknown> = {
   LAB_SERVICE_ACTIONS: [...LAB_SERVICE_ACTIONS],
   /** 01 §6.6: same list without cloudformation:*; IAM / STS are granted by separate statements. */
@@ -127,11 +144,11 @@ function accountIamActions(): string[] {
 /** DenyPlatformByArn: platform resources whose names are not predictable (01 §6.5). */
 function platformArns(withAssociation: boolean): string[] {
   return [
-    'arn:${AWS::Partition}:cloudfront::${AWS::AccountId}:distribution/${WebDistribution}',
-    'arn:${AWS::Partition}:cognito-idp:${AWS::Region}:${AWS::AccountId}:userpool/${UserPool}',
-    'arn:${AWS::Partition}:apigateway:${AWS::Region}::/apis/${HttpApi}',
-    'arn:${AWS::Partition}:apigateway:${AWS::Region}::/apis/${HttpApi}/*',
-    '${CertSigningKey.Arn}',
+    ...PLATFORM_CLOUDFRONT_ARNS,
+    'arn:${AWS::Partition}:cognito-idp:*:*:userpool/${UserPool}',
+    // the HTTP API and all its sub-resources (API ids have a fixed length of 10)
+    'arn:${AWS::Partition}:apigateway:*::/apis/${HttpApi}*',
+    'arn:${AWS::Partition}:kms:*:*:key/${CertSigningKey}',
     ...(withAssociation ? ['arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:association/${PrepareInstanceAssociation}'] : []),
   ];
 }
@@ -245,6 +262,12 @@ export function exampleResolvers(pseudo: Record<string, string>): Pick<EvalConte
   const region = pseudo['AWS::Region']!;
   const refs: Record<string, string> = {
     WebDistribution: 'E2EXAMPLEATL01',
+    SpaHeadersPolicy: '11111111-aaaa-4bbb-8ccc-000000000001',
+    VerifyHeadersPolicy: '11111111-aaaa-4bbb-8ccc-000000000002',
+    ShareHeadersPolicy: '11111111-aaaa-4bbb-8ccc-000000000003',
+    ShortTtlCachePolicy: '22222222-aaaa-4bbb-8ccc-000000000001',
+    WebOac: 'E3EXAMPLEOAC01',
+    CertSigningKey: '1234abcd-12ab-34cd-56ef-1234567890ab',
     UserPool: `${region}_EXAMPLE12`,
     HttpApi: 'a1b2c3d4e5',
     PrepareInstanceAssociation: '00000000-0000-4000-8000-000000000000',

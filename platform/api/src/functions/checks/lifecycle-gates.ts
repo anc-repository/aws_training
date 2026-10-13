@@ -9,6 +9,7 @@
 import { Keys } from '../../data/keys.js';
 import type { FunctionDeps } from '../../runtime/deps.js';
 import { mutate, type ItemStore } from '../../services/progress/store.js';
+import { refFromArn } from '../reaper/reclaimer/arn.js';
 import { evaluateWhen } from './engine/expr.js';
 import { ContentUnavailableError, loadFacts, type SessionFacts, type SessionRecord } from './engine/facts.js';
 import { AwsCallError, type CheckEnginePorts } from './engine/ports.js';
@@ -34,7 +35,11 @@ export interface PreflightItem {
   code?: string | null;
 }
 
-const INVENTORY_TYPES = ['ec2:instance', 'ec2:natgateway', 'ec2:elastic-ip', 'ec2:vpc-endpoint', 'elasticloadbalancing:loadbalancer', 'rds:db', 'elasticache:cluster', 'elasticache:serverlesscache', 'elasticfilesystem:file-system'];
+/**
+ * Resource types of the baseline (Tagging API filters), matching what the reclaimer's inventory lists (aws.ts
+ * `inventory`). The Tagging API only returns resources that carry (or carried) a tag — see platform-review-fixes.
+ */
+const INVENTORY_TYPES = ['ec2:instance', 'ec2:natgateway', 'ec2:elastic-ip', 'ec2:vpc-endpoint', 'elasticloadbalancing:loadbalancer', 'rds:db', 'rds:cluster', 'elasticache:cluster', 'elasticache:replicationgroup', 'elasticache:serverlesscache', 'elasticfilesystem:file-system'];
 
 export async function preflight(deps: FunctionDeps, engine: CheckEnginePorts, store: ItemStore, req: PreflightRequest): Promise<Record<string, unknown>> {
   const session = await store.get<SessionRecord>(Keys.labSession(req.sessionId));
@@ -87,19 +92,33 @@ export async function preflight(deps: FunctionDeps, engine: CheckEnginePorts, st
     }
   }
 
-  // baseline inventory of expensive resources (fresh environments only; reuse keeps the creation baseline)
+  // baseline inventory of expensive resources in the scan regions (fresh environments only; reuse keeps the creation
+  // baseline). Stored as `items: [{ type, id, arn, region }]` — the shape the reclaimer's INVENTORY difference reads
+  // (discovery.ts baselineKeys) — plus the raw ARNs.
   if (req.baseline !== false && req.fresh !== false) {
-    const arns: string[] = [];
+    const arns: { arn: string; region: string }[] = [];
     try {
-      let token: string | undefined;
-      for (let page = 0; page < 5; page++) {
-        const r = await call('tag', 'GetResources', { ResourceTypeFilters: INVENTORY_TYPES, ...(token ? { PaginationToken: token } : {}) });
-        for (const m of (r.ResourceTagMappingList as { ResourceARN?: string }[] | undefined) ?? []) if (m.ResourceARN) arns.push(m.ResourceARN);
-        token = (r.PaginationToken as string | undefined) || undefined;
-        if (!token) break;
+      for (const r of [...new Set([region, 'us-east-1', ...(req.regions?.extra ?? [])])]) {
+        let token: string | undefined;
+        for (let page = 0; page < 5; page++) {
+          const out = await engine.aws.call({ service: 'tag', action: 'GetResources', params: { ResourceTypeFilters: INVENTORY_TYPES, ...(token ? { PaginationToken: token } : {}) }, region: r, session: s });
+          for (const m of (out.ResourceTagMappingList as { ResourceARN?: string }[] | undefined) ?? []) if (m.ResourceARN) arns.push({ arn: m.ResourceARN, region: r });
+          token = (out.PaginationToken as string | undefined) || undefined;
+          if (!token) break;
+        }
       }
+      const kept = arns.slice(0, 2000);
+      const baseline = kept.map(({ arn, region: r }) => {
+        const ref = refFromArn(arn, r);
+        return { type: ref?.type ?? null, id: ref?.id ?? null, arn, region: ref?.region ?? r };
+      });
       const at = new Date(deps.ports.clock.nowMs()).toISOString();
-      await mutate<Record<string, unknown>>(store, Keys.inventorySnapshot(req.envId), (cur) => (cur ? null : { type: 'InventorySnapshot', envId: req.envId, sessionId: req.sessionId, at, region, resourceArns: arns.slice(0, 2000), count: arns.length, source: 'tag:GetResources' }), { now: () => at });
+      await mutate<Record<string, unknown>>(
+        store,
+        Keys.inventorySnapshot(req.envId),
+        (cur) => (cur ? null : { type: 'InventorySnapshot', envId: req.envId, sessionId: req.sessionId, at, region, regions: [...new Set(arns.map((a) => a.region))], items: baseline, resourceArns: kept.map((a) => a.arn), count: arns.length, source: 'tag:GetResources' }),
+        { now: () => at },
+      );
     } catch (e) {
       items.push({ id: 'inventory', level: 'WARN', message: `baseline inventory incomplete: ${e instanceof Error ? e.message : String(e)}` });
     }

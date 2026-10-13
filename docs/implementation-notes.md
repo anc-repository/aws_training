@@ -1702,3 +1702,89 @@ ATL_IT=1 npx vitest run --project atl-api                       # 含 DynamoDB L
   不改本地 L0 的模块配置；dev 的 `DevReclaimCloud` 只是内存中的账号。
 - **未在本地验证**：模块操作（平台动作）只在模拟器测试中覆盖；svc-auth 的 Cognito 测试用户、需要 AWS 的检查（`aws-readonly` 只由 FakeAws 回答）。
 - **git**：本轮只提交自己改动的路径；工作区中 `docs/` 下其他文件与未跟踪的 `docs/platform/` 不是本轮的改动，没有提交。
+
+## platform-review-fixes
+
+本节记录对审查发现（报告分享、导出、实验时间窗、CloudFront 护栏、回收证据、删除会话策略、基线清单、定向扫描限流、模块操作记录、函数角色权限）的修复，以及修复中做出的取舍。
+
+### 1. 报告分享链接（04 §9.5）
+
+- **同一个 shareId**：`POST /sessions/{sid}/report/shares` 由 atl-api 生成 `shareId`（`@atl/shared` 的 `newShareId()`：128 位随机数的 base64url，22 字符）
+  和 `expiresAt`，异步交给 atl-certs `CreateShare` 原样使用；202 响应里的 `shareId`、`url`（`/share/<shareId>/index.html`，按 04 §9.5 带 `index.html`）
+  与 `expiresAt` 就是最终发布的链接。atl-certs 只接受未来 91 天以内的 `expiresAt`。
+- **请求体**：04 §9.5 与 08 的分享对话框只有“7 / 30（默认）/ 90 天 / 不过期”，请求体改为 `{ expiresInDays: 7 | 30 | 90 | null }`；原来的
+  `expiresInHours` 与 `mask` 删除（分享副本一律强制打码）。
+- **幂等与顺序**：`CreateShare` 按 shareId 幂等，顺序为“到期调度 → 标记对象（`reports/_shares/<id>.json`）→ `ReportShare`（`status=publishing`）→
+  公开对象（固定键名，重试只覆盖）→ `status=active`”。异步重试不会再发布副本；发布过程中被撤销会立即删掉刚写的对象；撤销或到期之后到达的重试什么都不发布。
+- **撤销与到期**：`DELETE …/shares/{shareId}` 的校验与 `SHARE_ID_RE` 一致（已撤销时直接返回当前状态）；atl-timer 对 `SHARE_EXPIRE` 改发
+  `{ action: 'ExpireShare', shareId }`。删除对象按记录的 `objectKeys`（不需要 atl-web 的 `ListBucket`）。
+- **ReportShare 新属性**（需 01 登记）：`status`（`publishing | active | revoked | expired`）、`publishedAt`、`revokeReason`。列表接口按
+  `revokedAt` / `expiresAt` 推出状态，到期但调度尚未触发的也显示为 `expired`；不返回 `objectKeys`。
+- **谁创建调度**：01 没有规定分享到期调度由谁创建，选最简单的做法——atl-certs 在发布前自己创建、撤销时删除。`ATLCertsFunctionRole` 增加
+  `scheduler:CreateSchedule`、`DeleteSchedule`（仅 `schedule/atl-system/atl-share-*`）与对 `ATLSchedulerRole` 的 `iam:PassRole`（条件
+  `iam:PassedToService=scheduler.amazonaws.com`）。**需 01 §6.9 登记**。
+
+### 2. 报告导出（04 §9.4）
+
+- 导出一律由 atl-certs 渲染：按修订版本、格式和打码方式写入确定的键 `exports/<sid>/report-v<n>-<format><Variant>.<format>`（`Variant` 为
+  `Masked` / `Unmasked`），并记到 Report 项的新属性 `exports.{jsonMasked, htmlMasked, jsonUnmasked, htmlUnmasked}`（需 01 登记）。
+- `GET /report/export?format=&mask=on|off`：该槽位已有键时才签发下载链接（`status: ready`），否则派发 `ExportReport` 并返回 202 `rendering`；
+  从不为 `s3Keys.json/html` 签名。`mask` 只接受 `on` / `off`；atl-certs 同时接受字符串和 `{ accountId, ip }`。
+- `GET /sessions/{sid}/report` 的 `downloads` 仍是权威报告（08 P09-C 的“核验用报告 JSON”需要未打码的原件），没有改。
+
+### 3. 对比实验时间窗（04 §7.4 第 3 步）
+
+- 登记写入的 `window` 是 `{ notBefore, notAfter }`；`validateRun` 改用它（第一版记录的 `{ from, to }` 也能读）。无法解析或缺少的时间一律视为窗外。
+- 上传时就按登记窗口判定：窗外的结果**保留记录**并直接标为 `invalid: OUT_OF_WINDOW`（04 §7.4 “任一步失败都保留记录并标明原因”，所以不是 4xx 拒收），
+  响应 `202 { status: 'invalid', validity }`；交叉核对得出同样结论。
+- 功能型实验的佐证区间取“客户端时间与登记窗口的交集”（+10 分钟），学员把 `startedAt` 写成会话开始时间也借不到窗口外的通过记录；没有窗口的记录不计佐证。
+
+### 4. CloudFront 护栏（01 §3.8、§6.5、§6.6）
+
+- `DenyPlatformByArn`（学员护栏、Provisioner 护栏、工作负载边界）加入平台的 CloudFront 资源：分配、`function/atl-*`、三个响应头策略、短 TTL
+  缓存策略、OAC（`gen-policies.ts` 的 `PLATFORM_CLOUDFRONT_ARNS`）。这几类资源 CloudFormation 无法打 `atl:component` 标签。
+- **大小**：工作负载边界原本只剩 235 字符余量。ID 全局唯一，所以这些 ARN（以及原有的用户池、HTTP API、签名密钥、ProtectSsmPlatform 中的关联）
+  改用 `*` 代替账号 / 区域 / 资源类型段：`arn:aws:cloudfront::*:*/<id>`、`apigateway:*::/apis/<id>*`（API ID 定长 10 位）、`kms:*:*:key/<keyId>`。
+  对 Deny 而言这是等价或更宽的写法；01 §6.5 的示例仍是完整 ARN，以生成结果为准。14 字符区域名的场景下工作负载边界余量为 65 字符。
+- infra 测试新增清单校验：模板中每个 `AWS::CloudFront::*` 资源都必须被名称、标签或 ARN 中的一种拒绝覆盖（学员 / Provisioner 与工作负载两组）；
+  离线求值测试覆盖 `UpdateFunction`、`PublishFunction`、`UpdateResponseHeadersPolicy`、`UpdateCachePolicy`、`UpdateOriginAccessControl`。
+
+### 5. 回收证据：覆盖式写入（02 §7.2 第 1 条、§7.3）
+
+- 提取器把“创建或覆盖”的事件标为 `overwrite`：`monitoring:PutMetricAlarm`、`PutDashboard`、`events:PutRule`、`config:PutConfigurationRecorder`、
+  `PutDeliveryChannel`、`PutConfigRule`、`inspector2:Enable`，以及 Route 53 `ChangeResourceRecordSets` 中的 `UPSERT`（`CREATE` 仍是创建证据）。
+- 这类条目以 `CLOUDTRAIL` 来源、**不带 `eventId`**（台账 `weak` 输入）写入 `REVIEW`，`meta.possiblyPreexisting = true`，原因文字以
+  “可能是会话前已存在的资源”开头；弱证据不会把 REVIEW 改回 TRACKED，也不会被自动删除。定向扫描对这类事件仍回答 FOUND（检查只关心“本会话写过”），
+  但台账同样按弱证据记录。
+- 取舍：没有实现“开始前基线快照 / DescribeAlarmHistory / Route 53 变更历史”来证明资源原本不存在（需要额外的读权限与按类型的实现）。代价是学员在控制台
+  新建的告警、规则、Config 记录器会进入待人工处理清单，而不是自动删除；模块栈创建的同类资源（STACK）与 `state.json` 的带外记录（OUT_OF_BAND）不受影响。
+
+### 6. 删除会话策略（02 §7.6、01 §6.7）
+
+- Cloud Control 回退路径不再带 `aws:CalledVia` 通配，只保留 `ReapItem`（`[arn, arn/*]`）与 `cloudformation:DeleteResource / GetResource /
+  GetResourceRequestStatus`；需要更宽权限的类型会被拒绝并进入人工清单。只有 `AWS::CloudFormation::Stack` 保留 `ReapViaService`（原来附带的
+  `ReapControl` 对删栈没有用，一并去掉）。
+- IAM 处理器不再对 `role/*`、`user/*`、`group/*`、`instance-profile/*` 给 `Action: *`：会话策略在第一次写操作前由 `Handler.scope` 读取当前关系后生成，
+  只含具体动作与具体 ARN——`DetachRolePolicy` / `DetachUserPolicy` / `DetachGroupPolicy`（按 `ListEntitiesForPolicy`，路径未知所以每个名称给
+  `<kind>/<name>` 与 `<kind>/*/<name>` 两种形式，并加 `iam:PolicyARN` 条件）、`RemoveRoleFromInstanceProfile`、`RemoveUserFromGroup`。
+  超过 100 个关联或策略超过 AssumeRole 的 2,048 字符上限时，该项进入人工清单（`REVIEW`）。`sessionPolicyFor()` 导出供测试与 07 核对。
+
+### 7. 基线清单（02 §3.5、§7.1 INVENTORY）
+
+- Preflight 写入的 `InventorySnapshot` 改为 `items: [{ type, id, arn, region }]`（`refFromArn` 解析），同时保留 `resourceArns`，并覆盖扫描区域
+  （平台区域 ∪ `us-east-1` ∪ 卡片 `regions.extra`）；类型补上 `rds:cluster` 与 `elasticache:replicationgroup`，与回收器的清点一致。
+- 回收器的 `baselineKeys()` 两种形状都读（`type|id` 与 ARN）。
+- **已知缺口**：基线来自 Tagging API `GetResources`，它只返回带过标签的资源；从未打过标签的既有高费用资源仍会作为 `INVENTORY` 的 REVIEW 项出现。
+  完整的基线需要 Preflight 以 Describe* 列举，而 `ATLVerifierRole` 的策略由内容（`labs:policy`）生成，目前不包含这些操作；留给 07 阶段 5 实测后决定。
+
+### 8. 其他
+
+- **OwnershipLookup 限流**：每翻一页 `LookupEvents` 都取一个令牌；令牌不足或 AWS 返回限流（`PortError('Throttled')`、`Throttling*`、
+  `Rate exceeded`）时回答 `{ status: 'THROTTLED', retryAfterSeconds }`（AWS 限流时 30 秒），不再让检查报错。
+- **模块操作记录**：`finished` 只能结束同一来源的记录（条件 `attribute_not_exists(PK) OR #source = :src`）；工作台改写平台或运行器的记录返回
+  409 `INVALID_STATE`，不发事件。
+- **函数角色**：`ATLPublicFunctionRole` 增加 `atl-main/index/GSI1` 资源与 LeadingKeys `KEYS`（`GET /public/keys`）；`ATLApiFunctionRole` 的
+  `DataDownloads` 增加 `atl-data/experiments/*`（实验结果下载链接与对比）。infra 的 `inventory.test.ts` 新增“路由 / 动作 → AWS 调用 → 权限”核对表。
+- **smoke:platform** 第 7 步增加：打码导出（只签发 `exports/` 副本）、创建分享（列表为 active、调度存在）、撤销（副本与调度删除）。
+- 新增测试：`report-shares.test.ts`（创建 → 列表 → 撤销 → 调度到期全链路、重试幂等、导出）、`lifecycle/reclaim-evidence.test.ts`、
+  `lifecycle/reclaim-session-policy.test.ts`、`lifecycle/ownership-throttle.test.ts`，以及 API 场景中的“窗口外上传”和“改写平台模块操作”回归用例。

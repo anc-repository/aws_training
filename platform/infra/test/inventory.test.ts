@@ -37,6 +37,7 @@ import {
   WEB_CLIENT_NAME,
 } from '@atl/shared';
 import { describe, expect, it } from 'vitest';
+import { MACROS } from '../build/gen-policies.js';
 import { actionsOf, byType, named, prop, resources, type Resource } from './support/template.js';
 
 const names = (type: string, p: string) => named(type, p).map((x) => x.name);
@@ -109,6 +110,27 @@ describe('01 §3 inventory ⊆ template', () => {
     const policies = byType('AWS::CloudFront::ResponseHeadersPolicy').map(([, r]) => (prop(r, 'ResponseHeadersPolicyConfig') as { Name: string }).Name);
     expect(policies.sort()).toEqual([...RESPONSE_HEADERS_POLICIES].sort());
     expect(byType('AWS::CloudFront::OriginAccessControl')).toHaveLength(1);
+  });
+
+  it('every AWS::CloudFront::* resource of the platform is covered by a deny by name, tag or ARN (learner, provisioner, workload)', () => {
+    // cloudfront:* is a global lab service; functions, response headers / cache policies and OACs cannot be tagged
+    const lists = ['PLATFORM_ARNS', 'PLATFORM_ARNS_NO_ASSOCIATION', 'PLATFORM_NAME_RESOURCES'].map((m) => MACROS[m] as string[]);
+    const [arns, workloadArns, names] = lists as [string[], string[], string[]];
+    const cfResources = Object.entries(resources()).filter(([, r]) => r.Type.startsWith('AWS::CloudFront::'));
+    expect(cfResources.length).toBeGreaterThanOrEqual(7);
+    const glob = (pattern: string, value: string) => new RegExp(`^${pattern.split('*').map((p) => p.replace(/[.+?^$(){}|[\]\\]/g, '\\$&')).join('.*')}$`).test(value);
+    const uncovered: string[] = [];
+    for (const [id, r] of cfResources) {
+      const tags = (prop<{ Key: string; Value: string }[] | undefined>(r, 'Tags') ?? prop<{ Tags?: { Key: string; Value: string }[] }>(r, 'DistributionConfig')?.Tags ?? []) as { Key: string; Value: string }[];
+      const byTag = tags.some((t) => t.Key === 'atl:component' && t.Value === 'platform');
+      const byArn = (list: string[]) => list.some((a) => a.includes(`\${${id}}`));
+      const name = r.Type === 'AWS::CloudFront::Function' ? String(prop(r, 'Name')) : null;
+      const byName = (list: string[]) => !!name && list.some((a) => a.includes(':cloudfront:') && glob(a.replace(/^.*:function\//, ''), name) && a.includes(':function/'));
+      for (const [who, list] of [['learner/provisioner', arns], ['workload', workloadArns]] as const) {
+        if (!(byTag || byArn(list) || byName(list) || byName(names))) uncovered.push(`${id} (${r.Type}) for ${who}`);
+      }
+    }
+    expect(uncovered).toEqual([]);
   });
 
   it('events, notifications, budget, analyzer, trail (01 §3.10, §3.12)', () => {
@@ -194,7 +216,8 @@ const ROLE_ALLOW_LIST: Record<string, RegExp[]> = {
     // read-only inventory (Describe / List / Get) of the reclaim rule table
     /^[a-z0-9-]+:(Describe|List|Get|BatchGet)[A-Za-z*]*$/, /^apigateway:GET$/,
   ],
-  ATLCertsFunctionRole: [/^logs:(CreateLogStream|PutLogEvents)$/, /^dynamodb:/, /^kms:(Sign|GetPublicKey)$/, /^s3:(GetObject|PutObject|DeleteObject)$/, /^cloudfront:CreateInvalidation$/],
+  // + the share-link expiry schedule (04 §9.5; platform-review-fixes in docs/implementation-notes.md)
+  ATLCertsFunctionRole: [/^logs:(CreateLogStream|PutLogEvents)$/, /^dynamodb:/, /^kms:(Sign|GetPublicKey)$/, /^s3:(GetObject|PutObject|DeleteObject)$/, /^cloudfront:CreateInvalidation$/, /^scheduler:(CreateSchedule|DeleteSchedule)$/, /^iam:PassRole$/],
   ATLPricingFunctionRole: [/^logs:(CreateLogStream|PutLogEvents)$/, /^pricing:GetProducts$/, /^dynamodb:/],
   ATLTaggerFunctionRole: [/^logs:(CreateLogStream|PutLogEvents)$/, /^dynamodb:/, /^tag:TagResources$/, /^[a-z0-9-]+:(CreateTags|AddTags|AddTagsToResource|TagResource|TagQueue|PutBucketTagging)$/],
   ATLCustomResourceRole: [
@@ -225,6 +248,60 @@ describe('01 §6.9: function roles only hold the listed operations', () => {
       const extra = actions.filter((a) => !allowed.some((re) => re.test(a)));
       expect(extra, `${roleName} holds operations outside 01 §6.9`).toEqual([]);
       expect(actions.some((a) => a === '*' || a.endsWith(':*'))).toBe(false);
+    });
+  }
+});
+
+/** Statements of a policy document (Fn::If branches included). */
+function statementsOf(doc: unknown): Record<string, unknown>[] {
+  const out: Record<string, unknown>[] = [];
+  const visit = (n: unknown) => {
+    if (Array.isArray(n)) n.forEach(visit);
+    else if (n && typeof n === 'object') {
+      const o = n as Record<string, unknown>;
+      if ('Fn::If' in o) {
+        const [, a, b] = o['Fn::If'] as unknown[];
+        visit(a);
+        visit(b);
+      } else if ('Effect' in o) out.push(o);
+      else if ('Statement' in o) visit(o.Statement);
+    }
+  };
+  visit(doc);
+  return out;
+}
+
+/**
+ * Route → AWS calls → permission. ATL_DEV_MODE never evaluates IAM, so smoke:platform cannot find these gaps; 07
+ * stages 3–5 would. Each row: the role, the call a route / action makes, and a fragment its Resource must contain.
+ */
+const ROUTE_NEEDS: { role: string; action: string; resource: string; why: string; condition?: string }[] = [
+  { role: 'ATLPublicFunctionRole', action: 'dynamodb:Query', resource: '/index/GSI1', why: 'GET /public/keys (listSigningKeys, GSI1 partition KEYS)', condition: 'KEYS' },
+  { role: 'ATLPublicFunctionRole', action: 'dynamodb:GetItem', resource: 'AtlMainTable', why: 'GET /public/certificates/{certId}, /public/keys/{kid}' },
+  { role: 'ATLApiFunctionRole', action: 's3:GetObject', resource: '/experiments/*', why: 'GET /experiment-runs/{runId} download link, GET /experiment-runs/compare' },
+  { role: 'ATLApiFunctionRole', action: 's3:GetObject', resource: '/exports/*', why: 'GET /sessions/{sid}/report/export download link' },
+  { role: 'ATLApiFunctionRole', action: 's3:GetObject', resource: '/reports/*', why: 'GET /sessions/{sid}/report download links' },
+  { role: 'ATLCertsFunctionRole', action: 's3:PutObject', resource: '/exports/*', why: 'ExportReport copies' },
+  { role: 'ATLCertsFunctionRole', action: 's3:PutObject', resource: '/share/*', why: 'CreateShare copies' },
+  { role: 'ATLCertsFunctionRole', action: 's3:DeleteObject', resource: '/share/*', why: 'RevokeShare / ExpireShare' },
+  { role: 'ATLCertsFunctionRole', action: 'scheduler:CreateSchedule', resource: 'schedule/atl-system/atl-share-*', why: 'CreateShare expiry schedule' },
+  { role: 'ATLCertsFunctionRole', action: 'scheduler:DeleteSchedule', resource: 'schedule/atl-system/atl-share-*', why: 'RevokeShare' },
+  { role: 'ATLCertsFunctionRole', action: 'iam:PassRole', resource: 'role/ATLSchedulerRole', why: 'the share schedule targets atl-timer through ATLSchedulerRole', condition: 'scheduler.amazonaws.com' },
+  { role: 'ATLTimerFunctionRole', action: 'lambda:InvokeFunction', resource: 'function:atl-certs', why: 'SHARE_EXPIRE → atl-certs ExpireShare' },
+];
+
+describe('route → AWS calls: the function roles hold what the routes and actions need', () => {
+  for (const n of ROUTE_NEEDS) {
+    it(`${n.role} ${n.action} (${n.why})`, () => {
+      const entry = Object.entries(resources()).find(([, r]) => r.Type === 'AWS::IAM::Role' && prop(r, 'RoleName') === n.role);
+      expect(entry, n.role).toBeTruthy();
+      const [id, role] = entry!;
+      const statements = rolePolicies(id, role).flatMap((d) => statementsOf(d)).filter((st) => st.Effect === 'Allow');
+      const hit = statements.find((st) => {
+        const actions = ([] as unknown[]).concat(st.Action as unknown);
+        return actions.includes(n.action) && JSON.stringify(st.Resource).includes(n.resource) && (!n.condition || JSON.stringify(st.Condition ?? {}).includes(n.condition));
+      });
+      expect(hit, `${n.role} lacks ${n.action} on …${n.resource}`).toBeTruthy();
     });
   }
 });

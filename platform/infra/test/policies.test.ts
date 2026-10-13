@@ -130,7 +130,8 @@ describe('key Deny statements are present', () => {
     });
     expect(statement(g, 'DenyInternalRoutes').Resource).toBe(`${API}/*/*/api/v1/internal/*`);
     const arns = statement(g, 'DenyPlatformByArn').Resource as string[];
-    expect(arns).toHaveLength(6);
+    // distribution, atl-* functions, three response headers policies, cache policy, OAC, user pool, HTTP API, key, association
+    expect(arns).toHaveLength(11);
     expect(arns.some((a) => a.includes(':association/'))).toBe(true);
   });
 
@@ -270,6 +271,28 @@ describe('learner guardrail cases (07 V5-2, evaluated offline)', () => {
     expect(asLearner(req('ssm:UpdateAssociation', `arn:aws:ssm:${REGION}:${ACCT}:association/00000000-0000-4000-8000-000000000000`))).toBe('deny');
     expect(asLearner(req('ssm:UpdateDocument', `arn:aws:ssm:${REGION}:${ACCT}:document/ATL-RunCheck`))).toBe('deny');
     expect(asLearner(req('logs:DeleteLogGroup', `arn:aws:logs:${REGION}:${ACCT}:log-group:/atl-recordings/terminal-sessions`))).toBe('deny');
+  });
+
+  it('the platform CloudFront function, response headers / cache policies and OAC (untaggable) are denied by ARN', () => {
+    const cf = (path: string) => `arn:aws:cloudfront::${ACCT}:${path}`;
+    const platform: [string, string][] = [
+      ['cloudfront:UpdateFunction', cf('function/atl-spa-rewrite')],
+      ['cloudfront:PublishFunction', cf('function/atl-spa-rewrite')],
+      ['cloudfront:UpdateResponseHeadersPolicy', cf('response-headers-policy/11111111-aaaa-4bbb-8ccc-000000000001')],
+      ['cloudfront:UpdateResponseHeadersPolicy', cf('response-headers-policy/11111111-aaaa-4bbb-8ccc-000000000002')],
+      ['cloudfront:DeleteResponseHeadersPolicy', cf('response-headers-policy/11111111-aaaa-4bbb-8ccc-000000000003')],
+      ['cloudfront:UpdateCachePolicy', cf('cache-policy/22222222-aaaa-4bbb-8ccc-000000000001')],
+      ['cloudfront:UpdateOriginAccessControl', cf('origin-access-control/E3EXAMPLEOAC01')],
+      ['cloudfront:UpdateDistribution', cf('distribution/E2EXAMPLEATL01')],
+    ];
+    for (const [action, arn] of platform) {
+      expect(asLearner(req(action, arn, {}, 'us-east-1')), `${action} ${arn} (learner)`).toBe('deny');
+      expect(asWorkload(req(action, arn, {}, 'us-east-1')), `${action} ${arn} (workload)`).toBe('deny');
+      expect(asProvisioner(req(action, arn, {}, 'us-east-1')), `${action} ${arn} (provisioner)`).toBe('deny');
+    }
+    // the learner's own CDN resources stay writable (svc-cdn)
+    expect(asLearner(req('cloudfront:UpdateFunction', cf('function/cloudalbum-e7k2m9qx-rewrite'), {}, 'us-east-1'))).toBe('allow');
+    expect(asLearner(req('cloudfront:UpdateCachePolicy', cf('cache-policy/33333333-aaaa-4bbb-8ccc-000000000009'), {}, 'us-east-1'))).toBe('allow');
   });
 
   it('the platform terminal still works: StartSession on the (platform-tagged) workstation is exempt', () => {

@@ -10,9 +10,9 @@
       },
       {
         "name": "ATLWorkloadBoundary",
-        "size": 5909,
+        "size": 6079,
         "limit": 6144,
-        "headroom": 235
+        "headroom": 65
       },
       {
         "name": "ATLProvisionerBoundary",
@@ -22,9 +22,9 @@
       },
       {
         "name": "ATLLearnerGuardrails",
-        "size": 5120,
+        "size": 5314,
         "limit": 6144,
-        "headroom": 1024
+        "headroom": 830
       },
       {
         "name": "ATLLearnerCostGuards",
@@ -40,9 +40,9 @@
       },
       {
         "name": "ATLProvisionerPolicy-Guards",
-        "size": 2864,
+        "size": 3058,
         "limit": 6144,
-        "headroom": 3280
+        "headroom": 3086
       }
     ],
     "inline": [
@@ -81,9 +81,9 @@
       },
       {
         "name": "ATLWorkloadBoundary",
-        "size": 5909,
+        "size": 6079,
         "limit": 6144,
-        "headroom": 235
+        "headroom": 65
       },
       {
         "name": "ATLProvisionerBoundary",
@@ -93,9 +93,9 @@
       },
       {
         "name": "ATLLearnerGuardrails",
-        "size": 5120,
+        "size": 5314,
         "limit": 6144,
-        "headroom": 1024
+        "headroom": 830
       },
       {
         "name": "ATLLearnerCostGuards",
@@ -111,9 +111,9 @@
       },
       {
         "name": "ATLProvisionerPolicy-Guards",
-        "size": 2864,
+        "size": 3058,
         "limit": 6144,
-        "headroom": 3280
+        "headroom": 3086
       }
     ],
     "inline": [
@@ -152,9 +152,9 @@
       },
       {
         "name": "ATLWorkloadBoundary",
-        "size": 4967,
+        "size": 5162,
         "limit": 6144,
-        "headroom": 1177
+        "headroom": 982
       },
       {
         "name": "ATLProvisionerBoundary",
@@ -164,9 +164,9 @@
       },
       {
         "name": "ATLLearnerGuardrails",
-        "size": 4344,
+        "size": 4558,
         "limit": 6144,
-        "headroom": 1800
+        "headroom": 1586
       },
       {
         "name": "ATLLearnerCostGuards",
@@ -182,9 +182,9 @@
       },
       {
         "name": "ATLProvisionerPolicy-Guards",
-        "size": 2809,
+        "size": 3023,
         "limit": 6144,
-        "headroom": 3335
+        "headroom": 3121
       }
     ],
     "inline": [

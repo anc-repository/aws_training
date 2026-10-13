@@ -20,7 +20,7 @@
       "Action": ["ssm:UpdateDocument*", "ssm:DeleteDocument", "ssm:ModifyDocumentPermission", "ssm:UpdateAssociation", "ssm:DeleteAssociation",
                  "ssm:AddTagsToResource", "ssm:RemoveTagsFromResource"],
       "Resource": ["arn:${AWS::Partition}:ssm:*:${AWS::AccountId}:document/ATL-*",
-                   "arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:association/${PrepareInstanceAssociation}"] },
+                   "arn:${AWS::Partition}:ssm:*:*:association/${PrepareInstanceAssociation}"] },
     { "Sid": "ProtectComponentTag", "Effect": "Deny", "Action": "*", "Resource": "*",
       "Condition": { "StringEquals": { "aws:RequestTag/atl:component": ["platform", "workstation"] } } },
     { "Sid": "DenySessionSecrets", "Effect": "Deny", "Action": "ssm:GetParameter*",

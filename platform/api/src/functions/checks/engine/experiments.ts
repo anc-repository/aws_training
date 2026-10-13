@@ -23,7 +23,8 @@ export interface ExperimentRunRecord {
   ab?: boolean;
   scenario?: string;
   params?: Record<string, unknown>;
-  window?: { from: string; to: string };
+  /** registration window (01 §7.3 `ExperimentRun.window`, written by atl-agent at registration) */
+  window?: RunWindow;
   startedAt?: string;
   finishedAt?: string;
   environment?: { drivers?: Record<string, string>; instanceType?: string; arch?: string };
@@ -31,6 +32,31 @@ export interface ExperimentRunRecord {
   /** Session the run belongs to (runs inherited from the same learner's chain, 04 §8.11 rule 4). */
   sessionId?: string;
   [k: string]: unknown;
+}
+
+/** `{ notBefore, notAfter }` as registered; `{ from, to }` is read for records of the first implementation. */
+export interface RunWindow {
+  notBefore?: string;
+  notAfter?: string;
+  from?: string;
+  to?: string;
+}
+
+/** The registered window in ms, or null when the record has none (or it is unreadable). */
+export function runWindowMs(w: RunWindow | null | undefined): { from: number; to: number } | null {
+  if (!w) return null;
+  const from = Date.parse(String(w.notBefore ?? w.from ?? ''));
+  const to = Date.parse(String(w.notAfter ?? w.to ?? ''));
+  return Number.isFinite(from) && Number.isFinite(to) ? { from, to } : null;
+}
+
+/** 04 §7.4 step 3: `startedAt` and `finishedAt` inside the registered window (unparseable times are outside). */
+export function withinRunWindow(w: RunWindow | null | undefined, startedAt: unknown, finishedAt: unknown): boolean {
+  const win = runWindowMs(w);
+  if (!win) return true;
+  const a = Date.parse(String(startedAt ?? ''));
+  const b = Date.parse(String(finishedAt ?? ''));
+  return Number.isFinite(a) && Number.isFinite(b) && a <= b && a >= win.from && b <= win.to;
 }
 
 const SHORTHAND: Record<string, LabelRole> = { before: 'baseline', after: 'treatment', run: 'single' };
@@ -207,11 +233,8 @@ export function validateRun(i: ValidationInput): ValidationResult {
   const decl = labelsOf(i.exp).find((l) => l.id === i.run.label);
   if (!decl) return { status: 'invalid', reasons: ['LABEL_NOT_IN_LAB'] };
   const requires = decl.requires ?? i.run.variant?.requires ?? {};
-  const window = i.run.window;
-  // 3 window
-  if (window && i.result.startedAt && i.result.finishedAt) {
-    if (Date.parse(i.result.startedAt) < Date.parse(window.from) || Date.parse(i.result.finishedAt) > Date.parse(window.to)) return { status: 'invalid', reasons: ['OUT_OF_WINDOW'] };
-  }
+  // 3 window (the registered `{ notBefore, notAfter }`; a result without times cannot be placed inside it)
+  if (runWindowMs(i.run.window) && !withinRunWindow(i.run.window, i.result.startedAt, i.result.finishedAt)) return { status: 'invalid', reasons: ['OUT_OF_WINDOW'] };
   // 4 drivers (platform snapshots, not the client's)
   for (const drivers of [i.driversAtRegistration, i.driversAtUpload]) {
     if (!drivers) continue;

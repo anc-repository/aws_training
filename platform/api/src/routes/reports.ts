@@ -3,7 +3,7 @@
  * Reads come from `atl-main` and pre-signed links into `atl-data`; rendering, sharing and signing are asynchronous
  * requests to `atl-certs` (the only function with `kms:Sign`).
  */
-import { AtlError, isCertId, newUlid } from '@atl/shared';
+import { AtlError, DEFAULT_SHARE_EXPIRY_DAYS, isCertId, isShareId, newShareId } from '@atl/shared';
 import { Keys, SkPrefix } from '../data/keys.js';
 import { accepted, apiPath, created, ok } from '../http/responses.js';
 import type { RouteHandlers } from '../http/router.js';
@@ -62,6 +62,18 @@ function numericLeaves(o: unknown, prefix = '', out: Record<string, number> = {}
 
 function reportView(r: Item): Record<string, unknown> {
   return stripKeys(r);
+}
+
+/** Public path of a share copy (04 §9.5: the link names `index.html`, see R-16). */
+function shareUrl(shareId: string): string {
+  return `/share/${shareId}/index.html`;
+}
+
+/** publishing / active / revoked / expired (an overdue expiry counts as expired before its schedule fired). */
+function shareStatusOf(i: Item, nowIso: string): string {
+  if (i.revokedAt) return i.revokeReason === 'expired' ? 'expired' : 'revoked';
+  if (typeof i.expiresAt === 'string' && i.expiresAt <= nowIso) return 'expired';
+  return i.status === 'active' ? 'active' : 'publishing';
 }
 
 /** Synchronous call of atl-certs (certificate issue / revoke answer with the signed result, 01 §8.3). */
@@ -155,40 +167,52 @@ export function reportRoutes(ext: ApiExtensions): RouteHandlers {
       const format = ctx.req.query.format ?? 'html';
       if (format !== 'json' && format !== 'html') throw new AtlError('VALIDATION_FAILED', 'format must be json or html');
       const mask = ctx.req.query.mask ?? 'on';
+      if (mask !== 'on' && mask !== 'off') throw new AtlError('VALIDATION_FAILED', 'mask must be on or off');
       const latest = await ctx.repos.sessions.latestReport(s.sid);
       if (!latest) throw new AtlError('NOT_FOUND', `session ${s.sid} has no report yet`);
-      const keys = (latest.s3Keys ?? {}) as Record<string, string | undefined>;
-      const key = mask === 'off' ? keys[`${format}Unmasked`] : keys[format];
+      // only the copies atl-certs rendered for this revision / format / masking (never the authoritative s3Keys)
+      const slot = `${format}${mask === 'off' ? 'Unmasked' : 'Masked'}`;
+      const key = ((latest.exports ?? {}) as Record<string, string | undefined>)[slot];
       await auditOk(ctx, 'report.export', { sessionId: s.sid, details: { format, mask, version: latest.version ?? null } });
       if (!key) {
-        await dispatch(ctx, 'atl-certs', { action: 'ExportReport', sessionId: s.sid, version: latest.version ?? null, format, mask, requestedBy: principalOf(ctx).sub });
-        return accepted({ sessionId: s.sid, status: 'rendering', retryAfterSeconds: 10 });
+        await dispatch(ctx, 'atl-certs', { action: 'ExportReport', sessionId: s.sid, revision: latest.version ?? null, format, mask, requestedBy: principalOf(ctx).sub });
+        return accepted({ sessionId: s.sid, format, mask, version: latest.version ?? null, status: 'rendering', retryAfterSeconds: 10 });
       }
-      return ok({ sessionId: s.sid, format, mask, version: latest.version ?? null, download: await presignGet(ctx, key) });
+      return ok({ sessionId: s.sid, format, mask, version: latest.version ?? null, status: 'ready', download: await presignGet(ctx, key) });
     }),
 
     createReportShare: wrap(ext, async (ctx) => {
       const s = await loadSession(ctx, ctx.req.params.sid);
-      const body = parseBody(z.object({ expiresInHours: z.number().int().min(1).max(24 * 30).default(72), mask: z.enum(['on', 'off']).default('on') }).strict(), ctx.req.body);
-      if (!(await ctx.repos.sessions.latestReport(s.sid))) throw new AtlError('INVALID_STATE', 'generate the report before sharing it');
-      const shareId = newUlid(ctx.nowMs).toLowerCase();
-      const expiresAt = new Date(ctx.nowMs + body.expiresInHours * 3_600_000).toISOString();
-      await dispatch(ctx, 'atl-certs', { action: 'CreateShare', sessionId: s.sid, shareId, expiresAt, mask: body.mask, requestedBy: principalOf(ctx).sub });
+      // 04 §9.5: 7 / 30 (default) / 90 days or never; the copy is always redacted (no masking option)
+      const body = parseBody(z.object({ expiresInDays: z.union([z.literal(7), z.literal(30), z.literal(90), z.null()]).default(DEFAULT_SHARE_EXPIRY_DAYS) }).strict(), ctx.req.body ?? {});
+      const latest = await ctx.repos.sessions.latestReport(s.sid);
+      if (!latest) throw new AtlError('INVALID_STATE', 'generate the report before sharing it');
+      // the id and expiry of the link are chosen here and used by atl-certs as they are (the response is the real link)
+      const shareId = newShareId();
+      const expiresAt = body.expiresInDays === null ? null : new Date(ctx.nowMs + body.expiresInDays * 86_400_000).toISOString();
+      await dispatch(ctx, 'atl-certs', { action: 'CreateShare', sessionId: s.sid, shareId, expiresAt, revision: latest.version ?? null, requestedBy: principalOf(ctx).sub });
       await auditOk(ctx, 'report.share', { sessionId: s.sid, target: shareId, details: { expiresAt } });
-      return accepted({ shareId, status: 'creating', expiresAt, url: `/share/${shareId}/` }, apiPath('/sessions', s.sid, '/report/shares'));
+      return accepted({ shareId, status: 'publishing', expiresAt, revision: latest.version ?? null, url: shareUrl(shareId) }, apiPath('/sessions', s.sid, '/report/shares'));
     }),
 
     listReportShares: wrap(ext, async (ctx) => {
       const s = await loadSession(ctx, ctx.req.params.sid);
       const items = (await ctx.repos.sessions.children(s.sid, SkPrefix.share, { all: true })).items;
-      return ok({ sessionId: s.sid, items: items.map((i) => ({ ...stripKeys(i), url: `/share/${String(i.shareId)}/` })) });
+      return ok({
+        sessionId: s.sid,
+        items: items.map((i) => {
+          const { objectKeys: _keys, ...rest } = stripKeys(i);
+          return { ...rest, status: shareStatusOf(i, ctx.nowIso), url: shareUrl(String(i.shareId)) };
+        }),
+      });
     }),
 
     deleteReportShare: wrap(ext, async (ctx) => {
       const s = await loadSession(ctx, ctx.req.params.sid);
       const shareId = ctx.req.params.shareId ?? '';
-      const share = /^[0-9a-z]{26}$/.test(shareId) ? await ctx.repos.sessions.getChild(Keys.reportShare(s.sid, shareId)) : null;
+      const share = isShareId(shareId) ? await ctx.repos.sessions.getChild(Keys.reportShare(s.sid, shareId)) : null;
       if (!share) throw new AtlError('NOT_FOUND', 'share not found');
+      if (share.revokedAt) return ok({ shareId, status: shareStatusOf(share, ctx.nowIso) });
       await dispatch(ctx, 'atl-certs', { action: 'RevokeShare', sessionId: s.sid, shareId, requestedBy: principalOf(ctx).sub });
       await auditOk(ctx, 'report.share_revoke', { sessionId: s.sid, target: shareId });
       return accepted({ shareId, status: 'revoking' });

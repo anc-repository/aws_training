@@ -37,7 +37,8 @@ export type TimerResult = { dropped: boolean; reason?: string; [k: string]: unkn
 export async function handleTimer(ctx: Ctx, ev: TimerPayload): Promise<TimerResult> {
   if (ev.kind === 'SWEEP') throw new Error('SWEEP is handled by the sweeper');
   if (ev.kind === 'SHARE_EXPIRE') {
-    await ctx.ports.invoker.invokeAsync('atl-certs', { action: 'ShareExpire', shareId: ev.shareId });
+    // atl-certs' action name (CERTS_ACTIONS.ExpireShare); it also accepts the bare `{ kind: SHARE_EXPIRE }` payload
+    await ctx.ports.invoker.invokeAsync('atl-certs', { action: 'ExpireShare', shareId: ev.shareId });
     return { dropped: false };
   }
   const s = await getSession(ctx, ev.sessionId);

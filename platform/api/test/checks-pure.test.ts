@@ -8,7 +8,7 @@ import { describe, expect, it } from 'vitest';
 import { evaluateAll, evaluateAssertion, isPending } from '../src/functions/checks/engine/assert.js';
 import { freshNonce, ipInRanges, parseIpRanges, sanMatches, tlsSan } from '../src/functions/checks/engine/builtins.js';
 import { checkHash, sealEvidence, verifyEvidenceDigest } from '../src/functions/checks/engine/evidence.js';
-import { comparable, experimentVerdict, validateRun, type ExperimentRunRecord } from '../src/functions/checks/engine/experiments.js';
+import { comparable, experimentVerdict, validateRun, withinRunWindow, type ExperimentRunRecord } from '../src/functions/checks/engine/experiments.js';
 import { evalExpr, evaluateWhen, parseExpr } from '../src/functions/checks/engine/expr.js';
 import { healthy, profileHealthy } from '../src/functions/checks/engine/healthy.js';
 import { exists, query, queryAll } from '../src/functions/checks/engine/jsonpath.js';
@@ -292,11 +292,21 @@ describe('experiments (04 §3.2.10, §7.4)', () => {
     expect(comparable(run('a', 'valid', { forced: true }), run('b', 'valid')).ok).toBe(false);
   });
   it('validates a run against server metrics: window, drivers, per-target counts, path ratio, samples', () => {
-    const r = { ...run('after', 'pending-crosscheck'), window: { from: '2026-10-13T07:00:00Z', to: '2026-10-13T08:00:00Z' } };
+    // the registered shape (atl-agent registerExperimentRun): { notBefore, notAfter }
+    const r = { ...run('after', 'pending-crosscheck'), window: { notBefore: '2026-10-13T07:00:00Z', notAfter: '2026-10-13T08:00:00Z' } };
     const result = { startedAt: '2026-10-13T07:10:00Z', finishedAt: '2026-10-13T07:12:00Z', targets: [{ kind: 'cdn' }], client: { requests: 20, cdnHitRatio: 0.7 } };
     const metrics = { app: { requests: 6, byTarget: { cdn: 6 }, pathSignatures: [{ signature: 'entry=cloudfront>nginx;storage=local', count: 6 }] } };
     expect(validateRun({ exp, run: r, result, metrics, driversAtUpload: { cdn: 'cloudfront' } }).status).toBe('valid');
     expect(validateRun({ exp, run: r, result: { ...result, finishedAt: '2026-10-13T09:00:00Z' }, metrics }).reasons[0]).toBe('OUT_OF_WINDOW');
+    // 04 §7.4 step 3 regression: a start before the window (e.g. the session start), or no times at all, is outside
+    expect(validateRun({ exp, run: r, result: { ...result, startedAt: '2026-10-13T06:00:00Z' }, metrics }).reasons[0]).toBe('OUT_OF_WINDOW');
+    expect(validateRun({ exp, run: r, result: { ...result, startedAt: undefined }, metrics }).reasons[0]).toBe('OUT_OF_WINDOW');
+    expect(validateRun({ exp, run: r, result: { ...result, startedAt: 'yesterday' }, metrics }).reasons[0]).toBe('OUT_OF_WINDOW');
+    // records of the first implementation ({ from, to }) are read as well
+    const legacy = { ...r, window: { from: '2026-10-13T07:00:00Z', to: '2026-10-13T08:00:00Z' } };
+    expect(validateRun({ exp, run: legacy, result: { ...result, finishedAt: '2026-10-13T09:00:00Z' }, metrics }).reasons[0]).toBe('OUT_OF_WINDOW');
+    expect(withinRunWindow(r.window, result.startedAt, result.finishedAt)).toBe(true);
+    expect(withinRunWindow(r.window, result.finishedAt, result.startedAt)).toBe(false);
     expect(validateRun({ exp, run: r, result, metrics, driversAtUpload: { cdn: 'direct' } }).reasons[0]).toMatch(/^DRIVER_MISMATCH/);
     expect(validateRun({ exp, run: r, result, metrics: { app: { requests: 1, byTarget: { cdn: 1 } } } }).reasons[0]).toMatch(/^NOT_CORROBORATED/);
     expect(validateRun({ exp, run: r, result, metrics: { app: { requests: 6, byTarget: { cdn: 6 }, pathSignatures: [{ signature: 'entry=nginx', count: 6 }] } } }).reasons[0]).toMatch(/^PATH_RATIO/);
