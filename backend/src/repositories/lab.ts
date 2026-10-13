@@ -1,5 +1,5 @@
 // backend/src/repositories/lab.ts —— LabMetricsStore 的落库（lab_metric_rollups、lab_host_samples）与 capability_events
-// （lab_runs / lab_results / lab_origin_samples 的读写由 /lab 路由的实现者在此追加）
+// 以及 lab_runs / lab_results / lab_origin_samples 的读写（/api/lab/*）
 import type { Knex } from 'knex';
 import type { CapabilityTransitionEvent } from '@cloudalbum/contracts';
 import { jsonIn, jsonOut } from '../db/dialect.js';
@@ -92,4 +92,109 @@ export async function insertCapabilityEvent(db: Knex, e: CapabilityTransitionEve
     ts: e.at, module: e.module, field: e.field, from_status: e.from, to_status: e.to,
     detail: e.detail, instance_id: e.instanceId ?? null, role: e.role ?? null,
   });
+}
+
+// ------------------------------------------------------------------------------------------------
+// lab_runs / lab_results / lab_origin_samples / lab_host_samples / capability_events 的读取（/api/lab/*，§8.2）
+// ------------------------------------------------------------------------------------------------
+
+export interface LabRunRow {
+  run_id: string;
+  module: string;
+  experiment: string;
+  label: string;
+  started_at: string;
+  finished_at: string | null;
+  created_by: string | null;
+  params: unknown;
+  forced: boolean | number;
+  notes: string | null;
+}
+
+export async function insertLabRun(db: Knex, input: {
+  runId: string; module: string; experiment: string; label: string; startedAt?: string; createdBy?: string | null;
+  params?: Record<string, unknown> | null; forced?: boolean; notes?: string | null;
+}): Promise<LabRunRow> {
+  const row = {
+    run_id: input.runId, module: input.module, experiment: input.experiment, label: input.label,
+    started_at: input.startedAt ?? new Date().toISOString(), finished_at: null, created_by: input.createdBy ?? null,
+    params: jsonOut(input.params ?? null), forced: input.forced ?? false, notes: input.notes ?? null,
+  };
+  await db('lab_runs').insert(row);
+  return { ...row, params: input.params ?? null };
+}
+
+export async function finishLabRun(db: Knex, runId: string, at: string = new Date().toISOString(), notes?: string): Promise<boolean> {
+  const n = await db('lab_runs').where({ run_id: runId }).update({ finished_at: at, ...(notes !== undefined ? { notes } : {}) });
+  return Number(n) > 0;
+}
+
+export async function getLabRun(db: Knex, runId: string): Promise<LabRunRow | undefined> {
+  const row = (await db('lab_runs').where({ run_id: runId }).first()) as LabRunRow | undefined;
+  return row ? { ...row, params: jsonIn(row.params, null) } : undefined;
+}
+
+export async function listLabRuns(db: Knex, f: { module?: string; limit?: number } = {}): Promise<LabRunRow[]> {
+  const q = db('lab_runs').orderBy('started_at', 'desc').limit(Math.min(Math.max(f.limit ?? 50, 1), 500));
+  if (f.module) q.where({ module: f.module });
+  return ((await q) as LabRunRow[]).map((r) => ({ ...r, params: jsonIn(r.params, null) }));
+}
+
+export interface LabResultRow {
+  run_id: string;
+  module: string;
+  experiment: string;
+  label: string;
+  started_at: string;
+  finished_at: string;
+  forced: boolean | number;
+  result: unknown;
+  uploaded_at: string;
+}
+
+/** POST /api/lab/results：同一 runId 重复上传时覆盖（幂等） */
+export async function upsertLabResult(db: Knex, input: {
+  runId: string; module: string; experiment: string; label: string; startedAt: string; finishedAt: string; forced: boolean; result: unknown;
+}): Promise<void> {
+  await db('lab_results').where({ run_id: input.runId }).del();
+  await db('lab_results').insert({
+    run_id: input.runId, module: input.module, experiment: input.experiment, label: input.label, started_at: input.startedAt,
+    finished_at: input.finishedAt, forced: input.forced, result: jsonOut(input.result), uploaded_at: new Date().toISOString(),
+  });
+}
+
+export async function listLabResults(db: Knex, f: { module?: string; experiment?: string; label?: string; limit?: number; withResult?: boolean } = {}): Promise<LabResultRow[]> {
+  const cols = f.withResult ? ['*'] : ['run_id', 'module', 'experiment', 'label', 'started_at', 'finished_at', 'forced', 'uploaded_at'];
+  const q = db('lab_results').select(cols).orderBy('started_at', 'desc').limit(Math.min(Math.max(f.limit ?? 50, 1), 500));
+  if (f.module) q.where({ module: f.module });
+  if (f.experiment) q.where({ experiment: f.experiment });
+  if (f.label) q.where({ label: f.label });
+  return ((await q) as LabResultRow[]).map((r) => ({ ...r, result: f.withResult ? jsonIn(r.result, null) : undefined }));
+}
+
+export async function getLabResult(db: Knex, runId: string): Promise<LabResultRow | undefined> {
+  const row = (await db('lab_results').where({ run_id: runId }).first()) as LabResultRow | undefined;
+  return row ? { ...row, result: jsonIn(row.result, null) } : undefined;
+}
+
+export async function queryHostSamples(db: Knex, f: { from?: string; to?: string; instanceId?: string; limit?: number } = {}): Promise<Array<Record<string, unknown>>> {
+  const q = db('lab_host_samples').orderBy('ts', 'desc').limit(Math.min(Math.max(f.limit ?? 360, 1), 5000));
+  if (f.from) q.where('ts', '>=', f.from);
+  if (f.to) q.where('ts', '<=', f.to);
+  if (f.instanceId) q.where({ instance_id: f.instanceId });
+  return (await q) as Array<Record<string, unknown>>;
+}
+
+export async function queryOriginSamples(db: Knex, f: { from?: string; to?: string; limit?: number } = {}): Promise<Array<Record<string, unknown>>> {
+  const q = db('lab_origin_samples').orderBy('minute', 'desc').limit(Math.min(Math.max(f.limit ?? 360, 1), 5000));
+  if (f.from) q.where('minute', '>=', f.from);
+  if (f.to) q.where('minute', '<=', f.to);
+  return (await q) as Array<Record<string, unknown>>;
+}
+
+export async function listCapabilityEvents(db: Knex, f: { module?: string; since?: string; limit?: number } = {}): Promise<Array<Record<string, unknown>>> {
+  const q = db('capability_events').orderBy('id', 'desc').limit(Math.min(Math.max(f.limit ?? 200, 1), 2000));
+  if (f.module) q.where({ module: f.module });
+  if (f.since) q.where('ts', '>=', f.since);
+  return ((await q) as Array<Record<string, unknown>>).map((r) => ({ ...r, id: Number(r.id) }));
 }

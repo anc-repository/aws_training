@@ -67,8 +67,8 @@ describe('L0 容器 + HTTP 骨架', () => {
   });
 
   it('桩路由返回 501；未登记的 /internal/* 返回 404；未知 API 返回 404', async () => {
-    const r1 = await request(app).get('/api/albums').expect(501);
-    expect(r1.body).toMatchObject({ error: 'NOT_IMPLEMENTED', component: 'albums' });
+    const r1 = await request(app).get('/api/albums').expect(401);   // albums 已实现（local-identity）：匿名访问需要登录
+    expect(r1.body).toMatchObject({ error: 'UNAUTHENTICATED' });
     await request(app).post('/api/photos/abc/complete').expect(501);
     await request(app).post('/internal/hooks/image-processed').expect(404);   // IMAGE_PROCESSOR=inline：端点未启用
     await request(app).get('/internal/anything').expect(404);
