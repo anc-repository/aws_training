@@ -25,6 +25,7 @@ export default defineConfig({
       'platform/workflows',
       'platform/infra',
       'platform/workstation',
+      'platform/web',
       'scripts/labs',
     ],
   },

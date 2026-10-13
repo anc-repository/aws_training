@@ -94,4 +94,11 @@ export default tseslint.config(
     plugins: { 'react-hooks': reactHooks },
     rules: { ...reactHooks.configs.recommended.rules },
   },
+  // ATL SPA (platform/web, 08-ui-design.md): browser code with React hooks rules; the dev launcher and configs run in Node
+  {
+    files: ['platform/web/src/**/*.{ts,tsx}'],
+    languageOptions: { globals: { ...globals.browser } },
+    plugins: { 'react-hooks': reactHooks },
+    rules: { ...reactHooks.configs.recommended.rules },
+  },
 );

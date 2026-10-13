@@ -1788,3 +1788,94 @@ ATL_IT=1 npx vitest run --project atl-api                       # 含 DynamoDB L
 - **smoke:platform** 第 7 步增加：打码导出（只签发 `exports/` 副本）、创建分享（列表为 active、调度存在）、撤销（副本与调度删除）。
 - 新增测试：`report-shares.test.ts`（创建 → 列表 → 撤销 → 调度到期全链路、重试幂等、导出）、`lifecycle/reclaim-evidence.test.ts`、
   `lifecycle/reclaim-session-policy.test.ts`、`lifecycle/ownership-throttle.test.ts`，以及 API 场景中的“窗口外上传”和“改写平台模块操作”回归用例。
+
+## platform-web-scaffold
+
+`platform/web` 的脚手架：Vite 7 + React 18 + TypeScript + react-router 7，按 08-ui-design.md 的路由表注册 P00～P13 的全部路由（页面先放桩），
+从已评审的原型 `docs/platform/prototype/index.html` 提取设计系统，基于 `@atl/shared` 路由常量的 API 客户端，全局事件轮询器 SessionSync，
+Cognito 托管登录 / dev 令牌，顶栏会话胶囊、横幅与 P13 的错误与降级框架，以及 `npm run platform:dev` 一键联调。全程没有调用真实的 AWS API，
+没有部署任何东西。
+
+### 1. 实现范围
+
+| 部分 | 位置 | 内容 |
+|---|---|---|
+| 路由 | `src/app/routeTable.ts`、`App.tsx` | 08 §2.1 站点地图中属于 SPA 的 20 条路径（含 `/` 重定向）；`public`（/login、/auth/callback、/auth/signed-out）、`app`（顶栏 + 横幅 + 页脚）、`workspace`（无顶栏）三种布局；页面 `React.lazy` 按需加载；`/settings` → `/settings/profile`；`*` → 框架内的“页面不存在” |
+| 守卫 | `src/app/guards.ts` | §2.4 表 1 的 7 条，拆成 `evaluateAccess`（1～4，渲染顶栏之前）与 `evaluateRoute`（5～7，每个路由）；首次设置豁免 /setup、/settings/*、/sessions/*、/resources/manual、/workspace/*，工作台内改为一次可关闭的提示 |
+| 按状态渲染 | `src/app/sessionRouting.ts` | §2.4 表 2：`workspaceRender`（P04 / P05 的 10 个变体）、`endRender`（重定向 / P07 / P07-K / 结束摘要，`#manual`）、`pillTarget`、`rootRedirect`、“从未就绪”判定；`allowedActionsOf`（优先用会话视图的字段，没有时按 §3.3 推导）、`extendBlockReason` |
+| 设计系统 | `src/ui/` | `styles/tokens.css`（亮色、暗色、状态语义色、`--host-*`、`--term-*`、`--cat-*`、`--ses-*`、`--urg-*`，取值逐项取自原型 `:root`）、`base.css`、`components.css`（原型的通用组件规则）、`screens.css`（原型的画面专属规则，供各画面直接用）；`semantics.ts` 是 §6.2 的“全站唯一映射”（会话状态、倒计时 U0～U4 / K1～K2、检查结果含原因码、步骤、尝试、资源清理、严重级别、计费、有效性、预算、费用档位）；组件：Shape（20 种状态形状）、Icon（自绘线性图标）、Status / SessionStatePill、Button（置灰原因 aria-describedby、处理中）、CostTierMark、Box / Section、DataTable（aria-sort、行可聚焦、窄屏卡片化）、Dialog / Drawer（焦点锁定、Esc、焦点回位、#root inert、alertdialog）、Disclosure（Esc 回到触发按钮、账号菜单焦点落在容器）、Banner / BannerStack（最多 2 条、红色不可关闭、关闭只在本标签页、首次 role=alert）、CommandBlock（打码显示 / 原文复制、未解析变量 `(!)`、危险命令二次确认、剪贴板兜底、按 runsOn 的粘贴按钮、16KB 限制）、CheckResultRow / SourceTag（命名网格区域、读屏文字不重复）、ResourceRow / ManualItemCard（01 字段名，兼容 02 §7.9 写法）、EmptyState、Skeleton（10 秒后“仍在加载…”）、ErrorPanel、Countdown（每次渲染由 deadlineAt − serverNow 重算、role=timer、aria-live=off、页面隐藏不刷新）、LiveRegion、Field |
+| API 客户端 | `src/api/client.ts`、`errors.ts`、`types.ts` | 只按 `@atl/shared` 的 `ROUTES` 调用（路由 id → 方法与路径；只允许 jwt / public 路由族，08 §9.2 未登记的路由无法调用）；`POST` 与 `PUT …/result` 自动带 `Idempotency-Key`，`operation()` 让同一次用户操作的重试复用同一个键；`ifMatch` → `If-Match: "<ver>"`；GET 默认条件请求（按 URL 缓存 ETag 与响应体，304 返回缓存）；problem+json → `ApiError`（code、title、detail、requestId、Retry-After，429 / 503 缺省 30 秒）；401 先静默刷新一次再重试；钩子：onUnauthenticated、onReauthRequired（带可重放的原请求）、onTransientFailure / onSuccess（离线判定） |
+| SessionSync | `src/api/sessionSync.ts` | §7.2 的 9 条：BroadcastChannel('atl-session') 主标签页选举（先到先得、选举心跳 5 秒、15 秒接管、隐藏 15 秒且有可见标签页时交出、冲突时 id 小者保留、从标签页把自己 watch 的会话随选举心跳告诉主标签页）；当前会话发现（启动、state_changed、进入终态、无会话时 60 秒）；游标存 sessionStorage `atl.events.<sid>`，首次从头按页消费、广播收到的事件也推进游标；按 id 去重排序、界面只拿最近 200 条；`ver` 更小的迟到视图丢弃；`session.*` 事件立即补拉视图；§7.3 的节奏（`viewIntervalMs` / `eventsIntervalMs`，P13 #18 的 5 秒、全部隐藏 60 秒、无 BroadcastChannel 加倍）；退避 1→60 秒；事件 4xx 丢弃游标重建 |
+| 心跳、对时、连接 | `heartbeat.ts`、`serverClock.ts`、`connectivity.ts` | 每个可见的工作台标签页各自发心跳（首次立即，之后 60 秒，回到前台补发，只对学员）；serverClock（往返中点估偏差、偏差 > 2 分钟提示、睡眠检测）；离线 = navigator.onLine 为 false 或连续 3 次网络错误 / 5xx，恢复时立即刷新 |
+| 认证 | `src/auth/` | 生产：Cognito 托管登录（授权码 + PKCE S256，state / verifier / next 存 sessionStorage 并在回调后删除，next 只允许站内相对路径）；访问令牌只在内存，刷新令牌在 sessionStorage；退出时撤销刷新令牌、BroadcastChannel('atl-auth') 通知其他标签页。dev：`config.json` 为 `"auth": "dev"` 且页面在本机地址时，登录页显示开发身份表单，生成 dev-server 认可的 `dev.<group>.<sub>[.<authTime>]`（可模拟 61 分钟前登录以测试 REAUTH） |
+| 全局框架 | `src/components/` | Shells（跳转链接、header / nav / main / footer 地标、路由切换后焦点到 h1、错误边界随路由复位）；GlobalBar（标志 + 非 AWS 官方、一级导航 aria-current、≡ 抽屉、--topbar-h）；SessionPill（§3.3 的 10 种外观，模型 `sessionPillModel.ts` 纯函数；会话菜单：回到工作台 / 查看回收进度 / 管理保留 / 取消… / 延长 n 分钟（置灰原因）/ 结束实验… / 会话详情）；AccountMenu（区域、`••••后 4 位`、学员“显示”10 秒、主题、退出）；`globalBanners.ts`（§3.6 九种横幅的来源与优先级，纯函数）；OfflineBar 与页脚（轮询状态、时钟偏差）；P13：ErrorBoundary、NotFound、RoleDenied、NoRole、PlatformUnavailable、登录过期与 ReauthDialog；useExpiryAnnouncements（15 / 5 / 1 分钟与 0 各播报一次）、useEnvDegraded、G 序列快捷键；SessionActions（取消 / 延长 / 结束对话框的注册点，默认是说明对话框） |
+| 全局数据 | `src/app/globalStatus.tsx` | GET /platform（3 次失败 → 平台不可用）、/me、/platform/guardrails（5 分钟）、/catalog（60 秒，版本变化 → 横幅 8）、/resources/manual（学员与助教 60 秒）、目录索引中的费用档位（胶囊用）；首次设置完成写 PATCH /me `onboarding` 并在本机记降级标记 |
+| 画面 | `src/features/*` | P01 登录、回调、已退出已实现；P00 桩带“完成 / 跳过”（否则学员会被守卫一直送回 /setup）；P04/P05 桩已接 SessionSync 订阅、心跳与 `workspaceRender`；P07 桩按 `endRender` 重定向；P12 桩按页签与角色裁剪；其余是 PageStub。xterm 的按需加载与创建参数在 `features/workspace/terminal/xterm.ts` |
+| 联调 | `scripts/dev.mjs` | `npm run platform:dev`：DynamoDB Local 不可达时 `docker compose … up -d --wait` → 建表（幂等，不加 --seed，不覆盖已有 PlatformConfig）→ dev-server（--dev-mode --seed-catalog，等 /api/v1/public/health）→ Vite（127.0.0.1:5174，代理 /api、/content、/__dev）；选项 --no-db、--api-only、--web-only、--api-port、--web-port、--no-seed-catalog |
+
+根目录的改动：`platform:dev` 改为上面的启动器，原来的命令改名 `platform:dev:api`；新增 `build:web`；`build` 增加 web 的两份 tsc 检查；
+`platform:test` 与根 `vitest.config.ts` 增加项目 `atl-web`；`eslint.config.js` 给 `platform/web/src` 加浏览器全局与 react-hooks 规则。
+
+### 2. 如何运行
+
+```bash
+npm run platform:dev                 # 浏览器打开 http://127.0.0.1:5174/ ，开发模式登录 learner / u1
+npm run build -w @atl/web            # → platform/web/dist（npm run platform:package 会把它打进 atl-web.zip）
+npm run lint -w @atl/web && npm run test -w @atl/web
+```
+
+### 3. 自测结果（2026-10-14，Windows 11 / Node 22.14.0 / Docker 28）
+
+| 自测 | 命令 | 结果 |
+|---|---|---|
+| 构建 | `npm run build`（含 web 的两份 tsc）、`npm run build -w @atl/web` | 通过；首屏 JS 291 kB（gzip 96 kB），各画面按需加载 |
+| 检查 | `npm run lint` | 0 个问题 |
+| 单元 / 组件测试 | `npm test` | 143 个文件、1743 个测试通过（18 个跳过，需外部服务）；其中 atl-web 12 个文件、191 个测试 |
+| 联调 | `npm run platform:dev` + 系统 Chrome 无头（Playwright） | 28/28：未登录 → /login?next；dev 登录 → 首次设置 → 目录；顶栏、打码账号、aria-current、页脚轮询状态；经 API 开始 svc-storage（noop 运行器）后胶囊出现（正在准备环境 · 已用 m:ss）→ 点击进入工作台（无顶栏）→ 工作台心跳让会话 READY → RUNNING → 回目录胶囊“实验中 · 1:30:51”、会话菜单与 Esc 焦点回位、结束对话框桩；暗色主题；经 API 结束后胶囊转到 /sessions/:sid/end，P07 桩渲染；观察者进入 /resources/manual 为“角色不足”；未知路由在框架内；375px 无横向滚动；无控制台错误、无 5xx |
+
+### 4. 设计有歧义时的取舍
+
+1. **设计系统的位置**：任务要求放在 `src/ui/`，08 §6.1 写 `src/styles/tokens.css`、§6.9 写 `src/components/icons/`。token 放在 `src/ui/styles/tokens.css`，
+   图标与状态形状是 `src/ui/Icon.tsx`、`Shape.tsx`；跨画面的全局框架组件仍按 §2.6 放在 `src/components/`。
+2. **token 的根节点**：08 §6.1 说根节点改为 `.atl-app`。token 声明在 `:root`（body 的显式背景与挂到 body 的对话框、抽屉也能取到），SPA 容器 `#root` 带
+   `.atl-app` 类名；暗色选择器沿用 `:root:not([data-theme="light"])` 与 `:root[data-theme="dark"]`。原型的 `.proto-*` 不移植。
+3. **API 客户端不是生成的**：08 §2.6 要求由 `@atl/contracts` 的 openapi.yaml 生成，但该契约尚不存在。客户端直接用 `@atl/shared` 的路由表，
+   响应类型按 platform/api 当前实现手写在 `api/types.ts`（只声明框架用到的字段）。
+4. **dev 令牌**：dev-server 没有“签发令牌”的端点，它的契约是 `dev.<group>.<sub>[.<authTime>]` 这一格式（DevAuth）。SPA 按这个格式在本地生成；
+   只在 config.json 为 `"auth": "dev"` 且页面在本机地址时启用，生产 API 也只认 Cognito 令牌。
+5. **退出后的去向**：模板把 Cognito 的 LogoutURLs 与 config.json 的 `logoutUri` 登记为平台根地址，08 要求回到 `/auth/signed-out`。退出前在 sessionStorage
+   记一个标记，`/` 看到标记就转到 `/auth/signed-out`。
+6. **登录过期**：启动时刷新失败 → 守卫重定向 `/login?reason=expired`；使用中刷新失败 → 保留页面、标记过期、弹出“登录已过期”（P13 #5），
+   不再发出带令牌的请求，SessionSync 暂停。
+7. **需要最近登录后的重放**：ReauthDialog 把原请求（含同一个 Idempotency-Key）存 sessionStorage；结果属于发起请求的画面，所以不做全局自动重放，
+   画面在挂载时调用 `takeReauthReplay(routeId)` + `api.replay()`（15 分钟内有效）。
+8. **公开验证页 P09-V 不在 SPA 构建中**：01 §13 列有 `web/verify/index.html`，但验证页由 atl-certs 生成并发布（`platform/api/src/services/certificates/static-site.ts`），
+   而 WebDeploy 发布 atl-web.zip 时不保护 `verify/` 前缀；若 SPA 也打包 `verify/`，每次安装 / 升级都会用占位页覆盖 atl-certs 发布的页面。因此 web 只有一个入口。
+9. **轮询细节**：没有 BroadcastChannel 时间隔加倍（P13 #30）；KEPT、CLEANUP_FAILED 的事件间隔取 max(pollAfterMs, 60 秒)；终态会话只在画面显式 watch
+   时 60 秒轮询（会话视图没有“复扫已结束”的字段，停止条件留给 P07 实现者）；页脚的轮询秒数按当前会话状态用同一个函数计算；`/resources/manual` 的间隔
+   08 没有规定，取 60 秒。
+10. **选举的细节**（08 只规定了 5 秒心跳与 15 秒接管）：新标签页先等 1.2 秒；主标签页看到新标签页时立即宣告自己并发送当前会话与已有视图；收到主标签页的
+    任何广播都算“主标签页存活”；冲突时 tabId（时间戳前缀）小者保留。
+11. **会话胶囊的费用档位**取目录索引 `costTier.required`（静态 `/content/<v>/catalog/index.json`，GlobalStatus 读取一次）；读不到时不显示档位。
+12. **没有实现、留给画面实现者的全局件**：ProgressDisclosure 的内容（GET /me/progress、recommendNext）、命令面板 Ctrl+K、`?` 快捷键与图例、
+    浏览器通知与 T-15 / T-5 本地兜底定时器（SessionSync 快照 + `urgencyOf` 已可用）、取消 / 延长 / 结束对话框（`SessionActionsProvider` 的 `dialogs` 注册点）。
+13. **Storybook 与 axe**（08 §2.6、§8.1）：本轮不引入；§5 组件的变体与状态用 Vitest + Testing Library 覆盖（role、aria-*、焦点、键盘）。
+14. **构建产物**带 sourcemap；不内联任何资源（`assetsInlineLimit: 0`），CSP `script-src 'self'`、`style-src 'self'` 下可用；组件不写 style 属性
+    （SVG 的反色笔画改用类名）。xterm.js 6 运行时创建 `<style>` 的问题（08 V-4、03 §3.7.6）未处理。
+15. 任务说明写“§9.2 列有 24 处 API 缺口”，08 当前版本（v1.1）为 34 项；客户端只能调用已登记的路由，这些缺口一律按各条的“回写前降级”处理。
+
+### 5. 需要其他部分配合
+
+- **infra**：① Cognito 客户端 LogoutURLs 与 config.json `logoutUri` 增加 `/auth/signed-out`（之后可删去第 4 节第 5 条的标记）；② `platform:build` /
+  打包前执行 `npm run build:web`（`platform/web/dist` 存在时 package.ts 才打真实 SPA）；③ 决定 `verify/` 的归属：WebDeploy 是否把 `verify/` 列入受保护前缀，
+  package.ts 的占位 zip 目前也带 `verify/` 占位页。
+- **01 / api**：`GET /platform` 目前对助教、观察者也返回完整 `accountId`（08 §9.2 #3 要求只对学员）；`GET /resources/manual` 的条目没有 `labId` 与会话时间，
+  横幅只能写“之前的实验”；事件游标失效的错误码（§9.2 #22，前端已按“任何 4xx 都重建”降级）；`allowedActions` 的枚举（§9.2 #27，API 另有 `reuse`）。
+- **contracts**：`@atl/contracts` 的 openapi.yaml 生成后，用生成的类型替换 `api/types.ts`。
+- **各画面实现者**：替换 `features/*` 的桩；会话动作对话框经 `<AppRoutes dialogs={…}>` 注册；需要重放的敏感操作在挂载时调用 `takeReauthReplay`。
+
+### 6. 依赖
+
+`npm install --before=2026-09-29` 只新增 `@xterm/xterm` 6.0.0 与 `@xterm/addon-fit` 0.11.0；react、react-dom、react-router-dom、vite、
+@vitejs/plugin-react、@testing-library/react、jsdom 等已在 lockfile 中（CloudAlbum 前端在用），`@atl/web` 声明为自己的依赖。
+没有引入：Storybook、axe-core（无障碍自动检查）、@testing-library/user-event。

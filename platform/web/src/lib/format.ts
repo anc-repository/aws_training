@@ -1,0 +1,62 @@
+/**
+ * 时间与时长格式（08 §1.6、§8.11；取自原型 fmtDur / fmtSpan / fmtClock / fmtDate）。
+ *
+ * - 倒计时与“已用”计时器：`1:42:10` / `42:10` / 最后 1 分钟 `0:42`（`0:42` 表示 42 秒）——`formatCountdown`
+ * - 已经过去的时长（用时、环境年龄、合计）：`1 小时 31 分` / `58 分`，不用冒号格式——`formatSpan`
+ * - 绝对时间：`16:30`（本地时区）；日期：当年 `10/13 10:42`，跨年 `2026-10-13`——`formatClock` / `formatDate`
+ * - 粗粒度剩余：`剩余约 36 分钟`——`formatRemainingCoarse`
+ */
+
+const pad = (n: number): string => String(n).padStart(2, '0');
+
+/** 倒计时 / 计时器格式；负数按 0 处理。 */
+export function formatCountdown(ms: number): string {
+  const total = Math.max(0, Math.floor(ms / 1000));
+  const h = Math.floor(total / 3600);
+  const m = Math.floor((total % 3600) / 60);
+  const s = total % 60;
+  return h > 0 ? `${h}:${pad(m)}:${pad(s)}` : `${m}:${pad(s)}`;
+}
+
+/** 已经过去的时长：“1 小时 31 分”“58 分”“2 小时”。 */
+export function formatSpan(ms: number): string {
+  const minutes = Math.max(0, Math.round(ms / 60_000));
+  const h = Math.floor(minutes / 60);
+  const r = minutes % 60;
+  if (!h) return `${r} 分`;
+  return r ? `${h} 小时 ${r} 分` : `${h} 小时`;
+}
+
+/** 读屏用的剩余时间：“1 小时 42 分”“12 分钟”“42 秒”。 */
+export function formatRemainingSpoken(ms: number): string {
+  const total = Math.max(0, Math.floor(ms / 1000));
+  if (total < 60) return `${total} 秒`;
+  const minutes = Math.ceil(total / 60);
+  const h = Math.floor(minutes / 60);
+  const r = minutes % 60;
+  if (!h) return `${r} 分钟`;
+  return r ? `${h} 小时 ${r} 分` : `${h} 小时`;
+}
+
+/** 粗粒度剩余：“剩余约 36 分钟”（不用 `0:36` 表示 36 分钟，§1.6）。 */
+export function formatRemainingCoarse(ms: number): string {
+  return `剩余约 ${formatRemainingSpoken(ms)}`;
+}
+
+export function formatClock(t: number | string | Date): string {
+  const d = new Date(t);
+  return `${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+/** 当年 `10/13 10:42`；跨年 `2026-10-13`。`now` 用于判断“当年”（默认本地时钟，界面传 serverClock.now()）。 */
+export function formatDate(t: number | string | Date, now: number = Date.now()): string {
+  const d = new Date(t);
+  const n = new Date(now);
+  if (d.getFullYear() === n.getFullYear()) return `${d.getMonth() + 1}/${d.getDate()} ${formatClock(d)}`;
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
+/** 悬停显示的 UTC 时间（§8.11：所有时间显示为本地时区，悬停显示 UTC）。 */
+export function formatUtcTitle(t: number | string | Date): string {
+  return new Date(t).toISOString().replace('T', ' ').replace(/\.\d{3}Z$/, ' UTC');
+}

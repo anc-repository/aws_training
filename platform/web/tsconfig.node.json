@@ -1,0 +1,18 @@
+{
+  "//": "Node-side files of @atl/web: Vite / Vitest configs and the dev launcher (scripts/dev.mjs is plain JS, checked with checkJs).",
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2023"],
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "noEmit": true,
+    "declaration": false,
+    "declarationMap": false,
+    "sourceMap": false,
+    "allowJs": true,
+    "checkJs": true,
+    "types": ["node"]
+  },
+  "include": ["vite.config.ts", "vitest.config.ts", "scripts/**/*.mjs"]
+}

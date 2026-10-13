@@ -1,0 +1,5 @@
+/* 样式入口（顺序有意义：token → 基础 → 组件 → 画面） */
+@import './tokens.css';
+@import './base.css';
+@import './components.css';
+@import './screens.css';

@@ -1,0 +1,73 @@
+/*
+ * ATL 视觉 token（08 §6）。取值逐项取自已评审的原型 docs/platform/prototype/index.html（:root 变量块），
+ * 原型又原样复制了 ui-design §11.2～§11.9；平台增补 --host-*、--term-*、--cat-*、--ses-*、--urg-*（08 §6.1 表）。
+ *
+ * 组件不得自行选色：状态颜色一律经 src/ui/semantics.ts 的映射取用（08 §6.2 “全站唯一的映射”）。
+ * 主题：默认跟随系统；<html data-theme="light|dark"> 强制亮 / 暗（08 §6.11，选择器写法沿用 ui-design §11.9）。
+ * token 声明在 :root 上（body 背景与挂到 body 的对话框、抽屉也能取到），SPA 容器另带 .atl-app 类名（08 §6.1 的根节点）。
+ * 不加载任何网络字体（01 §10.6 CSP）。
+ */
+:root{
+  --bg:#F6F6F4; --surface:#FFFFFF; --surface-2:#EFEEE8; --border:#DAD8D0; --border-strong:#8A867B;
+  --text:#1C1D1F; --text-2:#4A4D55; --text-3:#63666E; --ink:#1C1D1F; --on-ink:#FFFFFF;
+  --accent:#0F6E6E; --accent-soft:#DDEFEC; --code-bg:#EFEFEC; --danger-edge:#B3261E;
+  --st-pass:#1B703F; --st-pass-soft:#E2F2E7;
+  --st-manual:#6A3EA1; --st-manual-soft:#EFE7F8;
+  --st-fail:#B3261E; --st-fail-soft:#FBE5E3;
+  --st-drift:#A8380A; --st-drift-soft:#FCE9DD;
+  --st-pending:#1F5FAD; --st-pending-soft:#E3ECF8;
+  --st-error:#5A606B; --st-error-soft:#EAEBED;
+  --st-needs:#6A3EA1;
+  --st-stale:#8A6100; --st-stale-soft:#F7EED6;
+  --st-locked:#8C9098; --st-locked-soft:#EFEFEC;
+  --viz-before:#8C8F96; --viz-after:#0F6E6E; --viz-third:#9A6B1F; --viz-grid:#E4E2DA;
+  --host-lab:#9A6B1F; --host-ws:#0F6E6E;
+  --term-bg:#1B1C1F; --term-fg:#E9E7E2; --term-dim:#9C9A94; --term-cursor:#4FB3A9; --term-selection:rgb(79 179 169 / .35);
+  --term-ovl:rgb(20 21 23 / .88); --term-green:#7CC79A; --term-red:#F0827B; --term-yellow:#E3B866; --term-cyan:#6CC3D6; --term-bar:#26272B;
+  --cat-base:#4A4D55; --cat-a:#2F6690; --cat-b:#8A3B5C; --cat-c:#6B7A2A; --cat-d:#A35A12; --cat-e:#56677A; --cat-f:#7A5C2E;
+  --ses-prep:var(--st-pending); --ses-live:var(--accent); --ses-warn:var(--st-drift); --ses-critical:var(--st-fail);
+  --ses-wind:var(--text-2); --ses-kept:var(--st-stale);
+  --urg-1-bg:var(--st-drift-soft); --urg-2-bg:var(--st-fail-soft);
+  --scrim:rgb(28 29 31 / .38);
+  --shadow:0 8px 24px rgb(0 0 0 / .12);
+  --font-sans:"PingFang SC","Hiragino Sans GB","Microsoft YaHei UI","Microsoft YaHei","Noto Sans SC","Source Han Sans SC",system-ui,sans-serif;
+  --font-mono:"JetBrains Mono","Cascadia Mono","SFMono-Regular",Consolas,"Noto Sans Mono CJK SC",Menlo,monospace;
+  --topbar-h:48px;
+  /* 平台增补的尺寸 token（08 §6.8）：顶栏与 SessionBar 48px、页脚 28px、内容最大宽度 1440px；间距刻度 4·8·12·16·24·32·48 */
+  --footer-h:28px; --content-max:1440px; --gutter:16px;
+  --sp-1:4px; --sp-2:8px; --sp-3:12px; --sp-4:16px; --sp-5:24px; --sp-6:32px; --sp-7:48px;
+  --radius-ctl:4px; --radius-card:6px;
+  --dur-state:150ms; --dur-drawer:200ms; --dur-fresh:120ms;
+  color-scheme:light;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#141517; --surface:#1B1C1F; --surface-2:#232428; --border:#34363B; --border-strong:#6E7179;
+    --text:#E9E7E2; --text-2:#B6B4AE; --text-3:#96948F; --ink:#E9E7E2; --on-ink:#141517;
+    --accent:#4FB3A9; --accent-soft:#16302D; --code-bg:#1F2023; --danger-edge:#F0716A;
+    --st-pass:#4CB97A; --st-pass-soft:#163222; --st-manual:#B08BE0; --st-manual-soft:#2A2138;
+    --st-fail:#F0716A; --st-fail-soft:#3A1C1A; --st-drift:#F08A4B; --st-drift-soft:#3A2214;
+    --st-pending:#6FA3E6; --st-pending-soft:#172A40; --st-error:#9AA0AA; --st-error-soft:#26282C;
+    --st-needs:#B08BE0; --st-stale:#D9A93A; --st-stale-soft:#33290F; --st-locked:#6F737B; --st-locked-soft:#202124;
+    --viz-before:#7D8088; --viz-after:#4FB3A9; --viz-third:#D1A45A; --viz-grid:#2C2E32;
+    --host-lab:#D1A45A; --host-ws:#4FB3A9; --term-bg:#141517; --term-bar:#202124;
+    --cat-base:#B6B4AE; --cat-a:#7FB2DE; --cat-b:#D98AAE; --cat-c:#B5C46A; --cat-d:#E6A35E; --cat-e:#9FB0C2; --cat-f:#C9A66B;
+    --scrim:rgb(0 0 0 / .6); --shadow:0 8px 24px rgb(0 0 0 / .45);
+    color-scheme:dark;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#141517; --surface:#1B1C1F; --surface-2:#232428; --border:#34363B; --border-strong:#6E7179;
+  --text:#E9E7E2; --text-2:#B6B4AE; --text-3:#96948F; --ink:#E9E7E2; --on-ink:#141517;
+  --accent:#4FB3A9; --accent-soft:#16302D; --code-bg:#1F2023; --danger-edge:#F0716A;
+  --st-pass:#4CB97A; --st-pass-soft:#163222; --st-manual:#B08BE0; --st-manual-soft:#2A2138;
+  --st-fail:#F0716A; --st-fail-soft:#3A1C1A; --st-drift:#F08A4B; --st-drift-soft:#3A2214;
+  --st-pending:#6FA3E6; --st-pending-soft:#172A40; --st-error:#9AA0AA; --st-error-soft:#26282C;
+  --st-needs:#B08BE0; --st-stale:#D9A93A; --st-stale-soft:#33290F; --st-locked:#6F737B; --st-locked-soft:#202124;
+  --viz-before:#7D8088; --viz-after:#4FB3A9; --viz-third:#D1A45A; --viz-grid:#2C2E32;
+  --host-lab:#D1A45A; --host-ws:#4FB3A9; --term-bg:#141517; --term-bar:#202124;
+  --cat-base:#B6B4AE; --cat-a:#7FB2DE; --cat-b:#D98AAE; --cat-c:#B5C46A; --cat-d:#E6A35E; --cat-e:#9FB0C2; --cat-f:#C9A66B;
+  --scrim:rgb(0 0 0 / .6); --shadow:0 8px 24px rgb(0 0 0 / .45);
+  color-scheme:dark;
+}
+@media (min-width:768px){ :root{ --gutter:24px } }
