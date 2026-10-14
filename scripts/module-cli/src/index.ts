@@ -36,6 +36,7 @@ import { parseModuleId } from './registry.js';
 import { SINGLE_TARGET_SETTINGS, planEnable, resolveTarget } from './deps.js';
 import { parseAssignments } from './env-file.js';
 import { hookFor } from './module-hooks/index.js';
+import { costActivateTagsCommand } from './module-hooks/cost.js';
 
 export { EXIT };
 
@@ -175,7 +176,7 @@ export function buildProgram(): Command {
     .option('--cascade', 'disable dependent modules first (reverse topological order)')
     .option('--abandon-data', 'do not migrate data back (it stays in Retain resources)')
     .option('--no-migrate', 'alias of --abandon-data for modules without data')
-    .option('--purge', 'also delete retained data resources (not implemented in this round)')
+    .option('--purge', 'also delete retained data resources (generic flow: not implemented in this round; passed to the module hook, dns deletes its hosted zone)')
     .option('--skip-health', 'do not wait for the health probes')
     .option('--param <K=V>', 'platform action arguments (card platformOps args; passed to the module hook)', collect)
     .option('--reopen-ssh', 'shell-access: restore SshIngressCidr (reopen port 22) instead of keeping it closed')
@@ -321,6 +322,13 @@ export function buildProgram(): Command {
   iam.command('refresh-instance-credentials').description('ReplaceIamInstanceProfileAssociation with the same profile (reboot otherwise), wait for PingStatus=Online')
     .option('--param <K=V>', 'platform action arguments (card platformOps args; none are used)', collect)
     .action(async (_o, cmd: Command) => run(cmd, (ctx) => iamPlatformAction(ctx, 'refresh-instance-credentials'), { mutating: true, op: 'iam refresh-instance-credentials' }));
+
+  const cost = program.command('cost').description('cost actions (platform action cost-activate-tags; wave1-integration)');
+  cost.command('activate-allocation-tags').description('ce:UpdateCostAllocationTagsStatus (us-east-1) for the given tag keys; never deactivated by disable cost')
+    .option('--keys <list>', 'comma separated tag keys (default Project,Module)')
+    .option('--param <K=V>', 'platform action arguments (card platformOps args; keys=<list> is the same as --keys)', collect)
+    .action(async (o: { keys?: string; param?: string[] }, cmd: Command) => run(cmd, (ctx) => costActivateTagsCommand(ctx, o.keys ?? parseAssignments(o.param, '--param').keys),
+      { mutating: true, op: 'cost activate-allocation-tags' }));
 
   program.command('teardown').description('disable every module (reverse topological), delete toolchain and base stacks')
     .option('--purge-data', 'also delete retained data (not implemented in this round)')

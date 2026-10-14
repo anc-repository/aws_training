@@ -272,6 +272,6 @@ export function register(app: Express, c: Container): void {
     res.set('Cache-Control', 'no-store').json({ items, nextCursor: null });
   });
 
-  // 其余 /api/lab/*：模块实验端点（tagger/analyze、email/compare、notification/compare、runs/:id/photos 清理…）尚未实现
+  // 其余 /api/lab/*：尚未实现的模块实验端点（tagger/analyze、runs/:id/photos 清理…）
   app.all('/api/lab/*rest', notImplementedRoute('lab'));
 }

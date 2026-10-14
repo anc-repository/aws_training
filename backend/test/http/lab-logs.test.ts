@@ -1,5 +1,5 @@
-// logging 的 /lab 侧路端点（adapters/logging/lab-routes.ts）：L0 容器 + 与 createApp 相同的前置中间件。该路由模块尚未加入
-// http/app.ts 的 ROUTE_MODULES（集成阶段处理），测试里把它挂在 createApp 之前。cloudwatch 一侧用内存 CloudWatch Logs。
+// logging 的 /lab 侧路端点（adapters/logging/lab-routes.ts）：L0 容器 + 与 createApp 相同的前置中间件。该路由模块已加入
+// http/app.ts 的 ROUTE_MODULES（wave1-integration）；测试里仍把它显式挂在 createApp 之前（cloudwatch 一侧换一个容器视图）。cloudwatch 一侧用内存 CloudWatch Logs。
 import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';

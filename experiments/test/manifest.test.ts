@@ -10,14 +10,17 @@ import type { ExperimentDef } from '../_lib/types.js';
 import { experimentsRoot } from '../_lib/util.js';
 
 const MVP: ModuleId[] = ['iam', 'storage', 'cdn', 'auth', 'queue', 'image-processing', 'cache', 'database'];
+/** 第 1 波（wave1-integration；与 backend/src/config/implemented.ts 的 WAVE1_MODULES 相同） */
+const WAVE1: ModuleId[] = ['notification', 'email', 'monitoring', 'cost', 'logging', 'shell-access', 'dns', 'tls', 'waf', 'identity-pool'];
+const ALL: ModuleId[] = [...MVP, ...WAVE1];
 const root = experimentsRoot();
 
 describe('experiment manifests', () => {
-  it('exist for all 8 MVP modules', () => {
-    expect(listModules(root)).toEqual([...MVP].sort());
+  it('exist for the 8 MVP modules and the 10 wave 1 modules', () => {
+    expect(listModules(root)).toEqual([...ALL].sort());
   });
 
-  for (const module of MVP) {
+  for (const module of ALL) {
     describe(module, () => {
       const manifest = loadManifest(module, root);
       const registryIds = REGISTRY_DOCUMENT.modules[module].lab.experiments ?? [];

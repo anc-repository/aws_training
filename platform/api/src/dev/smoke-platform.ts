@@ -11,7 +11,7 @@
  * Phases (each prints PASS / FAIL lines; the run fails if any line fails; result JSON: .atl-dev/smoke/last-platform.json):
  *   0 builds: check bundle, content release (labs:build when missing), release package + SHA256SUMS (no upload)
  *   1 platform init: per-run tables, install custom resources (SeedData, WebDeploy of atl-content.zip, JwksPublish,
- *     UninstallGuard Create) → catalog API: 56 cards, 10 startable, the rest planned
+ *     UninstallGuard Create) → catalog API: 56 cards, 22 startable, the rest planned
  *   2 svc-storage: quote → start → PROVISIONING (base-deploy = local L0, workstation-up, profile-apply) → READY → RUNNING
  *   3 step 1 checks (local + capability) pass; 4 a manual confirmation; 5 a comparison experiment (two labels)
  *   6 extend once → fast-forward → EXPIRING → ENDING → CLEANING → ENDED (the reclaimer removes the local resources)
@@ -471,7 +471,8 @@ async function phaseInit(c: Ctx): Promise<void> {
   const planned = cards.filter((x) => x.status === 'planned');
   const startable = cards.filter((x) => x.startable === true && x.status !== 'planned');
   must(`catalog index ${indexUrl} lists 56 cards`, cards.length === 56, { indexUrl, count: cards.length });
-  check('10 cards can start, 46 are planned', startable.length === 10 && planned.length === 46, { startable: startable.map((x) => x.id) });
+  // first batch (10) + wave 1 (10 service cards, sc-edge-protection, sc-event-fanout): 22 startable (wave1-integration)
+  check('22 cards can start, 34 are planned', startable.length === 22 && planned.length === 34, { startable: startable.map((x) => x.id) });
   const labs = await call('GET', '/api/v1/labs', { token: LEARNER });
   check('GET /labs: my status per card (none yet), environment strip', labs.status === 200 && Array.isArray(labs.body.items), { items: (labs.body.items as unknown[] | undefined)?.length, environment: labs.body.environment ?? null });
   const lab = await call('GET', `/api/v1/labs/${LAB}`, { token: LEARNER });

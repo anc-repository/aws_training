@@ -5,7 +5,7 @@
 //   GET  /api/storage/upload/parts?uploadId&key          F14：已收到的分片（断点续传）
 //   POST /api/uploads/session                            F14：开会话（X-Compare-Bypass: identity-pool 只在这里有效）
 //   POST /api/uploads/parts:sign                         F14 + storage=s3：逐片换取预签名 UploadPart URL（同样带 CA-Upload 令牌）
-//   GET  /api/uploads/credentials                        F14 + identity-pool=cognito：用 HttpOnly Cookie 中的 ID 令牌换取 STS 临时凭证
+//   GET  /api/uploads/credentials                        F14 + identity-pool=cognito：用 ID 令牌（HttpOnly Cookie 或 X-CloudAlbum-Id-Token）换取 STS 临时凭证
 //
 // F6 的检查顺序：① 签名与有效期（timingSafeEqual）② Content-Type 必须等于签名里的 ct ③ Content-Length 大于 max → 413，不读请求体
 // ④ 剩余空间低于 STORAGE_LOCAL_MIN_FREE_PCT → 507 ⑤ 目标已存在：大小一致 200（幂等重试），否则 409
@@ -15,10 +15,11 @@
 import type { Express, Request, Response } from 'express';
 import { z } from 'zod';
 import type { Container } from '../../container.js';
+import { idTokenOf } from '../../adapters/identity-pool/lab-routes.js';
 import { asLocalMultipart, asLocalStorage } from '../../adapters/storage/local.js';
 import { HttpError } from '../../errors.js';
 import { isBypassed } from '../../observability/request-context.js';
-import { ID_TOKEN_COOKIE, requireAuth } from '../middleware/auth.js';
+import { requireAuth } from '../middleware/auth.js';
 import { noStore, parseOr400, viewerOf } from './social.js';
 
 export const PATHS = [
@@ -161,8 +162,9 @@ export function register(app: Express, c: Container): void {
   app.get('/api/uploads/credentials', requireAuth, async (req, res) => {
     const v = viewerOf();
     if (typeof c.directUpload.credentials !== 'function') throw new HttpError(404, 'NOT_AVAILABLE', 'identity-pool 未启用（当前为应用自签的前缀令牌）');
-    const idToken = (req.cookies as Record<string, string> | undefined)?.[ID_TOKEN_COOKIE];
-    if (!idToken) throw new HttpError(401, 'ID_TOKEN_REQUIRED', '缺少 ID 令牌 Cookie');
+    // ID 令牌：Cookie ca_it（BFF 子模式）或请求头 X-CloudAlbum-Id-Token（Amplify 子模式，令牌在浏览器内存里）。
+    // 为空时交给驱动判断：IDENTITY_DEV_PROVIDER 下的本地账号走开发者认证身份，其余由驱动返回 401 ID_TOKEN_REQUIRED
+    const idToken = idTokenOf(req);
     const creds = await c.directUpload.credentials(v.principal!, idToken);
     noStore(res);
     res.json(creds);

@@ -3196,3 +3196,142 @@ svc-notification / svc-email。全程没有调用真实 AWS API、没有部署�
 | `scripts/module --dry-run --state <scratch>`：`enable cdn --set CDN_DIRECT_ACCESS=admin-ip --set CDN_ADMIN_CIDR=…/32`、`enable waf --with-deps [--param RuleAction=block]`、`enable email --with-deps --param Email=…`、`enable notification --with-deps --param AdminEmail=… --no-migrate`、`disable waf`、`disable email`、`plan --start-of sc-edge-protection / sc-event-fanout --platform --json` | 全部退出码 0（PublicHttpIngress open → admin-ip、AdminIngressCidr 写入基础栈参数）；空 state 下不带 `--with-deps` 时 waf 报 DEP-006、email / notification 报 CRED-001（卡片起始状态已预置 iam，按手册顺序 cdn 先于 waf） |
 | `scripts/labs` vitest | 14 通过、3 失败——第 3 节第 4 条的数量假设（build 测试的参考推导器另报 svc-logging、svc-monitoring 的 DRV-1，与本节无关） |
 | `npm run smoke:l0` / `smoke:selfhost` | 85 通过 0 失败 / 31 通过 0 失败（本节只改 labs/ 内容） |
+
+## wave1-integration
+
+第 1 波（notification、email、monitoring、cost、logging、shell-access、dns、tls、waf、identity-pool，以及场景卡片 sc-edge-protection、
+sc-event-fanout）的集成与自测：处理各实现者小节“需要配合”中的共享文件改动，跑通全部回归，并用本地替身做一次 notification / email /
+logging / monitoring 的集成冒烟。全程没有调用真实 AWS API、没有部署任何东西；`scripts/module` 只用 `--dry-run`（另把 AWS 凭证环境变量指向
+无效值，即使误调用也不会到达 AWS）。没有新增 npm 依赖（`npm ls --workspaces` 无缺失，`package-lock.json` 未改）。
+
+### 1. 处理的共享文件改动
+
+| 来源 | 文件 | 内容 |
+|---|---|---|
+| sns-ses、cw-budgets、logs-ssm、waf、identity-pool | `backend/src/http/app.ts` | `ROUTE_MODULES` 加入 `adapters/{waf,monitoring,cost,logging,identity-pool}/lab-routes.ts`，放在 `admin.ts` **之前**（waf 的 `/api/admin/security/blocklist` 必须先于 admin.ts 的 `/api/admin/*` 404 兜底；实现者写的是“先于 lab.ts”，不够），因此也先于 lab.ts 的 501 兜底。waf 的 `register()` 同时把登记表的感知器接到 aws 驱动 |
+| sns-ses | `backend/src/http/routes/lab-modules.ts` | `POST /api/lab/notification/compare`、`POST /api/lab/email/compare {to}`（仅管理员）；`adapterDepsOf(c)` 由容器拼出 compare 函数需要的 AdapterDeps；lab.ts 501 兜底的注释同步 |
+| identity-pool | `backend/src/http/routes/lab-probe.ts` | `GET /api/lab/probe/identity-pool`（`identityPoolLabProbe`，经 `guarded()`），`PROBE_UNKNOWN` 的端点列表补上 |
+| identity-pool | `backend/src/http/routes/uploads.ts` | `/api/uploads/credentials` 用 `idTokenOf(req)`（Cookie `ca_it` 或请求头 `X-CloudAlbum-Id-Token`）；令牌为空时交给驱动判断（`IDENTITY_DEV_PROVIDER` 下的本地账号走开发者身份，其余由驱动返回 401 `ID_TOKEN_REQUIRED`） |
+| sns-ses、cw-budgets | `backend/src/worker.ts` | `startWorkerLoops` 第 4、5 步：sns / ses 驱动提供 `consume()` 时启动（收件队列与订阅同步、反馈队列）；`startAlertEvaluator`（本地告警，L0 也运行）与 `startCostIdle`。waf 的 IP 集合同步与 logging 的 Nginx 日志转发由驱动 `init()` 按 role=worker 自启（已确认 `d.lock` 在 waf 驱动创建之前注入） |
+| cw-budgets | `backend/src/container.ts` | `caps.registerProbe('cost', …)`：cost 感知器在 local 档也给出本地估算的 detail（`localHealth`），svc-cost 的 `cost-local-baseline` 依赖它 |
+| cw-budgets | `backend/src/config/load-env.ts` | CFG-010 的 cost-rates 读取：`COST_RATES_FILE` 覆盖默认位置；接受文档格式 `entries:`，兼容 `rates:` 与顶层数组（与 `adapters/cost/estimate.ts` 一致） |
+| cw-budgets | `infra/host/security-snapshot.sh` | 单元列表加入 `amazon-cloudwatch-agent`（ec2 感知器只评估 api / worker / 定时器，不受影响） |
+| sns-ses | `backend/src/cli.ts`、新增 `backend/src/cli/migrate-module.ts` | `migrate-module notification plan|up|down|verify [--dry-run]` 接到 `adapters/notification/migrate.ts`，见第 2 节第 1 条；其余模块仍以退出码 2 报“尚未实现” |
+| route53-acm、identity-pool | `modules/registry.yaml` → `gen:registry` | tls 的 injects：cdn `Aliases: ${Out.InfoEdgeAliases}`、load-balancer `DomainName: ${Out.InfoRegionalDomainName}`（只有对应证书栈存在时才有值，先 tls 后 cdn 不再触发 `AliasNeedsCertificate`）；identity-pool 的 degraded 徽章改为“临时凭证不可用，已改用应用自签令牌（EC2）”（与实现、模块文档第 11 节表格一致） |
+| route53-acm | `scripts/module-cli/src/{module-hooks/types.ts,disable.ts,index.ts}`、`module-hooks/dns.ts` | `disable --purge` 传入 `HookArgs.purge`；dns 在 `--purge` 或 `--param PurgeHostedZone=true` 时删除自己新建的托管区域（通用流程的 `--purge` 仍未实现，提示文字已说明） |
+| cw-budgets | `scripts/module-cli/src/index.ts`、`module-hooks/cost.ts` | 新子命令 `scripts/module cost activate-allocation-tags [--keys Project,Module]`：平台动作 cost-activate-tags 的执行体；学员身份退出码 2（`PLATFORM_ACTION_REQUIRED`）；某个键暂时不能激活时逐键报告，退出码 1 |
+| identity-pool | `scripts/module-cli/src/ops.ts` | 平台预览方案 B 开启时，通用注入的 `AppOrigins` 同时含 `http://<EIP>` 与 `https://<EIP>`（storage 原图桶等所有浏览器侧 CORS；此前只有 identity-pool 的 hook 给自己补上） |
+| sns-ses | `scripts/module-cli/src/module-hooks/notification.ts` | 迁移说明随第 2 节第 1 条更新 |
+| cw-budgets | `scripts/labs/src/lint/card.ts` | A12：`inputs` 在 `fillFrom` 检查之前声明（原先任何带 `fillFrom` 的变量都会触发 TDZ 错误） |
+| cw-budgets、logs-ssm | `scripts/labs/src/derive/plan.ts` | DRV-10：摘要对象中 runtime 项的值按 scripts/module 解析 `PROFILE_RUNTIME` 的方式取类型（`true` 而不是 `"true"`），见第 2 节第 3 条 |
+| logs-ssm | `scripts/labs/src/derive/reference.ts` | 参考推导器在单服务卡片上也接受声明的 `kind: runtime` 项（与 plan-start 第 6 步相同），消除 svc-logging、svc-monitoring 的 DRV-1；runtime 项的缺省值为 `true`（与 plan-start 相同） |
+| route53-acm、identity-pool、scenarios | `scripts/labs/src/derive/index.ts` | DRV-6 只比较规则形式的警告（`warningRuleId`：`DEP-018`、`rules: DEP-013`、`waf: DEP-018 …`、`DRV-5: …`），hook `planHints` 等自由文本不再被当作“未声明的 expectedWarnings” |
+| 全部 | `scripts/labs/test/{lint,derive,build}.test.ts`、`experiments/test/manifest.test.ts`、`scripts/module-cli/test/helpers.ts`、`platform/api/src/dev/smoke-platform.ts` | 数量假设改为 22 张可开始、34 张规划中，实验清单覆盖 18 个模块；`ALLOW_PENDING_WAVE1_TEMPLATES = false`（10 个模板都已就位） |
+| 全部 | `labs/_catalog/catalog.yaml` | `npm run labs:catalog`：startable 22、planned 34（registry 改动后重新生成） |
+| scenarios（他人路径） | `labs/svc-waf/**`、`experiments/waf/{bypass.ts,lib.ts,README.md}`、`backend/src/modules/detectors/cdn.ts` | ① `webacl-count`、`webacl-block` 改用 `where`（检测引擎不支持 `[?(...)]`）；② 徽章换成本卡自己的 WAF 徽章；③ `bypass` after 的误报：cdn 感知器在 admin-ip 时于管理员视图的 data 中给出 `adminCidr`，场景经直连请求 `/api/lab/echo` 取源站看到的客户端地址，落在白名单内记 `directAllowedAsAdmin=true`，仍判为已锁定（服务端证据，不只看客户端能否连上）；手册 45 与 CHANGELOG 同步（版本仍为 1.0.0，属发布前修订） |
+
+### 2. 设计有歧义时的取舍
+
+1. **notification 的迁移只接通一半**：通用迁移框架（`scripts/migrate/_lib`：同时实例化源驱动与目标驱动）还不存在，而 `enable` 的第 6 步在写入
+   modules.d 之前运行，实例上的进程仍是 `NOTIFY_DRIVER=db`，构造不出 SnsNotifier。因此 `migrate-module notification up` 要求当前驱动是 sns
+   （否则退出码 2 并给出做法）；`enable notification` 仍需 `--no-migrate`，切换后在实例上执行 `node dist/cli.js migrate-module notification up`
+   （或照旧用 `experiments/notification/subscribe-users.ts`）。`disable` 的第 3 步此时仍是 sns，可以直接运行 `down` + `verify`。`verify` 不带方向，
+   取最近一次 up / down 写在 `system_meta`（`migrate.notification.lastDirection`）的方向，没有记录时按当前驱动推断。卡片与 hook 的 `--no-migrate` 用法不变。
+2. **路由位置**：第 1 波的 lab-routes 一律放在 admin.ts 之前（见第 1 节），各文件自带 `requireAuth + requireAdmin`，不依赖 lab.ts 的 `app.use('/api/lab', …)`。
+3. **DRV-10 的修法**：cw-budgets 建议改 `derive/cli.ts`，但 `PlanEntry.value` 本来就是字符串，问题在于“同一个值在两边类型不同”：scripts/module 从
+   lab.yaml 读到布尔值 `true`，从档位文件读回时也用 `runtimeValue()` 转成布尔值。因此在 labs 侧的 `digestObject()` 对 runtime 项做同样的类型化，
+   参考推导器与 scripts/module 两条路径得到相同的摘要。
+4. **DRV-6 只认规则 ID**：说明文字里带规则 ID（例如 waf hook 提示末尾的 `(DEP-018)`）不算规则警告；规则本身由规则引擎或参考推导器以 ID 形式给出。
+5. **svc-waf 的 bypass**：不改成“从工作台以外的地址探测”（工作台本身就是管理 IP，换不了源地址），而是用服务端看到的客户端地址判定；
+   sc-edge-protection 仍按其小节第 2.2 条不使用 bypass。
+6. **identity-pool 的徽章文字**：模块文档第 11 节的表格与同一节的 registry 摘录互相矛盾（摘录写“已退回逐文件上传”），取与故障语义一致的表格文字。
+
+### 3. 没有处理、留给后续的事项（均为“可选”项，或需要实机资料）
+
+- `labs/_pricing/dimensions.yaml` 的 ACM ACME 计费维度：Price List 的 serviceCode 与过滤属性要以实际返回为准（07 要求每个维度由 atl-pricing 的集成测试命中价格），
+  本机不能调用 AWS，猜测属性名等于编造，所以没有加；svc-tls 的 cost.basis 照旧只写起始状态与工作台。
+- `scripts/labs/src/registry.ts` 的 `replaceTemplates` 样本值带点：dns / tls 卡片已改用不需要它的写法，改样本值会影响全部卡片的检查参数校验，没有动。
+- 参考推导器按 rules.ts 的运行期条件建模 DEP-018（之后 sc-edge-protection 可以去掉卡片级的 DEP-018）：没有做，卡片声明不影响结果。
+- tls 感知器的 `via` / `trusted` 覆盖 `capabilities.https`（`setHttps()`）：握手瞬时失败时观测值会来回变化，且 `cf-default` 的语义与 `httpsState()` 不同，
+  需要先统一约定，没有做。
+- error5xx 故障豁免 `/api/health/*` 与 `/api/lab/*`：会改变 MVP 实验以及将来 ALB 健康检查实验对故障的预期；monitoring 已改用合成 5xx 端点，没有做。
+- `enable.ts` 的 `previewEnv` 静态输出不读用户参数（email hook 已绕过）、`container.close()` 调用 `loggerPort.close?.()` 与 `blocklist.close?.()`（相关定时器都已 unref）、
+  前端 `/lab` 的 identity-pool 卡片：没有做。
+- `platform/infra/policies/generated/verifier-readonly.json` 不在仓库中：`npm run labs:policy` 对当前内容生成 53 个只读动作、0 个被拒（含 wafv2、sesv2、sns、logs、
+  cloudwatch、budgets、ce、route53、acm、cognito-identity），平台部署前要按平台发布流程生成。
+
+### 4. 本地集成冒烟（notification、email、logging、monitoring）
+
+- **LocalStack 不可用**：本机没有 `localstack/localstack` 镜像（已用 `docker images` 核对），本阶段不拉取镜像（下载需要用户同意，C 盘剩余空间也只有约 22 GB）。
+  `scripts/smoke/minicloud.mjs` 只实现了 S3（经 MinIO）、SQS、STS、IAM，没有 SNS、SES v2、CloudWatch、CloudWatch Logs 的协议。
+- **改用本地替身**：新增 `backend/test/integration/wave1-local-smoke.test.ts`（随 `npm test` 运行）。替身是内存 SNS / SQS / CloudWatch Logs（各实现者的 `fake-*.ts`），
+  加上 aws-sdk-client-mock 的 SES v2、CloudWatch、STS、IAM。modules.d 用 `scripts/module enable --dry-run` 计划出的同一组键（栈输出换成真实形状的值，
+  `IAM_CREDENTIALS=keys` 的测试密钥只交给 mock），走完整装配：分层加载 + zod + 规则引擎 → api 与 worker 两个容器（共用 SQLite）→ createApp →
+  `startWorkerLoops`。结果 6/6：
+  - capabilities（管理员视图）：notification `sns` ok；email `ses` degraded（“沙盒：只能发给已验证地址 · 今日已发 0 / 上限 200…”）；logging `cloudwatch` ok；
+    monitoring `cloudwatch` degraded（keys 模式 CRED-002：Agent 不可用）；iam degraded（CRED-002）；第 1 波模块都不是 error。
+  - email：本地注册的验证邮件经 `SendEmail(Content.Raw)` 发出（配置集 `cloudalbum-lab-email`，MIME 含 `X-CloudAlbum-Transport: ses`），路径头 `email=ses:…`，
+    `outbox_emails.transport=ses`；反馈队列中的 Permanent Bounce 由 worker 的 `consume()` 处理，`delivery_status` 与 `users.email_status` 变为 bounced。
+  - notification：评论 → 站内信 + 一次 Publish（消息属性 `userId` = 照片主人、`eventType=comment.created`），路径头 `notification=sns:…`；SNS → 收件队列
+    （原始消息传递）→ worker `consume()` 记 `sqs-copy`，队列清空。
+  - logging：应用日志经发送器进入 `/cloudalbum/lab/app` 的 `{instanceId}/api` 流，内容与本地 JSON 行相同。
+  - monitoring：`PutMetricData` 全部写入命名空间 `CloudAlbum/App`。
+- 另有 `backend/test/http/wave1-routes.test.ts`：经 `createApp` 访问各模块的侧路端点（管理员 200、普通用户 403），两个功能对照端点在 L0 下的行为，
+  以及 cost 在 local 档的探针 detail。
+
+### 5. 自测（2026-10-14，Windows 11 / Node 22.14.0 / Docker 28.3.2；没有调用 AWS）
+
+| 命令 | 结果 |
+|---|---|
+| `npm run build` / `npm run lint` | 通过 / 0 个问题 |
+| `npm test` | 216 个文件通过、1 个跳过；2684 个测试通过、18 个跳过（需要外部服务），0 失败（集成前为 4 个文件失败，都是第 1 波各小节列出的数量假设） |
+| `npm run registry:check` | OK：40 个模块，85 条规则，52 处规则引用，2 个既有警告 |
+| `cfn-lint --regions ap-northeast-1 us-east-1 -- infra/modules/*.yaml`（1.57.2，`D:/workspace/.tools/cfnlint-venv`） | 20 个模板 0 发现 |
+| `npm run labs:lint` / `labs:derive` / `labs:build` / `labs:catalog` / `labs:policy` | 56 张卡 0 错误 0 警告 / 22 张卡 0 错误 0 警告（scripts/module 推导器）/ 56 张卡 0 错误、195 个文件 / startable 22、planned 34 / 53 个动作、0 个被拒 |
+| `scripts/module --dry-run`：10 个模块各执行 `enable <id> --with-deps`、`disable <id>`（状态文件由同一代码的 dry-run enable 生成）、`plan <id> --single`、`plan --start-of svc-<id>` | 40 次全部退出码 0（notification 带 `--no-migrate --param AdminEmail=…`；email 带 `--param Email=…`；cost 带两个预算金额参数；dns / tls 带 `--domain album.example.com`；shell-access 的 disable 带 `--reopen-ssh --param SshIngressCidr=…`）。核对计划：waf 先 cdn 再 `waf-edge [us-east-1]`；notification 的 disable 第 3 步运行 `migrate-module notification down` + `verify`；identity-pool 依次 iam、auth、storage |
+| 同上，按设计应拒绝或跳过的情形 | email 没有身份、dns / tls 没有域名时 enable 退出码 2 并给出提示；dns / tls 没有域名时 `plan --single` 打印提示后跳过（0）；shell-access 22 已关闭且没有 `--reopen-ssh` 时 disable 退出码 2；monitoring 不带 `--with-deps` 退出码 2（CRED-001）；`disable dns --purge` 删除托管区域（0）；`plan --start-of sc-edge-protection`、`sc-event-fanout`、`svc-tls --variant acme-off` 退出码 0 |
+| `scripts/module --dry-run cost activate-allocation-tags` | 打印 `ce:UpdateCostAllocationTagsStatus`（Project、Module），退出码 0；非法键退出码 2 |
+| `npm run smoke:l0` / `smoke:selfhost` | 85 通过 0 失败 / 31 通过 0 失败 |
+| `npm run smoke:platform` | 120 / 120 通过（目录：22 张可开始、34 张规划中） |
+| `npm run e2e:platform` | 51 / 51 通过 |
+
+### 6. 与 07 验证计划的对应关系
+
+07 是按 MVP 与 6 张走查卡片编写的，第 1 波模块大多没有专门条目。下表列出已有条目与实现的对应，以及执行时要按代码改写的地方（07 本身不在本阶段修改）：
+
+| 模块 | 07 中的条目 | 对应关系与差异 |
+|---|---|---|
+| waf | V5-7a（`waf-edge` 栈，Count 模式）；3.5 的 us-east-1 WAF 残留核对；修订记录 Y-2 | `enable waf` 部署 `cloudalbum-<env>-waf-edge`（us-east-1，CLOUDFRONT 范围），与 07 一致。差异：07 第 4 步的“`DirectAccess=admin-ip`”在代码中是 `scripts/module enable cdn --set CDN_DIRECT_ACCESS=admin-ip --set CDN_ADMIN_CIDR=<ip>/32`；第 6 步的 `scripts/module set waf WAF_RULE_ACTION=block` 在代码中是 `scripts/module enable waf --param RuleAction=block`（没有 set 子命令）。日志组 `aws-waf-logs-cloudalbum-<env>` 为 Retain，disable 后保留，再次 enable 时接管 |
+| tls | V0-4、V3-5（ACME 端点）；V5-8 第 6 步（`tls-edge`，有域名时）；U47 | hook 的 preflight `acme-endpoint` 调用 `acm:ListAcmeEndpoints`，结果写成 `TLS_ACME=on|off`（对应 02 预检键 `preflight.tlsAcme` 与 svc-tls 的 `acme-off` 变体）；V3-5 的签发与吊销对应 `infra/modules/tls/host-setup.sh` 的 `issue-acme`、`revoke-acme`、`purge-acme` |
+| dns | V5-8 第 5～7 步（有域名时）；第 11 节的 Route 53 托管区域 | 新建的托管区域默认 Retain 并记入 `outOfBand`，`disable dns --purge` 才删除；没有域名时 enable 退出码 2、plan 跳过 |
+| cost | V0-2（预算）、V0-3 与 U59（成员账号下 Budgets / Cost Explorer 的可用性）、D17、V6-4、13.3 第 11 条 | 模块创建项目预算与账号预算（金额由学员决定）；Cost Explorer 只在显式确认（`ce-charges`）后调用；标签激活经 `scripts/module cost activate-allocation-tags`（Organizations 中只有管理账号能激活）；svc-cost 的 `tag-active` 检查调用 `ce:ListCostAllocationTags`（结果缓存 30 分钟，drift once） |
+| email | 1.3 的“SES 沙箱”、V0-3（`sesv2 get-account`） | 发件身份是人工前置（`--param Email=` 或 `--param Domain=`）；沙盒期收件人也要验证；身份可以保留，再次 enable 时接管（`AdoptExistingIdentity`） |
+| notification | 第 11 节的 SNS；C9（发送通知需用户确认） | 运维订阅与用户订阅都要收件人点确认链接（人工前置 confirm-email） |
+| logging、monitoring | 第 11 节的 CloudWatch Logs | 没有专门条目；monitoring 的 SNS 主题、告警与仪表板随栈删除，已上报的自定义指标只能等保留期过期 |
+| shell-access | 阶段 2（V2-x）验证的是平台自己的浏览器 SSM 通道，不是本模块；D23 | 没有专门条目；本模块的防锁死顺序（附加策略 → Agent Online → Run Command 冒烟 → 才关闭 22）只在 dry-run 与桩中验证过 |
+| identity-pool | 修订记录 Y-2（身份池的残留核对）；U48 属于 auth | 没有专门条目；暂存桶的 DeletionPolicy 为 Delete，disable 先清空 |
+
+### 7. 下一次真实 AWS 验证建议覆盖的项（按风险排序）
+
+沿用 2026-10-14 简易实机验证的方式（L0 → 逐个 enable → 冒烟 → disable → 全量回收），每项都按 07 第 12 节先取得用户同意：
+
+1. **shell-access 的防锁死顺序**（风险最高）：在真实 AL2023 上 `enable shell-access`（SSM Agent 为 Online、Run Command 冒烟成功后才关闭 22），
+   用 Session Manager 以 `cloudalbum-ops` 登录并核对 sudoers 规则（`visudo -cf` 只在容器里用桩跑过），`disable shell-access --reopen-ssh` 先经 ssh 验证再撤销。
+   任一步失败都要能回到“22 仍开放”的状态。
+2. **主机侧脚本第一次在真实实例上运行**：logging / monitoring 的 CloudWatch Agent（`dnf install amazon-cloudwatch-agent`、两个片段 `append-config` 共存、
+   `remove-config`），tls 的 certbot 虚拟环境（`pip` 与 `dnf` 回退）与续期定时器 drop-in，dns 的 canonical 跳转片段。这些脚本只做过 `bash -n` 或容器内的桩测试；
+   同时核对 security-snapshot 中 `amazon-cloudwatch-agent` 的单元状态出现在 monitoring 探针里。
+3. **notification + email**（需要用户的真实邮箱作为 SES 身份并点击验证；沙盒）：Publish 与过滤策略、订阅确认、收件队列与反馈队列由 worker 消费、
+   SES 邮箱模拟器的退信回流；`enable notification --no-migrate` 后在实例上执行 `migrate-module notification up`，`disable notification` 第 3 步的 `down` + `verify`；
+   两个功能对照端点。
+4. **waf**：按 07 V5-7a 做独立模式版：`waf-edge` 在 us-east-1 的创建与更新（count → block）、CloudFront 关联、worker 的 IP 集合同步、
+   `bypass` after 从管理 IP 运行时 `directAllowedAsAdmin=true`、CloudShell 直连超时、disable 后日志组保留与再次 enable 时接管。
+5. **logging / monitoring 的时间特性**：摄取延迟、Logs Insights 扫描字节、PutMetricData 到指标可见的延迟、心跳缺失告警的触发时间
+   （time-to-alert、kill-test），把实测值回写模块文档。
+6. **identity-pool**：auth=cognito 下浏览器 SigV4 直传暂存桶（CORS、`X-CloudAlbum-Id-Token`）、`CopyObject` 导入、写别人前缀被拒；平台预览方案 B 下
+   `https://<EIP>` 已在 CORS 中（本阶段 ops.ts 的改动）。
+7. **cost**：预算与通知（金额由用户决定）、标签激活（当前账号是 Organizations 的管理账号，可以激活）、预算动作只指向金丝雀角色；Cost Explorer 的调用逐次征得同意。
+8. **dns / tls**：用户没有自有域名时，只验证“没有域名时 enable 退出码 2、plan 跳过并提示”，以及 V3-5 的无域名路径（ACME 端点、EAB、账户注册需要用户同意服务条款）；
+   有了域名再补 Route 53 委派、ACME 签发与 `tls-edge`。
+9. **平台模式**：目录显示 22 张可开始卡片；部署前按发布流程生成 `verifier-readonly.json`（第 3 节最后一条），核对学员边界与护栏是否放行第 1 波卡片
+   用到的服务（wafv2、sns、sesv2、logs、cloudwatch、budgets、ssm、route53、acm、cognito-identity）；至少走查 svc-waf 与一张不需要域名的第 1 波卡片。

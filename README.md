@@ -75,7 +75,7 @@
   - 点名对比快速路径：Cognito、SQS、CloudFront、Lambda、ElastiCache、S3、RDS；
   - 其他专题路径。
 
-**第一批已实现、可以开始的 10 张卡片**：
+**已实现、可以开始的 22 张卡片**（第一批 10 张，第 1 波 12 张）：
 
 | 卡片 | 内容 |
 |---|---|
@@ -89,8 +89,20 @@
 | svc-database | Amazon RDS：SQLite → 自建 PostgreSQL → RDS |
 | svc-auth | Amazon Cognito：本地账号 vs Cognito |
 | sc-static-acceleration | 静态资源全球加速（组合场景） |
+| svc-notification | Amazon SNS：通知扇出与订阅过滤 |
+| svc-email | Amazon SES：真实发信与退信回流 |
+| svc-monitoring | Amazon CloudWatch：指标、告警与仪表板 |
+| svc-logging | Amazon CloudWatch Logs：集中日志 |
+| svc-cost | AWS Budgets：费用护栏与告警 |
+| svc-shell-access | AWS Systems Manager Session Manager：运维登录 |
+| svc-dns | Amazon Route 53：域名解析（需要自有域名） |
+| svc-tls | AWS Certificate Manager：HTTPS 证书（需要自有域名） |
+| svc-waf | AWS WAF：Web 应用防护 |
+| svc-identity-pool | Amazon Cognito Identity Pool：终端用户直传 S3 |
+| sc-edge-protection | 边缘纵深防护：CloudFront + WAF（组合场景） |
+| sc-event-fanout | 事件扇出与通知：SNS + SQS + SES（组合场景） |
 
-其余 46 张已经写好设计（在 [docs/platform/cards/](docs/platform/cards/)），目前在目录里显示为“规划中”。
+其余 34 张已经写好设计（在 [docs/platform/cards/](docs/platform/cards/)），目前在目录里显示为“规划中”。
 
 ---
 
@@ -135,9 +147,9 @@ X-CloudAlbum-Path: entry=cloudfront>alb>nginx;storage=s3@cloudalbum-raw:presigne
 |---|---|---|---|
 | 网络隔离 | 默认 VPC 公有子网 | **Amazon VPC** | |
 | 内容分发与边缘缓存 | Nginx 直接提供 | **Amazon CloudFront** | ✅ |
-| 域名解析 | 弹性 IP 或 EC2 公网 DNS | **Amazon Route 53** | |
-| HTTPS 证书 | 自签名或 Let's Encrypt | **AWS Certificate Manager** | |
-| Web 应用防护 | Nginx 限速 + 黑名单 | **AWS WAF** | |
+| 域名解析 | 弹性 IP 或 EC2 公网 DNS | **Amazon Route 53** | ✅ |
+| HTTPS 证书 | 自签名或 Let's Encrypt | **AWS Certificate Manager** | ✅ |
+| Web 应用防护 | Nginx 限速 + 黑名单 | **AWS WAF** | ✅ |
 | 负载均衡 | Nginx 单机 | **Elastic Load Balancing（ALB）** | |
 | 弹性伸缩 | 单实例 | **Amazon EC2 Auto Scaling** | |
 
@@ -147,7 +159,7 @@ X-CloudAlbum-Path: entry=cloudfront>alb>nginx;storage=s3@cloudalbum-raw:presigne
 |---|---|---|---|
 | 访问 AWS 的凭证 | 不调用任何 AWS API | **AWS IAM**（实例角色） | ✅ |
 | 用户注册登录 | 本地账号（argon2id + ES256 JWT） | **Amazon Cognito User Pool** | ✅ |
-| 终端用户直接访问 AWS 资源 | 应用签发的前缀上传令牌 | **Amazon Cognito Identity Pool** | |
+| 终端用户直接访问 AWS 资源 | 应用签发的前缀上传令牌 | **Amazon Cognito Identity Pool** | ✅ |
 | 密码与密钥管理 | 权限受限的 `secrets.env` | **AWS Secrets Manager** | |
 | 集中配置与运行时开关 | 本地 `runtime.json` | **AWS Systems Manager Parameter Store** | |
 | 数据加密密钥 | 本地主密钥 | **AWS KMS** | |
@@ -170,8 +182,8 @@ X-CloudAlbum-Path: entry=cloudfront>alb>nginx;storage=s3@cloudalbum-raw:presigne
 |---|---|---|---|
 | 图片处理（缩略图） | 请求内同步生成，或 EC2 上的 worker | **AWS Lambda** | ✅ |
 | 异步任务队列 | 同步执行，或进程内队列 | **Amazon SQS** | ✅ |
-| 通知扇出 | 站内通知表 | **Amazon SNS** | |
-| 邮件发送 | 本地发件箱 | **Amazon SES** | |
+| 通知扇出 | 站内通知表 | **Amazon SNS** | ✅ |
+| 邮件发送 | 本地发件箱 | **Amazon SES** | ✅ |
 | 定时任务 | 进程内 node-cron | **Amazon EventBridge Scheduler** | |
 | 图片识别与审核 | EXIF 和基础属性标签 | **Amazon Rekognition** | |
 | 社交 API 托管 | Express 路由 | **Amazon API Gateway** | |
@@ -180,9 +192,9 @@ X-CloudAlbum-Path: entry=cloudfront>alb>nginx;storage=s3@cloudalbum-raw:presigne
 
 | 机能 | 没有它时（L0） | 有了它 | 已实现 |
 |---|---|---|---|
-| 运维登录 | SSH + 22 端口 | **AWS Systems Manager Session Manager** | |
-| 日志 | 本地文件 + logrotate | **Amazon CloudWatch Logs** | |
-| 指标、告警、仪表板 | 应用内置的指标存储 | **Amazon CloudWatch** | |
+| 运维登录 | SSH + 22 端口 | **AWS Systems Manager Session Manager** | ✅ |
+| 日志 | 本地文件 + logrotate | **Amazon CloudWatch Logs** | ✅ |
+| 指标、告警、仪表板 | 应用内置的指标存储 | **Amazon CloudWatch** | ✅ |
 | 分布式链路追踪 | 请求 ID + `Server-Timing` | **AWS X-Ray** | |
 | AWS 操作审计 | 应用内审计日志 | **AWS CloudTrail** | |
 | 威胁检测 | fail2ban | **Amazon GuardDuty** | |
@@ -191,7 +203,7 @@ X-CloudAlbum-Path: entry=cloudfront>alb>nginx;storage=s3@cloudalbum-raw:presigne
 
 | 机能 | 没有它时（L0） | 有了它 | 已实现 |
 |---|---|---|---|
-| 成本护栏 | 按已启用模块估算 | **AWS Budgets** | |
+| 成本护栏 | 按已启用模块估算 | **AWS Budgets** | ✅ |
 | 配置合规检查 | 应用内配置自检 | **AWS Config** | |
 | 漏洞扫描 | 安全公告检查 + 依赖审计 | **Amazon Inspector** | |
 | 数据库连接池 | 本机 PgBouncer | **Amazon RDS Proxy** | |

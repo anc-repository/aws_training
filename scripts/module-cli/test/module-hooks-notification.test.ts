@@ -25,7 +25,7 @@ describe('notification hook', () => {
     expect(await enableCommand(ctx, 'notification', { withDeps: true, migrate: false, param: ['AdminEmail=you+admin@mail.dev'] })).toBe(0);
     expect(stackParams(aws.calls, 'cloudalbum-lab-notification')).toMatchObject({ AdminEmail: 'you+admin@mail.dev', KmsKeyArn: '' });
     expect(out.text()).toContain('confirm the subscription of you+admin@mail.dev (manual prerequisite confirm-email)');
-    expect(out.text()).toContain('migrate-module notification is not wired yet');
+    expect(out.text()).toContain('migrate-module notification is not wired into enable');
     expect(ctx.state.modules.notification?.env).toMatchObject({ MODULE_NOTIFICATION: 'on', NOTIFY_DRIVER: 'sns' });
     expect(Object.keys(ctx.state.modules.notification!.env).sort()).toEqual([
       'MODULE_NOTIFICATION', 'MODULE_NOTIFICATION_VERSION', 'NOTIFY_DLQ_URL', 'NOTIFY_DRIVER', 'NOTIFY_INBOX_QUEUE_URL', 'NOTIFY_TOPIC_ARN',

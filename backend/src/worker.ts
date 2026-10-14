@@ -6,7 +6,12 @@
 //   - 队列消费：QUEUE_DRIVER=sqs 时消费应用任务队列；memory 时消费本进程（定时任务）入队的任务；
 //   - image-processing 的 lambda 档：结果 / 失败队列轮询器（lambda 适配器的 consumeResults()，
 //     拿到的结果交给 PhotoPipeline.handleImageOutcome 统一写回）；
-//   - 本地指标汇总写库（container.startBackground）。
+//   - 本地指标汇总写库（container.startBackground）；
+//   - 第 1 波模块的后台循环（wave1-integration）：notification(sns) 收件队列 + 订阅同步、email(ses) 反馈队列（驱动的 consume()）、
+//     monitoring 的本地告警评估器（与 METRICS_DRIVER 无关，L0 的“告警”）、cost 的空开提醒（与 COST_MODE 无关）。
+//     waf(aws) 的 IP 集合同步与 logging(cloudwatch) 的 Nginx 访问日志转发由驱动的 init() 按 role=worker 自行启动。
+import { startCostIdle } from './adapters/cost/lab-routes.js';
+import { startAlertEvaluator } from './adapters/monitoring/alert-evaluator.js';
 import { buildContainer, type Container } from './container.js';
 import { isNotImplemented } from './errors.js';
 import { bindJobs, registerScheduledJobs, startJobConsumers } from './jobs/index.js';
@@ -22,6 +27,15 @@ interface ImageResultConsumer {
 
 function hasResultConsumer(x: unknown): x is ImageResultConsumer {
   return typeof (x as Partial<ImageResultConsumer>)?.consumeResults === 'function';
+}
+
+/** sns / ses 驱动提供的队列消费者（收件队列、反馈队列）；阻塞直到 signal 终止。本地驱动没有 */
+interface QueueConsumer {
+  consume(opts: { signal: AbortSignal }): Promise<void>;
+}
+
+function hasConsumer(x: unknown): x is QueueConsumer {
+  return typeof (x as Partial<QueueConsumer>)?.consume === 'function';
 }
 
 export async function startWorkerLoops(c: Container, signal: AbortSignal): Promise<void> {
@@ -51,6 +65,18 @@ export async function startWorkerLoops(c: Container, signal: AbortSignal): Promi
       c.logger.warn('image-processing(lambda) 未提供 consumeResults()，结果 / 失败队列不会被轮询');
     }
   }
+
+  // 4) 第 1 波：notification / email 的队列消费者（只有 sns / ses 驱动提供 consume()）
+  for (const [name, port] of [['notification', c.notifier], ['email', c.email]] as const) {
+    if (!hasConsumer(port)) continue;
+    void port.consume({ signal }).catch((e: unknown) => {
+      if (!isNotImplemented(e)) c.logger.error(`${name} consumer stopped`, { error: e as Error });
+    });
+  }
+
+  // 5) monitoring 的本地告警评估器（LockPort 单例；写 alert_events 与评估器心跳）与 cost 的空开提醒
+  startAlertEvaluator(c, signal);
+  startCostIdle(c, signal);
 }
 
 /** 被 vitest 导入（测试 startWorkerLoops）时不启动进程；作为入口执行（node dist/worker.js、tsx）时总是启动 */

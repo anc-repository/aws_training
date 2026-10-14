@@ -35,7 +35,7 @@ describe('labs:build', () => {
     const index = readJson(out1, 'catalog/index.json') as { schema: string; cards: { id: string; status: string }[] };
     expect(index.schema).toBe('atl.catalog-index/v2');
     expect(index.cards).toHaveLength(56);
-    expect(index.cards.filter((c) => c.status === 'planned')).toHaveLength(46);
+    expect(index.cards.filter((c) => c.status === 'planned')).toHaveLength(34);
     for (const id of ['svc-cdn', 'svc-ec2', 'sc-static-acceleration']) {
       expect(fs.existsSync(path.join(out1, 'labs', `${id}.json`))).toBe(true);
       expect(fs.existsSync(path.join(out1, 'catalog', 'cards', `${id}.json`))).toBe(true);

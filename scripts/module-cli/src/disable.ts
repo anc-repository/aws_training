@@ -74,6 +74,7 @@ export async function disableCommand(ctx: Ctx, idArg: string, opts: DisableOptio
   const hook = hookFor(id);
   const hookArgs: HookArgs = {
     params: parseAssignments(opts.param, '--param'), planOnly: false, isTarget: true, ...(opts.reopenSsh ? { reopenSsh: true } : {}),
+    ...(opts.purge ? { purge: true } : {}),
   };
   const before = hook?.beforeDisable ? await hook.beforeDisable(ctx, rec, hookArgs) : undefined;
   for (const n of before?.notes ?? []) ctx.out.warn(`      ${id}: ${n}`);
@@ -159,7 +160,7 @@ export async function disableCommand(ctx: Ctx, idArg: string, opts: DisableOptio
     const t = loadTemplate(ctx.repoRoot, mainTemplatePath(id));
     const retained = Object.entries(t.Resources).filter(([, r]) => r.DeletionPolicy === 'Retain' || r.DeletionPolicy === 'Snapshot');
     for (const [name, r] of retained) ctx.out.warn(`      kept by DeletionPolicy ${String(r.DeletionPolicy)}: ${name} (${r.Type})`);
-    if (opts.purge) ctx.out.warn('      --purge (empty buckets, final snapshot, key deletion) is not implemented in this round: delete retained resources manually');
+    if (opts.purge) ctx.out.warn('      --purge (empty buckets, final snapshot, key deletion) is not implemented in this round: delete retained resources manually (module hooks get it: dns deletes the hosted zone it created)');
     for (const st of rec.stacks.length ? rec.stacks : [{ stackName: stackName(ctx.env, id), region: ctx.region, name: 'main' }]) {
       await deleteStack(ctx.aws, ctx.out, st.stackName, st.region);
     }

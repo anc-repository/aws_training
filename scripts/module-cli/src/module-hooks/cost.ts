@@ -76,6 +76,29 @@ export async function activateCostAllocationTags(ctx: Ctx, keys: readonly string
   return { activated, errors };
 }
 
+const TAG_KEY_RE = /^[A-Za-z0-9 _.:/=+@-]{1,128}$/;
+
+/**
+ * `scripts/module cost activate-allocation-tags [--keys Project,Module]` (wave1-integration): the body of the platform action
+ * cost-activate-tags (06 PM-30 / PM-34). Standalone: the deployer identity runs it. Platform mode: only the runner (provisioner);
+ * the learner identity gets exit 2 PLATFORM_ACTION_REQUIRED. Prints one JSON object {activated, errors}; exit 1 when a key failed.
+ */
+export async function costActivateTagsCommand(ctx: Ctx, keysOpt: string | undefined): Promise<number> {
+  const keys = (keysOpt ?? COST_TAG_KEYS.join(',')).split(',').map((k) => k.trim()).filter(Boolean);
+  if (!keys.length || keys.some((k) => !TAG_KEY_RE.test(k))) {
+    throw new CliError(`cost activate-allocation-tags: --keys must be a comma separated list of tag keys (got ${keysOpt ?? ''})`, EXIT.rules, 'BAD_KEYS');
+  }
+  const r = await activateCostAllocationTags(ctx, [...new Set(keys)]);
+  if (r.skipped) {
+    throw new CliError(`cost activate-allocation-tags is a platform action (${r.skipped.platformAction}): only the runner may call ${r.skipped.api}`, EXIT.rules, 'PLATFORM_ACTION_REQUIRED');
+  }
+  process.stdout.write(`${JSON.stringify({ activated: r.activated, errors: r.errors, ...(ctx.dryRun ? { dryRun: true } : {}) })}
+`);
+  ctx.save();
+  // a key that is not in the activation list yet is reported per key (exit 1), like a failed check; the others are active
+  return r.errors.length ? 1 : EXIT.ok;
+}
+
 export const costHook: ModuleHook = {
   id: 'cost',
 

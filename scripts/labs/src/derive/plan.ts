@@ -75,7 +75,9 @@ export function digestObject(d: DigestInput): Record<string, unknown> {
       kind: e.kind,
       set: e.set ?? {},
       params: e.params ?? {},
-      value: e.value ?? null, // scripts/module digestObject: `value: m.value ?? null` for every entry (06 PM-33)
+      // scripts/module digestObject: `value: m.value ?? null` for every entry (06 PM-33); runtime values are typed the way
+      // scripts/module parses PROFILE_RUNTIME (true / false / numbers), so a lab.yaml `value: true` and its profile round trip agree
+      value: e.value === undefined ? null : e.kind === 'runtime' ? runtimeValue(e.value) : e.value,
     }))
     .sort((a, b) => (a.id === b.id ? (a.kind < b.kind ? -1 : 1) : a.id < b.id ? -1 : 1));
   return {
@@ -88,6 +90,14 @@ export function digestObject(d: DigestInput): Record<string, unknown> {
     baseParams: d.baseParams,
     extraStacks: d.extraStacks.map((x) => ({ id: x.id, region: x.region })),
   };
+}
+
+/** scripts/module plan-start.ts runtimeValue(): the typed form of a PROFILE_RUNTIME value */
+export function runtimeValue(v: string): Scalar {
+  if (v === 'true') return true;
+  if (v === 'false') return false;
+  if (/^-?[0-9]+(\.[0-9]+)?$/.test(v)) return Number(v);
+  return v;
 }
 
 export function planDigest(d: DigestInput): string {

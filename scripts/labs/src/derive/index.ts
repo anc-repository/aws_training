@@ -59,6 +59,16 @@ function declaredEntries(provisions: readonly ProvisionItem[]): (PlanEntry & { r
     }));
 }
 
+/**
+ * The rule ID a plan warning stands for, or null for free text. Forms: `DEP-018` (reference deriver, `plan --profile`),
+ * `rules: DEP-013` (scripts/module rule check of the start state), `waf: DEP-018 <message>` (rule issues of a target) and
+ * `DRV-5: …`. Hook planHints (`email: manual prerequisite "ses-identity": …`) and other notes are not rules.
+ */
+export function warningRuleId(w: string): string | null {
+  const m = /^(?:[a-z][a-z0-9.-]*:\s*)?([A-Z]{2,5}-\d{1,3})(?![A-Za-z0-9])/.exec(w.trim());
+  return m ? m[1]! : null;
+}
+
 const sameMap = (a: Record<string, string> | undefined, b: Record<string, string> | undefined) =>
   JSON.stringify(Object.entries(a ?? {}).sort()) === JSON.stringify(Object.entries(b ?? {}).sort());
 
@@ -183,7 +193,12 @@ export async function deriveCard(set: ContentSet, card: CardContent, mode: Deriv
         }
       } else add('DRV-10', `plan --profile cross-check not possible: ${r.reason}${tag}`, 'warn');
     }
-    for (const w of warnings) if (!expected.has(w)) add('DRV-6', `warning ${w} appears when enabling the targets in manual order but is not in expectedWarnings${tag}`);
+    for (const w of warnings) {
+      // only rule-shaped warnings are compared (wave1-integration): `rules: DEP-013`, `waf: DEP-018 <message>` and `DEP-018`
+      // all mean DEP-018; free text such as a module hook's planHints ("manual prerequisite …") is advice, not a rule
+      const id = warningRuleId(w);
+      if (id && !expected.has(id) && !expected.has(w)) add('DRV-6', `warning ${w} appears when enabling the targets in manual order but is not in expectedWarnings${tag}`);
+    }
 
     // DRV-7: wire order follows the dependency order between targets
     const idx = new Map(lab.steps.map((s, i) => [s.id, i]));

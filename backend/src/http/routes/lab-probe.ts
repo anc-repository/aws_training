@@ -5,6 +5,7 @@
 //   GET /api/lab/probe/media-url  MediaUrlBuilder 为保留键 _probe/<inst>/probe.jpg（及 variants/ 键）生成 URL（StoragePort 签名、CdnPort 改写）
 //   GET /api/lab/probe/kms        CryptoPort 对 32 个随机字节加密再解密（P1）
 //   GET /api/lab/probe/auth       AuthPort 的公开配置与签名公钥（P1）
+//   GET /api/lab/probe/identity-pool  DirectUploadPort 的 labProbe()：none 为 _probe/ 前缀令牌的签发与校验；cognito 为暂存前缀列举
 // 通用：只在平台模式下注册（关闭时 404，不暴露端点存在）；只接受 GET（其他方法 405）；必须是 atl-probe（否则 401，错误码见 PM-09）；
 // Cache-Control: private, no-store；总是带 X-CloudAlbum-Path 与 Server-Timing；端口运行时故障 → 503 {ok:false,error}；
 // 未知端点 → 404 PROBE_UNKNOWN。错误体 {"error":{"code","message"}}（06 §1.5 第 4 条）。
@@ -12,6 +13,7 @@ import { randomBytes } from 'node:crypto';
 import { hostname } from 'node:os';
 import type { Express, Request, RequestHandler, Response } from 'express';
 import { PLATFORM_HEADERS } from '@cloudalbum/contracts';
+import { identityPoolLabProbe } from '../../adapters/identity-pool/lab-routes.js';
 import type { Container } from '../../container.js';
 import { isLoopback } from '../../config/net.js';
 import { databaseHostClass } from '../../db/knex.js';
@@ -182,7 +184,11 @@ export function register(app: Express, c: Container): void {
     });
   });
 
+  app.get('/api/lab/probe/identity-pool', async (_req, res) => {
+    await guarded(res, () => identityPoolLabProbe(c));
+  });
+
   app.all('/api/lab/probe/*rest', (_req, res) => {
-    fail(res, 404, 'PROBE_UNKNOWN', 'unknown probe endpoint (now, echo, media-url, kms, auth)');
+    fail(res, 404, 'PROBE_UNKNOWN', 'unknown probe endpoint (now, echo, media-url, kms, auth, identity-pool)');
   });
 }

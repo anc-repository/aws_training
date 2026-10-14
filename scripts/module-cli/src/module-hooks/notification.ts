@@ -9,9 +9,11 @@
  *     because nobody could ever confirm it.
  *   - prerequisite confirm-email (manual, never blocks): every e-mail subscription stays PendingConfirmation until the recipient
  *     clicks the AWS confirmation link; the probe reports degraded "运维订阅待确认" until the admin subscription is confirmed.
- *   - migration scripts/migrate/notification (generic step 6): backend/src/adapters/notification/migrate.ts implements plan / up /
- *     down / verify; until `migrate-module` of backend/src/cli.ts is wired to it (integration), enable / disable need --no-migrate
- *     and user subscriptions are created through the API (experiments/notification/subscribe-users.ts).
+ *   - migration scripts/migrate/notification: backend/src/adapters/notification/migrate.ts implements plan / up / down / verify and
+ *     `migrate-module notification` (backend/src/cli/migrate-module.ts) is wired to it (wave1-integration). Its target is the SNS driver,
+ *     so it runs only where NOTIFY_DRIVER=sns: disable step 3 (down, still sns) works; enable step 6 runs before modules.d is written
+ *     (still db), so enable needs --no-migrate and `migrate-module notification up` runs on the instance after the switch (or the
+ *     user subscriptions are created through the API: experiments/notification/subscribe-users.ts).
  *   - disable: the topic deletion removes every remaining subscription (no out-of-band resources).
  * Platform mode (06 PM-M23): no out-of-band calls; the subscriptions the learner confirms are part of the card (manual prerequisite).
  */
@@ -21,9 +23,9 @@ import { CliError, EXIT } from '../printer.js';
 const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
 const RESERVED = /@([a-z0-9.-]+\.)?(example\.(com|net|org))$|\.(example|invalid|test|localhost)$/i;
 
-const MIGRATE_NOTE = 'migrate-module notification is not wired yet (wave 1): run enable / disable with --no-migrate; '
-  + 'existing users with e-mail notifications on get their subscriptions via `npx tsx experiments/notification/subscribe-users.ts` '
-  + '(PUT /api/notifications/prefs -> SNS Subscribe with the userId filter policy)';
+const MIGRATE_NOTE = 'migrate-module notification is not wired into enable (step 6 runs before the switch to sns): run enable with --no-migrate; '
+  + 'existing users with e-mail notifications on then get their subscriptions on the instance with `node dist/cli.js migrate-module notification up` '
+  + 'or via `npx tsx experiments/notification/subscribe-users.ts` (PUT /api/notifications/prefs -> SNS Subscribe with the userId filter policy)';
 
 export const notificationHook: ModuleHook = {
   id: 'notification',
@@ -72,7 +74,7 @@ export const notificationHook: ModuleHook = {
   beforeDisable() {
     return {
       notes: [
-        'user subscriptions: `migrate-module notification down` removes them (until it is wired: --no-migrate; deleting the topic deletes every remaining subscription)',
+        'user subscriptions: `migrate-module notification down` (step 3) removes them and clears the subscription ARNs (with --no-migrate the topic deletion removes them and the ARNs stay in notification_prefs)',
         'notification_prefs.email_enabled stays in the database: after the switch back to db the users keep their setting (e-mails via EmailPort again)',
       ],
     };

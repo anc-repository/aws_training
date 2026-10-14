@@ -140,4 +140,12 @@ describe('dns hook: disable', () => {
     expect(await disableCommand(b.ctx, 'dns', {})).toBe(0);
     expect(b.ctx.state.outOfBand).toEqual([]);
   });
+
+  it('disable --purge reaches the hook and deletes the zone the module created (wave1-integration)', async () => {
+    const a = dryContext();
+    a.ctx.state.modules.dns = enabled(true);
+    expect(await disableCommand(a.ctx, 'dns', { purge: true })).toBe(0);
+    expect(a.aws.calls.find((c) => c.op === 'DeleteHostedZone')).toMatchObject({ input: { Id: 'Z0123456789ABCDEFGHIJ' } });
+    expect(a.ctx.state.outOfBand).toEqual([]);
+  });
 });

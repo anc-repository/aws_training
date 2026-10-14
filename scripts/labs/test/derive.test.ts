@@ -4,8 +4,8 @@
  */
 import { describe, expect, it } from 'vitest';
 import { loadContent } from '../src/content.js';
-import { deriveAll, deriveCard } from '../src/derive/index.js';
-import { planDigest, profileDigest, renderProfile, type PlanOutput } from '../src/derive/plan.js';
+import { deriveAll, deriveCard, warningRuleId } from '../src/derive/index.js';
+import { digestObject, planDigest, profileDigest, renderProfile, type PlanOutput } from '../src/derive/plan.js';
 import { labsPaths } from '../src/paths.js';
 import { ownerOfKey, registryVersion } from '../src/registry.js';
 
@@ -45,10 +45,10 @@ describe('plan digest and profile', () => {
 });
 
 describe('labs:derive (reference deriver)', () => {
-  it('derives the 10 full cards without errors', async () => {
+  it('derives the 22 full cards without errors', async () => {
     const set = loadContent(paths);
     const r = await deriveAll(set, 'reference');
-    expect(r.cards.map((c) => c.card).sort()).toHaveLength(10);
+    expect(r.cards.map((c) => c.card).sort()).toHaveLength(22);
     expect(r.issues.filter((i) => i.severity === 'error')).toEqual([]);
     const byId = new Map(r.cards.map((c) => [c.card, c]));
     const startOf = (id: string) => byId.get(id)!.variants[0]!.plan!.start.filter((e) => e.basis !== 'base').map((e) => `${e.kind}:${e.id}`);
@@ -70,5 +70,38 @@ describe('labs:derive (reference deriver)', () => {
     ];
     const { issues } = await deriveCard(set, { ...card, lab }, 'reference');
     expect(issues.some((i) => i.rule.startsWith('DRV-') && i.severity === 'error' && i.message.includes('queue'))).toBe(true);
+  });
+});
+
+describe('wave 1 integration: DRV-6 and runtime values', () => {
+  it('DRV-6 compares rule IDs only; hook planHints are free text', () => {
+    expect(warningRuleId('DEP-018')).toBe('DEP-018');
+    expect(warningRuleId('rules: DEP-013')).toBe('DEP-013');
+    expect(warningRuleId('waf: DEP-018 entry not locked')).toBe('DEP-018');
+    expect(warningRuleId('DRV-5: target cdn appears in the start state (aws)')).toBe('DRV-5');
+    expect(warningRuleId('email: manual prerequisite "ses-identity": a verified SES sender identity')).toBeNull();
+    expect(warningRuleId('waf: lock the origin (CDN_DIRECT_ACCESS=admin-ip|closed) or … (DEP-018)')).toBeNull();
+    expect(warningRuleId('rules: not evaluated (backend not built)')).toBeNull();
+  });
+
+  it('a runtime value is digested typed, the way scripts/module parses PROFILE_RUNTIME (true, not "true")', () => {
+    const base = {
+      card: 'svc-x', variant: 'default', registryVersion: '2+000000000000',
+      platform: { 'preview.directHttps': 'on' as const }, baseParams: {}, extraStacks: [],
+    };
+    const rt = { id: 'featureFlags.lab.faults', kind: 'runtime' as const, basis: 'single' as const, value: 'true' };
+    const typed = digestObject({ ...base, start: [rt] }) as { modules: { value: unknown }[] };
+    expect(typed.modules[0]!.value).toBe(true);
+    const local = { id: 'queue', kind: 'local' as const, basis: 'single' as const, set: { QUEUE_DRIVER: 'memory' }, value: '1' };
+    expect((digestObject({ ...base, start: [local] }) as { modules: { value: unknown }[] }).modules[0]!.value).toBe('1');
+  });
+
+  it('declared runtime keys of service cards are part of the reference plan (svc-logging, svc-monitoring)', async () => {
+    const set = loadContent(paths);
+    for (const id of ['svc-logging', 'svc-monitoring']) {
+      const { derivation, issues } = await deriveCard(set, set.byId.get(id)!, 'reference');
+      expect(issues.filter((i) => i.severity === 'error')).toEqual([]);
+      expect(derivation.variants[0]!.plan!.start).toEqual(expect.arrayContaining([expect.objectContaining({ kind: 'runtime', id: 'featureFlags.lab.faults', value: 'true' })]));
+    }
   });
 });

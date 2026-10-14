@@ -7,10 +7,16 @@
 //   GET  /api/lab/aws-ping                   { sts: { ok, error? }, iam: { ok, error? } }（认证 vs 授权两列）
 //   POST /api/lab/db/read-after-write        { visible, lagMs? }：主库写一行后立即从读库读（database：只读副本滞后）
 //   POST /api/lab/storage/upload-target      ?driver=local|s3，body {contentType,size} → { uploadTarget }（lab/ 命名空间；只支持当前驱动）
+//   POST /api/lab/notification/compare       同一个 report.ready 测试事件经 db 驱动与 sns 驱动各发一次（notification；sns 未启用时只跑 db）
+//   POST /api/lab/email/compare              body {to}：同一封邮件经 outbox 与 ses 各发一次（email；ses 未启用时只跑 outbox）
+// 第 1 波其余模块的侧路端点在各自的 adapters/<id>/lab-routes.ts 中（http/app.ts 的 ROUTE_MODULES 统一登记）。
 // 除 /api/public/now 外都只对管理员开放（与 routes/lab.ts 相同的守卫）。响应形状是 experiments 小节约定的格式。
 import { randomUUID } from 'node:crypto';
 import type { Express } from 'express';
 import { z } from 'zod';
+import { compareEmailDrivers } from '../../adapters/email/compare.js';
+import { compareNotificationDrivers } from '../../adapters/notification/compare.js';
+import type { AdapterDeps } from '../../adapters/types.js';
 import type { Container } from '../../container.js';
 import { HttpError } from '../../errors.js';
 import { checkCallerAndAuthorization } from '../../modules/detectors/iam.js';
@@ -26,9 +32,21 @@ export const PATHS = [
   '/api/lab/aws-ping',
   '/api/lab/db/read-after-write',
   '/api/lab/storage/upload-target',
+  '/api/lab/notification/compare',
+  '/api/lab/email/compare',
 ] as const;
 
 const UploadTargetBody = z.object({ contentType: z.string().min(1).max(64), size: z.coerce.number().int().positive().optional() });
+const EmailCompareBody = z.object({ to: z.string().trim().min(3).max(254) });
+
+/** 功能对照端点临时构造的本地驱动（db / outbox）所需的构造参数，取自已装配的容器 */
+export function adapterDepsOf(c: Container): AdapterDeps {
+  return {
+    cfg: c.config, env: c.env, aws: c.aws, role: c.role, secrets: c.secrets, logger: c.logger, db: c.db, dbRead: c.dbRead, lock: c.lock,
+    cache: c.cache, queue: c.queue, storage: c.storage, notifier: c.notifier, email: c.email, crypto: c.crypto, metrics: c.metrics,
+    runtime: c.runtime, labMetrics: c.labMetrics,
+  };
+}
 
 export function register(app: Express, c: Container): void {
   const admin = [requireAuth, requireAdmin];
@@ -113,5 +131,15 @@ export function register(app: Express, c: Container): void {
     const ttl = s.STORAGE_DRIVER === 's3' ? s.STORAGE_S3_PRESIGN_TTL_SEC : 900;
     const uploadTarget = await c.storage.createUploadTarget({ key, contentType: body.contentType, maxBytes, expiresInSec: ttl });
     res.set('Cache-Control', 'no-store').json({ key, uploadTarget });
+  });
+
+  // notification / email 的功能对照（04#notification、04#email 第 5 节；实现在 adapters/<id>/compare.ts）
+  app.post('/api/lab/notification/compare', ...admin, async (_req, res) => {
+    res.set('Cache-Control', 'no-store').json(await compareNotificationDrivers(adapterDepsOf(c), c.notifier));
+  });
+
+  app.post('/api/lab/email/compare', ...admin, async (req, res) => {
+    const body = parseBody(EmailCompareBody, req.body);
+    res.set('Cache-Control', 'no-store').json(await compareEmailDrivers(adapterDepsOf(c), c.email, body.to));
   });
 }

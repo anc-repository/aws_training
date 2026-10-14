@@ -1,6 +1,6 @@
 // monitoring 与 cost 的 /lab 侧路端点（adapters/monitoring/lab-routes.ts、adapters/cost/lab-routes.ts）：
-// L0 容器 + 与 createApp 相同的前置中间件；这两个路由模块尚未加入 http/app.ts 的 ROUTE_MODULES（集成阶段处理），
-// 测试里把它们挂在 createApp 之前。budgets 档的 Cost Explorer 确认流程用 aws-sdk-client-mock。
+// L0 容器 + 与 createApp 相同的前置中间件；这两个路由模块已由集成阶段加入 http/app.ts 的 ROUTE_MODULES（wave1-integration），
+// 测试里仍把它们显式挂在 createApp 之前（budgets 档要换一个容器视图）。budgets 档的 Cost Explorer 确认流程用 aws-sdk-client-mock。
 import { mkdtempSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';

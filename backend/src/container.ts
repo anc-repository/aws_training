@@ -300,6 +300,10 @@ export async function buildContainer(role: ProcessRole, opts: BuildContainerOpti
   // cdn=cloudfront 的探针合并感知器的被动统计、DEP-028 与 GetDistribution
   const cdnDet = detectors.find((x) => x.module === 'cdn');
   if (cdnDet) (cdn as Partial<{ attachDetector(det: Detector): void }>).attachDetector?.(cdnDet);
+  // cost：感知器只在模块启用（COST_MODE=budgets）时才被调用；local 档的本地估算（资源与小时数、不显示金额）也要出现在
+  // detail 中（svc-cost 的 cost-local-baseline 检查），所以另外登记为探针，两档都调用同一个感知器（wave1-integration）
+  const costDet = detectors.find((x) => x.module === 'cost');
+  if (costDet) caps.registerProbe('cost', (o) => costDet.detect(o));
   // ec2 感知器的密钥指纹检查项（self-check 与冒烟测试展示；不一致时启动已被 CFG-007 拦截）
   const ec2 = detectors.find((x): x is Ec2Detector => x instanceof Ec2Detector);
   ec2?.attach({

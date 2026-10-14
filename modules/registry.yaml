@@ -244,8 +244,10 @@ modules:
       - { name: edge,     template: infra/modules/tls.yaml, region: us-east-1, when: cdn }      # CloudFront 集成证书
       - { name: regional, template: infra/modules/tls.yaml, when: "load-balancer | social-api" }
     injects:
-      - { target: cdn,           params: { AcmCertificateArn: "${Out.EnvAcmCertArnEdge}", Aliases: "${TLS_DOMAIN}" } }
-      - { target: load-balancer, params: { CertificateArn: "${Out.EnvAcmCertArnRegional}", DomainName: "${TLS_DOMAIN}" } }
+      # Aliases / DomainName 取自只在对应证书栈存在时才有值的输出（wave1-integration）：只有 main 栈（ACME）时注入为空，
+      # 先 tls 后 cdn 时 cdn 模板的 AliasNeedsCertificate 规则不会因“有别名没证书”而拒绝部署
+      - { target: cdn,           params: { AcmCertificateArn: "${Out.EnvAcmCertArnEdge}", Aliases: "${Out.InfoEdgeAliases}" } }
+      - { target: load-balancer, params: { CertificateArn: "${Out.EnvAcmCertArnRegional}", DomainName: "${Out.InfoRegionalDomainName}" } }
       - { target: social-api,    params: { CertificateArn: "${Out.EnvAcmCertArnRegional}" } }
     # 本栈接收的注入：HostedZoneId（dns，自动建验证 CNAME）
     hostSetup: infra/modules/tls/host-setup.sh   # /opt/certbot 虚拟环境、/etc/cloudalbum/tls/server.* 符号链接、cloudalbum-tls-renew.timer
@@ -524,7 +526,7 @@ modules:
         before: "flowchart LR; B[浏览器]--每片先问-->API[api 前缀令牌]; B--分片-->ST[(数据卷 / S3)]"
         after:  "flowchart LR; B[浏览器]--换取凭证-->CI[Cognito Identity Pool]; B--ASIA 凭证签名 UploadPart-->S3[(S3 暂存桶)]"
       experiments: [cross-prefix, upload-bench, resume, policy-sim]
-      badges: { local: "应用自签令牌（EC2）", aws: "直传 S3（Identity Pool 临时凭证）", degraded: "已退回逐文件上传", error: "临时凭证不可用" }
+      badges: { local: "应用自签令牌（EC2）", aws: "直传 S3（Identity Pool 临时凭证）", degraded: "临时凭证不可用，已改用应用自签令牌（EC2）", error: "临时凭证不可用" }
     doc: docs/modules/02-identity-security.md#identity-pool
 
   secrets:

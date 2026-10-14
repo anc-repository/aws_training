@@ -79,6 +79,21 @@ describe('injects (D2): provider -> target stack parameters', () => {
     expect(inj.AppOrigins!.value).toBe('http://203.0.113.10');
   });
 
+  it('tls injects the CloudFront aliases only where the us-east-1 certificate exists (wave1-integration)', () => {
+    const cdnParams = ['AcmCertificateArn', 'Aliases'];
+    const env = { TLS_DOMAIN: 'album.example.com' };
+    // tls first (ACME, main stack only): no edge certificate -> no alias (cdn's AliasNeedsCertificate rule would refuse the stack)
+    const mainOnly = rec({ value: 'acm', env, outputs: { InfoEdgeAliases: '', EnvAcmCertArnEdge: '' } });
+    const a = computeInjections('cdn', cdnParams, { records: { tls: mainOnly }, env, context: CTX });
+    expect(a.Aliases!.value).toBe('');
+    expect(a.AcmCertificateArn!.value).toBe('');
+    // re-enable tls after cdn: the edge stack exists and gives both
+    const withEdge = rec({ value: 'acm', env, outputs: { InfoEdgeAliases: 'album.example.com', EnvAcmCertArnEdge: 'arn:aws:acm:us-east-1:1:certificate/c' } });
+    const b = computeInjections('cdn', cdnParams, { records: { tls: withEdge }, env, context: CTX });
+    expect(b.Aliases!.value).toBe('album.example.com');
+    expect(b.AcmCertificateArn!.value).toBe('arn:aws:acm:us-east-1:1:certificate/c');
+  });
+
   it('storage injects bucket names into image-processing', () => {
     const storage = rec({ outputs: { EnvStorageS3RawBucket: 'raw-b', EnvStorageS3MediaBucket: 'media-b' } });
     const inj = computeInjections('image-processing', ['RawBucketName', 'MediaBucketName', 'KmsKeyArn', 'OriginBaseUrl'], { records: { storage }, env: {}, context: CTX });

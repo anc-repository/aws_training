@@ -13,7 +13,7 @@
 //   dev:init                在开发机上生成本地运行目录（.cloudalbum/dev：env、机密、ES256 密钥、数据目录）
 //   job run <name>          手动执行一次定时任务（trigger=manual；与 worker 同一份注册表与锁）
 //   lab:compact             把 2 天前的 lab_metric_rollups 压缩为小时级
-//   migrate-module          已登记，由后续实现者填充（scripts/migrate）
+//   migrate-module <id> plan|up|down|verify   模块数据迁移（cli/migrate-module.ts；目前只接入 notification，其余模块退出码 2）
 // ATL 平台模式（docs/platform/06-cloudalbum-platform-mode.md PM-02～PM-17、§11；stdout 只有一个 JSON 对象，退出码 0/2/3/4/5）：
 //   platform:validate-env / platform:apply-env   平台配置（实验机上 apply-env 是根子命令 infra/host/platform/apply-env.sh）
 //   platform-status         平台模式自检            probe-token / lab-token   探测令牌与实验主体令牌
@@ -39,6 +39,7 @@ import { countAdmins, findUserByEmail, insertUser } from './repositories/users.j
 import { printConfigReport } from './rules/engine.js';
 import { isSeedId } from '@cloudalbum/contracts';
 import { ensureAdminWithHash } from './cli/admin.js';
+import { MIGRATABLE_MODULES, runMigrateModule } from './cli/migrate-module.js';
 import { registerApplyEnv } from './cli/platform/apply-env.js';
 import { registerCapabilities } from './cli/platform/capabilities.js';
 import { action, CliExit, emit, platformFromDir, unavailable, usage, withDb } from './cli/platform/common.js';
@@ -334,9 +335,20 @@ function buildProgram(): Command {
     process.exitCode = 2;
   };
   program.command('migrate-module <id> <direction>')
-    .description('模块数据迁移：up | down | verify（scripts/migrate/<id>，总纲 9.3）')
+    .description('模块数据迁移：plan | up | down | verify（总纲 9.3；目前只接入 notification，其余模块退出码 2）')
+    .addOption(envDirOption())
     .option('--dry-run').option('--resume').option('--prune-source')
-    .action(todo('migrate-module'));
+    .action(async (id: string, direction: string, opts: { envDir?: string; dryRun?: boolean }) => {
+      if (!(MIGRATABLE_MODULES as readonly string[]).includes(id)) {
+        todo(`migrate-module ${id}`)();
+        return;
+      }
+      await withContainer(opts, async (c) => {
+        const r = await runMigrateModule(c, id, direction, { ...(opts.dryRun ? { dryRun: true } : {}) });
+        out(JSON.stringify(r.body));
+        process.exitCode = r.exitCode;
+      });
+    });
   program.command('job')
     .description('定时任务')
     .command('run <name>')

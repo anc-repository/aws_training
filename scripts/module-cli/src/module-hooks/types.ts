@@ -44,6 +44,8 @@ export interface HookArgs {
   acme?: boolean;
   /** --reopen-ssh (shell-access disable: restore SshIngressCidr explicitly, 9.2 disable step 5) */
   reopenSsh?: boolean;
+  /** disable --purge: the hook may delete the retained resources it owns (dns: a hosted zone created by the module) */
+  purge?: boolean;
   /** --param K=V of the target module (stack parameters; also available to dependency steps as {}) */
   params: Readonly<Record<string, string>>;
   /** `scripts/module plan` (and plan --single): read-only, no out-of-band resources */

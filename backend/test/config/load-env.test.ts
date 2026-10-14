@@ -1,4 +1,5 @@
 // config/load-env.ts：分层加载、ownsEnv 归属（CFG-002）、重复键（CFG-003）、机密类键、local.override.env（CFG-005）
+import { writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { isSecretLikeKey, loadEnvLayersSync, parseEnvFile } from '../../src/config/load-env.js';
@@ -112,5 +113,34 @@ describe('loadEnvLayers', () => {
     expect(v.ok).toBe(false);
     expect(v.parsed.errors.length).toBeGreaterThan(0);
     expect(v.verdict.errors.map((e) => e.rule)).toEqual(['CFG-002']);
+  });
+});
+
+describe('cost-rates.yaml（CFG-010 的输入；wave1-integration）', () => {
+  const entry = { resource: 'x', unit: 'hour', rate: 1, source: 'https://aws.amazon.com/pricing/', retrievedAt: '2026-10-14' };
+
+  it('接受文档格式 {currency, region, entries: [...]}，也兼容 rates: [...] 与顶层数组', () => {
+    const e = JSON.stringify(entry);
+    for (const doc of [
+      ['currency: USD', 'region: ap-northeast-1', 'entries:', `  - ${e}`, ''].join('\n'),
+      ['rates:', `  - ${e}`, ''].join('\n'),
+      [`- ${e}`, ''].join('\n'),
+    ]) {
+      const dir = tempEnvDir({});
+      writeFileSync(path.join(dir, 'cost-rates.yaml'), doc);
+      const layers = loadEnvLayersSync(dir, { processEnv: {} });
+      expect(layers.costRates?.entries).toHaveLength(1);
+      expect(layers.costRates?.parseError).toBeUndefined();
+    }
+  });
+
+  it('COST_RATES_FILE 覆盖默认位置（与 adapters/cost/estimate.ts 相同）', () => {
+    const other = tempEnvDir({});
+    const file = path.join(other, 'my-rates.yaml');
+    writeFileSync(file, ['entries:', `  - ${JSON.stringify(entry)}`, `  - ${JSON.stringify({ ...entry, resource: 'y' })}`, ''].join('\n'));
+    const dir = tempEnvDir({ modules: { cost: { COST_RATES_FILE: file.split(path.sep).join('/') } } });
+    const layers = loadEnvLayersSync(dir, { processEnv: {} });
+    expect(layers.costRates?.entries).toHaveLength(2);
+    expect(path.resolve(layers.costRates!.path)).toBe(path.resolve(file));
   });
 });

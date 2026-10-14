@@ -35,6 +35,31 @@ export function wafTargets(ctx: Pick<ScenarioContext, 'params' | 'capabilities' 
   return edge && edge !== direct ? { direct, edge } : { direct };
 }
 
+/** IPv4 地址是否落在 CIDR 内（只支持 IPv4；无法解析时 false） */
+export function ipv4InCidr(ip: string, cidr: string): boolean {
+  const toInt = (a: string): number | undefined => {
+    const parts = a.trim().split('.');
+    if (parts.length !== 4 || parts.some((p) => !/^\d{1,3}$/.test(p) || Number(p) > 255)) return undefined;
+    return parts.reduce((n, p) => n * 256 + Number(p), 0);
+  };
+  const [net, bitsText] = cidr.trim().split('/');
+  const bits = bitsText === undefined ? 32 : Number(bitsText);
+  const a = toInt(ip.replace(/^::ffff:/i, ''));
+  const b = toInt(net ?? '');
+  if (a === undefined || b === undefined || !Number.isInteger(bits) || bits < 0 || bits > 32) return false;
+  const size = 2 ** (32 - bits);
+  return Math.floor(a / size) === Math.floor(b / size);
+}
+
+/** cdn 的直连策略（管理员视图的 capabilities data：open | admin-ip | closed，admin-ip 时附 adminCidr） */
+export function directAccessOf(ctx: Pick<ScenarioContext, 'capabilities'>): { mode?: string; adminCidr?: string } {
+  const data = rec(ctx.capabilities.modules?.cdn?.data);
+  const text = (v: unknown) => (typeof v === 'string' && v.trim() ? v.trim() : undefined);
+  const mode = text(data.directAccess);
+  const adminCidr = text(data.adminCidr);
+  return { ...(mode ? { mode } : {}), ...(adminCidr ? { adminCidr } : {}) };
+}
+
 /** 本次运行的 nonce（源站日志按它计数）；只用 runId 的字符，满足 ^[A-Za-z0-9_-]{8,64}$ */
 export function runNonce(ctx: Pick<ScenarioContext, 'runId'>): string {
   return `waf-${ctx.runId}`.slice(0, 64);

@@ -64,6 +64,8 @@ describe('identity-pool hook', () => {
     const { ctx, aws } = dryContext(state);
     expect(await enableCommand(ctx, 'identity-pool', { withDeps: true, migrate: false })).toBe(0);
     expect(stackParams(aws.calls, 'cloudalbum-lab-identity-pool').AppOrigins).toBe('http://203.0.113.10,https://203.0.113.10');
+    // wave1-integration: the generic injection (ops.ts injectedParams) adds the preview origin to every browser-facing CORS list
+    expect(stackParams(aws.calls, 'cloudalbum-lab-storage').AppOrigins).toBe('http://203.0.113.10,https://203.0.113.10');
     state.platform.preview = { directHttps: 'on', status: 'failed', reason: 'x' };
     expect(previewOrigin(ctx)).toBeNull();
     expect(unionOrigins('a,b', 'b, c', undefined, '')).toBe('a,b,c');

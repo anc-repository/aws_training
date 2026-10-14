@@ -10,7 +10,12 @@ import { labsPaths, REPO_ROOT } from '../src/paths.js';
 import { parseYamlText, stringifyYaml } from '../src/yaml.js';
 
 const TMP_ROOT = path.join(REPO_ROOT, '.atl-dev', 'tmp');
-const FULL = ['sc-static-acceleration', 'svc-auth', 'svc-cache', 'svc-cdn', 'svc-database', 'svc-ec2', 'svc-iam', 'svc-image-processing', 'svc-queue', 'svc-storage'];
+/** the first batch (MVP) and wave 1 (wave1-integration): 22 startable cards, the other 34 are catalog placeholders */
+const FULL = [
+  'sc-edge-protection', 'sc-event-fanout', 'sc-static-acceleration',
+  'svc-auth', 'svc-cache', 'svc-cdn', 'svc-cost', 'svc-database', 'svc-dns', 'svc-ec2', 'svc-email', 'svc-iam', 'svc-identity-pool',
+  'svc-image-processing', 'svc-logging', 'svc-monitoring', 'svc-notification', 'svc-queue', 'svc-shell-access', 'svc-storage', 'svc-tls', 'svc-waf',
+];
 
 let copy = '';
 
@@ -42,11 +47,11 @@ describe('labs:lint on the repository content', () => {
     expect(issues).toEqual([]);
   }, 60_000);
 
-  it('the first batch is complete and the other 46 cards are catalog placeholders', async () => {
+  it('the first batch and wave 1 are complete and the other 34 cards are catalog placeholders', async () => {
     const { set } = await lintLabs(labsPaths(), { checkCatalog: false });
     const full = set.cards.filter((c) => !c.planned).map((c) => c.id).sort();
     expect(full).toEqual(FULL);
-    expect(set.cards.filter((c) => c.planned)).toHaveLength(46);
+    expect(set.cards.filter((c) => c.planned)).toHaveLength(34);
     for (const c of set.cards.filter((x) => !x.planned)) {
       expect(c.manuals.size).toBeGreaterThan(3);
       expect(c.checks.size).toBeGreaterThan(0);

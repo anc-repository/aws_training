@@ -115,6 +115,8 @@ export class CdnDetector implements Detector {
     const listener = await this.checkListener();
     const data: Record<string, unknown> = {
       baseUrl, originType: infra.CDN_ORIGIN_TYPE, mediaOrigin: infra.CDN_MEDIA_ORIGIN, directAccess: infra.CDN_DIRECT_ACCESS,
+      // admin-ip 时直连只对这个 CIDR 开放（只在管理员视图的 data 中）：waf/bypass 据此区分“从管理 IP 直连可达”与“未锁定”
+      ...(infra.CDN_DIRECT_ACCESS === 'admin-ip' && infra.CDN_ADMIN_CIDR ? { adminCidr: infra.CDN_ADMIN_CIDR } : {}),
       ...(infra.CDN_DISTRIBUTION_ID ? { distributionId: infra.CDN_DISTRIBUTION_ID } : {}),
       passive, ...(listener !== undefined ? { listener8080: listener } : {}),
     };

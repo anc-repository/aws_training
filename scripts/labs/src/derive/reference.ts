@@ -158,13 +158,18 @@ export async function referencePlan(p: LabsPaths, lab: LabV2, variant = 'default
       const rt = m?.singleRuntime;
       for (const [k, v] of Object.entries(rt ?? {})) add({ id: k, kind: 'runtime', basis: 'single', value: str(v), because: ['singleRuntime'] });
     }
+    // declared runtime keys count on service cards too (scripts/module plan-start step 6 reads provisions kind runtime for
+    // every card kind; svc-logging / svc-monitoring declare featureFlags.lab.faults)
+    for (const pr of view.provisions) {
+      if (pr.kind === 'runtime') add({ id: pr.item, kind: 'runtime', basis: 'single', value: str(pr.value ?? true), because: ['declared'] });
+    }
   } else {
     for (const pr of view.provisions) {
       if (pr.kind === 'local') {
         add({ id: pr.item, kind: 'local', basis: 'single', set: strMap(pr.set) ?? {}, because: ['declared'] });
         Object.assign(env, strMap(pr.set) ?? {});
       } else if (pr.kind === 'runtime') {
-        add({ id: pr.item, kind: 'runtime', basis: 'single', value: str(pr.value), because: ['declared'] });
+        add({ id: pr.item, kind: 'runtime', basis: 'single', value: str(pr.value ?? true), because: ['declared'] });
       }
     }
   }

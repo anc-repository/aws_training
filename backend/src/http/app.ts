@@ -10,6 +10,11 @@ import cookieParser from 'cookie-parser';
 import express, { type ErrorRequestHandler, type Express } from 'express';
 import type { Container } from '../container.js';
 import { AwsCredentialsUnavailableError } from '../adapters/aws/clients.js';
+import * as costLabRoutes from '../adapters/cost/lab-routes.js';
+import * as identityPoolLabRoutes from '../adapters/identity-pool/lab-routes.js';
+import * as loggingLabRoutes from '../adapters/logging/lab-routes.js';
+import * as monitoringLabRoutes from '../adapters/monitoring/lab-routes.js';
+import * as wafLabRoutes from '../adapters/waf/lab-routes.js';
 import { HttpError, isNotImplemented, NotImplementedError } from '../errors.js';
 import { bypassGuard } from '../observability/bypass.js';
 import { FaultInjectedError } from '../observability/faults.js';
@@ -47,10 +52,16 @@ declare module 'express-serve-static-core' {
   }
 }
 
-/** 路由注册顺序：具体路径在前；internal-hooks 最后（它兜住其余 /internal/*）。 */
+/**
+ * 路由注册顺序：具体路径在前；internal-hooks 最后（它兜住其余 /internal/*）。
+ * 第 1 波模块自带的路由文件（adapters/<id>/lab-routes.ts，各自带管理员守卫）放在 admin 之前：waf 的
+ * /api/admin/security/blocklist 必须先于 admin.ts 的 /api/admin/* 兜底；/api/lab/* 必须先于 lab.ts 的 501 兜底（wave1-integration）。
+ */
 export const ROUTE_MODULES = [
   healthRoutes, capabilityRoutes, jwksRoutes, authRoutes, meRoutes, albumRoutes, photoRoutes, uploadRoutes,
-  mediaRoutes, socialRoutes, notificationRoutes, adminRoutes, labProbeRoutes, labModuleRoutes, labRoutes, internalHookRoutes,
+  mediaRoutes, socialRoutes, notificationRoutes,
+  wafLabRoutes, monitoringLabRoutes, costLabRoutes, loggingLabRoutes, identityPoolLabRoutes,
+  adminRoutes, labProbeRoutes, labModuleRoutes, labRoutes, internalHookRoutes,
 ] as const;
 
 /** PM-40：已登记运行的查找（平台模式），5 秒缓存（每个实验请求都要判定） */

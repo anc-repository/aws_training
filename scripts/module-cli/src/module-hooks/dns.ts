@@ -293,17 +293,17 @@ export const dnsHook: ModuleHook = {
       || ctx.state.outOfBand.some((x) => x.module === 'dns' && x.kind === 'hosted-zone' && x.id === zoneId);
     if (created && zoneId) {
       ctx.state.outOfBand = ctx.state.outOfBand.filter((x) => !(x.module === 'dns' && x.kind === 'hosted-zone' && x.id === zoneId));
-      if ((args.params.PurgeHostedZone ?? '') === 'true') {
+      if ((args.params.PurgeHostedZone ?? '') === 'true' || args.purge) {
         // the stack already deleted every record of the module; only NS / SOA are left
         await ctx.aws.send({ service: 'route53', op: 'DeleteHostedZone', input: { Id: zoneId } });
-        ctx.out.info(`      dns: 托管区域 ${zoneId} 已删除（--param PurgeHostedZone=true）；重新启用会得到新的 NS，需要重新委派`);
+        ctx.out.info(`      dns: 托管区域 ${zoneId} 已删除（${args.purge ? '--purge' : '--param PurgeHostedZone=true'}）；重新启用会得到新的 NS，需要重新委派`);
       } else {
         ctx.state.outOfBand.push({
           module: 'dns', kind: 'hosted-zone', id: zoneId, at: nowIso(), region: 'global',
           detail: { domain, retained: 'true', nameServers: rec.outputs.InfoNameServers ?? '' },
         });
         ctx.out.warn(`      dns: 托管区域 ${zoneId}（${domain}）已保留（DeletionPolicy Retain，按月计费）：下次 enable dns 自动复用，`
-          + `NS 不变；确认不再使用时执行 scripts/module disable dns --param PurgeHostedZone=true，或 aws route53 delete-hosted-zone --id ${zoneId}`);
+          + `NS 不变；确认不再使用时执行 scripts/module disable dns --purge（或 --param PurgeHostedZone=true），或 aws route53 delete-hosted-zone --id ${zoneId}`);
       }
       ctx.out.warn(`      dns: 删除托管区域前，先到注册商或父域删除 ${domain} 的 NS 委派，否则留下悬空委派（子域可能被他人接管）`);
       if (ctx.platform) {

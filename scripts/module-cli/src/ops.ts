@@ -14,6 +14,7 @@ import { currentEnv, nowIso } from './state.js';
 import { CliError, EXIT } from './printer.js';
 import { baseContextParams, httpsOnly } from './hooks.js';
 import { mergeStackOutputs } from './module-hooks/index.js';
+import { previewOrigin, unionOrigins } from './module-hooks/identity-pool.js';
 import type { StagedEnv } from './plan.js';
 import type { EnvMap } from './env-file.js';
 
@@ -31,7 +32,9 @@ export function injectedParams(ctx: Ctx, target: ModuleId, records: CloudAlbumSt
   const t = loadTemplate(ctx.repoRoot, template);
   const params = Object.keys(t.Parameters);
   const baseLists: Record<string, string> = {};
-  if (params.includes('AppOrigins')) baseLists.AppOrigins = target === 'auth' ? '' : directOrigin(ctx);
+  // platform preview scheme B (06 PM-21): the browser also runs on https://<EIP>, so every browser-facing CORS list (storage,
+  // identity-pool, …) gets that origin too while the preview is on (wave1-integration; the identity-pool hook did this only for itself)
+  if (params.includes('AppOrigins')) baseLists.AppOrigins = target === 'auth' ? '' : unionOrigins(directOrigin(ctx), previewOrigin(ctx) ?? undefined);
   const inj = computeInjections(target, params, {
     records, env, baseLists, context: { Env: ctx.env, ...(ctx.state.base?.arch ? { Arch: ctx.state.base.arch } : {}) },
     ...(ctx.dryRun ? { placeholders: true } : {}),

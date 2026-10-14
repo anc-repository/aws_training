@@ -15,7 +15,7 @@ now=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 units_json='{}'
 for u in nginx cloudalbum-api cloudalbum-worker cloudalbum-denylist.path cloudalbum-backup.timer \
          cloudalbum-healthcheck.timer cloudalbum-security-snapshot.timer cloudalbum-vuln-scan.timer \
-         fail2ban chronyd sshd amazon-ssm-agent; do
+         fail2ban chronyd sshd amazon-ssm-agent amazon-cloudwatch-agent; do
   st=$(systemctl is-active "$u" 2>/dev/null); st=${st:-unknown}
   units_json=$(jq -c --arg k "$u" --arg v "$st" '. + {($k): $v}' <<< "$units_json")
 done

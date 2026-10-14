@@ -15,9 +15,9 @@ export const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url
 /**
  * wave1-prep: the wave 1 module templates (infra/modules/<id>.yaml) are written by the module implementers in parallel.
  * While this is true, template-based tests skip wave 1 modules whose template does not exist yet; the integration step sets
- * it to false so that every implemented module must have its template.
+ * it to false so that every implemented module must have its template (wave1-integration: all ten templates are in place).
  */
-export const ALLOW_PENDING_WAVE1_TEMPLATES = true;
+export const ALLOW_PENDING_WAVE1_TEMPLATES = false;
 
 /** Implemented modules whose main template exists (all of them once ALLOW_PENDING_WAVE1_TEMPLATES is false). */
 export function modulesWithTemplates(): ModuleId[] {

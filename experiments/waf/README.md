@@ -64,6 +64,10 @@ npm run exp -- waf --label after  --scenario bypass    # 锁定源站后
 不发攻击载荷，各发一个探测请求：`http://<EIP>/`（80）、`http://<EIP>:8080/`（不带密钥头）、8080 带错误密钥头。源站未锁定时 80 可直达
 （可绕过 CloudFront 上的 WAF，DEP-018）；`CDN_DIRECT_ACCESS=admin-ip|closed` 收紧后 80 被拒 / 超时、8080 因 `X-Origin-Verify` 不匹配返回 403。
 
+`admin-ip` 时 80 只对 `CDN_ADMIN_CIDR` 开放；从白名单内（例如卡片里的工作台）运行时 80 仍可达。场景这时经直连请求 `/api/lab/echo`，
+用源站看到的客户端地址与 capabilities 中 cdn 的 `adminCidr` 比较（服务端证据）：在白名单内记 `directAllowedAsAdmin=true`，
+`originLocked` 仍为 true；不在白名单内而 80 可达，说明安全组没有收紧，`originLocked=false`。
+
 ## 控制台与日志
 
 - WAF → Web ACL → Overview 与 Sampled requests；

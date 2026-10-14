@@ -3,7 +3,7 @@
 /* eslint-disable */
 import type { RegistryDocument } from '../registry-types.js';
 
-export const REGISTRY_SOURCE_SHA256 = 'ec463e45431ca227f569750af2c510af8eee534da85e2a7029a92c27b96a75a5';
+export const REGISTRY_SOURCE_SHA256 = '5eb9bb899c9385f724f9689de38b554a9487c88a34b795de6205031fd2412b72';
 
 export const REGISTRY_DOCUMENT: RegistryDocument = {
   "version": 2,
@@ -709,14 +709,14 @@ export const REGISTRY_DOCUMENT: RegistryDocument = {
           "target": "cdn",
           "params": {
             "AcmCertificateArn": "${Out.EnvAcmCertArnEdge}",
-            "Aliases": "${TLS_DOMAIN}"
+            "Aliases": "${Out.InfoEdgeAliases}"
           }
         },
         {
           "target": "load-balancer",
           "params": {
             "CertificateArn": "${Out.EnvAcmCertArnRegional}",
-            "DomainName": "${TLS_DOMAIN}"
+            "DomainName": "${Out.InfoRegionalDomainName}"
           }
         },
         {
@@ -1545,7 +1545,7 @@ export const REGISTRY_DOCUMENT: RegistryDocument = {
         "badges": {
           "local": "应用自签令牌（EC2）",
           "aws": "直传 S3（Identity Pool 临时凭证）",
-          "degraded": "已退回逐文件上传",
+          "degraded": "临时凭证不可用，已改用应用自签令牌（EC2）",
           "error": "临时凭证不可用"
         }
       },

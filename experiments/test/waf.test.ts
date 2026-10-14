@@ -22,6 +22,8 @@ let mock: MockServer;
 let front: http.Server;
 let frontUrl = '';
 let login = 0;
+/** wave1-integration: when set, the front patches capabilities (cdn directAccess=admin-ip, adminCidr) and echoes 127.0.0.1 */
+let adminCidr: string | undefined;
 const tmp = mkdtempSync(path.join(os.tmpdir(), 'exp-waf-'));
 
 function json(res: http.ServerResponse, status: number, body: unknown, waf?: string): void {
@@ -31,7 +33,7 @@ function json(res: http.ServerResponse, status: number, body: unknown, waf?: str
   res.end(JSON.stringify(body));
 }
 
-function forward(req: http.IncomingMessage, body: Buffer, res: http.ServerResponse): void {
+function forward(req: http.IncomingMessage, body: Buffer, res: http.ServerResponse, patch?: (text: string) => string): void {
   const t = new URL(mock.url);
   const up = http.request({ host: t.hostname, port: t.port, path: req.url, method: req.method, headers: req.headers }, (r) => {
     const chunks: Buffer[] = [];
@@ -40,7 +42,8 @@ function forward(req: http.IncomingMessage, body: Buffer, res: http.ServerRespon
       const h = { ...r.headers };
       delete h['content-length'];
       res.writeHead(r.statusCode ?? 502, h);
-      res.end(Buffer.concat(chunks));
+      const text = Buffer.concat(chunks);
+      res.end(patch ? patch(text.toString('utf8')) : text);
     });
   });
   up.on('error', () => json(res, 502, { error: 'BAD_GATEWAY' }));
@@ -67,6 +70,15 @@ beforeAll(async () => {
         const q = decodeURIComponent(u.search);
         const blocked = /UnIoN|union\s+select|script|jndi|sqlmap|passwd/i.test(q) || String(req.headers['user-agent'] ?? '').includes('sqlmap') || String(req.headers['x-api-version'] ?? '').includes('jndi');
         return blocked ? json(res, 403, { error: 'FORBIDDEN' }, 'waf=aws:block-crs') : json(res, 200, { now: new Date().toISOString() });
+      }
+      if (p === '/api/lab/echo' && m === 'GET') return json(res, 200, { ip: '127.0.0.1', host: req.headers.host ?? null, entry: 'direct' });
+      if (p === '/api/capabilities' && m === 'GET' && adminCidr) {
+        const cidr = adminCidr;
+        return forward(req, body, res, (text) => {
+          const doc = JSON.parse(text) as { modules: Record<string, { data?: Record<string, unknown> }> };
+          doc.modules.cdn = { ...doc.modules.cdn, data: { ...(doc.modules.cdn?.data ?? {}), directAccess: 'admin-ip', adminCidr: cidr } };
+          return JSON.stringify(doc);
+        });
       }
       if (p === '/api/lab/waf/origin' && m === 'GET') {
         const nonce = u.searchParams.get('nonce') ?? '';
@@ -167,4 +179,29 @@ describe('waf scenarios', () => {
     expect(d.scenario!.findings.direct).toMatchObject({ reachable: true });
     expect(d.scenario!.findings.originLocked).toBe(false);
   }, 30_000);
+
+  it('bypass after admin-ip: reachable only because the origin sees the runner inside CDN_ADMIN_CIDR => locked (server evidence)', async () => {
+    try {
+      adminCidr = '127.0.0.1/32';
+      const inside = await run('bypass', 'after');
+      expect(inside.scenario!.findings).toMatchObject({ directAccess: 'admin-ip', originSeenClientIp: '127.0.0.1', directAllowedAsAdmin: true, originLocked: true });
+      adminCidr = '198.51.100.7/32';
+      const outside = await run('bypass', 'after');
+      expect(outside.scenario!.findings).toMatchObject({ directAllowedAsAdmin: false, originLocked: false });
+    } finally {
+      adminCidr = undefined;
+    }
+  }, 60_000);
+});
+
+describe('waf/lib ipv4InCidr', () => {
+  it('matches IPv4 (and IPv4-mapped IPv6) against a CIDR; anything unparsable is false', async () => {
+    const { ipv4InCidr } = await import('../waf/lib.js');
+    expect(ipv4InCidr('203.0.113.10', '203.0.113.10/32')).toBe(true);
+    expect(ipv4InCidr('203.0.113.77', '203.0.113.0/24')).toBe(true);
+    expect(ipv4InCidr('::ffff:203.0.113.77', '203.0.113.0/24')).toBe(true);
+    expect(ipv4InCidr('203.0.114.1', '203.0.113.0/24')).toBe(false);
+    expect(ipv4InCidr('2001:db8::1', '203.0.113.0/24')).toBe(false);
+    expect(ipv4InCidr('203.0.113.10', 'nonsense')).toBe(false);
+  });
 });

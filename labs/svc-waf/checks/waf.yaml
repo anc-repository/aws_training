@@ -50,8 +50,11 @@ checks:
         op: len_eq
         value: 1
         label: 含 AWS 托管 CRS 规则
-      - path: '$.WebACL.Rules[?(@.Name==''aws-crs'')].OverrideAction.Count'
-        op: exists
+      # 检测引擎的 JSONPath 子集不支持 [?(...)] 过滤表达式（wave1-integration），用 where 选出规则后再比较
+      - path: $.WebACL.Rules
+        where: { Name: aws-crs, OverrideAction.Count: { op: exists } }
+        op: len_eq
+        value: 1
         label: CRS 的 OverrideAction 为 Count（先观察）
     evidence:
       keep: ['$.WebACL.Id', '$.WebACL.Name', '$.WebACL.ARN']
@@ -88,8 +91,10 @@ checks:
     ownership: { resource: '{{ var.webAclArn }}', resourceId: '{{ var.webAclId }}', mode: session, createdAfter: session.readyAt }
     drift: { policy: must-hold }
     assert:
-      - path: '$.WebACL.Rules[?(@.Name==''aws-crs'')].OverrideAction.None'
-        op: exists
+      - path: $.WebACL.Rules
+        where: { Name: aws-crs, OverrideAction.None: { op: exists } }
+        op: len_eq
+        value: 1
         label: CRS 的 OverrideAction 为 None（Block 生效）
     explain: OverrideAction=None 表示托管规则组用自己的动作（Block）；Count 时只计数。
     reproduce: { run: 'aws wafv2 get-web-acl --region us-east-1 --scope CLOUDFRONT --name {{ var.webAclName }} --id {{ var.webAclId }} --query "WebACL.Rules[?Name==''aws-crs''].OverrideAction"', runsOn: workstation }

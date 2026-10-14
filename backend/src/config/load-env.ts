@@ -268,13 +268,15 @@ export function loadEnvLayersSync(envDir: string, registryOrOpts?: Registry | Lo
     }
   }
 
-  // CFG-010 的输入：cost-rates.yaml（可选）
+  // CFG-010 的输入：cost-rates.yaml（可选；COST_RATES_FILE 覆盖默认位置，与 adapters/cost/estimate.ts 一致）。
+  // 格式与 estimate.ts 相同：文档格式 {currency, region, entries: [...]}，也兼容 rates: [...] 与顶层数组（wave1-integration）
   let costRates: CostRatesFile | null = null;
-  const costFile = path.join(dir, 'cost-rates.yaml');
+  const costFile = merged.COST_RATES_FILE?.trim() || path.join(dir, 'cost-rates.yaml');
   if (existsSync(costFile)) {
     try {
       const doc = parseYaml(readFileSync(costFile, 'utf8')) as unknown;
-      const list = Array.isArray(doc) ? doc : (doc as { rates?: unknown })?.rates;
+      const obj = (doc ?? {}) as { entries?: unknown; rates?: unknown };
+      const list = Array.isArray(doc) ? doc : Array.isArray(obj.entries) ? obj.entries : obj.rates;
       costRates = { path: costFile, entries: Array.isArray(list) ? (list as Array<Record<string, unknown>>) : [] };
     } catch (e) {
       costRates = { path: costFile, entries: [], parseError: (e as Error).message };

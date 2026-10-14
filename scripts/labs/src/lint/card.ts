@@ -596,6 +596,8 @@ function lintExperiments(ctx: LintContext, card: CardContent, add: Add): void {
 function lintVariables(_ctx: LintContext, card: CardContent, add: Add): void {
   const lab = card.lab;
   const declared = new Set(Object.keys(lab.variables ?? {}));
+  // 先于下面的 fillFrom 检查声明（checkExpr 读取它；原先在循环之后声明，带 fillFrom 的变量会触发 TDZ 错误）
+  const inputs = new Set<string>((lab.prerequisites?.learnerInputs ?? []).map((i) => i.id));
   for (const [name, v] of Object.entries(lab.variables ?? {})) {
     if (SECRET_NAME.test(name)) add('A12', `variable ${name}: secret-like names are not allowed`);
     if (v.pattern) {
@@ -607,7 +609,6 @@ function lintVariables(_ctx: LintContext, card: CardContent, add: Add): void {
     }
     if (v.fillFrom) checkExpr(`variable ${name} fillFrom`, v.fillFrom, false);
   }
-  const inputs = new Set<string>((lab.prerequisites?.learnerInputs ?? []).map((i) => i.id));
   function checkExpr(where: string, expr: string, inManual: boolean): void {
     const v = parseVariable(expr);
     if (!v) {
