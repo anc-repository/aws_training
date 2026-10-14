@@ -6,8 +6,9 @@
 import { useEffect, useMemo, useRef, type KeyboardEvent, type RefObject } from 'react';
 import { ATTEMPT_STATUS_META, Button, Disclosure, EmptyState, Icon, Shape, Skeleton, Status, STEP_STATE_META, type AttemptStatus } from '../../ui';
 import { formatClock } from '../../lib/format';
+import { ProgressRing, StepTypeIcon } from '../../ui/charts';
 import { useWorkbench, useWorkspace } from '../context';
-import { isOptional, sectionManual, type LabStep } from '../model/lab';
+import { isOptional, sectionManual, STEP_TYPE_TEXT, type LabStep } from '../model/lab';
 import { indexCodeBlocks, Nodes } from './Mdast';
 import { StepCard, stepStateOf, usedVariablePaths } from './StepCard';
 import { VariableStrip, type VariableStripHandle } from './VariableStrip';
@@ -69,15 +70,12 @@ export function ManualPane({ stepIndex, onStep, onSubmit, revealRef }: ManualPan
               {rich(W.manual.attempt, { state: <Status meta={ATTEMPT_STATUS_META[attempt]} /> })}
             </span>
           ) : null}
-          <span className="small">
-            {rich(W.manual.progress, {
-              n: (
-                <span className="tnum">
-                  {done}/{total}
-                </span>
-              ),
-            })}
-            <span className="sr">{W.manual.progressSr}</span>
+          <span className="small mprogress" title={t(W.manual.progressAria, { done, total })}>
+            <ProgressRing value={done} max={Math.max(1, total)} size={20} label={W.manual.progressLabel} decorative />
+            <span className="tnum" aria-hidden="true">
+              {done}/{total}
+            </span>
+            <span className="sr">{t(W.manual.progressAria, { done, total })}</span>
           </span>
           {steps.length ? <StepRail steps={steps} current={stepIndex} onPick={onStep} /> : null}
           {ws.learner && ws.live && steps.length ? (
@@ -115,7 +113,7 @@ export function ManualPane({ stepIndex, onStep, onSubmit, revealRef }: ManualPan
               <details className="disc overview">
                 <summary>{W.manual.overview}</summary>
                 <div className="stack-8 small">
-                  <Nodes nodes={overview.ast.children ?? []} env={{ lab, step: null, vars: ws.data.vars.data, blockIndex: overviewIdx }} />
+                  <Nodes nodes={overview.ast.children ?? []} env={{ lab, step: null, vars: ws.data.vars.data, blockIndex: overviewIdx, inFold: true }} />
                 </div>
               </details>
             ) : null}
@@ -187,6 +185,9 @@ function StepRail({ steps, current, onPick }: { steps: readonly LabStep[]; curre
                     <Shape name={m.shape} />
                   </span>
                   <span className="mono small">{i + 1}</span>
+                  <span className="rail-type" title={STEP_TYPE_TEXT[s.type] ?? s.type}>
+                    <StepTypeIcon type={s.type} />
+                  </span>
                   <span className="wrap-any small">
                     {s.title}
                     {isOptional(s) ? <span className="tag">{W.manual.optional}</span> : null}

@@ -1,8 +1,9 @@
 import type { CognitoGroup } from '@atl/shared';
-import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, cleanup as rtlCleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { SessionView } from '../../api/types';
+import { setLocale } from '../../i18n';
 import { AppProviders } from '../../app/App';
 import { createServices } from '../../app/services';
 import { fakeFetch, json, problem, type FakeCall } from '../../test/helpers';
@@ -240,9 +241,16 @@ describe('P04 准备模式', () => {
       routes: { 'POST /api/v1/sessions/s1/end': json(202, { ...sessionView({ state: 'CLEANING', readyAt: null }) }) },
     });
     const panel = await screen.findByRole('region', { name: '准备进度' });
-    expect(within(panel).getAllByRole('listitem')).toHaveLength(6);
+    // 阶段图示（09 I6）：仍是 6 项的有序列表，当前阶段 aria-current，状态有读屏文字
+    const phases = within(panel).getByRole('list', { name: '准备阶段' });
+    expect(within(phases).getAllByRole('listitem')).toHaveLength(6);
     expect(within(panel).getByText('创建基础环境').closest('li')!.getAttribute('aria-current')).toBe('step');
-    expect(within(panel).getByText(/环境准备：较快/)).toBeTruthy();
+    expect(phases.querySelector('[data-phase="validate"]')!.getAttribute('data-status')).toBe('done');
+    expect(within(phases).getAllByText('完成').length).toBe(1);
+    // 部署等级是速度表图标 + 短标签；计费、倒计时、离开页面是三块图标提示，完整说明折叠在“详细说明”里
+    expect(panel.querySelector('[data-metric="provision"]')!.textContent).toContain('较快');
+    expect(within(panel).getByRole('list', { name: '准备期间须知' }).textContent).toContain('创建即开始计费');
+    expect(within(panel).getByText('详细说明').closest('details')!.hasAttribute('open')).toBe(false);
     expect(await screen.findByRole('heading', { name: /观察起始状态/ })).toBeTruthy();
     expect(screen.getAllByText('倒计时未开始', { exact: false }).length).toBeGreaterThan(0);
     const paste = screen.getAllByRole('button', { name: '粘贴到工作台终端' })[0]!;
@@ -513,5 +521,113 @@ describe('P05 右栏与手册的交互', () => {
     expect(await screen.findByText('等待第二个键…')).toBeTruthy();
     fireEvent.keyDown(document.body, { key: '3', code: 'Digit3' });
     await waitFor(() => expect(screen.getByRole('tab', { name: /AWS 控制台/ }).getAttribute('aria-selected')).toBe('true'));
+  });
+});
+
+describe('P05 视觉化（09 I6 e）与多语言', () => {
+  const LONG = '这一段说明故意写得很长，用来确认超过三行的说明会默认折叠：手册栏里大约三十到七十个字符一行，所以九十个字符以上的段落会被截断为三行，并在下面给出展开全文的按钮，读屏仍然可以读到全文。';
+  const VISUAL_LAB: LabDoc = {
+    ...LAB,
+    targetModules: [{ id: 'storage', driver: 's3', wireStep: 'enable' }],
+    startProfile: { provisions: [{ item: 'iam', kind: 'module' }] },
+    manuals: {
+      ...LAB.manuals,
+      'manual/20.md': {
+        frontMatter: { step: 'enable' },
+        ast: {
+          type: 'root',
+          children: [
+            { type: 'paragraph', children: [{ type: 'text', value: LONG }] },
+            { type: 'containerDirective', name: 'method', attributes: { kind: 'console' }, children: [{ type: 'paragraph', children: [{ type: 'text', value: '控制台做法' }] }] },
+            { type: 'containerDirective', name: 'method', attributes: { kind: 'script', default: true }, children: [{ type: 'code', lang: 'bash', attributes: { runsOn: 'workstation' }, value: 'scripts/module enable storage' }] },
+            {
+              type: 'containerDirective',
+              name: 'expected',
+              children: [
+                { type: 'code', lang: 'text', value: 'HTTP/1.1 200 OK\nx-cache: Hit from cloudfront\nplain line' },
+                { type: 'paragraph', children: [{ type: 'text', value: '驱动变为 s3' }] },
+              ],
+            },
+            { type: 'containerDirective', name: 'wait', attributes: { typical: '5', max: '20' }, children: [] },
+          ],
+        },
+      },
+    },
+  };
+
+  it('step card: type tag, duration icon, related services, collapsed long text, highlighted expected output, method icons', async () => {
+    setup({ path: '/workspace/s1?step=enable', routes: { 'GET /content/v1/labs/svc-test.json': json(200, VISUAL_LAB) } });
+    const h = await screen.findByRole('heading', { name: /接入 S3/ });
+    const card = h.closest('article')!;
+    expect(card.querySelector('.step-tag[data-step-type="script"]')!.textContent).toBe('脚本');
+    expect(card.querySelector('[data-metric="duration"]')).not.toBeNull();
+    const services = within(card).getByRole('list', { name: '本步相关服务' });
+    expect(services.getAttribute('data-step-services')).toBe('storage');
+    expect(within(services).getByRole('img', { name: /Amazon S3/ })).toBeTruthy();
+    // 超过 3 行的段落：截断类 + “展开全文”按钮（aria-expanded），全文仍在 DOM 中
+    const more = within(card).getByRole('button', { name: '展开全文' });
+    expect(more.getAttribute('aria-expanded')).toBe('false');
+    expect(document.getElementById(more.getAttribute('aria-controls')!)!.className).toBe('clamp3');
+    fireEvent.click(more);
+    expect(within(card).getByRole('button', { name: '收起' }).getAttribute('aria-expanded')).toBe('true');
+    expect(within(card).getByText(LONG)).toBeTruthy();
+    // 预期结果：示例输出不再是命令块，状态码与响应头名称高亮
+    const out = card.querySelector('[data-expected-output]')!;
+    expect(Array.from(out.querySelectorAll('mark.eo-k')).map((m) => m.textContent)).toEqual(['200', 'x-cache']);
+    expect(out.querySelector('.eo-v')!.textContent).toBe('Hit from cloudfront');
+    expect(card.querySelector('[data-expected] [data-ws-icon="target"]')).not.toBeNull();
+    // 做法标签带步骤类型图标；等待块先给出“通常约 n 分钟”
+    const tabs = screen.getByRole('tablist', { name: '做法' });
+    expect(tabs.querySelectorAll('.step-ico').length).toBe(2);
+    expect(card.querySelector('[data-wait]')!.textContent).toContain('等待：通常约 5 分钟（最长 20 分钟）');
+  });
+
+  it('session bar: icons + numbers keep the full accessible names', async () => {
+    setup();
+    await screen.findByRole('heading', { name: /观察起始状态/ });
+    const extend = screen.getByRole('button', { name: '延长 30 分钟（剩 2 次）' });
+    expect(extend.textContent).toContain('+30 分钟');
+    expect(extend.querySelector('[data-ws-icon="extend"]')).not.toBeNull();
+    const cost = document.querySelector('.wsbar [data-cost]')!;
+    expect(cost.getAttribute('aria-label')).toMatch(/^费用计（估算）：每小时 .+，已产生 /);
+    expect(document.querySelector('.wsbar svg[data-glyph="storage"]')).not.toBeNull();
+    const ring = document.querySelector('.mprogress')!;
+    expect(ring.querySelector('svg.pring')).not.toBeNull();
+    expect(ring.textContent).toContain('进度：0/2 个必需步骤已达成');
+  });
+
+  it('P04 draws the start → after architecture when the card declares modules', async () => {
+    setup({
+      view: { state: 'PROVISIONING', readyAt: null, deadlineAt: null, allowedActions: ['cancel'], phases: [{ name: 'provision.base', status: 'RUNNING', detail: 'fallback variant small' } as NonNullable<SessionView['phases']>[number]] },
+      routes: { 'GET /content/v1/labs/svc-test.json': json(200, VISUAL_LAB) },
+    });
+    const panel = await screen.findByRole('region', { name: '准备进度' });
+    await waitFor(() => expect(panel.querySelector('.prov-arch svg[role="img"]')).not.toBeNull());
+    expect(panel.querySelector('[data-phase-detail="base"]')!.textContent).toContain('已改用回退档 small');
+    // 准备中的顶栏：沙漏 + 已用时间 + 暂停图标，“倒计时未开始”给读屏与悬停
+    const elapsed = document.querySelector('.wsbar [data-elapsed]')!;
+    expect(elapsed.getAttribute('title')).toBe('倒计时未开始');
+  });
+
+  it('renders in Japanese (the default language) and English', async () => {
+    setLocale('ja', { persist: false });
+    setup({ view: { state: 'PROVISIONING', readyAt: null, deadlineAt: null, allowedActions: ['cancel'], phases: [{ name: 'provision.base', status: 'RUNNING' }] } });
+    const panel = await screen.findByRole('region', { name: '準備の進捗' });
+    expect(document.documentElement.lang).toBe('ja');
+    expect(within(panel).getByRole('heading', { name: 'ラボ環境を準備しています' })).toBeTruthy();
+    expect(within(panel).getByText('基本環境の作成').closest('li')!.getAttribute('aria-current')).toBe('step');
+    expect(within(panel).getByRole('button', { name: 'キャンセル…' })).toBeTruthy();
+    expect(screen.getByRole('region', { name: 'ラボの手順書' })).toBeTruthy();
+    rtlCleanup();
+    clearContentCache();
+    setLocale('en', { persist: false });
+    setup();
+    await screen.findByRole('heading', { name: /观察起始状态/ });
+    expect(document.documentElement.lang).toBe('en');
+    expect(screen.getByRole('button', { name: 'Extend by 30 minutes (2 left)' }).textContent).toContain('+30 min');
+    expect(screen.getByRole('button', { name: 'End lab…' })).toBeTruthy();
+    expect(screen.getByRole('tablist', { name: 'Right-side tabs' })).toBeTruthy();
+    expect(screen.getByRole('list', { name: 'Services in this step' }).getAttribute('data-step-services')).toBe('storage');
+    setLocale('zh-CN', { persist: false });
   });
 });

@@ -142,3 +142,87 @@ code.ic{white-space:normal}
 @media (max-width:767px){ .wsbar .clock .row>.small{display:none} .wsbar .clock{flex-basis:100%} }
 .popover .mi-group{border-top:1px solid var(--border); border-bottom:1px solid var(--border); margin:2px 0; padding:2px 0}
 .popover .mi[aria-pressed="true"]{font-weight:600}
+
+/* ---------- 视觉化（09 I6 e：图标 + 数字代替文字） ---------- */
+.ws-ico{flex:none}
+.ws-ico .fill{fill:currentColor; stroke:none}
+
+/* 顶栏：倒计时未开始、费用、延长、目标模块链 */
+.bar-elapsed,.bar-cost,.bar-extend{display:inline-flex; align-items:center; gap:4px; font-variant-numeric:tabular-nums}
+.bar-elapsed .ico{color:var(--text-2)}
+.bar-cost .ws-ico{color:var(--text-2)}
+.bar-count{font-size:11px; line-height:16px; color:var(--text-2); border:1px solid var(--border); border-radius:8px; padding:0 5px}
+.wsbar .bar-glyph{flex:none}
+.bar-chain{list-style:none; margin:0; padding:0; display:flex; flex-wrap:wrap; align-items:center; gap:2px 6px}
+.bar-chain li{display:inline-flex; align-items:center; gap:4px}
+.bar-chain li+li::before{content:"→"; content:"→" / ""; color:var(--text-3); margin-right:2px}
+
+/* 手册：进度环、步骤类型、相关服务、做法图标 */
+.mprogress{display:inline-flex; align-items:center; gap:5px}
+.steprail .rail-type{display:inline-flex; color:var(--text-2)}
+.step-meta{display:inline-flex; align-items:center; gap:4px 10px; flex-wrap:wrap; color:var(--text-2)}
+.step-svcs{list-style:none; margin:0; padding:0; display:flex; flex-wrap:wrap; align-items:center; gap:4px 12px}
+.step-svcs li{display:inline-flex; align-items:center; gap:5px; min-width:0; color:var(--text-2)}
+.mlabel{display:inline-flex; align-items:center; gap:5px}
+.mtabs [role="tab"]{display:inline-flex; align-items:center; gap:4px}
+.mnote .ws-ico,.mwait .ws-ico{margin-top:2px}
+
+/* 超过 3 行的说明默认折叠（Clamp） */
+.clamp{display:grid; gap:2px; justify-items:start; min-width:0}
+.clamp>p{margin:0; min-width:0; justify-self:stretch}
+.clamp3{display:-webkit-box; -webkit-box-orient:vertical; -webkit-line-clamp:3; line-clamp:3; overflow:hidden}
+.clamp-btn{background:none; border:0; padding:0; font:inherit; font-size:12px; color:var(--accent); cursor:pointer; text-decoration:underline; text-underline-offset:2px}
+.clamp-btn:focus-visible{outline:2px solid var(--accent); outline-offset:2px; border-radius:2px}
+
+/* 预期结果：靶心图标 + 高亮的示例输出 */
+.expected{border-left-color:var(--accent)}
+.expected .exp-head{display:inline-flex; align-items:center; gap:5px}
+.expected .exp-head .ws-ico{color:var(--accent)}
+.eo{border:1px solid var(--border)}
+.eo mark.eo-k{background:var(--accent-soft); color:var(--text); border-radius:2px; padding:0 2px}
+.eo .eo-v{font-weight:700}
+
+/* P04：阶段图示、构成图、提示瓦片 */
+.prov-pane{container-type:inline-size; container-name:prov}
+.prov-head{gap:8px}
+.prov-clock{display:flex; align-items:center; gap:8px; flex-wrap:wrap; color:var(--text-2)}
+.prov-elapsed{font-size:22px; font-weight:600; color:var(--text); font-variant-numeric:tabular-nums}
+.phd-wrap{display:grid; gap:10px; min-width:0}
+.phd{list-style:none; margin:0; padding:0; display:grid; grid-template-columns:repeat(6,minmax(0,1fr))}
+.phd-step{position:relative; display:flex; flex-direction:column; align-items:center; gap:6px; text-align:center; min-width:0; padding:0 2px}
+.phd-step::before{content:""; position:absolute; top:19px; left:calc(-50% + 22px); right:calc(50% + 22px); height:2px; background:var(--border)}
+.phd-step:first-child::before{display:none}
+.phd-step[data-status="done"]+.phd-step::before,.phd-step[data-status="skipped"]+.phd-step::before{background:var(--st-pass)}
+.phd-node{position:relative; z-index:1; flex:none; width:40px; height:40px; border-radius:50%; display:grid; place-items:center; border:2px solid var(--border-strong); background:var(--surface); color:var(--text-2)}
+.phd-step.pass .phd-node{border-color:var(--st-pass); color:var(--st-pass)}
+.phd-step.pend .phd-node{border-color:var(--st-pending); color:var(--st-pending); box-shadow:0 0 0 3px var(--st-pending-soft)}
+.phd-step.drift .phd-node{border-color:var(--st-drift); color:var(--st-drift)}
+.phd-step.fail .phd-node{border-color:var(--st-fail); color:var(--st-fail)}
+.phd-step.faint .phd-node{border-style:dashed; border-color:var(--border-strong); color:var(--text-3)}
+.phd-step.mut .phd-node{color:var(--text-3)}
+.phd-badge{position:absolute; right:-5px; bottom:-5px; display:grid; place-items:center; width:18px; height:18px; border-radius:50%; background:var(--surface)}
+.phd-text{display:grid; gap:1px; justify-items:center; min-width:0}
+.phd-t{font-size:12px; line-height:1.35; overflow-wrap:anywhere; color:var(--text)}
+.phd-step.faint .phd-t{color:var(--text-2)}
+.phd-tm{font-size:11.5px; color:var(--text-2)}
+.phd-detail{display:flex; gap:8px; align-items:flex-start; border:1px solid var(--border); border-left:3px solid var(--st-pending); border-radius:4px; padding:6px 10px; background:var(--surface); min-width:0}
+.phd-detail>.ico{color:var(--st-pending)}
+.phd-detail.fail{border-left-color:var(--st-fail)} .phd-detail.fail>.ico{color:var(--st-fail)}
+.phd-detail.drift{border-left-color:var(--st-drift)} .phd-detail.drift>.ico{color:var(--st-drift)}
+.phd-detail .mlist{margin:0; padding-left:16px; min-width:0}
+@container prov (max-width:519px){
+  .phd{grid-template-columns:minmax(0,1fr); gap:12px}
+  .phd-step{flex-direction:row; text-align:left; gap:10px; padding:0}
+  .phd-step::before{top:-12px; left:19px; right:auto; width:2px; height:12px}
+  .phd-text{justify-items:start}
+}
+.prov-arch{margin:0; display:grid; gap:4px; min-width:0}
+.prov-tiles{list-style:none; margin:0; padding:0; display:grid; gap:8px; grid-template-columns:repeat(auto-fit,minmax(150px,1fr))}
+.prov-tiles li{display:flex; gap:8px; align-items:center; border:1px solid var(--border); border-radius:6px; padding:8px 10px; background:var(--surface); min-width:0}
+.prov-tiles li>.ico{color:var(--accent)}
+.prov-tiles b{overflow-wrap:anywhere}
+@media (forced-colors: active){
+  .phd-node{border-color:CanvasText}
+  .phd-step::before{background:CanvasText}
+  .eo mark.eo-k{background:Mark; color:MarkText}
+}

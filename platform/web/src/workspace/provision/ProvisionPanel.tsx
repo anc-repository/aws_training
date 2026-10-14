@@ -10,28 +10,24 @@ import { copyText } from '../../lib/clipboard';
 import { formatCountdown, formatSpan } from '../../lib/format';
 import { redact } from '../../lib/redact';
 import { Button, CommandBlock, Dialog, Icon, Shape, useSecondTick } from '../../ui';
+import { MetricIcon, type ProvisionValue } from '../../ui/charts';
+import { ArchDiagram, archInputFromLab } from '../../ui/diagram';
 import { useWorkspace } from '../context';
 import { formatRange, hourlyRangeOf } from '../model/cost';
 import { diagnosticLines, diagnosticsText, failureMeta, preflightCommand } from '../model/failure';
-import { PROVISION_CLASS } from '../model/lab';
-import { buildPhaseRows, nearBudget, type PhaseRowModel } from '../model/phases';
+import { PROVISION_CLASS, type LabDoc } from '../model/lab';
+import { buildPhaseRows, nearBudget } from '../model/phases';
+import { WsIcon } from '../visual/icons';
+import { PhaseDiagram } from './PhaseDiagram';
 
-import { rich, t, withText } from '../../i18n';
+import { t } from '../../i18n';
 import { W } from '../strings';
 const WP = W.provision;
 
-const PHASE_SHAPE: Readonly<Record<PhaseRowModel['status'], { shape: 'check' | 'spin' | 'ring' | 'retry' | 'clock' | 'xbox' | 'dash'; tone: string; readonly text: string }>> = withText(
-  {
-    done: { shape: 'check', tone: 'pass' },
-    running: { shape: 'spin', tone: 'pend' },
-    todo: { shape: 'ring', tone: 'faint' },
-    retrying: { shape: 'retry', tone: 'drift' },
-    queued: { shape: 'clock', tone: 'pend' },
-    failed: { shape: 'xbox', tone: 'fail' },
-    skipped: { shape: 'dash', tone: 'mut' },
-  } as const,
-  WP.phase,
-);
+/** 卡片有起始模块或目标模块时，P04 画“开始时 → 完成后”的构成图（I6 b）。 */
+function hasArchitecture(lab: LabDoc | null | undefined): lab is LabDoc {
+  return !!lab && ((lab.targetModules?.length ?? 0) > 0 || (lab.startProfile?.provisions ?? []).some((p) => p.kind === 'module'));
+}
 
 export function ProvisionPanel({ onCancel }: { onCancel: () => void }) {
   const ws = useWorkspace();
@@ -71,43 +67,55 @@ function PreparingView({ onCancel }: { onCancel: () => void }) {
     }
   }, [rows]);
   const [notif, setNotif] = useState<NotificationPermission | 'unsupported'>(() => (typeof Notification === 'undefined' ? 'unsupported' : Notification.permission));
+  const estimate = hourly ? t(WP.billingHourly, { range: formatRange(hourly, hourly.currency) }) : WP.billingQuote;
   return (
     <section className="rpane prov-pane" aria-label={WP.region} data-provision="">
       <div className="stack prov-body">
-        <div className="row between">
+        <div className="row between prov-head">
           <h2>{WP.title}</h2>
-          {cls ? <span className="small">{t(WP.class, { name: cls.name, cls: pclass })}</span> : null}
+          {pclass && /^[ABCD]$/.test(pclass) ? (
+            <MetricIcon kind="provision" value={pclass as ProvisionValue} />
+          ) : cls ? (
+            <span className="small">{t(WP.class, { name: cls.name, cls: pclass })}</span>
+          ) : null}
         </div>
-        <p className="small muted">{rich(WP.elapsed, { t: <span className="mono">{formatCountdown(elapsed)}</span>, note: cls?.note ?? WP.defaultNote })}</p>
-        <ol className="prov" aria-label={WP.phases}>
-          {rows.map((r) => {
-            const m = PHASE_SHAPE[r.status];
-            const current = r.status === 'running' || r.status === 'retrying' || r.status === 'queued';
-            const tm = r.status === 'done' && r.startedAt && r.endedAt ? formatCountdown(r.endedAt - r.startedAt) : current && r.startedAt ? formatCountdown(now - r.startedAt) : '';
-            return (
-              <li key={r.key} className={r.status === 'todo' ? 'phrow todo' : 'phrow'} aria-current={current ? 'step' : undefined} data-phase={r.key} data-status={r.status}>
-                <span className={`st ${m.tone}`}>
-                  <Shape name={m.shape} spin={m.shape === 'spin'} />
-                  <span className="sr">{m.text}</span>
-                </span>
-                <span className="pt">{r.title}</span>
-                <span className="tm mono small">{tm}</span>
-                {r.details.length ? <span className="pd">{r.details.map((d) => redact(d)).join(' · ')}</span> : null}
-                {r.status === 'queued' ? <span className="pd">{WP.queued}</span> : null}
-                {r.slowHint ? <span className="pd">{r.slowHint}</span> : null}
-                {current && near ? <span className="pd">{WP.slow}</span> : null}
-              </li>
-            );
-          })}
-        </ol>
-        <div className="note">
-          <Shape name="dot" />
-          <span>{t(WP.billing, { estimate: hourly ? t(WP.billingHourly, { range: formatRange(hourly, hourly.currency) }) : WP.billingQuote })}</span>
+        <div className="prov-clock" title={cls?.note ?? WP.defaultNote}>
+          <Icon name="clock" large />
+          <span className="sr">{WP.elapsedLabel}</span>
+          <span className="mono prov-elapsed">{formatCountdown(elapsed)}</span>
+          <span className="small muted">{cls?.note ?? WP.defaultNote}</span>
         </div>
-        <div className="note blue">
-          <Shape name="clock" />
-          <span>{WP.leave}</span>
-        </div>
+        <PhaseDiagram rows={rows} now={now} near={near} />
+        {hasArchitecture(lab) ? (
+          <figure className="prov-arch">
+            <figcaption className="small muted">{WP.archCaption}</figcaption>
+            <ArchDiagram input={archInputFromLab(lab)} size="full" mode="pair" fit="scale" title={WP.archTitle} />
+          </figure>
+        ) : null}
+        <ul className="prov-tiles" aria-label={WP.factsLabel}>
+          <li data-tile="billing">
+            <WsIcon name="billing" large />
+            <span className="stack-4">
+              <b className="small">{WP.tileBilling}</b>
+              <span className="small muted">{estimate}</span>
+            </span>
+          </li>
+          <li data-tile="countdown">
+            <Icon name="clock" large />
+            <b className="small">{WP.tileCountdown}</b>
+          </li>
+          <li data-tile="leave">
+            <WsIcon name="leave" large />
+            <b className="small">{WP.tileLeave}</b>
+          </li>
+        </ul>
+        <details className="disc prov-more">
+          <summary>{WP.more}</summary>
+          <div className="stack-8 small">
+            <p>{t(WP.billing, { estimate })}</p>
+            <p>{WP.leave}</p>
+          </div>
+        </details>
         <div className="row">
           {ws.learner && notif !== 'unsupported' ? (
             notif === 'granted' ? (

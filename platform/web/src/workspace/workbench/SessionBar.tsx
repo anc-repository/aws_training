@@ -1,20 +1,22 @@
 /**
  * 工作台顶栏 SessionBar（08 P05.2、§5.3；03 §2.2、§2.3），高 48px：
- * 平台标志、“‹ 目录”（离开不需要确认）→ 卡片标识（[服务] / [场景] + 服务缩写方块，场景卡下方“本卡将依次启用：…”，有变体时附变体名）
- * → 状态胶囊 → 倒计时（剩余 + 绝对时间；准备阶段“已用 m:ss · 倒计时未开始”）→ 费用计（L A：≈ a～b/h · 已产生 ≈ x，点击打开明细；
- * O：只显示每小时估算）→ 延长（剩余次数；置灰时原因节点总是渲染）/ 结束实验…（准备阶段为“取消…”）→ 溢出菜单。
+ * 平台标志、“‹ 目录”（离开不需要确认）→ 卡片标识（[服务] / [场景] + 服务图标 ServiceGlyph，场景卡下方是目标模块的图标链，
+ * 已接入的打勾；有变体时附变体名）→ 状态胶囊 → 倒计时（剩余 + 绝对时间；准备阶段“沙漏 m:ss ‖”，“倒计时未开始”给读屏与悬停）
+ * → 费用计（L A：硬币 ≈ a～b/h · 叠币 ≈ x，完整说明在 aria-label，点击打开明细；O：只显示每小时估算）→ 延长（“+30 分钟 · 剩 n 次”，
+ * 可访问名称仍是完整句子；置灰时原因节点总是渲染）/ 结束实验…（准备阶段为“取消…”）→ 溢出菜单。09 I6 e：图标 + 数字代替文字。
  * < 768px 折叠为“卡片 id · 状态 · 剩余时间 ⋯”，延长与结束收进 ⋯。
  */
 import { Link } from 'react-router-dom';
 import { getThemePref, setThemePref, type ThemePref } from '../../app/theme';
 import { formatClock, formatCountdown } from '../../lib/format';
-import { BrandMark, Countdown, Disclosure, Icon, SessionStatePill, displayState, useSecondTick } from '../../ui';
+import { BrandMark, Countdown, Disclosure, Icon, SessionStatePill, Shape, displayState, useSecondTick } from '../../ui';
+import { glyphModule, ServiceGlyph } from '../../ui/glyphs';
 import { useWorkspace } from '../context';
 import { accruedOf, formatRange, hourlyRangeOf } from '../model/cost';
 import { EXTEND_REASON_TEXT, extendBlock } from '../model/expiry';
-import type { CatalogIndexLite } from '../data/useWorkspaceData';
+import { WsIcon } from '../visual/icons';
 
-import { getLocale, LOCALE_NAMES, LOCALES, msg, rich, setLocale, t } from '../../i18n';
+import { getLocale, LOCALE_NAMES, LOCALES, msg, setLocale, t } from '../../i18n';
 import { W } from '../strings';
 export interface SessionBarProps {
   onExtend: () => void;
@@ -24,13 +26,6 @@ export interface SessionBarProps {
   onShortcuts: () => void;
   onTermSettings: () => void;
   onCredentials: () => void;
-}
-
-const CAT_CLASS: Record<string, string> = { base: 'cat-base', A: 'cat-a', B: 'cat-b', C: 'cat-c', D: 'cat-d', E: 'cat-e', F: 'cat-f' };
-
-function abbrOf(index: CatalogIndexLite | null, id: string): { abbr: string; cat: string } {
-  const s = index?.taxonomy?.services?.find((x) => x.id === id);
-  return { abbr: s?.abbr ?? s?.short ?? id.toUpperCase().slice(0, 4), cat: CAT_CLASS[s?.category ?? 'base'] ?? 'cat-base' };
 }
 
 function ElapsedClock({ since, now }: { since: string; now: () => number }) {
@@ -44,7 +39,6 @@ export function SessionBar(p: SessionBarProps) {
   useSecondTick(true);
   const v = ws.view;
   const lab = ws.data.lab.data;
-  const index = ws.data.index.data;
   const remaining = v.deadlineAt ? Date.parse(v.deadlineAt) - ws.now() : null;
   const state = displayState(v.state, remaining);
   const primaryServices = (lab?.services ?? []).filter((s) => s.role === 'primary');
@@ -76,14 +70,9 @@ export function SessionBar(p: SessionBarProps) {
           {t(W.bar.heading, { title: lab?.title ?? v.labId })}
         </h1>
         <span className="tag">{lab?.kind === 'scenario' ? W.bar.scenario : W.bar.service}</span>
-        {blocks.map((s) => {
-          const a = abbrOf(index, s.id);
-          return (
-            <span key={s.id} className={`sv s20 ${a.cat}`} title={s.name ?? s.id} aria-hidden="true">
-              {a.abbr}
-            </span>
-          );
-        })}
+        {blocks.map((s) => (
+          <ServiceGlyph key={s.id} id={s.module ?? s.id} size={20} tooltip className="bar-glyph" />
+        ))}
         <span className="mono small">{v.labId}</span>
         <span className="t small muted wide-only">
           {lab?.title ?? ''}
@@ -93,8 +82,12 @@ export function SessionBar(p: SessionBarProps) {
       <div className="clock">
         <SessionStatePill state={state} size="sm" />
         {ws.preparing ? (
-          <span className="small">
-            {rich(W.bar.elapsed, { t: <ElapsedClock since={v.createdAt} now={ws.now} /> })}
+          <span className="small bar-elapsed" title={W.bar.notStarted} data-elapsed="">
+            <WsIcon name="hourglass" />
+            <span className="sr">{W.bar.elapsedLabel}</span>
+            <ElapsedClock since={v.createdAt} now={ws.now} />
+            <Icon name="pause" />
+            <span className="sr">{W.bar.notStarted}</span>
           </span>
         ) : v.deadlineAt && ['READY', 'RUNNING', 'EXPIRING'].includes(v.state) ? (
           <>
@@ -107,13 +100,32 @@ export function SessionBar(p: SessionBarProps) {
         ) : null}
         {!ws.preparing || hourly ? (
           ws.role === 'O' ? (
-            <span className="small muted wide-only" data-cost="">
+            <span className="small muted wide-only bar-cost" data-cost="">
+              <WsIcon name="coin" />
+              <span className="sr">{W.bar.costTitle}</span>
               {hourly ? t(W.bar.hourlyEstimate, { range: formatRange(hourly, cur) }) : W.bar.noHourly}
             </span>
           ) : (
-            <button type="button" className="btn sm ghost wide-only" onClick={p.onCost} title={W.bar.costTitle} data-cost="">
-              {hourly ? t(W.bar.hourly, { range: formatRange(hourly, cur) }) : W.bar.noHourly}
-              {ws.preparing ? '' : t(W.bar.accrued, { v: accrued ? formatRange(accrued, cur) : W.bar.notProvided })}
+            <button
+              type="button"
+              className="btn sm ghost wide-only bar-cost"
+              onClick={p.onCost}
+              title={W.bar.costTitle}
+              aria-label={
+                ws.preparing
+                  ? t(W.bar.costAriaHourly, { hourly: hourly ? formatRange(hourly, cur) : W.bar.notProvided })
+                  : t(W.bar.costAria, { hourly: hourly ? formatRange(hourly, cur) : W.bar.notProvided, accrued: accrued ? formatRange(accrued, cur) : W.bar.notProvided })
+              }
+              data-cost=""
+            >
+              <WsIcon name="coin" />
+              <span>{hourly ? t(W.bar.hourly, { range: formatRange(hourly, cur) }) : W.bar.noHourly}</span>
+              {ws.preparing ? null : (
+                <>
+                  <WsIcon name="sum" />
+                  <span>{accrued ? formatRange(accrued, cur) : W.bar.notProvided}</span>
+                </>
+              )}
             </button>
           )
         ) : null}
@@ -121,11 +133,23 @@ export function SessionBar(p: SessionBarProps) {
       {canEnd ? (
         <span className="row wide-only bar-acts">
           {left > 0 ? (
-            <button type="button" className="btn sm" aria-disabled={block ? true : undefined} aria-describedby={block ? reasonId : undefined} onClick={() => (block ? undefined : p.onExtend())} data-extend="">
-              {t(W.bar.extend, { n: v.limits?.extensionMinutes ?? 30, left })}
+            <button
+              type="button"
+              className="btn sm bar-extend"
+              aria-label={t(W.bar.extend, { n: v.limits?.extensionMinutes ?? 30, left })}
+              title={t(W.bar.extend, { n: v.limits?.extensionMinutes ?? 30, left })}
+              aria-disabled={block ? true : undefined}
+              aria-describedby={block ? reasonId : undefined}
+              onClick={() => (block ? undefined : p.onExtend())}
+              data-extend=""
+            >
+              <WsIcon name="extend" />
+              <span>{t(W.bar.extendShort, { n: v.limits?.extensionMinutes ?? 30 })}</span>
+              <span className="bar-count">{t(W.bar.extendLeft, { left })}</span>
             </button>
           ) : (
-            <button type="button" className="btn sm" aria-disabled="true" aria-describedby={reasonId}>
+            <button type="button" className="btn sm bar-extend" aria-disabled="true" aria-describedby={reasonId}>
+              <WsIcon name="extend" />
               {t(W.bar.extendedMax, { n: used })}
             </button>
           )}
@@ -133,6 +157,7 @@ export function SessionBar(p: SessionBarProps) {
             {block ? EXTEND_REASON_TEXT[block] : W.bar.canExtend}
           </span>
           <button type="button" className="btn sm" onClick={p.onEnd} data-end="">
+            <WsIcon name="stop" />
             {W.bar.end}
           </button>
         </span>
@@ -274,14 +299,23 @@ export function SessionBar(p: SessionBarProps) {
       </Disclosure>
       {targets.length ? (
         <div className="wsbar-targets small muted">
-          {W.bar.targets}
-          {targets.map((t, i) => (
-            <span key={t}>
-              {i ? ' → ' : ''}
-              {t}
-              {doneModules.has(t) ? ' ✓' : ''}
-            </span>
-          ))}
+          <ol className="bar-chain" aria-label={W.bar.targets}>
+            {targets.map((id) => {
+              const done = doneModules.has(id);
+              return (
+                <li key={id} data-module={id} data-done={done ? '' : undefined}>
+                  <ServiceGlyph id={id} size={16} tone={done ? 'solid' : 'muted'} tooltip />
+                  <span>{glyphModule(id)?.short ?? id}</span>
+                  {done ? (
+                    <span className="st pass">
+                      <Shape name="check" />
+                      <span className="sr">{W.bar.targetDone}</span>
+                    </span>
+                  ) : null}
+                </li>
+              );
+            })}
+          </ol>
         </div>
       ) : null}
     </header>

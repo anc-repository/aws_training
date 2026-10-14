@@ -3456,3 +3456,47 @@ lint / build / catalog、API 与 dev-server 的语言协商。规格见 docs/pla
 `platform/web/src/i18n/glossary.md`；服务器端生成的报告 / 分享 HTML（`platform/api/src/services/reports/html.ts`）与 API 错误
 `detail` 的本地化；`users.ts` 建档时的默认 `locale`（若要回读）；页面接入视觉组件时用 `useLocale()` / `<html lang>`；
 CloudAlbum 前端（`frontend/`）不在本轮。
+
+## i18n-web-workspace
+
+工作台（P04 准备模式、P05 分屏工作台、P06 对比实验抽屉）的 ja / en 翻译与图形化（I5、I6 e）。只改了
+`platform/web/src/workspace/**`、`platform/web/src/pages/workspace/**` 与 `i18n/{zh-CN,ja,en}/workspace.ts`。
+
+**翻译**：`workspace` 命名空间 993 个键，ja / en 全部填写（`i18n:check` 对这些键 0 缺键、0 空值、0 占位符不一致，骨架与
+`i18n:sync` 输出逐字相同）。英语在数量会变化的地方用复数（`{n, plural, …}`）。zh-CN 源文案按图形化的需要增删了少量键（见下）。
+
+**图形化**（新文件在 `workspace/visual/`、`workspace/provision/PhaseDiagram.tsx`、`workspace/model/stepServices.ts`）：
+
+| 位置 | 做法 |
+|---|---|
+| P04 准备进度 | 6 个阶段画成节点链（阶段图形 + 状态形状 + 用时，窄容器竖排；仍是 `<ol>`、`aria-current`、`data-phase/status`）；只有当前阶段的细节放在图下的细节框；部署等级用速度表 `MetricIcon`；大号已用时间；卡片有起始 / 目标模块时画 `<ArchDiagram mode="pair" fit="scale">`；计费 / 倒计时 / 可离开页面改为三块图标提示，完整句子折叠在“詳しく” |
+| 顶栏 | 服务缩写方块换成 `ServiceGlyph`；场景卡的目标模块是图标链（已接入打勾）；准备中“沙漏 m:ss ‖”；费用“硬币 a～b/h · 叠币 x”；延长“时钟+ +30 分 · 残り n 回”；结束带停止图标。可见文字变短，可访问名称仍是完整句子（`aria-label`，e2e 与测试按名称查找不受影响） |
+| 手册头 / 步骤列表 | 进度环（`ProgressRing` 20px）+ n/m；步骤下拉每项带 `StepTypeIcon` |
+| 步骤卡 | 预计耗时 `MetricIcon duration` + `StepTypeTag`；标题下“本步相关服务”图标行（见下）；计费提示用“硬币+播放”图标；预期中断改为图标 + 一行要点 + 可折叠的说明 |
+| 手册正文 | 做法标签带步骤类型图标；`:::expected` 带靶心图标，其中没有 runsOn 的代码块显示为“期待看到的输出”，响应头 / YAML 键 / JSON 键与 HTTP 状态码高亮（`<mark>`）、值加粗；`:::wait` 先给“通常约 n 分（最长 m 分）”的沙漏行；超过 3 行的段落默认折叠（`Clamp`） |
+
+有歧义时的取舍（都取最简单的做法）：
+
+| 问题 | 决定 |
+|---|---|
+| “与本步相关的服务”从哪里来 | 不新增内容字段，按步骤已有数据推：接入目标（`wireStep`）→ 对比实验模块 → `scripts/module <动作> <模块>` → 检查的 `module` / `service` / `target` → 控制台深链前缀 → 命令中的 `aws <service>` → 计费价格键；只认 registry 的 40 个模块，认不出就忽略，最多 6 个（`stepModules`，有单元测试） |
+| `aws ssm` 属于哪个模块 | 参数类子命令（get/put/delete/describe/label-parameter…）→ config，其余 → shell-access |
+| “超过 3 行”怎么判断 | 90 字符以上的段落才包 `Clamp`（CSS `line-clamp: 3`），布局后用 scrollHeight 比较决定是否显示“詳しく / Details / 展开全文”；已在折叠块（why / reveal / saa / 概览）里的不再折叠；全文始终在 DOM 中 |
+| 预期结果里哪些代码块算“示例输出” | `:::expected` 中没有 runsOn（且不是 shell 语言）的代码块；冒号后有空格才算“名称: 值”（ARN、URL 不高亮）；不再提供复制按钮 |
+| P04 的阶段细节 | 只显示当前（或失败）阶段的细节；已完成阶段的细节放在该节点的悬停提示里 |
+| 部署等级的文字 | `labText.provisionName` 的 ja / en 与视觉组件的 `visual.metric.provision.*` 一致（速い / 普通 / 遅め / かなり遅い；Fast / Moderate / Slow / Very slow） |
+| 工作台主机“工作台”的译名 | 按用语表译作 ワークベンチ / workbench（与 end 命名空间一致），实验机为 ラボ用インスタンス / lab instance |
+| zh-CN 词典的增删 | 删除不再使用的 `provision.elapsed`、`bar.elapsed`、`bar.accrued`、`manual.progress(Sr)`、`md.wait`、`step.est`、`step.optional`；新增 P04 的提示瓦片与构成图标题、顶栏的短文案与 `aria-label`、`manual.progressAria`、`md.waitTypical/waitAuto/more/less`、`step.services/outageHead(Open)` |
+
+自测（2026-10-14）：`npx vitest run`（platform/web 45 个文件 / 538 个用例通过；新增 `workspace/visual/visual.test.tsx` 7 个用例，
+`WorkspacePage.test.tsx` 新增 4 个：步骤卡图形、顶栏图标与可访问名称、P04 构成图、ja / en 渲染）、`eslint`（本节路径 0 问题）、
+`tsc -p platform/web/tsconfig.json`、`npm run build -w @atl/web`、`npm run i18n:check -- --allow-empty`（workspace 0 问题）。
+另在 `npm run e2e:platform -- --serve-only --no-build` 起的独立端口上（没有碰 5174 / 8787）用系统 Chrome 截图：P04 / P05 / P06 抽屉 ×
+ja / en / zh-CN × 亮 / 暗 × 1280 / 400px，400px 下 `scrollWidth = clientWidth = 400`。
+
+需要别人配合：工作台里仍是中文的部分来自共用组件（`ui/` 的 CommandBlock、Countdown、SessionStatePill、CheckResultRow、步骤状态与
+尝试状态），属 `ui` 命名空间；卡片内容（手册、步骤标题、检查名）待内容翻译；用语表建议新增：预期中断 想定内の中断 / expected outage、
+管理通道 管理チャネル / management channel、运行器 ランナー / runner、平台动作 プラットフォーム操作 / platform action、佐证 裏付け /
+corroboration、归属 所有の確認 / ownership、漂移 ドリフト / drift、前导键 プレフィックスキー / leader key、费用计 費用メーター /
+cost meter、变体 バリアント / variant、起始档位 開始構成 / start profile、交叉校验 クロスチェック / cross-check、降级（手动）格下げ /
+degraded、待人工处理清单 手動対応リスト / manual cleanup list。

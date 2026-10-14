@@ -9,1133 +9,1149 @@ import type zh from '../zh-CN/workspace';
 export default {
   terminal: {
     host: {
-      lab: '', // 实验机
-      workstation: '', // 工作台
+      lab: 'ラボ用インスタンス', // 实验机
+      workstation: 'ワークベンチ', // 工作台
     },
-    limitPerInstance: '', // 同一实例最多 3 个终端
-    awsIdentity: '', // {user} · AWS 身份 {identity}
-    labIdentityNote: '', // 实验机终端里的 AWS CLI 默认使用实例角色；你的学员权限在工作台终端里。
-    subtabs: '', // {host}终端子标签
-    newTerminal: '', // 新开终端
-    menu: '', // 终端菜单
-    copiedSelection: '', // 已复制选中内容
-    noSelection: '', // 没有选中的内容
-    copySelection: '', // 复制选中
-    clear: '', // 清屏
-    openInNewSub: '', // 在新子标签中打开
-    endSession: '', // 结束会话
-    notOpened: '', // 还没有打开终端
-    open: '', // 打开终端
-    termLabel: '', // {host}终端 #{no}，{instance}，{user}
-    unknownInstance: '', // 实例未知
-    connecting: '', // 正在建立 Session Manager 会话…
-    agentOffline: '', // {host}的 SSM Agent 不在线
-    agentOfflineText: '', // 常见原因：实例正在重启；网络切换为私有放置但缺少 NAT 或 ssm / ssmmessages / ec2messages 终端节点；Agent 被停止。
-    retry: '', // 重试
-    troubleshoot: '', // 查看排障步骤
-    ts1: '', // 在 AWS 控制台确认实验机处于“正在运行”。
-    ts2: '', // 私有放置时确认 NAT 网关或 ssm、ssmmessages、ec2messages 接口终端节点存在。
-    ts3: '', // 确认实例配置文件仍是 CloudAlbumAppRole，且没有被加上拒绝策略。
-    repairRequested: '', // 已请求修复环境
-    repairFailed: '', // 修复请求没有完成
-    repair: '', // 修复环境
-    notPrepared: '', // {host}还在执行平台准备（创建 labuser 等）
-    autoRetry: '', // 平台会自动重试连接。
-    accessDenied: '', // 权限不足
-    accessDeniedText: '', // 学员角色缺少打开终端的权限，这是平台配置问题，不是你的操作问题。
-    invalidDocument: '', // 平台文档不可用
-    invalidDocumentText: '', // 平台文档 ATL-SessionShell 不存在或不可用，请重新部署平台。
-    noResponse: '', // {host}没有响应
-    reconnect: '', // 重新连接
-    reconnecting: '', // 网络中断，正在重连（第 {n}/{max} 次）
-    retryNow: '', // 立即重试
-    idle: '', // 会话因空闲 {n} 分钟被关闭
-    maxDuration: '', // 单个终端会话最长 {n} 小时，已自动关闭
-    replaced: '', // {host}已替换：{from} → {to}
-    replacedText: '', // 命令中的实例 ID 已更新。
-    connectNew: '', // 连接新{host}
-    expectedOutage: '', // 预期中断
-    expectedOutageText: '', // 本步骤会暂时中断平台管理通道，终端与本地检查暂时不可用，这是预期现象{until}。平台会自动重试连接。
-    expectedOutageUntil: '', // ；预计在 {t} 前恢复
-    reauth: '', // 需要重新登录
-    reauthText: '', // 打开终端要求最近 60 分钟内登录过。
-    signInAgain: '', // 重新登录
-    revoked: '', // 访问已收回
-    revokedText: '', // 实验已结束，正在收回访问并释放资源。
-    viewReclaim: '', // 查看回收进度
-    limit: '', // 终端数量已达上限
-    limitText: '', // 同一实例最多 3 个、整个会话最多 6 个终端。请先结束不用的终端。
-    unavailable: '', // 终端暂时不可用
-    clientUnavailable: '', // 终端组件没有加载。请刷新页面后重试。
-    notProvided: '', // 平台还没有提供网页终端（开发环境中需要启动本地终端模拟服务）。
-    gone: '', // 终端会话已结束，不能续连
-    closed: '', // 终端会话已关闭
-    failed: '', // 终端连接失败
-    copiedDiag: '', // 已复制诊断信息
-    clipboardDenied: '', // 无法访问剪贴板
-    copyDiag: '', // 复制诊断信息
-    connected: '', // 已连接
-    reconnectingShort: '', // 重连中
-    connectingShort: '', // 连接中
-    disconnected: '', // 断开
-    idleNote: '', // Session Manager · 空闲 {n} 分钟断开
-    busy: '', // 正在运行命令
-    tmuxNote: '', // tmux 中无法判断终端是否空闲
-    recording: '', // 本终端的输入输出会记录到 CloudWatch Logs /atl-recordings/terminal-sessions
-    backToManual: '', // 按 {ctrl}+{dot} 再按 {m} 回到手册
-    keybar: '', // 终端按键条
+    limitPerInstance: '1 つのインスタンスで開けるターミナルは 3 つまでです', // 同一实例最多 3 个终端
+    awsIdentity: '{user} · AWS ID {identity}', // {user} · AWS 身份 {identity}
+    labIdentityNote: 'ラボ用インスタンスのターミナルでは、AWS CLI は既定でインスタンスロールを使います。受講者の権限はワークベンチのターミナルにあります。', // 实验机终端里的 AWS CLI 默认使用实例角色；你的学员权限在工作台终端里。
+    subtabs: '{host}のターミナル（サブタブ）', // {host}终端子标签
+    newTerminal: '新しいターミナル', // 新开终端
+    menu: 'ターミナルメニュー', // 终端菜单
+    copiedSelection: '選択範囲をコピーしました', // 已复制选中内容
+    noSelection: '選択されている内容がありません', // 没有选中的内容
+    copySelection: '選択範囲をコピー', // 复制选中
+    clear: '画面をクリア', // 清屏
+    openInNewSub: '新しいサブタブで開く', // 在新子标签中打开
+    endSession: 'セッションを終了', // 结束会话
+    notOpened: 'ターミナルはまだ開いていません', // 还没有打开终端
+    open: 'ターミナルを開く', // 打开终端
+    termLabel: '{host}のターミナル #{no}、{instance}、{user}', // {host}终端 #{no}，{instance}，{user}
+    unknownInstance: 'インスタンス不明', // 实例未知
+    connecting: 'Session Manager のセッションを確立しています…', // 正在建立 Session Manager 会话…
+    agentOffline: '{host}の SSM Agent がオフラインです', // {host}的 SSM Agent 不在线
+    agentOfflineText: 'よくある原因：インスタンスの再起動中、ネットワークをプライベート配置に切り替えたが NAT または ssm / ssmmessages / ec2messages エンドポイントがない、Agent が停止している。', // 常见原因：实例正在重启；网络切换为私有放置但缺少 NAT 或 ssm / ssmmessages / ec2messages 终端节点；Agent 被停止。
+    retry: '再試行', // 重试
+    troubleshoot: 'トラブルシューティングを表示', // 查看排障步骤
+    ts1: 'AWS コンソールで、ラボ用インスタンスが「実行中」であることを確認します。', // 在 AWS 控制台确认实验机处于“正在运行”。
+    ts2: 'プライベート配置の場合は、NAT ゲートウェイ、または ssm、ssmmessages、ec2messages のインターフェイスエンドポイントがあることを確認します。', // 私有放置时确认 NAT 网关或 ssm、ssmmessages、ec2messages 接口终端节点存在。
+    ts3: 'インスタンスプロファイルが CloudAlbumAppRole のままで、拒否ポリシーが追加されていないことを確認します。', // 确认实例配置文件仍是 CloudAlbumAppRole，且没有被加上拒绝策略。
+    repairRequested: '環境の修復をリクエストしました', // 已请求修复环境
+    repairFailed: '修復のリクエストを完了できませんでした', // 修复请求没有完成
+    repair: '環境を修復', // 修复环境
+    notPrepared: '{host}はまだプラットフォームの準備中です（labuser の作成など）', // {host}还在执行平台准备（创建 labuser 等）
+    autoRetry: 'プラットフォームが自動的に再接続します。', // 平台会自动重试连接。
+    accessDenied: '権限がありません', // 权限不足
+    accessDeniedText: '受講者ロールにターミナルを開く権限がありません。プラットフォームの設定の問題で、操作ミスではありません。', // 学员角色缺少打开终端的权限，这是平台配置问题，不是你的操作问题。
+    invalidDocument: 'プラットフォームのドキュメントを利用できません', // 平台文档不可用
+    invalidDocumentText: 'プラットフォームのドキュメント ATL-SessionShell が存在しないか利用できません。プラットフォームを再デプロイしてください。', // 平台文档 ATL-SessionShell 不存在或不可用，请重新部署平台。
+    noResponse: '{host}から応答がありません', // {host}没有响应
+    reconnect: '再接続', // 重新连接
+    reconnecting: 'ネットワークが切断されました。再接続しています（{n}/{max} 回目）', // 网络中断，正在重连（第 {n}/{max} 次）
+    retryNow: '今すぐ再試行', // 立即重试
+    idle: '{n} 分間操作がなかったため、セッションが閉じられました', // 会话因空闲 {n} 分钟被关闭
+    maxDuration: 'ターミナルセッションは最長 {n} 時間です。自動的に閉じられました', // 单个终端会话最长 {n} 小时，已自动关闭
+    replaced: '{host}が置き換えられました：{from} → {to}', // {host}已替换：{from} → {to}
+    replacedText: 'コマンド中のインスタンス ID を更新しました。', // 命令中的实例 ID 已更新。
+    connectNew: '新しい{host}に接続', // 连接新{host}
+    expectedOutage: '想定内の中断', // 预期中断
+    expectedOutageText: 'このステップではプラットフォームの管理チャネルが一時的に中断します。ターミナルとローカルチェックが一時的に使えないのは想定どおりです{until}。プラットフォームが自動的に再接続します。', // 本步骤会暂时中断平台管理通道，终端与本地检查暂时不可用，这是预期现象{until}。平台会自动重试连接。
+    expectedOutageUntil: '（{t} までに復旧の見込み）', // ；预计在 {t} 前恢复
+    reauth: '再ログインが必要です', // 需要重新登录
+    reauthText: 'ターミナルを開くには、直近 60 分以内のログインが必要です。', // 打开终端要求最近 60 分钟内登录过。
+    signInAgain: '再ログイン', // 重新登录
+    revoked: 'アクセスは取り消されました', // 访问已收回
+    revokedText: 'ラボは終了しました。アクセスを取り消し、リソースを解放しています。', // 实验已结束，正在收回访问并释放资源。
+    viewReclaim: '回収の進捗を表示', // 查看回收进度
+    limit: 'ターミナル数が上限に達しました', // 终端数量已达上限
+    limitText: '1 つのインスタンスで 3 つ、セッション全体で 6 つまでです。使っていないターミナルを先に終了してください。', // 同一实例最多 3 个、整个会话最多 6 个终端。请先结束不用的终端。
+    unavailable: 'ターミナルは一時的に利用できません', // 终端暂时不可用
+    clientUnavailable: 'ターミナルのコンポーネントが読み込まれていません。ページを再読み込みしてから再試行してください。', // 终端组件没有加载。请刷新页面后重试。
+    notProvided: 'プラットフォームはまだ Web ターミナルを提供していません（開発環境ではローカルのターミナルモックを起動する必要があります）。', // 平台还没有提供网页终端（开发环境中需要启动本地终端模拟服务）。
+    gone: 'ターミナルセッションは終了しました。再接続できません', // 终端会话已结束，不能续连
+    closed: 'ターミナルセッションは閉じられました', // 终端会话已关闭
+    failed: 'ターミナルに接続できませんでした', // 终端连接失败
+    copiedDiag: '診断情報をコピーしました', // 已复制诊断信息
+    clipboardDenied: 'クリップボードにアクセスできません', // 无法访问剪贴板
+    copyDiag: '診断情報をコピー', // 复制诊断信息
+    connected: '接続済み', // 已连接
+    reconnectingShort: '再接続中', // 重连中
+    connectingShort: '接続中', // 连接中
+    disconnected: '切断', // 断开
+    idleNote: 'Session Manager · {n} 分間操作がないと切断', // Session Manager · 空闲 {n} 分钟断开
+    busy: 'コマンドを実行中', // 正在运行命令
+    tmuxNote: 'tmux 内ではターミナルがアイドルかどうか判定できません', // tmux 中无法判断终端是否空闲
+    recording: 'このターミナルの入出力は CloudWatch Logs /atl-recordings/terminal-sessions に記録されます', // 本终端的输入输出会记录到 CloudWatch Logs /atl-recordings/terminal-sessions
+    backToManual: '{ctrl}+{dot} の後に {m} を押すと手順書に戻ります', // 按 {ctrl}+{dot} 再按 {m} 回到手册
+    keybar: 'ターミナルのキーバー', // 终端按键条
     key: {
-      pipe: '', // 竖线
-      tilde: '', // 波浪号
-      slash: '', // 斜杠
-      minus: '', // 减号
+      pipe: 'パイプ', // 竖线
+      tilde: 'チルダ', // 波浪号
+      slash: 'スラッシュ', // 斜杠
+      minus: 'マイナス', // 减号
     },
-    readClipboardFailed: '', // 无法读取剪贴板，请用系统粘贴
-    paste: '', // 粘贴
-    endedNoConnect: '', // 会话已结束，终端不可连接
-    openedList: '', // 本会话打开过的终端：
-    statusOpen: '', // 打开
-    statusClosed: '', // 已关闭
-    noneOpened: '', // 本会话没有打开过{host}终端。
-    viewReport: '', // 查看报告
-    notInState: '', // 本状态下不提供终端
-    keptNote: '', // 保留期间没有终端与控制台访问。要继续操作，请开始一个复用该环境的新会话。
-    afterReady: '', // 环境就绪后可用。
-    ended: '', // 会话已结束。
-    manageKeep: '', // 管理保留
-    loadFailed: '', // 终端组件加载失败，请刷新页面。
+    readClipboardFailed: 'クリップボードを読み取れません。OS の貼り付けを使ってください', // 无法读取剪贴板，请用系统粘贴
+    paste: '貼り付け', // 粘贴
+    endedNoConnect: 'セッションは終了しました。ターミナルに接続できません', // 会话已结束，终端不可连接
+    openedList: 'このセッションで開いたターミナル：', // 本会话打开过的终端：
+    statusOpen: '開いている', // 打开
+    statusClosed: '閉じた', // 已关闭
+    noneOpened: 'このセッションでは{host}のターミナルを開いていません。', // 本会话没有打开过{host}终端。
+    viewReport: 'レポートを表示', // 查看报告
+    notInState: 'この状態ではターミナルを利用できません', // 本状态下不提供终端
+    keptNote: '保持期間中はターミナルとコンソールにアクセスできません。作業を続けるには、この環境を再利用する新しいセッションを開始してください。', // 保留期间没有终端与控制台访问。要继续操作，请开始一个复用该环境的新会话。
+    afterReady: '環境の準備ができると利用できます。', // 环境就绪后可用。
+    ended: 'セッションは終了しました。', // 会话已结束。
+    manageKeep: '保持を管理', // 管理保留
+    loadFailed: 'ターミナルのコンポーネントを読み込めませんでした。ページを再読み込みしてください。', // 终端组件加载失败，请刷新页面。
   },
   provision: {
     phase: {
-      done: '', // 完成
-      running: '', // 进行中
-      todo: '', // 未开始
-      retrying: '', // 重试中
-      queued: '', // 排队中
-      failed: '', // 失败
-      skipped: '', // 跳过
+      done: '完了', // 完成
+      running: '実行中', // 进行中
+      todo: '未開始', // 未开始
+      retrying: '再試行中', // 重试中
+      queued: '待機中', // 排队中
+      failed: '失敗', // 失败
+      skipped: 'スキップ', // 跳过
     },
-    phaseDone: '', // {title}已完成
-    phaseDoneTook: '', // {title}已完成，用时 {t}
-    region: '', // 准备进度
-    title: '', // 正在准备实验环境
-    class: '', // 环境准备：{name}（{cls}）
-    elapsed: '', // 已用 {t} · {note}
-    defaultNote: '', // 起始状态包含的资源决定准备时间。
-    phases: '', // 准备阶段
-    queued: '', // 运行器排队中（CodeBuild 并发已满）
-    slow: '', // 比通常更久。平台会在超时前自动停止并释放已创建的资源。
-    billing: '', // 计费：环境创建开始即计费（{estimate}），倒计时从“就绪”开始。
-    billingHourly: '', // {range}/小时，估算
-    billingQuote: '', // 估算见开始时的报价
-    leave: '', // 可以离开这个页面：准备在后台进行。就绪后顶栏会提示，也会发送邮件（需已确认订阅）。浏览器通知只能尽力送达。
-    notifOn: '', // 已开启浏览器通知
-    notifDenied: '', // 浏览器拒绝了通知，可以在浏览器设置中重新允许
-    enableNotif: '', // 开启浏览器通知
-    reallow: '', // 可以在浏览器设置中重新允许。
-    cancel: '', // 取消…
-    ready: '', // 环境已就绪
-    readyTook: '', // （用时 {t}）
-    countdownStarted: '', // ，倒计时 {t} 已开始
-    cancelProgress: '', // 取消进度
-    startFailed: '', // 启动失败
-    cancelled: '', // 已取消实验
-    failedReleased: '', // 启动失败，已释放已创建的资源
-    cancelling: '', // 正在取消：释放已创建的资源
-    failedReleasing: '', // 启动失败：正在释放已创建的资源
-    released: '', // 已释放已创建的资源
-    releasing: '', // 正在释放已创建的资源
-    deleted: '', // 已删除 {n}/{m}
-    endedNote: '', // 这次尝试不计入次数。准备期间产生的费用不会退回。
-    releasingNote: '', // 释放在后台进行，可以离开这个页面。释放完成前不能开始新的实验。
-    restart: '', // 重新开始
-    viewReclaim: '', // 查看回收进度
-    backToCatalog: '', // 回到卡片目录
-    diagnostics: '', // 诊断信息
-    compensation: '', // 补偿回收
-    notReleased: '', // 有资源未释放
-    viewList: '', // 查看清单
-    fresh: '', // 全新开始
-    viewCurrent: '', // 查看当前实验
-    copyDiag: '', // 复制诊断信息
-    restartNote: '', // 这次尝试不计入次数。重新开始会回到简介页并打开开始对话框（必须重新报价）。
-    cancelDialog: '', // 取消
-    copiedDiag: '', // 已复制诊断信息
-    clipboardDenied: '', // 无法访问剪贴板
-    copyRaw: '', // 复制原文
-    diagWarning: '', // 诊断信息包含 AWS 账号 ID、资源 ARN 等原文，便于排查；分享给他人前请自行打码。
+    phaseDone: '{title}が完了しました', // {title}已完成
+    phaseDoneTook: '{title}が完了しました（所要 {t}）', // {title}已完成，用时 {t}
+    region: '準備の進捗', // 准备进度
+    title: 'ラボ環境を準備しています', // 正在准备实验环境
+    class: '環境の準備：{name}（{cls}）', // 环境准备：{name}（{cls}）
+    elapsedLabel: '経過時間', // 已用时间
+    defaultNote: '準備にかかる時間は、開始状態に含まれるリソースで決まります。', // 起始状态包含的资源决定准备时间。
+    archTitle: 'ラボ環境の構成', // 实验环境构成
+    archCaption: 'いま「開始時」の環境を準備しています。このカードを終えると右（または下）の構成になります。', // 正在准备“开始时”的环境；完成本卡后变为右侧（或下方）的构成。
+    factsLabel: '準備中に知っておくこと', // 准备期间须知
+    tileBilling: '作成と同時に課金開始', // 创建即开始计费
+    tileCountdown: 'カウントダウンは準備完了から', // 倒计时从就绪开始
+    tileLeave: 'このページを離れても大丈夫', // 可以离开此页面
+    more: '詳しく', // 详细说明
+    phases: '準備の段階', // 准备阶段
+    queued: 'ランナーの順番待ち（CodeBuild の同時実行数が上限）', // 运行器排队中（CodeBuild 并发已满）
+    slow: 'いつもより時間がかかっています。タイムアウトする前に、プラットフォームが自動的に停止し、作成済みのリソースを解放します。', // 比通常更久。平台会在超时前自动停止并释放已创建的资源。
+    billing: '課金：環境の作成を始めた時点から課金されます（{estimate}）。カウントダウンは「準備完了」から始まります。', // 计费：环境创建开始即计费（{estimate}），倒计时从“就绪”开始。
+    billingHourly: '{range}/時間（見積もり）', // {range}/小时，估算
+    billingQuote: '見積もりは開始時の見積もりを参照', // 估算见开始时的报价
+    leave: 'このページを離れても大丈夫です。準備はバックグラウンドで進みます。完了するとトップバーに表示され、メールも届きます（購読の確認が必要）。ブラウザー通知はベストエフォートです。', // 可以离开这个页面：准备在后台进行。就绪后顶栏会提示，也会发送邮件（需已确认订阅）。浏览器通知只能尽力送达。
+    notifOn: 'ブラウザー通知をオンにしました', // 已开启浏览器通知
+    notifDenied: 'ブラウザーが通知を拒否しました。ブラウザーの設定で再び許可できます', // 浏览器拒绝了通知，可以在浏览器设置中重新允许
+    enableNotif: 'ブラウザー通知をオンにする', // 开启浏览器通知
+    reallow: 'ブラウザーの設定で再び許可できます。', // 可以在浏览器设置中重新允许。
+    cancel: 'キャンセル…', // 取消…
+    ready: '環境の準備ができました', // 环境已就绪
+    readyTook: '（所要 {t}）', // （用时 {t}）
+    countdownStarted: '。カウントダウン {t} が始まりました', // ，倒计时 {t} 已开始
+    cancelProgress: 'キャンセルの進捗', // 取消进度
+    startFailed: '起動に失敗しました', // 启动失败
+    cancelled: 'ラボをキャンセルしました', // 已取消实验
+    failedReleased: '起動に失敗しました。作成済みのリソースは解放しました', // 启动失败，已释放已创建的资源
+    cancelling: 'キャンセル中：作成済みのリソースを解放しています', // 正在取消：释放已创建的资源
+    failedReleasing: '起動に失敗しました：作成済みのリソースを解放しています', // 启动失败：正在释放已创建的资源
+    released: '作成済みのリソースを解放しました', // 已释放已创建的资源
+    releasing: '作成済みのリソースを解放しています', // 正在释放已创建的资源
+    deleted: '{n}/{m} 削除済み', // 已删除 {n}/{m}
+    endedNote: '今回の試行は回数に数えません。準備中に発生した費用は返金されません。', // 这次尝试不计入次数。准备期间产生的费用不会退回。
+    releasingNote: '解放はバックグラウンドで進むので、このページを離れても大丈夫です。解放が終わるまで新しいラボは開始できません。', // 释放在后台进行，可以离开这个页面。释放完成前不能开始新的实验。
+    restart: 'やり直す', // 重新开始
+    viewReclaim: '回収の進捗を表示', // 查看回收进度
+    backToCatalog: 'カード一覧に戻る', // 回到卡片目录
+    diagnostics: '診断情報', // 诊断信息
+    compensation: '補償回収', // 补偿回收
+    notReleased: '解放されていないリソースがあります', // 有资源未释放
+    viewList: '一覧を表示', // 查看清单
+    fresh: '新しく始める', // 全新开始
+    viewCurrent: '現在のラボを表示', // 查看当前实验
+    copyDiag: '診断情報をコピー', // 复制诊断信息
+    restartNote: '今回の試行は回数に数えません。やり直すと紹介ページに戻り、開始ダイアログが開きます（見積もりを取り直す必要があります）。', // 这次尝试不计入次数。重新开始会回到简介页并打开开始对话框（必须重新报价）。
+    cancelDialog: 'キャンセル', // 取消
+    copiedDiag: '診断情報をコピーしました', // 已复制诊断信息
+    clipboardDenied: 'クリップボードにアクセスできません', // 无法访问剪贴板
+    copyRaw: '原文をコピー', // 复制原文
+    diagWarning: '診断情報には、調査のために AWS アカウント ID やリソース ARN などがそのまま含まれます。他の人に共有する前に、必要に応じて伏せ字にしてください。', // 诊断信息包含 AWS 账号 ID、资源 ARN 等原文，便于排查；分享给他人前请自行打码。
   },
   exp: {
     reason: {
-      OUT_OF_WINDOW: '', // 不在登记的时间窗内
-      DRIVER_MISMATCH: '', // 运行时驱动与该变体要求不符
-      NOT_CORROBORATED: '', // 服务端没有看到足够的请求
-      PATH_RATIO: '', // 路径占比不足
-      TOO_FEW_SAMPLES: '', // 样本不足
-      OUTPUT_TRUNCATED: '', // 输出被截断
-      DELIVERY_MISMATCH: '', // 投递位置与要求不符
-      LABEL_NOT_IN_LAB: '', // 变体不在卡片声明中
+      OUT_OF_WINDOW: '登録された時間枠の外です', // 不在登记的时间窗内
+      DRIVER_MISMATCH: 'ランタイムのドライバーがこのバリアントの要件と一致しません', // 运行时驱动与该变体要求不符
+      NOT_CORROBORATED: 'サーバー側で十分なリクエストが確認できませんでした', // 服务端没有看到足够的请求
+      PATH_RATIO: '経路の割合が足りません', // 路径占比不足
+      TOO_FEW_SAMPLES: 'サンプルが不足しています', // 样本不足
+      OUTPUT_TRUNCATED: '出力が切り詰められています', // 输出被截断
+      DELIVERY_MISMATCH: '配信先が要件と一致しません', // 投递位置与要求不符
+      LABEL_NOT_IN_LAB: 'バリアントがカードで宣言されていません', // 变体不在卡片声明中
     },
     variantStatus: {
-      none: '', // 还没有记录
-      registered: '', // 运行中或未上传
-      'stale-registered': '', // 可能上传失败：请看工作台终端中运行器的输出
-      uploaded: '', // 已上传，等待校验
-      'pending-crosscheck': '', // 交叉校验中（服务端指标可能有数分钟延迟，稍后自动复核）
-      valid: '', // 有效
-      simulated: '', // 模拟基线（旁路补测）
-      invalid: '', // 无效
+      none: 'まだ記録がありません', // 还没有记录
+      registered: '実行中または未アップロード', // 运行中或未上传
+      'stale-registered': 'アップロードに失敗した可能性があります。ワークベンチのターミナルでランナーの出力を確認してください', // 可能上传失败：请看工作台终端中运行器的输出
+      uploaded: 'アップロード済み・検証待ち', // 已上传，等待校验
+      'pending-crosscheck': 'クロスチェック中（サーバー側の指標は数分遅れることがあります。後で自動的に再確認します）', // 交叉校验中（服务端指标可能有数分钟延迟，稍后自动复核）
+      valid: '有効', // 有效
+      simulated: '模擬ベースライン（バイパスで補完測定）', // 模拟基线（旁路补测）
+      invalid: '無効', // 无效
     },
-    deltaSame: '', // 差异不明显
-    deltaDown: '', // ▼ 下降
-    deltaUp: '', // ▲ 上升
-    faster: '', //  · 更快
-    slower: '', //  · 更慢
-    toZero: '', // ▼ 变为 0
-    cmpScenario: '', // 场景不一致
-    cmpParams: '', // 参数不一致
-    cmpInstanceType: '', // 实例类型不一致
-    cmpVariant: '', // 起始变体不一致
-    cmpForced: '', // 使用了强制运行
+    deltaSame: '差は明確ではありません', // 差异不明显
+    deltaDown: '▼ 減少', // ▼ 下降
+    deltaUp: '▲ 増加', // ▲ 上升
+    faster: ' · 速い', //  · 更快
+    slower: ' · 遅い', //  · 更慢
+    toZero: '▼ 0 に', // ▼ 变为 0
+    cmpScenario: 'シナリオが一致しません', // 场景不一致
+    cmpParams: 'パラメーターが一致しません', // 参数不一致
+    cmpInstanceType: 'インスタンスタイプが一致しません', // 实例类型不一致
+    cmpVariant: '開始バリアントが一致しません', // 起始变体不一致
+    cmpForced: '強制実行を使いました', // 使用了强制运行
     role: {
-      baseline: '', // baseline · 基线
-      treatment: '', // treatment · 处理
-      single: '', // single · 一次性
+      baseline: 'baseline · ベースライン', // baseline · 基线
+      treatment: 'treatment · 変更後', // treatment · 处理
+      single: 'single · 単発', // single · 一次性
     },
     track: {
-      registered: '', // 已登记
-      uploaded: '', // 已上传
-      crosscheck: '', // 交叉校验中
-      result: '', // 结论
+      registered: '登録済み', // 已登记
+      uploaded: 'アップロード済み', // 已上传
+      crosscheck: 'クロスチェック中', // 交叉校验中
+      result: '結論', // 结论
     },
-    drawerTitle: '', // 对比实验 · {key}
-    notFoundTitle: '', // 没有找到这个实验
-    notFound: '', // 卡片 {labId} 没有声明对比实验 {key}。
-    crumb: '', // {labId} › 对比实验 · {key}（{req}）
-    required: '', // 必做
-    optional: '', // 选做
-    session: '', // 会话 {sid}
-    cloudshell: '', // 省钱模式下对比实验结果无法上传，相关检查只能按规则降级。
-    ending: '', // 实验已结束：进入结束前已登记的运行仍会接收上传。
-    noRuns: '', // 还没有运行这个实验
-    noRunsHint: '', // 先在工作台终端运行{a}，再完成接入应用后运行{b}。
-    chart: '', // 图表
-    bars: '', // 条形对照
-    table: '', // 查看数据表
-    directionNote: '', // 差异方向只说明变化，不代表好坏：启用托管服务后单次延迟变高也可能是正确结论。
-    noMetrics: '', // 所选记录还没有可比较的指标（上传与交叉校验完成后显示）。
-    pair: '', // 成对比较 {a} ↔ {b}
-    missing: '', // 缺少 {list}
-    and: '', //  和 
-    comparable: '', // 可比（场景、参数、实例类型、起始变体一致；都不是强制运行）
-    notComparable: '', // 不可比：{list}
-    listSep: '', // 、
-    howToRun: '', // 怎么运行（在工作台终端）
-    readOnly: '', // 只读：你的角色不能使用工作台终端。
-    crossSession: '', // 跨会话对比（与之前会话的 {label} 比较）
-    roleTitle: '', // （{role}）
-    fromSession: '', //  · 来自会话 {sid}
-    invalid: '', // 无效：{list}
-    runsCount: '', // 记录 {n} 次
-    pickRun: '', // 选择 {label} 的记录
-    registered: '', // 已登记
-    uploadProgress: '', // 上传进度
-    colMetric: '', // 指标
-    colDelta: '', // 差异
-    clientServer: '', // 客户端 {client} · 服务端 {server}
-    mismatch: '', //  ▲ 客户端与服务端统计不一致
-    chartDesc: '', // 条形对照：{desc}
-    descSep: '', // ；
-    descItemSep: '', // ，
-    validity: '', // 有效性校验
-    waitUpload: '', // ◷ 等待上传与校验
-    validAll: '', // ✓ 结构、登记、时间窗、驱动与服务端佐证都通过
-    simulated: '', // ◐ 模拟基线（旁路补测），证据权重较低
-    crosscheckWait: '', // ◷ 服务端佐证等待中（指标可能有数分钟延迟）
-    invalidShort: '', // 无效
-    functional: '', // 功能型实验：以下检查在实验时间窗内通过即视为有效。
-    pass: '', // ✓ 通过
-    notRun: '', // 未检测
-    noPrevious: '', // 之前的会话里没有这个变体的记录。
-    pickPrevious: '', // 选择之前会话的记录
-    none: '', // （不使用）
-    prevOption: '', // {t} · 会话 {sid} · {status}
-    descItem: '', // {label}：{values}
+    drawerTitle: '比較実験 · {key}', // 对比实验 · {key}
+    notFoundTitle: 'この実験が見つかりません', // 没有找到这个实验
+    notFound: 'カード {labId} は比較実験 {key} を宣言していません。', // 卡片 {labId} 没有声明对比实验 {key}。
+    crumb: '{labId} › 比較実験 · {key}（{req}）', // {labId} › 对比实验 · {key}（{req}）
+    required: '必須', // 必做
+    optional: '任意', // 选做
+    session: 'セッション {sid}', // 会话 {sid}
+    cloudshell: '節約モードでは比較実験の結果をアップロードできないため、関連するチェックはルールに従って格下げされます。', // 省钱模式下对比实验结果无法上传，相关检查只能按规则降级。
+    ending: 'ラボは終了しました。終了前に登録された実行のアップロードは引き続き受け付けます。', // 实验已结束：进入结束前已登记的运行仍会接收上传。
+    noRuns: 'この実験はまだ実行していません', // 还没有运行这个实验
+    noRunsHint: 'まずワークベンチのターミナルで{a}を実行し、アプリへの組み込みを終えてから{b}を実行します。', // 先在工作台终端运行{a}，再完成接入应用后运行{b}。
+    chart: 'グラフ', // 图表
+    bars: '棒グラフで比較', // 条形对照
+    table: 'データ表を表示', // 查看数据表
+    directionNote: '差の向きは変化を示すだけで、良し悪しではありません。マネージドサービスを有効にすると 1 回あたりのレイテンシが上がるのが正しい結論のこともあります。', // 差异方向只说明变化，不代表好坏：启用托管服务后单次延迟变高也可能是正确结论。
+    noMetrics: '選択した記録には比較できる指標がまだありません（アップロードとクロスチェックが終わると表示されます）。', // 所选记录还没有可比较的指标（上传与交叉校验完成后显示）。
+    pair: 'ペア比較 {a} ↔ {b}', // 成对比较 {a} ↔ {b}
+    missing: '{list} がありません', // 缺少 {list}
+    and: ' と ', //  和 
+    comparable: '比較可能（シナリオ、パラメーター、インスタンスタイプ、開始バリアントが一致し、どちらも強制実行ではありません）', // 可比（场景、参数、实例类型、起始变体一致；都不是强制运行）
+    notComparable: '比較できません：{list}', // 不可比：{list}
+    listSep: '、', // 、
+    howToRun: '実行方法（ワークベンチのターミナルで）', // 怎么运行（在工作台终端）
+    readOnly: '読み取り専用：このロールではワークベンチのターミナルを使えません。', // 只读：你的角色不能使用工作台终端。
+    crossSession: 'セッションをまたいだ比較（以前のセッションの {label} と比較）', // 跨会话对比（与之前会话的 {label} 比较）
+    roleTitle: '（{role}）', // （{role}）
+    fromSession: ' · セッション {sid} から', //  · 来自会话 {sid}
+    invalid: '無効：{list}', // 无效：{list}
+    runsCount: '記録 {n} 回', // 记录 {n} 次
+    pickRun: '{label} の記録を選択', // 选择 {label} 的记录
+    registered: '登録済み', // 已登记
+    uploadProgress: 'アップロードの進捗', // 上传进度
+    colMetric: '指標', // 指标
+    colDelta: '差', // 差异
+    clientServer: 'クライアント {client} · サーバー {server}', // 客户端 {client} · 服务端 {server}
+    mismatch: ' ▲ クライアントとサーバーの集計が一致しません', //  ▲ 客户端与服务端统计不一致
+    chartDesc: '棒グラフの比較：{desc}', // 条形对照：{desc}
+    descSep: '。', // ；
+    descItemSep: '、', // ，
+    validity: '有効性の確認', // 有效性校验
+    waitUpload: '◷ アップロードと検証を待っています', // ◷ 等待上传与校验
+    validAll: '✓ 構造、登録、時間枠、ドライバー、サーバー側の裏付けがすべて通りました', // ✓ 结构、登记、时间窗、驱动与服务端佐证都通过
+    simulated: '◐ 模擬ベースライン（バイパスで補完測定）。証拠としての重みは低めです', // ◐ 模拟基线（旁路补测），证据权重较低
+    crosscheckWait: '◷ サーバー側の裏付けを待っています（指標は数分遅れることがあります）', // ◷ 服务端佐证等待中（指标可能有数分钟延迟）
+    invalidShort: '無効', // 无效
+    functional: '機能型の実験：実験の時間枠内に次のチェックに合格すれば有効とみなします。', // 功能型实验：以下检查在实验时间窗内通过即视为有效。
+    pass: '✓ 合格', // ✓ 通过
+    notRun: '未チェック', // 未检测
+    noPrevious: '以前のセッションにこのバリアントの記録はありません。', // 之前的会话里没有这个变体的记录。
+    pickPrevious: '以前のセッションの記録を選択', // 选择之前会话的记录
+    none: '（使用しない）', // （不使用）
+    prevOption: '{t} · セッション {sid} · {status}', // {t} · 会话 {sid} · {status}
+    descItem: '{label}：{values}', // {label}：{values}
   },
   checkDrawer: {
     basis: {
-      stack: '', // 栈成员
-      ledger: '', // 台账
-      parent: '', // 父资源
-      lookup: '', // 定向扫描（CloudTrail）
+      stack: 'スタックのメンバー', // 栈成员
+      ledger: '台帳', // 台账
+      parent: '親リソース', // 父资源
+      lookup: '対象を絞ったスキャン（CloudTrail）', // 定向扫描（CloudTrail）
     },
-    title: '', // 检查详情：{name}
-    verdict: '', // 结论
-    how: '', // 判定方式
-    manual: '', // 手动
-    manualSub: '', // 手动（{sub}）
+    title: 'チェックの詳細：{name}', // 检查详情：{name}
+    verdict: '結論', // 结论
+    how: '判定方法', // 判定方式
+    manual: '手動', // 手动
+    manualSub: '手動（{sub}）', // 手动（{sub}）
     sub: {
-      native: '', // 原生
-      degraded: '', // 降级
-      evidence: '', // 带证据
+      native: '本来', // 原生
+      degraded: '格下げ', // 降级
+      evidence: '証拠付き', // 带证据
     },
-    auto: '', // 自动
-    source: '', // 来源
-    executor: '', // 执行者
-    manualLearner: '', // 提交手动确认的学员
-    executorRole: '', // {role}（atl-{sid}-verify）
-    time: '', // 时间
-    review: '', // 复核
-    reviewed: '', // 助教已复核
-    rejected: '', // 被打回
-    comment: '', // ：{text}
-    ownershipPending: '', // 正在确认这个资源是你在本次实验中创建的（CloudTrail 通常几分钟，不作保证）。平台会按 2、2、4、4、8 分钟的节奏复查。
-    checkerError: '', // 检测器出错，不是你的问题。
-    expectedActual: '', // 期望与实际
-    colAssertion: '', // 断言
-    colExpected: '', // 期望
-    colActual: '', // 实际
-    colResult: '', // 结果
-    matches: '', // ✓ 符合
-    mismatch: '', // ✕ 不符合
-    corroboration: '', // 佐证
-    via: '', // （{via}）
-    optionalTail: '', //  · 可选
-    ownership: '', // 归属
-    basisLine: '', // 依据：{basis}
-    notConfirmed: '', // 尚未确认
-    confirming: '', //  · 确认中
-    raw: '', // 原始证据
-    redactedJson: '', // 脱敏后的 JSON（已打码）
-    large: '', // 证据较大，摘要已显示；完整证据可在报告导出中查看。
-    noEvidence: '', // 还没有证据。
-    reproduce: '', // 复现命令
-    pitfalls: '', // 常见错误
-    cause: '', // ：{cause}
-    fix: '', //  处理：{fix}
-    history: '', // 历史（最近 10 次）
-    errorCode: '', // （{code}）
-    drift: '', //  [!] 漂移
-    noHistory: '', // 还没有检测记录。
-    manualConfirm: '', // 手动确认…
-    approvedAnnounce: '', // 已通过
-    rejectedAnnounce: '', // 已打回
-    reviewFailed: '', // 没能提交复核
-    assistantReview: '', // 助教复核
-    commentLabel: '', // 评语（打回时学员会看到）
-    approve: '', // 通过
-    reject: '', // 打回…
+    auto: '自動', // 自动
+    source: 'ソース', // 来源
+    executor: '実行者', // 执行者
+    manualLearner: '手動確認を提出した受講者', // 提交手动确认的学员
+    executorRole: '{role}（atl-{sid}-verify）', // {role}（atl-{sid}-verify）
+    time: '時刻', // 时间
+    review: 'レビュー', // 复核
+    reviewed: 'アシスタントがレビュー済み', // 助教已复核
+    rejected: '差し戻されました', // 被打回
+    comment: '：{text}', // ：{text}
+    ownershipPending: 'このリソースがこのラボで作成したものかどうかを確認しています（CloudTrail では通常数分ですが、保証はありません）。プラットフォームは 2、2、4、4、8 分の間隔で再確認します。', // 正在确认这个资源是你在本次实验中创建的（CloudTrail 通常几分钟，不作保证）。平台会按 2、2、4、4、8 分钟的节奏复查。
+    checkerError: 'チェッカーのエラーです。あなたの操作の問題ではありません。', // 检测器出错，不是你的问题。
+    expectedActual: '期待値と実際の値', // 期望与实际
+    colAssertion: 'アサーション', // 断言
+    colExpected: '期待値', // 期望
+    colActual: '実際の値', // 实际
+    colResult: '結果', // 结果
+    matches: '✓ 一致', // ✓ 符合
+    mismatch: '✕ 不一致', // ✕ 不符合
+    corroboration: '裏付け', // 佐证
+    via: '（{via}）', // （{via}）
+    optionalTail: ' · 任意', //  · 可选
+    ownership: '所有の確認', // 归属
+    basisLine: '根拠：{basis}', // 依据：{basis}
+    notConfirmed: '未確認', // 尚未确认
+    confirming: ' · 確認中', //  · 确认中
+    raw: '元の証拠', // 原始证据
+    redactedJson: 'マスク済みの JSON（伏せ字あり）', // 脱敏后的 JSON（已打码）
+    large: '証拠が大きいため、要約を表示しています。完全な証拠はレポートのエクスポートで確認できます。', // 证据较大，摘要已显示；完整证据可在报告导出中查看。
+    noEvidence: '証拠はまだありません。', // 还没有证据。
+    reproduce: '再現コマンド', // 复现命令
+    pitfalls: 'よくあるつまずき', // 常见错误
+    cause: '：{cause}', // ：{cause}
+    fix: ' 対処：{fix}', //  处理：{fix}
+    history: '履歴（直近 10 回）', // 历史（最近 10 次）
+    errorCode: '（{code}）', // （{code}）
+    drift: ' [!] ドリフト', //  [!] 漂移
+    noHistory: 'チェックの記録はまだありません。', // 还没有检测记录。
+    manualConfirm: '手動確認…', // 手动确认…
+    approvedAnnounce: '承認しました', // 已通过
+    rejectedAnnounce: '差し戻しました', // 已打回
+    reviewFailed: 'レビューを送信できませんでした', // 没能提交复核
+    assistantReview: 'アシスタントのレビュー', // 助教复核
+    commentLabel: 'コメント（差し戻すと受講者に表示されます）', // 评语（打回时学员会看到）
+    approve: '承認', // 通过
+    reject: '差し戻す…', // 打回…
   },
   end: {
     prereq: {
-      'route53-hosted-zone': '', // Route 53 托管区域
-      'ses-identity': '', // SES 发件身份
-      'acm-certificate': '', // ACM 证书
+      'route53-hosted-zone': 'Route 53 ホストゾーン', // Route 53 托管区域
+      'ses-identity': 'SES の送信元 ID', // SES 发件身份
+      'acm-certificate': 'ACM 証明書', // ACM 证书
     },
-    quoteFailed: '', // 没能计算保留费用
-    notAllowed: '', // 当前状态不能结束实验。
-    ending: '', // 正在结束实验
-    keepAfter: '', // 到期后保留 {n} 小时
-    releaseAtExpiry: '', // 到期时释放资源
-    quoteExpired: '', // 费用报价已失效，已重新计算，请重新确认。
-    stateChanged: '', // 会话状态刚刚变化，已刷新。
-    retryable: '', // 没有完成，可以重试（重试不会重复结束）。
-    title: '', // 结束实验
-    cancel: '', // 取消
-    submitting: '', // 正在提交…
-    flow: '', // 结束后：平台收回终端与控制台访问 → 生成报告 → 删除工作台 →（释放或保留环境）。
-    attempt: '', // 尝试状态：{state}
-    active: '', // 进行中
-    notSubmitted: '', // （未提交）。结束时平台会自动做一次最终复核，忘记提交也不吃亏。
-    period: '', // 。
-    environment: '', // 环境
-    releaseAll: '', // 释放全部资源（推荐）
-    releaseCost: '', // 费用：释放后不再新增计费；回收完成前（通常几分钟，CloudFront、RDS 等更久）已创建的资源仍按实际时长计费。本次会话已产生 {accrued}（估算 · Price List · 以账单为准）。
-    noEstimate: '', // （估算未提供）
-    keep: '', // 保留环境
-    keepHours: '', // 保留时长
-    hours: '', // {n} 小时
-    cardMax: '', // （本卡片上限 {n} 小时）
-    canKeep: '', // 可以保留
-    computing: '', // 正在计算保留费用…
-    keepCost: '', // 保留期间持续计费（估算）：{hourly}/小时 × {n} ≈ {total}
-    keepCostUnknown: '', // 保留期间持续计费：每小时单价暂不可得，无法估算保留的费用。
-    priceAsOf: '', // 取价时间 {t} · 以 AWS 官方定价与账单为准
-    notProvided: '', // 未提供
-    quoteExpiredShort: '', //  · 报价已失效
-    quoteExpiresIn: '', //  · 报价 {t} 后失效
-    recompute: '', // 重新计算费用
-    saveMode: '', // 节省模式（默认开启）：停止实验机；{tail}
-    nonStoppable: '', // 以下资源停不了，会继续计费：
-    nonStoppableGeneric: '', // 停不了的资源（例如弹性 IP、EBS 数据卷、按请求计费的服务）会继续计费。
-    noAccess: '', // 保留期间没有终端与控制台；要继续操作，请开始一个复用该环境的新会话。
-    ackKeep: '', // 我了解保留期间这些资源会持续计费
-    typeId: '', // 请输入卡片 id 以确认：
-    typeIdHint: '', // 每小时估算较高，输入 {labId} 确认
-    prereqs: '', // 前置资源（可选保留，不随环境释放）
-    when: '', // 何时
-    now: '', // 现在结束
-    atExpiry: '', // 到期时按上面的选择处理
-    atExpiryTime: '', // 到期时按上面的选择处理（{t}）
-    defaultNote: '', // 释放是默认选择；结束后会跳到回收进度页。
+    quoteFailed: '保持の費用を計算できませんでした', // 没能计算保留费用
+    notAllowed: '現在の状態ではラボを終了できません。', // 当前状态不能结束实验。
+    ending: 'ラボを終了しています', // 正在结束实验
+    keepAfter: '期限後に {n} 時間保持', // 到期后保留 {n} 小时
+    releaseAtExpiry: '期限にリソースを解放', // 到期时释放资源
+    quoteExpired: '費用の見積もりが失効したため再計算しました。もう一度確認してください。', // 费用报价已失效，已重新计算，请重新确认。
+    stateChanged: 'セッションの状態が変わったため、表示を更新しました。', // 会话状态刚刚变化，已刷新。
+    retryable: '完了しませんでした。再試行できます（再試行しても二重に終了することはありません）。', // 没有完成，可以重试（重试不会重复结束）。
+    title: 'ラボを終了', // 结束实验
+    cancel: 'キャンセル', // 取消
+    submitting: '送信しています…', // 正在提交…
+    flow: '終了後：プラットフォームがターミナルとコンソールへのアクセスを取り消す → レポートを作成 → ワークベンチを削除 →（環境を解放または保持）。', // 结束后：平台收回终端与控制台访问 → 生成报告 → 删除工作台 →（释放或保留环境）。
+    attempt: '試行の状態：{state}', // 尝试状态：{state}
+    active: '進行中', // 进行中
+    notSubmitted: '（未提出）。終了時にプラットフォームが最終確認を自動で 1 回行うので、提出を忘れても不利にはなりません。', // （未提交）。结束时平台会自动做一次最终复核，忘记提交也不吃亏。
+    period: '。', // 。
+    environment: '環境', // 环境
+    releaseAll: 'すべてのリソースを解放（推奨）', // 释放全部资源（推荐）
+    releaseCost: '費用：解放後は新たな課金は発生しません。回収が終わるまで（通常は数分、CloudFront や RDS などはもっと長くかかります）、作成済みのリソースは実際の時間に応じて課金されます。このセッションの費用はこれまでに {accrued} です（見積もり · Price List · 請求額が正です）。', // 费用：释放后不再新增计费；回收完成前（通常几分钟，CloudFront、RDS 等更久）已创建的资源仍按实际时长计费。本次会话已产生 {accrued}（估算 · Price List · 以账单为准）。
+    noEstimate: '（見積もりなし）', // （估算未提供）
+    keep: '環境を保持', // 保留环境
+    keepHours: '保持時間', // 保留时长
+    hours: '{n} 時間', // {n} 小时
+    cardMax: '（このカードの上限は {n} 時間）', // （本卡片上限 {n} 小时）
+    canKeep: '保持できます', // 可以保留
+    computing: '保持の費用を計算しています…', // 正在计算保留费用…
+    keepCost: '保持中も課金が続きます（見積もり）：{hourly}/時間 × {n} ≈ {total}', // 保留期间持续计费（估算）：{hourly}/小时 × {n} ≈ {total}
+    keepCostUnknown: '保持中も課金が続きます。1 時間あたりの単価を取得できないため、保持の費用は見積もれません。', // 保留期间持续计费：每小时单价暂不可得，无法估算保留的费用。
+    priceAsOf: '価格の取得時刻 {t} · AWS の公式料金と請求額が正です', // 取价时间 {t} · 以 AWS 官方定价与账单为准
+    notProvided: 'なし', // 未提供
+    quoteExpiredShort: ' · 見積もり失効', //  · 报价已失效
+    quoteExpiresIn: ' · 見積もりは {t} 後に失効', //  · 报价 {t} 后失效
+    recompute: '費用を再計算', // 重新计算费用
+    saveMode: '節約モード（既定でオン）：ラボ用インスタンスを停止します。{tail}', // 节省模式（默认开启）：停止实验机；{tail}
+    nonStoppable: '次のリソースは停止できず、課金が続きます：', // 以下资源停不了，会继续计费：
+    nonStoppableGeneric: '停止できないリソース（Elastic IP、EBS データボリューム、リクエスト課金のサービスなど）は課金が続きます。', // 停不了的资源（例如弹性 IP、EBS 数据卷、按请求计费的服务）会继续计费。
+    noAccess: '保持期間中はターミナルとコンソールを使えません。作業を続けるには、この環境を再利用する新しいセッションを開始してください。', // 保留期间没有终端与控制台；要继续操作，请开始一个复用该环境的新会话。
+    ackKeep: '保持期間中もこれらのリソースに課金が続くことを理解しました', // 我了解保留期间这些资源会持续计费
+    typeId: '確認のためカード ID を入力してください：', // 请输入卡片 id 以确认：
+    typeIdHint: '1 時間あたりの見積もりが高めです。確認のため {labId} と入力してください', // 每小时估算较高，输入 {labId} 确认
+    prereqs: '前提リソース（任意で保持。環境と一緒には解放されません）', // 前置资源（可选保留，不随环境释放）
+    when: 'タイミング', // 何时
+    now: '今すぐ終了', // 现在结束
+    atExpiry: '期限になったら上の選択どおりに処理', // 到期时按上面的选择处理
+    atExpiryTime: '期限（{t}）になったら上の選択どおりに処理', // 到期时按上面的选择处理（{t}）
+    defaultNote: '既定は解放です。終了後は回収の進捗ページに移動します。', // 释放是默认选择；结束后会跳到回收进度页。
   },
   console: {
     link: {
-      's3.bucket': '', // S3 · 照片桶
-      'cloudfront.distribution': '', // CloudFront · 分配
-      'ec2.instance': '', // EC2 · 实验机
-      'iam.role': '', // IAM · 角色
-      'sqs.queue': '', // SQS · 队列
-      'rds.instance': '', // RDS · 数据库实例
+      's3.bucket': 'S3 · 写真バケット', // S3 · 照片桶
+      'cloudfront.distribution': 'CloudFront · ディストリビューション', // CloudFront · 分配
+      'ec2.instance': 'EC2 · ラボ用インスタンス', // EC2 · 实验机
+      'iam.role': 'IAM · ロール', // IAM · 角色
+      'sqs.queue': 'SQS · キュー', // SQS · 队列
+      'rds.instance': 'RDS · DB インスタンス', // RDS · 数据库实例
     },
-    opened: '', // 已在新标签页打开 AWS 控制台
-    errState: '', // 实验已结束，控制台访问已收回。
-    errDestination: '', // 该页面不在允许列表中。
-    errFederation: '', // 联合登录失败，可以重试。
-    errReauth: '', // 这个操作要求最近 60 分钟内登录过，请重新登录后再试。
-    errNotImplemented: '', // 控制台登录暂时不可用（平台还没有提供控制台联合登录）。
-    errRate: '', // 操作太频繁，请稍后重试。
-    errOther: '', // 没能取得控制台登录（{title}）。
-    errNetwork: '', // 没能取得控制台登录，请检查网络后重试。
-    cleanupFailedOnly: '', // 只提供待人工处理清单中各项的控制台深链（不签发新的联合登录）
-    revoked: '', // 实验已结束，控制台访问已收回
-    permissionsRevoked: '', // 已打开的控制台窗口中的权限已被收回。
-    viewManual: '', // 查看待人工处理清单
-    title: '', // AWS 控制台（新标签页打开，AWS 不允许嵌入）
-    identity: '', // 身份
-    identityValue: '', // ATLLearnerRole · 会话名 atl-{sid}-console
-    region: '', // 区域
-    lastIssued: '', // 上次签发
-    issued: '', // {t} · 控制台会话到 {until}（最长 1 小时，到期后需要续期）
-    notIssued: '', // 尚未签发（控制台会话最长 1 小时，到期后需要续期）
-    soon: '', // 剩余不足 10 分钟
-    expired: '', // 控制台会话已到期
-    expiringNote: '', // 控制台会话可能先于实验结束失效。
-    gettingLogin: '', // 正在获取登录…
-    open: '', // 在新标签页打开 AWS 控制台
-    renew: '', // 续期
-    popupBlocked: '', // 浏览器拦截了新窗口。
-    refetchOpen: '', // 重新获取并打开
-    openInNewTab: '', // 在新标签页打开
-    linkValidity: '', // （登录链接取得后 10 分钟内使用，超过后自动重新获取）
-    commonPages: '', // 本卡片常用页面
-    usedBySteps: '', // 步骤 {list} 用到
-    listSep: '', // 、
-    reLogin: '', // 以学员身份重新登录
-    cloudTrailNote: '', // 控制台中的操作会被 CloudTrail 记录；结束实验时，本次实验中手动创建的资源会被回收。刚在控制台创建的资源，平台需要几分钟才能确认归属（检测时显示“归属确认中”）。
-    profileNote: '', // 浏览器里若已登录你自己的 AWS 身份，联合登录会替换当前控制台会话。建议用单独的浏览器配置文件。
+    opened: 'AWS コンソールを新しいタブで開きました', // 已在新标签页打开 AWS 控制台
+    errState: 'ラボは終了し、コンソールへのアクセスは取り消されました。', // 实验已结束，控制台访问已收回。
+    errDestination: 'このページは許可リストにありません。', // 该页面不在允许列表中。
+    errFederation: 'フェデレーションログインに失敗しました。再試行できます。', // 联合登录失败，可以重试。
+    errReauth: 'この操作には直近 60 分以内のログインが必要です。再ログインしてからもう一度お試しください。', // 这个操作要求最近 60 分钟内登录过，请重新登录后再试。
+    errNotImplemented: 'コンソールへのログインは一時的に利用できません（プラットフォームがまだコンソールのフェデレーションログインを提供していません）。', // 控制台登录暂时不可用（平台还没有提供控制台联合登录）。
+    errRate: '操作が多すぎます。しばらくしてから再試行してください。', // 操作太频繁，请稍后重试。
+    errOther: 'コンソールのログインを取得できませんでした（{title}）。', // 没能取得控制台登录（{title}）。
+    errNetwork: 'コンソールのログインを取得できませんでした。ネットワークを確認してから再試行してください。', // 没能取得控制台登录，请检查网络后重试。
+    cleanupFailedOnly: '手動対応リストの各項目へのコンソールリンクだけを提供します（新しいフェデレーションログインは発行しません）', // 只提供待人工处理清单中各项的控制台深链（不签发新的联合登录）
+    revoked: 'ラボは終了し、コンソールへのアクセスは取り消されました', // 实验已结束，控制台访问已收回
+    permissionsRevoked: '開いているコンソールウィンドウの権限は取り消されました。', // 已打开的控制台窗口中的权限已被收回。
+    viewManual: '手動対応リストを表示', // 查看待人工处理清单
+    title: 'AWS コンソール（新しいタブで開きます。AWS は埋め込みを許可していません）', // AWS 控制台（新标签页打开，AWS 不允许嵌入）
+    identity: 'ID', // 身份
+    identityValue: 'ATLLearnerRole · セッション名 atl-{sid}-console', // ATLLearnerRole · 会话名 atl-{sid}-console
+    region: 'リージョン', // 区域
+    lastIssued: '前回の発行', // 上次签发
+    issued: '{t} · コンソールセッションは {until} まで（最長 1 時間、期限後は更新が必要）', // {t} · 控制台会话到 {until}（最长 1 小时，到期后需要续期）
+    notIssued: 'まだ発行されていません（コンソールセッションは最長 1 時間、期限後は更新が必要）', // 尚未签发（控制台会话最长 1 小时，到期后需要续期）
+    soon: '残り 10 分未満', // 剩余不足 10 分钟
+    expired: 'コンソールセッションの期限が切れました', // 控制台会话已到期
+    expiringNote: 'コンソールセッションがラボより先に失効することがあります。', // 控制台会话可能先于实验结束失效。
+    gettingLogin: 'ログインを取得しています…', // 正在获取登录…
+    open: 'AWS コンソールを新しいタブで開く', // 在新标签页打开 AWS 控制台
+    renew: '更新', // 续期
+    popupBlocked: 'ブラウザーが新しいウィンドウをブロックしました。', // 浏览器拦截了新窗口。
+    refetchOpen: '取得し直して開く', // 重新获取并打开
+    openInNewTab: '新しいタブで開く', // 在新标签页打开
+    linkValidity: '（ログインリンクは取得後 10 分以内に使ってください。過ぎると自動的に取得し直します）', // （登录链接取得后 10 分钟内使用，超过后自动重新获取）
+    commonPages: 'このカードでよく使うページ', // 本卡片常用页面
+    usedBySteps: 'ステップ {list} で使用', // 步骤 {list} 用到
+    listSep: '、', // 、
+    reLogin: '受講者として再ログイン', // 以学员身份重新登录
+    cloudTrailNote: 'コンソールでの操作は CloudTrail に記録されます。ラボの終了時、このラボで手動作成したリソースは回収されます。コンソールで作成したばかりのリソースは、プラットフォームが所有を確認するまで数分かかります（チェック時に「所有の確認中」と表示されます）。', // 控制台中的操作会被 CloudTrail 记录；结束实验时，本次实验中手动创建的资源会被回收。刚在控制台创建的资源，平台需要几分钟才能确认归属（检测时显示“归属确认中”）。
+    profileNote: 'ブラウザーで自分の AWS ID にログインしている場合、フェデレーションログインは現在のコンソールセッションを置き換えます。別のブラウザープロファイルを使うことをお勧めします。', // 浏览器里若已登录你自己的 AWS 身份，联合登录会替换当前控制台会话。建议用单独的浏览器配置文件。
   },
   cost: {
-    title: '', // 费用计（估算）
-    hourly: '', // 每小时
-    perHour: '', // {range}/小时
-    accrued: '', // 已产生
-    notProvided: '', // 未提供
-    priceAsOf: '', // 取价时间
-    incomplete: '', // 估算不完整：{n} 项单价不可得。
-    billable: '', // 当前计费的资源
-    resource: '', // 资源
-    learnerCreated: '', //  · 你手动创建
-    noBillable: '', // 没有记录到按小时或按量计费的资源。
-    unestimated: '', // + 未估算的手工资源 {n} 项
-    consoleNote: '', // 控制台中新建、尚未经检测确认的资源可能不在此列。
-    disclaimer: '', // 估算值，以 AWS 账单为准。
-    billNote: '', // 以 AWS 账单为准。
+    title: '費用メーター（見積もり）', // 费用计（估算）
+    hourly: '1 時間あたり', // 每小时
+    perHour: '{range}/時間', // {range}/小时
+    accrued: '発生済み', // 已产生
+    notProvided: 'なし', // 未提供
+    priceAsOf: '価格の取得時刻', // 取价时间
+    incomplete: '見積もりは不完全です：{n} 件の単価を取得できません。', // 估算不完整：{n} 项单价不可得。
+    billable: '現在課金中のリソース', // 当前计费的资源
+    resource: 'リソース', // 资源
+    learnerCreated: ' · 手動で作成', //  · 你手动创建
+    noBillable: '時間課金または従量課金のリソースは記録されていません。', // 没有记录到按小时或按量计费的资源。
+    unestimated: '+ 見積もりのない手動作成リソース {n} 件', // + 未估算的手工资源 {n} 项
+    consoleNote: 'コンソールで新しく作成し、まだチェックで確認されていないリソースは含まれないことがあります。', // 控制台中新建、尚未经检测确认的资源可能不在此列。
+    disclaimer: '見積もりです。AWS の請求額が正です。', // 估算值，以 AWS 账单为准。
+    billNote: 'AWS の請求額が正です。', // 以 AWS 账单为准。
   },
   shortcuts: {
-    switchPane: '', // 切换到 实验机终端 / 工作台终端 / AWS 控制台 / 应用预览
-    manual: '', // 回到手册当前步骤（离开终端）
-    terminal: '', // 焦点到当前终端
-    check: '', // 检测当前步骤
-    nextPrev: '', // 下一步 / 上一步
-    splitter: '', // 分隔条左移 / 右移 64px
-    splitterReset: '', // 分隔条复位
-    collapse: '', // 折叠 / 展开手册
-    screenReader: '', // 切换终端读屏模式
-    help: '', // 快捷键帮助
-    passThrough: '', // 把 Ctrl+. 原样交给终端
-    copyPaste: '', // 终端中复制 / 粘贴
-    whenManualFocused: '', // {key}（手册聚焦时）
-    title: '', // 工作台快捷键
-    close: '', // 关闭
-    intro: '', // 先按前导键 {leader}，1.5 秒内再按第二个键。前导键在终端中同样生效；可以在“终端设置”中更换。
+    switchPane: 'ラボ用インスタンスのターミナル / ワークベンチのターミナル / AWS コンソール / アプリのプレビューに切り替え', // 切换到 实验机终端 / 工作台终端 / AWS 控制台 / 应用预览
+    manual: '手順書の現在のステップに戻る（ターミナルを離れる）', // 回到手册当前步骤（离开终端）
+    terminal: '現在のターミナルにフォーカス', // 焦点到当前终端
+    check: '現在のステップをチェック', // 检测当前步骤
+    nextPrev: '次のステップ / 前のステップ', // 下一步 / 上一步
+    splitter: '区切り線を 64px 左 / 右に移動', // 分隔条左移 / 右移 64px
+    splitterReset: '区切り線を元に戻す', // 分隔条复位
+    collapse: '手順書を折りたたむ / 展開する', // 折叠 / 展开手册
+    screenReader: 'ターミナルのスクリーンリーダーモードを切り替え', // 切换终端读屏模式
+    help: 'ショートカットのヘルプ', // 快捷键帮助
+    passThrough: 'Ctrl+. をそのままターミナルに送る', // 把 Ctrl+. 原样交给终端
+    copyPaste: 'ターミナルでのコピー / 貼り付け', // 终端中复制 / 粘贴
+    whenManualFocused: '{key}（手順書にフォーカスがあるとき）', // {key}（手册聚焦时）
+    title: 'ワークベンチのショートカット', // 工作台快捷键
+    close: '閉じる', // 关闭
+    intro: 'まずプレフィックスキー {leader} を押し、1.5 秒以内に 2 つ目のキーを押します。プレフィックスキーはターミナル内でも有効です。「ターミナルの設定」で変更できます。', // 先按前导键 {leader}，1.5 秒内再按第二个键。前导键在终端中同样生效；可以在“终端设置”中更换。
   },
   termSettings: {
-    title: '', // 终端设置
-    cancel: '', // 取消
-    save: '', // 保存
-    fontSize: '', // 字号
-    screenReader: '', // 读屏模式（为终端输出维护可访问的行缓冲，有渲染开销）
-    leader: '', // 前导键
-    execute: '', // 在“粘贴到终端”的菜单中提供“粘贴并执行”（每次都会确认；危险命令不允许）
+    title: 'ターミナルの設定', // 终端设置
+    cancel: 'キャンセル', // 取消
+    save: '保存', // 保存
+    fontSize: '文字サイズ', // 字号
+    screenReader: 'スクリーンリーダーモード（ターミナル出力にアクセシブルな行バッファーを保持します。描画の負荷がかかります）', // 读屏模式（为终端输出维护可访问的行缓冲，有渲染开销）
+    leader: 'プレフィックスキー', // 前导键
+    execute: '「ターミナルに貼り付け」のメニューに「貼り付けて実行」を表示する（毎回確認します。危険なコマンドでは使えません）', // 在“粘贴到终端”的菜单中提供“粘贴并执行”（每次都会确认；危险命令不允许）
   },
   preview: {
     reason: {
-      MIXED_CONTENT: '', // 当前入口只有 HTTP，嵌入会被浏览器作为混合内容拦截。本卡片从自签名 / ALB 的 HTTP 入口讲起时，预览在新标签页打开。
-      MIXED_CONTENT_HINT: '', // 如何在此处直接预览：使用受信任 HTTPS 的入口，例如启用 cdn 后改用 CloudFront 入口。
-      UNTRUSTED_CERT: '', // 入口的证书不受浏览器信任（例如自签名），无法嵌入。不建议在新标签页中忽略证书警告。
-      FRAME_ANCESTORS_MISSING: '', // 应用没有允许平台嵌入（CSP frame-ancestors）。
-      X_FRAME_OPTIONS: '', // 应用没有允许平台嵌入（X-Frame-Options）。
-      UNREACHABLE: '', // 入口暂时无法访问（实例停止、安全组收紧或换 IP 演练期间）。
+      MIXED_CONTENT: '現在の入口は HTTP のみのため、埋め込むとブラウザーが混在コンテンツとしてブロックします。このカードが自己署名 / ALB の HTTP 入口から始まる場合、プレビューは新しいタブで開きます。', // 当前入口只有 HTTP，嵌入会被浏览器作为混合内容拦截。本卡片从自签名 / ALB 的 HTTP 入口讲起时，预览在新标签页打开。
+      MIXED_CONTENT_HINT: 'ここで直接プレビューするには：信頼できる HTTPS の入口を使います。たとえば cdn を有効にした後、CloudFront の入口に切り替えます。', // 如何在此处直接预览：使用受信任 HTTPS 的入口，例如启用 cdn 后改用 CloudFront 入口。
+      UNTRUSTED_CERT: '入口の証明書がブラウザーに信頼されていない（自己署名など）ため、埋め込めません。新しいタブで証明書の警告を無視することはお勧めしません。', // 入口的证书不受浏览器信任（例如自签名），无法嵌入。不建议在新标签页中忽略证书警告。
+      FRAME_ANCESTORS_MISSING: 'アプリがプラットフォームへの埋め込みを許可していません（CSP frame-ancestors）。', // 应用没有允许平台嵌入（CSP frame-ancestors）。
+      X_FRAME_OPTIONS: 'アプリがプラットフォームへの埋め込みを許可していません（X-Frame-Options）。', // 应用没有允许平台嵌入（X-Frame-Options）。
+      UNREACHABLE: '入口に一時的にアクセスできません（インスタンスの停止、セキュリティグループの制限、IP 変更の演習中など）。', // 入口暂时无法访问（实例停止、安全组收紧或换 IP 演练期间）。
     },
     entry: {
-      direct: '', // 直连 EC2
-      app: '', // 应用入口
-      cdn: '', // CloudFront
-      alb: '', // 负载均衡器
-      'custom-domain': '', // 自定义域名
+      direct: 'EC2 に直接接続', // 直连 EC2
+      app: 'アプリの入口', // 应用入口
+      cdn: 'CloudFront', // CloudFront
+      alb: 'ロードバランサー', // 负载均衡器
+      'custom-domain': 'カスタムドメイン', // 自定义域名
     },
-    unavailable: '', // 预览不可用：环境已停止或已释放。
-    loadFailed: '', // 读取预览入口失败。
-    noEntry: '', // 还没有可用的应用入口。
-    notEmbeddable: '', // 这个入口不能嵌入预览。
-    entryLabel: '', // 入口
-    embeddable: '', // ✓ 可嵌入
-    newTabOnly: '', // ✕ 仅新标签页
-    path: '', // 路径
-    refresh: '', // 刷新预览
-    newTab: '', // 新标签页
-    viewport: '', // 视口宽度
-    auto: '', // 自适应
-    adminAccount: '', // 管理员账号
-    frameTitle: '', // CloudAlbum 应用预览（{entry}）
-    loginNote: '', // 预览框内与新标签页中的 CloudAlbum 登录状态互相独立；部分浏览器（含部分 Safari 版本）在预览框内无法保持登录，请改用新标签页。
-    narrow: '', // 窄屏下预览在新标签页打开
-    cannotPreview: '', // 无法在此处预览
-    retry: '', // 重试
-    openNewTab: '', // 在新标签页打开
-    reauth: '', // 查看管理员密码要求最近 60 分钟内登录过。
-    notImplemented: '', // 平台暂时不能提供管理员账号。
-    readFailed: '', // 读取失败
-    credTitle: '', // CloudAlbum 管理员账号
-    close: '', // 关闭
-    username: '', // 用户名
-    password: '', // 初始密码
-    show10s: '', // 显示 10 秒
-    copiedPassword: '', // 已复制密码
-    clipboardDenied: '', // 无法访问剪贴板
-    copy: '', // 复制
-    passwordNote: '', // 密码只在这个对话框中显示，关闭后从页面内存中清除。
+    unavailable: 'プレビューは利用できません：環境は停止または解放済みです。', // 预览不可用：环境已停止或已释放。
+    loadFailed: 'プレビューの入口を読み込めませんでした。', // 读取预览入口失败。
+    noEntry: '利用できるアプリの入口はまだありません。', // 还没有可用的应用入口。
+    notEmbeddable: 'この入口はプレビューに埋め込めません。', // 这个入口不能嵌入预览。
+    entryLabel: '入口', // 入口
+    embeddable: '✓ 埋め込み可', // ✓ 可嵌入
+    newTabOnly: '✕ 新しいタブのみ', // ✕ 仅新标签页
+    path: 'パス', // 路径
+    refresh: 'プレビューを更新', // 刷新预览
+    newTab: '新しいタブ', // 新标签页
+    viewport: 'ビューポートの幅', // 视口宽度
+    auto: '自動', // 自适应
+    adminAccount: '管理者アカウント', // 管理员账号
+    frameTitle: 'CloudAlbum アプリのプレビュー（{entry}）', // CloudAlbum 应用预览（{entry}）
+    loginNote: 'プレビュー枠内と新しいタブとでは、CloudAlbum のログイン状態は別々です。一部のブラウザー（Safari の一部のバージョンを含む）ではプレビュー枠内でログインを保持できないため、新しいタブを使ってください。', // 预览框内与新标签页中的 CloudAlbum 登录状态互相独立；部分浏览器（含部分 Safari 版本）在预览框内无法保持登录，请改用新标签页。
+    narrow: '画面が狭いため、プレビューは新しいタブで開きます', // 窄屏下预览在新标签页打开
+    cannotPreview: 'ここではプレビューできません', // 无法在此处预览
+    retry: '再試行', // 重试
+    openNewTab: '新しいタブで開く', // 在新标签页打开
+    reauth: '管理者パスワードを表示するには、直近 60 分以内のログインが必要です。', // 查看管理员密码要求最近 60 分钟内登录过。
+    notImplemented: 'プラットフォームは現在、管理者アカウントを提供できません。', // 平台暂时不能提供管理员账号。
+    readFailed: '読み込みに失敗しました', // 读取失败
+    credTitle: 'CloudAlbum の管理者アカウント', // CloudAlbum 管理员账号
+    close: '閉じる', // 关闭
+    username: 'ユーザー名', // 用户名
+    password: '初期パスワード', // 初始密码
+    show10s: '10 秒間表示', // 显示 10 秒
+    copiedPassword: 'パスワードをコピーしました', // 已复制密码
+    clipboardDenied: 'クリップボードにアクセスできません', // 无法访问剪贴板
+    copy: 'コピー', // 复制
+    passwordNote: 'パスワードはこのダイアログにだけ表示され、閉じるとページのメモリから消去されます。', // 密码只在这个对话框中显示，关闭后从页面内存中清除。
   },
   bar: {
-    catalog: '', // ‹ 目录
-    heading: '', // 工作台 · {title}
-    scenario: '', // 场景
-    service: '', // 服务
-    variant: '', //  · 变体 {v}
-    elapsed: '', // 已用 {t} · 倒计时未开始
-    readyRemaining: '', // 环境已就绪 · 剩余
-    keepAfter: '', // 到期后保留 {n} 小时
-    releaseAtExpiry: '', // 到期时释放
-    keptUntil: '', // 至 {t}
-    hourlyEstimate: '', // {range}/h（估算）
-    hourly: '', // {range}/h
-    noHourly: '', // 每小时估算未提供
-    costTitle: '', // 费用计（估算）
-    accrued: '', //  · 已产生 {v}
-    notProvided: '', // 未提供
-    extend: '', // 延长 {n} 分钟（剩 {left} 次）
-    extendedMax: '', // 已延长 {n} 次（上限）
-    canExtend: '', // 可以延长
-    end: '', // 结束实验…
-    cancel: '', // 取消…
-    more: '', // 更多
-    costDetail: '', // 费用计明细
-    shortcuts: '', // 快捷键帮助
-    termSettings: '', // 终端设置…
-    theme: '', // 主题
-    themeItem: '', // 主题：{v}
-    language: '', // 界面语言
-    sessionDetail: '', // 会话详情
-    adminAccount: '', // 查看 CloudAlbum 管理员账号
-    catalogNav: '', // 卡片目录（全站导航）
-    targets: '', // 本卡将依次启用：
+    catalog: '‹ 一覧', // ‹ 目录
+    heading: 'ワークベンチ · {title}', // 工作台 · {title}
+    scenario: 'シナリオ', // 场景
+    service: 'サービス', // 服务
+    variant: ' · バリアント {v}', //  · 变体 {v}
+    elapsedLabel: '経過時間', // 已用时间
+    notStarted: 'カウントダウンはまだ始まっていません', // 倒计时未开始
+    readyRemaining: '環境の準備完了 · 残り', // 环境已就绪 · 剩余
+    keepAfter: '期限後に {n} 時間保持', // 到期后保留 {n} 小时
+    releaseAtExpiry: '期限に解放', // 到期时释放
+    keptUntil: '{t} まで', // 至 {t}
+    hourlyEstimate: '{range}/h（見積もり）', // {range}/h（估算）
+    hourly: '{range}/h', // {range}/h
+    noHourly: '1 時間あたりの見積もりなし', // 每小时估算未提供
+    costTitle: '費用メーター（見積もり）', // 费用计（估算）
+    costAria: '費用メーター（見積もり）：1 時間あたり {hourly}、発生済み {accrued}', // 费用计（估算）：每小时 {hourly}，已产生 {accrued}
+    costAriaHourly: '費用メーター（見積もり）：1 時間あたり {hourly}', // 费用计（估算）：每小时 {hourly}
+    notProvided: 'なし', // 未提供
+    extend: '{n} 分延長（残り {left} 回）', // 延长 {n} 分钟（剩 {left} 次）
+    extendShort: '+{n} 分', // +{n} 分钟
+    extendLeft: '残り {left} 回', // 剩 {left} 次
+    extendedMax: '{n} 回延長済み（上限）', // 已延长 {n} 次（上限）
+    canExtend: '延長できます', // 可以延长
+    end: 'ラボを終了…', // 结束实验…
+    cancel: 'キャンセル…', // 取消…
+    more: 'その他', // 更多
+    costDetail: '費用メーターの内訳', // 费用计明细
+    shortcuts: 'ショートカットのヘルプ', // 快捷键帮助
+    termSettings: 'ターミナルの設定…', // 终端设置…
+    theme: 'テーマ', // 主题
+    themeItem: 'テーマ：{v}', // 主题：{v}
+    language: '表示言語', // 界面语言
+    sessionDetail: 'セッションの詳細', // 会话详情
+    adminAccount: 'CloudAlbum の管理者アカウントを表示', // 查看 CloudAlbum 管理员账号
+    catalogNav: 'カード一覧（サイト全体のナビゲーション）', // 卡片目录（全站导航）
+    targets: 'このカードで順に有効にするサービス', // 本卡将依次启用的服务
+    targetDone: '組み込み済み', // 已接入
   },
   banners: {
-    t15: '', // 剩余 {n} 分钟（{t} 到期）。到期后自动收回访问并释放资源。
-    extend: '', // 延长 {n} 分钟
-    canExtend: '', // 可以延长
-    keepAtExpiry: '', // 到期后保留环境…
-    endNow: '', // 现在结束…
-    precheck: '', // 到期预检：还差 {list}。结束时平台会自动做最终复核。
-    stepNo: '', // 第 {n} 步
-    listSep: '', // 、
-    kept: '', // 环境保留中。保留期间没有终端与控制台访问。
-    keptUntil: '', // 环境保留中 · 至 {t}。保留期间没有终端与控制台访问。
-    manageKeep: '', // 管理保留
-    cleanupFailed: '', // 释放未完成：有资源没能自动删除，它们仍可能计费。
-    viewList: '', // 查看清单
-    archive: '', // 已结束 · 只读存档。本会话打开过的终端列在右侧终端区。
-    viewReport: '', // 查看报告
-    degraded: '', // 实验机的管理通道不可达：终端与本地检测暂时不可用。
-    degradedOutage: '', //  本步骤会让管理通道暂时不可达：检测会显示“通道不可达”，属预期，窗口结束后（{t}）重新检测即可。
-    causes: '', // 常见原因
-    causesText: '', // 给 CloudAlbumAppRole 加了拒绝策略或“撤销活动会话”；私有放置缺 NAT 或 ssm / ssmmessages / ec2messages 终端节点；实例配置文件被替换；Agent 被停止。
-    repair: '', // 修复环境
-    end: '', // 结束实验…
-    budget: '', // 本月费用已超过预算，平台将在 10 分钟后结束本实验。
-    moduleOp: '', // 平台正在修改环境：{action}
-    platformAction: '', // 平台动作
-    runner: '', // （运行器 {id}）
-    completed: '', // 已完成（全自动）。
-    completedManual: '', // 已完成（含手动）。
-    badge: '', // 获得徽章“{badge}”。
-    completedTail: '', // 你可以结束并清理，也可以继续探索（倒计时照常）。
-    endAndClean: '', // 结束并清理…
-    keepExploring: '', // 继续探索
-    submitFailed: '', // 提交未通过：还差 {n} 项。修好之后可以再次提交。
-    dismiss: '', // 关闭提醒
-    region: '', // 工作台提醒
+    t15: '残り {n} 分です（{t} に期限）。期限になるとアクセスを取り消し、リソースを解放します。', // 剩余 {n} 分钟（{t} 到期）。到期后自动收回访问并释放资源。
+    extend: '{n} 分延長', // 延长 {n} 分钟
+    canExtend: '延長できます', // 可以延长
+    keepAtExpiry: '期限後も環境を保持…', // 到期后保留环境…
+    endNow: '今すぐ終了…', // 现在结束…
+    precheck: '期限前の事前チェック：{list} が未完了です。終了時にプラットフォームが最終確認を自動で行います。', // 到期预检：还差 {list}。结束时平台会自动做最终复核。
+    stepNo: 'ステップ {n}', // 第 {n} 步
+    listSep: '、', // 、
+    kept: '環境を保持しています。保持期間中はターミナルとコンソールにアクセスできません。', // 环境保留中。保留期间没有终端与控制台访问。
+    keptUntil: '環境を保持しています（{t} まで）。保持期間中はターミナルとコンソールにアクセスできません。', // 环境保留中 · 至 {t}。保留期间没有终端与控制台访问。
+    manageKeep: '保持を管理', // 管理保留
+    cleanupFailed: '解放が完了していません：自動で削除できなかったリソースがあり、課金が続いている可能性があります。', // 释放未完成：有资源没能自动删除，它们仍可能计费。
+    viewList: '一覧を表示', // 查看清单
+    archive: '終了済み · 読み取り専用のアーカイブです。このセッションで開いたターミナルは右側のターミナル領域に一覧表示されます。', // 已结束 · 只读存档。本会话打开过的终端列在右侧终端区。
+    viewReport: 'レポートを表示', // 查看报告
+    degraded: 'ラボ用インスタンスの管理チャネルに到達できません：ターミナルとローカルチェックは一時的に使えません。', // 实验机的管理通道不可达：终端与本地检测暂时不可用。
+    degradedOutage: ' このステップでは管理チャネルに一時的に到達できなくなります。チェックに「チャネルに到達できません」と表示されるのは想定どおりです。時間枠が終わった後（{t}）にもう一度チェックしてください。', //  本步骤会让管理通道暂时不可达：检测会显示“通道不可达”，属预期，窗口结束后（{t}）重新检测即可。
+    causes: 'よくある原因', // 常见原因
+    causesText: 'CloudAlbumAppRole に拒否ポリシーを追加した、または「アクティブなセッションを取り消す」を実行した。プライベート配置で NAT または ssm / ssmmessages / ec2messages エンドポイントがない。インスタンスプロファイルを置き換えた。Agent が停止している。', // 给 CloudAlbumAppRole 加了拒绝策略或“撤销活动会话”；私有放置缺 NAT 或 ssm / ssmmessages / ec2messages 终端节点；实例配置文件被替换；Agent 被停止。
+    repair: '環境を修復', // 修复环境
+    end: 'ラボを終了…', // 结束实验…
+    budget: '今月の費用が予算を超えました。プラットフォームは 10 分後にこのラボを終了します。', // 本月费用已超过预算，平台将在 10 分钟后结束本实验。
+    moduleOp: 'プラットフォームが環境を変更しています：{action}', // 平台正在修改环境：{action}
+    platformAction: 'プラットフォーム操作', // 平台动作
+    runner: '（ランナー {id}）', // （运行器 {id}）
+    completed: '完了しました（すべて自動）。', // 已完成（全自动）。
+    completedManual: '完了しました（手動確認を含む）。', // 已完成（含手动）。
+    badge: 'バッジ「{badge}」を獲得しました。', // 获得徽章“{badge}”。
+    completedTail: '終了してクリーンアップすることも、このまま探索を続けることもできます（カウントダウンは続きます）。', // 你可以结束并清理，也可以继续探索（倒计时照常）。
+    endAndClean: '終了してクリーンアップ…', // 结束并清理…
+    keepExploring: '探索を続ける', // 继续探索
+    submitFailed: '提出は不合格でした：あと {n} 件です。修正してからもう一度提出できます。', // 提交未通过：还差 {n} 项。修好之后可以再次提交。
+    dismiss: 'お知らせを閉じる', // 关闭提醒
+    region: 'ワークベンチのお知らせ', // 工作台提醒
   },
   extend: {
-    limit: '', // 延长次数或累计时长已用完。
-    quoteFailed: '', // 没能计算费用，请重试。
-    extendedTo: '', // 已延长到 {t}
-    extended: '', // 已延长
-    quoteExpired: '', // 费用报价已失效，已重新计算，请重新确认。
-    precondition: '', // 截止时间刚刚变化（可能在另一个标签页延长过），已刷新。
-    expired: '', // 已经到期，无法延长。
-    budget: '', // 本月费用已超过预算，按设置不能延长。
-    uninstalling: '', // 平台正在卸载，不能延长。
-    retryable: '', // 延长没有完成，可以重试（重试不会重复延长）。
-    title: '', // 延长 {n} 分钟
-    cancel: '', // 取消
-    recompute: '', // 重新计算费用
-    extending: '', // 正在延长…
-    retry: '', // 重试
-    computing: '', // 正在计算费用…
-    cost: '', // 费用（估算 · 按当前环境实际启用的资源）：{hourly}/小时 × {h} 小时 ≈ {total}
-    costUnknown: '', // 费用（估算）：每小时单价暂不可得，无法估算这次延长的费用；延长期间资源照常按实际用量计费。
-    incomplete: '', // 部分单价不可得（{n} 项“未知”），估算不完整。
-    priceAsOf: '', // 取价时间 {t} · 以 AWS 官方定价与账单为准
-    notProvided: '', // 未提供
-    quoteExpiredShort: '', //  · 报价已失效
-    quoteExpiresIn: '', //  · 报价 {t} 后失效
-    budgetWarn: '', // 本月费用已接近预算。
-    ack: '', // 我了解延长期间资源继续计费
-    ackBudget: '', // 我知道本月费用已接近预算
+    limit: '延長の回数または合計時間を使い切りました。', // 延长次数或累计时长已用完。
+    quoteFailed: '費用を計算できませんでした。再試行してください。', // 没能计算费用，请重试。
+    extendedTo: '{t} まで延長しました', // 已延长到 {t}
+    extended: '延長しました', // 已延长
+    quoteExpired: '費用の見積もりが失効したため再計算しました。もう一度確認してください。', // 费用报价已失效，已重新计算，请重新确认。
+    precondition: '期限が変わったため（別のタブで延長した可能性があります）、表示を更新しました。', // 截止时间刚刚变化（可能在另一个标签页延长过），已刷新。
+    expired: 'すでに期限が過ぎているため延長できません。', // 已经到期，无法延长。
+    budget: '今月の費用が予算を超えたため、設定により延長できません。', // 本月费用已超过预算，按设置不能延长。
+    uninstalling: 'プラットフォームのアンインストール中のため延長できません。', // 平台正在卸载，不能延长。
+    retryable: '延長は完了しませんでした。再試行できます（再試行しても二重に延長されることはありません）。', // 延长没有完成，可以重试（重试不会重复延长）。
+    title: '{n} 分延長', // 延长 {n} 分钟
+    cancel: 'キャンセル', // 取消
+    recompute: '費用を再計算', // 重新计算费用
+    extending: '延長しています…', // 正在延长…
+    retry: '再試行', // 重试
+    computing: '費用を計算しています…', // 正在计算费用…
+    cost: '費用（見積もり · 現在の環境で実際に有効なリソースに基づく）：{hourly}/時間 × {h} 時間 ≈ {total}', // 费用（估算 · 按当前环境实际启用的资源）：{hourly}/小时 × {h} 小时 ≈ {total}
+    costUnknown: '費用（見積もり）：1 時間あたりの単価を取得できないため、今回の延長の費用は見積もれません。延長中もリソースは実際の使用量に応じて課金されます。', // 费用（估算）：每小时单价暂不可得，无法估算这次延长的费用；延长期间资源照常按实际用量计费。
+    incomplete: '一部の単価を取得できないため（「不明」{n} 件）、見積もりは不完全です。', // 部分单价不可得（{n} 项“未知”），估算不完整。
+    priceAsOf: '価格の取得時刻 {t} · AWS の公式料金と請求額が正です', // 取价时间 {t} · 以 AWS 官方定价与账单为准
+    notProvided: 'なし', // 未提供
+    quoteExpiredShort: ' · 見積もり失効', //  · 报价已失效
+    quoteExpiresIn: ' · 見積もりは {t} 後に失効', //  · 报价 {t} 后失效
+    budgetWarn: '今月の費用が予算に近づいています。', // 本月费用已接近预算。
+    ack: '延長中もリソースに課金が続くことを理解しました', // 我了解延长期间资源继续计费
+    ackBudget: '今月の費用が予算に近いことを理解しました', // 我知道本月费用已接近预算
   },
   stepCheck: {
-    done: '', // 本步检测完成：{pass} 项通过
-    doneFail: '', // 本步检测完成：{pass} 项通过，{fail} 项未通过
-    afterReady: '', // 环境就绪后可用
-    ended: '', // 实验已结束，不能再检测
-    title: '', // 本步检测
-    verifying: '', // 核验中…
-    run: '', // 检测
-    checks: '', // 检查
-    drift: '', // 这一步曾于 {t} 通过，现在{what}未通过。
-    before: '', // 之前
-    someChecks: '', // 有检查
-    quoted: '', // “{list}”
-    quoteSep: '', // ”“
-    noPitfalls: '', // 本步没有登记常见错误
-    troubleshoot: '', // 排错
-    ackDone: '', // 已记录：这是有意的改动。提交时仍要求这一步通过。
-    ackFailed: '', // 没能记录，请稍后重试
-    intended: '', // 我是有意改动的
-    ackNote: '', // 确认只关闭提醒，提交时仍要求通过。
-    cmdOk: '', // 命令已完成（退出码 0）
-    cmdFailed: '', // 命令失败（退出码 {code}）
-    unknown: '', // 未知
-    checkStep: '', // 检测本步
-    noAuto: '', // 本步没有自动检查。
-    failedNote: '', // 未通过不会扣分：修好之后重新检测即可。最终以提交时的复核为准。
-    manualLabel: '', // 手动确认：{title}
-    manual: '', // 手动确认…
-    reviewComment: '', // 助教评语：{text}
-    waited: '', // 已等待 {t}
-    waiting: '', // 等待中
-    typical: '', //  · 通常需要约 {n} 分钟
-    nextCheck: '', // 等待型检查 · 下次检测 {t} 后
+    done: 'このステップのチェックが終わりました：{pass} 件合格', // 本步检测完成：{pass} 项通过
+    doneFail: 'このステップのチェックが終わりました：{pass} 件合格、{fail} 件不合格', // 本步检测完成：{pass} 项通过，{fail} 项未通过
+    afterReady: '環境の準備ができると利用できます', // 环境就绪后可用
+    ended: 'ラボは終了したため、チェックできません', // 实验已结束，不能再检测
+    title: 'このステップのチェック', // 本步检测
+    verifying: '確認しています…', // 核验中…
+    run: 'チェック', // 检测
+    checks: 'チェック', // 检查
+    drift: 'このステップは {t}に合格しましたが、現在は{what}が不合格です。', // 这一步曾于 {t} 通过，现在{what}未通过。
+    before: '以前', // 之前
+    someChecks: '一部のチェック', // 有检查
+    quoted: '「{list}」', // “{list}”
+    quoteSep: '」「', // ”“
+    noPitfalls: 'このステップにはよくあるつまずきが登録されていません', // 本步没有登记常见错误
+    troubleshoot: 'トラブルシューティング', // 排错
+    ackDone: '意図的な変更として記録しました。提出時にはこのステップの合格が引き続き必要です。', // 已记录：这是有意的改动。提交时仍要求这一步通过。
+    ackFailed: '記録できませんでした。しばらくしてから再試行してください', // 没能记录，请稍后重试
+    intended: '意図的に変更しました', // 我是有意改动的
+    ackNote: '確認してもお知らせが閉じるだけで、提出時には合格が必要です。', // 确认只关闭提醒，提交时仍要求通过。
+    cmdOk: 'コマンドが完了しました（終了コード 0）', // 命令已完成（退出码 0）
+    cmdFailed: 'コマンドが失敗しました（終了コード {code}）', // 命令失败（退出码 {code}）
+    unknown: '不明', // 未知
+    checkStep: 'このステップをチェック', // 检测本步
+    noAuto: 'このステップには自動チェックがありません。', // 本步没有自动检查。
+    failedNote: '不合格でも減点はありません。修正してからもう一度チェックしてください。最終的には提出時の確認で判定します。', // 未通过不会扣分：修好之后重新检测即可。最终以提交时的复核为准。
+    manualLabel: '手動確認：{title}', // 手动确认：{title}
+    manual: '手動確認…', // 手动确认…
+    reviewComment: 'アシスタントのコメント：{text}', // 助教评语：{text}
+    waited: '待機時間 {t}', // 已等待 {t}
+    waiting: '待機中', // 等待中
+    typical: ' · 通常は約 {n} 分', //  · 通常需要约 {n} 分钟
+    nextCheck: '待機型のチェック · 次回は {t} 後', // 等待型检查 · 下次检测 {t} 后
   },
   main: {
-    afterReady: '', // 环境就绪后可用
-    termNotReady: '', // 终端还没有准备好
-    newSubNotConnected: '', // 新的终端子标签没有连上
-    notConnected: '', // 终端还没有连上
-    notConnectedCopied: '', // {lead}，命令已复制，可以连上后手动粘贴
-    notConnectedCopy: '', // {lead}，请先复制命令，连上后手动粘贴
-    pasted: '', // 已粘贴到 {target}终端 #{no}，检查后按 Enter 执行
-    ended: '', // 实验已结束，不能再检测
-    checkStarted: '', // 已开始检测
-    checkNotStarted: '', // 检测没有开始，请稍后重试
-    labCheckStarted: '', // 已开始检测整张卡片
-    labCheckNotStarted: '', // 检测没有开始
-    backToManual: '', // 已回到手册
-    readyAnnounce: '', // 环境已就绪，倒计时已开始
-    notifTitle: '', // ATL 实验平台
-    notifReady: '', // {labId} 的实验环境已就绪
-    notifRemaining: '', // {labId} 还剩 {n} 分钟，到期后自动收回访问并释放资源。
-    srOn: '', // 终端读屏模式已开启
-    srOff: '', // 终端读屏模式已关闭
-    segProgress: '', // 进度
-    segManual: '', // 手册
-    repairRequested: '', // 已请求修复环境
-    repairFailed: '', // 修复请求没有完成
-    segNav: '', // 工作台分段
-    segShow: '', // 显示
-    expandManual: '', // 展开手册
-    leaderWait: '', // 等待第二个键…
-    t5Hint: '', // 将显示到期提醒
+    afterReady: '環境の準備ができると利用できます', // 环境就绪后可用
+    termNotReady: 'ターミナルの準備がまだできていません', // 终端还没有准备好
+    newSubNotConnected: '新しいターミナルのサブタブに接続できませんでした', // 新的终端子标签没有连上
+    notConnected: 'ターミナルはまだ接続されていません', // 终端还没有连上
+    notConnectedCopied: '{lead}。コマンドはコピー済みなので、接続後に手動で貼り付けてください', // {lead}，命令已复制，可以连上后手动粘贴
+    notConnectedCopy: '{lead}。先にコマンドをコピーし、接続後に手動で貼り付けてください', // {lead}，请先复制命令，连上后手动粘贴
+    pasted: '{target}のターミナル #{no} に貼り付けました。確認してから Enter を押して実行してください', // 已粘贴到 {target}终端 #{no}，检查后按 Enter 执行
+    ended: 'ラボは終了したため、チェックできません', // 实验已结束，不能再检测
+    checkStarted: 'チェックを開始しました', // 已开始检测
+    checkNotStarted: 'チェックを開始できませんでした。しばらくしてから再試行してください', // 检测没有开始，请稍后重试
+    labCheckStarted: 'カード全体のチェックを開始しました', // 已开始检测整张卡片
+    labCheckNotStarted: 'チェックを開始できませんでした', // 检测没有开始
+    backToManual: '手順書に戻りました', // 已回到手册
+    readyAnnounce: '環境の準備ができました。カウントダウンが始まりました', // 环境已就绪，倒计时已开始
+    notifTitle: 'ATL ラボプラットフォーム', // ATL 实验平台
+    notifReady: '{labId} のラボ環境の準備ができました', // {labId} 的实验环境已就绪
+    notifRemaining: '{labId} は残り {n} 分です。期限になるとアクセスを取り消し、リソースを解放します。', // {labId} 还剩 {n} 分钟，到期后自动收回访问并释放资源。
+    srOn: 'ターミナルのスクリーンリーダーモードをオンにしました', // 终端读屏模式已开启
+    srOff: 'ターミナルのスクリーンリーダーモードをオフにしました', // 终端读屏模式已关闭
+    segProgress: '進捗', // 进度
+    segManual: '手順書', // 手册
+    repairRequested: '環境の修復をリクエストしました', // 已请求修复环境
+    repairFailed: '修復のリクエストを完了できませんでした', // 修复请求没有完成
+    segNav: 'ワークベンチの表示切り替え', // 工作台分段
+    segShow: '表示', // 显示
+    expandManual: '手順書を展開', // 展开手册
+    leaderWait: '2 つ目のキーを待っています…', // 等待第二个键…
+    t5Hint: '期限のお知らせが表示されます', // 将显示到期提醒
   },
   manual: {
-    title: '', // 实验手册
-    attempt: '', // 尝试：{state}
-    progress: '', // 进度 {n}
-    progressSr: '', //  个必需步骤已达成
-    submit: '', // 提交实验
-    preparing: '', // 环境准备中：可以先读手册；“粘贴到终端”与检测会在就绪后可用。
-    readOnly: '', // 只读：你的角色可以查看手册与检测结果{extra}。
-    readOnlyAssistant: '', // 、运行检测并复核手动确认
-    missingTitle: '', // 手册内容缺失
-    missingBody: '', // 请在 设置 › 内容版本 中检查。
-    overview: '', // 卡片概览
-    prev: '', // ← 上一步
-    afterReady: '', // 环境就绪后可用
-    ended: '', // 实验已结束
-    check: '', // 检测
-    next: '', // 下一步 →
-    steps: '', // 步骤
-    allSteps: '', // 全部步骤
-    optional: '', // 选做
-    wait: '', // 等待
-    outage: '', // 预期中断
-    billing: '', // 开始计费
+    title: 'ラボの手順書', // 实验手册
+    attempt: '試行：{state}', // 尝试：{state}
+    progressLabel: '進捗', // 进度
+    progressAria: '進捗：必須ステップ {done}/{total} を達成', // 进度：{done}/{total} 个必需步骤已达成
+    submit: 'ラボを提出', // 提交实验
+    preparing: '環境を準備中です。手順書は先に読めます。「ターミナルに貼り付け」とチェックは準備完了後に使えます。', // 环境准备中：可以先读手册；“粘贴到终端”与检测会在就绪后可用。
+    readOnly: '読み取り専用：このロールでは手順書とチェック結果を閲覧できます{extra}。', // 只读：你的角色可以查看手册与检测结果{extra}。
+    readOnlyAssistant: '。チェックの実行と手動確認のレビューもできます', // 、运行检测并复核手动确认
+    missingTitle: '手順書の内容がありません', // 手册内容缺失
+    missingBody: '設定 › コンテンツのバージョン で確認してください。', // 请在 设置 › 内容版本 中检查。
+    overview: 'カードの概要', // 卡片概览
+    prev: '← 前のステップ', // ← 上一步
+    afterReady: '環境の準備ができると利用できます', // 环境就绪后可用
+    ended: 'ラボは終了しました', // 实验已结束
+    check: 'チェック', // 检测
+    next: '次のステップ →', // 下一步 →
+    steps: 'ステップ', // 步骤
+    allSteps: 'すべてのステップ', // 全部步骤
+    optional: '任意', // 选做
+    wait: '待機', // 等待
+    outage: '想定内の中断', // 预期中断
+    billing: '課金開始', // 开始计费
   },
   md: {
     method: {
-      console: '', // 控制台
-      cli: '', // CLI
-      script: '', // 脚本
-      code: '', // 代码
+      console: 'コンソール', // 控制台
+      cli: 'CLI', // CLI
+      script: 'スクリプト', // 脚本
+      code: 'コード', // 代码
     },
     domain: {
-      secure: '', // 安全
-      resilient: '', // 弹性
-      performance: '', // 高性能
-      cost: '', // 成本优化
+      secure: 'セキュリティ', // 安全
+      resilient: '回復性', // 弹性
+      performance: '高パフォーマンス', // 高性能
+      cost: 'コスト最適化', // 成本优化
     },
-    fromVar: '', // 来自变量 {name}
-    unfilled: '', // 未填写：{name}
-    methodLabel: '', // 做法：{m}
-    methods: '', // 做法
-    done: '', // 已完成
-    notDone: '', // 未完成
-    why: '', // 为什么
-    reveal: '', // 展开提示
-    tip: '', // 提示
-    warning: '', // 注意
-    danger: '', // 危险
-    expected: '', // 预期结果
-    wait: '', // 等待：通常需要约 {n} 分钟{max}。等待型检查会自动复查（15、30、45、60 秒之后每 60 秒），页面不可见时暂停。
-    waitMax: '', // （最长 {n} 分钟）
-    whySaa: '', // 为什么（SAA）
-    domainTail: '', //  · {d}
-    confusable: '', //  · 易混淆
-    runsOn: '', //  · 运行于：{where}
-    lab: '', // 实验机
-    workstation: '', // 工作台
-    openConsole: '', // 在控制台打开
-    consoleNewTab: '', // （AWS 控制台，新标签页）
+    fromVar: '変数 {name} から', // 来自变量 {name}
+    unfilled: '未入力：{name}', // 未填写：{name}
+    methodLabel: 'やり方：{m}', // 做法：{m}
+    methods: 'やり方', // 做法
+    done: '完了', // 已完成
+    notDone: '未完了', // 未完成
+    why: 'なぜ', // 为什么
+    reveal: 'ヒントを表示', // 展开提示
+    tip: 'ヒント', // 提示
+    warning: '注意', // 注意
+    danger: '危険', // 危险
+    expected: '期待される結果', // 预期结果
+    waitTypical: '待機：通常は約 {n} 分{max}', // 等待：通常约 {n} 分钟{max}
+    waitAuto: '待機型のチェックは自動で再確認します（15、30、45、60 秒後、その後は 60 秒ごと）。ページが表示されていない間は一時停止します。', // 等待型检查会自动复查（15、30、45、60 秒之后每 60 秒），页面不可见时暂停。
+    waitMax: '（最長 {n} 分）', // （最长 {n} 分钟）
+    more: '詳しく', // 展开全文
+    less: '閉じる', // 收起
+    whySaa: 'なぜ（SAA）', // 为什么（SAA）
+    domainTail: ' · {d}', //  · {d}
+    confusable: ' · 混同しやすい', //  · 易混淆
+    runsOn: ' · 実行場所：{where}', //  · 运行于：{where}
+    lab: 'ラボ用インスタンス', // 实验机
+    workstation: 'ワークベンチ', // 工作台
+    openConsole: 'コンソールで開く', // 在控制台打开
+    consoleNewTab: '（AWS コンソール、新しいタブ）', // （AWS 控制台，新标签页）
     tab: {
-      'terminal-lab': '', // 实验机终端
-      'terminal-workstation': '', // 工作台终端
-      console: '', // AWS 控制台
-      preview: '', // 应用预览
+      'terminal-lab': 'ラボ用インスタンスのターミナル', // 实验机终端
+      'terminal-workstation': 'ワークベンチのターミナル', // 工作台终端
+      console: 'AWS コンソール', // AWS 控制台
+      preview: 'アプリのプレビュー', // 应用预览
     },
-    switchTo: '', // 切换到“{tab}”
+    switchTo: '「{tab}」に切り替え', // 切换到“{tab}”
   },
   failure: {
     quote: {
-      title: '', // 费用信息已更新
-      description: '', // 报价在开始前失效。没有创建任何资源。
+      title: '費用の情報が更新されました', // 费用信息已更新
+      description: '開始前に見積もりが失効しました。リソースは作成されていません。', // 报价在开始前失效。没有创建任何资源。
     },
     lockBusy: {
-      title: '', // 环境被占用
-      description: '', // 另一个实验正持有环境。没有创建资源。
+      title: '環境は使用中です', // 环境被占用
+      description: '別のラボが環境を使っています。リソースは作成されていません。', // 另一个实验正持有环境。没有创建资源。
     },
     envGone: {
-      title: '', // 要复用的环境已不可用
-      description: '', // 要复用的保留环境已释放或不可用。没有创建资源。
+      title: '再利用する環境を利用できません', // 要复用的环境已不可用
+      description: '再利用する予定だった保持中の環境は、解放済みか利用できません。リソースは作成されていません。', // 要复用的保留环境已释放或不可用。没有创建资源。
     },
     preflight: {
-      title: '', // 账号预检未通过
-      description: '', // 逐项检查默认 VPC、配额、缺少的学员输入与灾备区域设置。没有创建任何资源。
+      title: 'アカウントの事前チェックに合格しませんでした', // 账号预检未通过
+      description: '既定の VPC、クォータ、不足している受講者の入力、DR リージョンの設定を 1 つずつ確認します。リソースは作成されていません。', // 逐项检查默认 VPC、配额、缺少的学员输入与灾备区域设置。没有创建任何资源。
     },
     capacity: {
-      title: '', // 可用区容量不足
-      description: '', // 已换可用区重试一次仍失败。请稍后再试。
+      title: 'アベイラビリティーゾーンの容量が不足しています', // 可用区容量不足
+      description: '別のアベイラビリティーゾーンで 1 回再試行しましたが失敗しました。しばらくしてからもう一度お試しください。', // 已换可用区重试一次仍失败。请稍后再试。
     },
     account: {
-      title: '', // 账号受限
-      description: '', // 下面是 AWS 返回的原始错误。可能是组织 SCP 的限制或账号配额不足，建议联系账号管理员或申请提高配额。
+      title: 'アカウントが制限されています', // 账号受限
+      description: '以下は AWS が返した元のエラーです。組織の SCP による制限やアカウントのクォータ不足が考えられます。アカウント管理者に連絡するか、クォータの引き上げを申請してください。', // 下面是 AWS 返回的原始错误。可能是组织 SCP 的限制或账号配额不足，建议联系账号管理员或申请提高配额。
     },
     base: {
-      title: '', // 实验机启动失败
-      description: '', // 实验机没能完成引导。诊断信息中有引导日志摘要与实例控制台输出。
+      title: 'ラボ用インスタンスの起動に失敗しました', // 实验机启动失败
+      description: 'ラボ用インスタンスのブートストラップが完了しませんでした。診断情報にブートストラップログの要約とインスタンスのコンソール出力があります。', // 实验机没能完成引导。诊断信息中有引导日志摘要与实例控制台输出。
     },
     definition: {
-      title: '', // 实验定义有误
-      description: '', // 这是卡片内容或平台版本的问题，不是你的操作问题，已通知管理员（你）。可以在 设置 › 内容版本 中查看。
+      title: 'ラボの定義に誤りがあります', // 实验定义有误
+      description: 'カードの内容またはプラットフォームのバージョンの問題で、あなたの操作の問題ではありません。管理者（あなた）に通知しました。設定 › コンテンツのバージョン で確認できます。', // 这是卡片内容或平台版本的问题，不是你的操作问题，已通知管理员（你）。可以在 设置 › 内容版本 中查看。
     },
     profile: {
-      title: '', // 起始状态部署失败
-      description: '', // 部署起始状态时失败。诊断信息中有失败的模块或栈与 CloudFormation 原因。
+      title: '開始状態のデプロイに失敗しました', // 起始状态部署失败
+      description: '開始状態のデプロイ中に失敗しました。診断情報に、失敗したモジュールまたはスタックと CloudFormation の理由があります。', // 部署起始状态时失败。诊断信息中有失败的模块或栈与 CloudFormation 原因。
     },
     runner: {
-      title: '', // 平台运行器出错
-      description: '', // 平台运行器没能完成部署（已按规则重试）。排队超时时，可以申请提高 CodeBuild 并发配额。
+      title: 'プラットフォームのランナーでエラーが発生しました', // 平台运行器出错
+      description: 'プラットフォームのランナーがデプロイを完了できませんでした（ルールに従って再試行済み）。順番待ちでタイムアウトした場合は、CodeBuild の同時実行数のクォータ引き上げを申請できます。', // 平台运行器没能完成部署（已按规则重试）。排队超时时，可以申请提高 CodeBuild 并发配额。
     },
     workstation: {
-      title: '', // 工作台创建失败
-      description: '', // 工作台实例没能创建。卡片允许时，可以选择“不启动工作台（CloudShell 省钱模式）”重新开始。
+      title: 'ワークベンチを作成できませんでした', // 工作台创建失败
+      description: 'ワークベンチのインスタンスを作成できませんでした。カードが許可していれば、「ワークベンチを起動しない（CloudShell 節約モード）」を選んでやり直せます。', // 工作台实例没能创建。卡片允许时，可以选择“不启动工作台（CloudShell 省钱模式）”重新开始。
     },
     ssm: {
-      title: '', // 实验机无法连接管理通道
-      description: '', // 常见原因：实例配置文件、出网路径、私有放置缺 NAT 或终端节点。
+      title: 'ラボ用インスタンスの管理チャネルに接続できません', // 实验机无法连接管理通道
+      description: 'よくある原因：インスタンスプロファイル、外向きの通信経路、プライベート配置で NAT またはエンドポイントがない。', // 常见原因：实例配置文件、出网路径、私有放置缺 NAT 或终端节点。
     },
     health: {
-      title: '', // 健康检查未通过
-      description: '', // 修复一次后仍未通过。诊断信息中列出了未通过的检查项。
+      title: 'ヘルスチェックに合格しませんでした', // 健康检查未通过
+      description: '1 回修復しましたが、まだ合格しません。診断情報に不合格のチェック項目があります。', // 修复一次后仍未通过。诊断信息中列出了未通过的检查项。
     },
     timeout: {
-      title: '', // 准备超时
-      description: '', // 准备时间超过上限，平台已自动停止并释放已创建的资源。
+      title: '準備がタイムアウトしました', // 准备超时
+      description: '準備時間が上限を超えたため、プラットフォームが自動的に停止し、作成済みのリソースを解放しました。', // 准备时间超过上限，平台已自动停止并释放已创建的资源。
     },
     workflow: {
-      title: '', // 平台编排出错
-      description: '', // 平台编排出错，已生成待人工处理清单；平台会自动重试回收。
+      title: 'プラットフォームのオーケストレーションでエラーが発生しました', // 平台编排出错
+      description: 'プラットフォームのオーケストレーションでエラーが発生したため、手動対応リストを作成しました。プラットフォームは回収を自動で再試行します。', // 平台编排出错，已生成待人工处理清单；平台会自动重试回收。
     },
     fallback: {
-      title: '', // 启动失败
-      description: '', // 平台没能完成准备。下面是原始错误。
+      title: '起動に失敗しました', // 启动失败
+      description: 'プラットフォームは準備を完了できませんでした。以下は元のエラーです。', // 平台没能完成准备。下面是原始错误。
     },
-    regionPlaceholder: '', // <区域>
+    regionPlaceholder: '<リージョン>', // <区域>
   },
   phases: {
     title: {
-      validate: '', // 校验与预检
-      base: '', // 创建基础环境
-      profile: '', // 部署实验起始状态
-      connect: '', // 连接实验机（SSM）
-      health: '', // 健康检查
-      ready: '', // 就绪，开始计时
+      validate: '検証と事前チェック', // 校验与预检
+      base: '基本環境の作成', // 创建基础环境
+      profile: 'ラボの開始状態をデプロイ', // 部署实验起始状态
+      connect: 'ラボ用インスタンスに接続（SSM）', // 连接实验机（SSM）
+      health: 'ヘルスチェック', // 健康检查
+      ready: '準備完了・計時開始', // 就绪，开始计时
     },
     slow: {
-      elasticache: '', // ElastiCache 复制组
-      cloudfront: '', // CloudFront 分配
-      asg: '', // Auto Scaling 组
+      elasticache: 'ElastiCache のレプリケーショングループ', // ElastiCache 复制组
+      cloudfront: 'CloudFront のディストリビューション', // CloudFront 分配
+      asg: 'Auto Scaling グループ', // Auto Scaling 组
     },
-    fallbackVariant: '', // 已改用回退档 {name}
-    reuse: '', // 正在接管保留的环境
-    healthFix: '', // 健康检查未通过，正在修复一次
-    reboot: '', // 正在重启实验机后重试
-    queued: '', // 运行器排队中（CodeBuild 并发已满）
-    retryAz: '', // 正在换可用区重试
-    moduleIdx: '', // 模块 {i}/{n} · {module}
-    module: '', // 模块 {module}
-    resourceParen: '', // （{text}）
-    processing: '', // 正在处理：{line}
-    slowHint: '', // {name}通常是最慢的一步。可以先阅读手册第 1～2 节。
-    profileName: '', // 起始档位 {name}
-    instances: '', // 实验机 {lab} · 工作台 {ws}
+    fallbackVariant: '代替の構成 {name} に切り替えました', // 已改用回退档 {name}
+    reuse: '保持中の環境を引き継いでいます', // 正在接管保留的环境
+    healthFix: 'ヘルスチェックに合格しなかったため、1 回修復しています', // 健康检查未通过，正在修复一次
+    reboot: 'ラボ用インスタンスを再起動してから再試行しています', // 正在重启实验机后重试
+    queued: 'ランナーの順番待ち（CodeBuild の同時実行数が上限）', // 运行器排队中（CodeBuild 并发已满）
+    retryAz: '別のアベイラビリティーゾーンで再試行しています', // 正在换可用区重试
+    moduleIdx: 'モジュール {i}/{n} · {module}', // 模块 {i}/{n} · {module}
+    module: 'モジュール {module}', // 模块 {module}
+    resourceParen: '（{text}）', // （{text}）
+    processing: '処理中：{line}', // 正在处理：{line}
+    slowHint: '{name}は通常いちばん時間がかかります。その間に手順書の 1～2 節を読んでおけます。', // {name}通常是最慢的一步。可以先阅读手册第 1～2 节。
+    profileName: '開始構成 {name}', // 起始档位 {name}
+    instances: 'ラボ用インスタンス {lab} · ワークベンチ {ws}', // 实验机 {lab} · 工作台 {ws}
   },
   expiry: {
     extend: {
-      state: '', // 实验已到期或正在结束，无法延长。
-      none: '', // 已延长到上限次数。
-      last30s: '', // 即将到期，无法延长。
-      cap: '', // 已达到单次实验总时长上限。
-      uninstalling: '', // 平台正在卸载，不能延长。
-      budget: '', // 本月费用已超过预算，不能延长。
-      role: '', // 你的角色不能延长实验。
+      state: 'ラボは期限切れか終了処理中のため、延長できません。', // 实验已到期或正在结束，无法延长。
+      none: '延長回数の上限に達しました。', // 已延长到上限次数。
+      last30s: 'まもなく期限のため、延長できません。', // 即将到期，无法延长。
+      cap: '1 回のラボの合計時間の上限に達しました。', // 已达到单次实验总时长上限。
+      uninstalling: 'プラットフォームのアンインストール中のため延長できません。', // 平台正在卸载，不能延长。
+      budget: '今月の費用が予算を超えたため延長できません。', // 本月费用已超过预算，不能延长。
+      role: 'このロールではラボを延長できません。', // 你的角色不能延长实验。
     },
     keep: {
-      'not-allowed': '', // 本卡片不允许保留环境，只能释放。
-      degraded: '', // 环境异常时不能保留，只能释放。
-      uninstalling: '', // 平台正在卸载，进行中的实验会被结束，不允许保留。
-      budget: '', // 本月费用已超过预算，只能释放。
-      'env-age': '', // 环境已超过最长寿命，只能释放。
-      state: '', // 当前状态不能保留环境。
+      'not-allowed': 'このカードでは環境を保持できません。解放のみです。', // 本卡片不允许保留环境，只能释放。
+      degraded: '環境に異常があるため保持できません。解放のみです。', // 环境异常时不能保留，只能释放。
+      uninstalling: 'プラットフォームのアンインストール中は、進行中のラボは終了され、保持できません。', // 平台正在卸载，进行中的实验会被结束，不允许保留。
+      budget: '今月の費用が予算を超えたため、解放のみです。', // 本月费用已超过预算，只能释放。
+      'env-age': '環境が最長の寿命を超えたため、解放のみです。', // 环境已超过最长寿命，只能释放。
+      state: '現在の状態では環境を保持できません。', // 当前状态不能保留环境。
     },
-    endKeep: '', // 结束并保留环境 {n} 小时
-    endRelease: '', // 结束并释放资源
-    expiryKeep: '', // 到期时保留 {n} 小时
-    expiryRelease: '', // 到期时释放
-    nth: '', // 第 {n} 次
-    last: '', // 这是最后一次延长
-    more: '', // 还可以再延长 {n} 次
-    latest: '', // ；本次实验最晚到 {t}
-    summary: '', // 延长后 {after} 到期（{nth}，{more}{latest}）。
+    endKeep: '終了して環境を {n} 時間保持', // 结束并保留环境 {n} 小时
+    endRelease: '終了してリソースを解放', // 结束并释放资源
+    expiryKeep: '期限に {n} 時間保持', // 到期时保留 {n} 小时
+    expiryRelease: '期限に解放', // 到期时释放
+    nth: '{n} 回目', // 第 {n} 次
+    last: '最後の延長です', // 这是最后一次延长
+    more: 'あと {n} 回延長できます', // 还可以再延长 {n} 次
+    latest: '。このラボは最長で {t} までです', // ；本次实验最晚到 {t}
+    summary: '延長すると {after} に期限になります（{nth}、{more}{latest}）。', // 延长后 {after} 到期（{nth}，{more}{latest}）。
   },
   labText: {
     stepType: {
-      console: '', // 控制台
-      cli: '', // CLI
-      script: '', // 脚本
-      code: '', // 代码
-      observe: '', // 观察
-      experiment: '', // 对比实验
+      console: 'コンソール', // 控制台
+      cli: 'CLI', // CLI
+      script: 'スクリプト', // 脚本
+      code: 'コード', // 代码
+      observe: '観察', // 观察
+      experiment: '比較実験', // 对比实验
     },
     provisionName: {
-      A: '', // 较快
-      B: '', // 中等
-      C: '', // 较慢
-      D: '', // 很慢
+      A: '速い', // 较快
+      B: '普通', // 中等
+      C: '遅め', // 较慢
+      D: 'かなり遅い', // 很慢
     },
     provisionNote: {
-      A: '', // 本卡片的起始状态只有 L0 与快速创建的资源（A）。
-      B: '', // 本卡片的起始状态包含 CloudFront、ALB、实例替换等较慢的资源（B）。
-      C: '', // 本卡片的起始状态包含 RDS 或 ElastiCache，通常需要较长时间（C）。
-      D: '', // 本卡片的起始状态包含 RDS / ElastiCache 与其他慢资源，通常需要很长时间（D）。
+      A: 'このカードの開始状態は L0 とすぐに作成できるリソースだけです（A）。', // 本卡片的起始状态只有 L0 与快速创建的资源（A）。
+      B: 'このカードの開始状態には、CloudFront、ALB、インスタンスの置き換えなど時間のかかるリソースが含まれます（B）。', // 本卡片的起始状态包含 CloudFront、ALB、实例替换等较慢的资源（B）。
+      C: 'このカードの開始状態には RDS または ElastiCache が含まれ、通常は時間がかかります（C）。', // 本卡片的起始状态包含 RDS 或 ElastiCache，通常需要较长时间（C）。
+      D: 'このカードの開始状態には RDS / ElastiCache とその他の時間のかかるリソースが含まれ、通常はかなり時間がかかります（D）。', // 本卡片的起始状态包含 RDS / ElastiCache 与其他慢资源，通常需要很长时间（D）。
     },
   },
   checkText: {
-    expectedActual: '', // {label} · 期望 {expected}，实际 {actual}
-    youEntered: '', // 你填写：{v}
-    evidenceOk: '', //  · 证据已校验
-    ownership: '', // 归属确认中（CloudTrail 通常几分钟，不作保证）
-    ownershipNext: '', // 归属确认中（CloudTrail 通常几分钟，不作保证） · 下次 {t} 后
-    outageRetry: '', // 窗口结束后自动重试
-    notYourFault: '', // 不是你的问题
-    runDone: '', // 本步检测完成：{pass} 项通过
-    runFail: '', // ，{n} 项未通过
-    runOther: '', // ，{n} 项待定
+    expectedActual: '{label} · 期待値 {expected}、実際 {actual}', // {label} · 期望 {expected}，实际 {actual}
+    youEntered: '入力値：{v}', // 你填写：{v}
+    evidenceOk: ' · 証拠を確認済み', //  · 证据已校验
+    ownership: '所有を確認中（CloudTrail では通常数分ですが、保証はありません）', // 归属确认中（CloudTrail 通常几分钟，不作保证）
+    ownershipNext: '所有を確認中（CloudTrail では通常数分ですが、保証はありません） · 次回は {t} 後', // 归属确认中（CloudTrail 通常几分钟，不作保证） · 下次 {t} 后
+    outageRetry: '時間枠が終わると自動で再試行します', // 窗口结束后自动重试
+    notYourFault: 'あなたの操作の問題ではありません', // 不是你的问题
+    runDone: 'このステップのチェックが終わりました：{pass} 件合格', // 本步检测完成：{pass} 项通过
+    runFail: '、{n} 件不合格', // ，{n} 项未通过
+    runOther: '、{n} 件保留', // ，{n} 项待定
   },
   paste: {
-    unresolved: '', // 有 {n} 个变量未填写，已定位到变量条
-    secret: '', // 命令含密钥占位，不能粘贴。请在实验机上读取密钥后手动输入。
-    tooLarge: '', // 命令超过 16KB，只能复制
-    dangerExecute: '', // 危险命令不允许“粘贴并执行”，请粘贴后检查再自己按 Enter
-    multiline: '', // 当前程序不支持安全粘贴，请复制后手动粘贴
+    unresolved: '未入力の変数が {n} 個あります。変数バーに移動しました', // 有 {n} 个变量未填写，已定位到变量条
+    secret: 'コマンドにシークレットのプレースホルダーが含まれるため、貼り付けできません。ラボ用インスタンスでシークレットを読み取ってから手動で入力してください。', // 命令含密钥占位，不能粘贴。请在实验机上读取密钥后手动输入。
+    tooLarge: 'コマンドが 16KB を超えるため、コピーのみできます', // 命令超过 16KB，只能复制
+    dangerExecute: '危険なコマンドは「貼り付けて実行」できません。貼り付けて確認してから、自分で Enter を押してください', // 危险命令不允许“粘贴并执行”，请粘贴后检查再自己按 Enter
+    multiline: '現在のプログラムは安全な貼り付けに対応していません。コピーしてから手動で貼り付けてください', // 当前程序不支持安全粘贴，请复制后手动粘贴
     target: {
-      lab: '', // 实验机
-      workstation: '', // 工作台
+      lab: 'ラボ用インスタンス', // 实验机
+      workstation: 'ワークベンチ', // 工作台
     },
   },
   money: {
-    notProvided: '', // 未提供
-    approx: '', // ≈ {v}
-    range: '', // ≈ {low}～{high}
+    notProvided: 'なし', // 未提供
+    approx: '≈ {v}', // ≈ {v}
+    range: '≈ {low}～{high}', // ≈ {low}～{high}
   },
   right: {
     tab: {
-      'terminal-lab': '', // 实验机
-      'terminal-workstation': '', // 工作台
-      console: '', // AWS 控制台
-      preview: '', // 应用预览
+      'terminal-lab': 'ラボ用インスタンス', // 实验机
+      'terminal-workstation': 'ワークベンチ', // 工作台
+      console: 'AWS コンソール', // AWS 控制台
+      preview: 'アプリのプレビュー', // 应用预览
     },
     tabShort: {
-      'terminal-lab': '', // 实验机
-      'terminal-workstation': '', // 工作台
-      console: '', // 控制台
-      preview: '', // 预览
+      'terminal-lab': 'ラボ', // 实验机
+      'terminal-workstation': 'ワークベンチ', // 工作台
+      console: 'コンソール', // 控制台
+      preview: 'プレビュー', // 预览
     },
-    connected: '', // 已连接
-    reconnecting: '', // 重连中
-    unavailable: '', // 不可用
-    connecting: '', // 连接中
-    disconnected: '', // 断开
-    region: '', // 终端、控制台与预览
-    tabs: '', // 右侧标签
-    newTab: '', // （新标签页打开）
-    splitNA: '', // 拆分右栏暂不提供
-    split: '', // 拆分
-    readOnly: '', // 只读：你的角色不能连接终端或控制台
-    readOnlyText: '', // 助教与观察者永远拿不到 AWS 凭证。可以在手册中查看检测结果{extra}。
-    readOnlyAssistant: '', // 、运行检测并复核手动确认
-    cloudshell: '', // CloudShell（省钱模式）
-    cloudshellText: '', // 本次实验没有启动工作台实例。工作台命令请在 AWS CloudShell 中执行：先打开控制台，再从控制台顶栏打开 CloudShell。手册中工作台命令的“粘贴”改为“复制”。
-    cloudshellExp: '', // 省钱模式下对比实验结果无法上传，相关检查只能按规则降级。
-    openConsole: '', // 在新标签页打开 AWS 控制台
+    connected: '接続済み', // 已连接
+    reconnecting: '再接続中', // 重连中
+    unavailable: '利用不可', // 不可用
+    connecting: '接続中', // 连接中
+    disconnected: '切断', // 断开
+    region: 'ターミナル、コンソール、プレビュー', // 终端、控制台与预览
+    tabs: '右側のタブ', // 右侧标签
+    newTab: '（新しいタブで開きます）', // （新标签页打开）
+    splitNA: '右側の分割はまだ提供していません', // 拆分右栏暂不提供
+    split: '分割', // 拆分
+    readOnly: '読み取り専用：このロールではターミナルやコンソールに接続できません', // 只读：你的角色不能连接终端或控制台
+    readOnlyText: 'アシスタントと閲覧者には AWS の認証情報は発行されません。手順書でチェック結果を確認できます{extra}。', // 助教与观察者永远拿不到 AWS 凭证。可以在手册中查看检测结果{extra}。
+    readOnlyAssistant: '。チェックの実行と手動確認のレビューもできます', // 、运行检测并复核手动确认
+    cloudshell: 'CloudShell（節約モード）', // CloudShell（省钱模式）
+    cloudshellText: 'このラボではワークベンチのインスタンスを起動していません。ワークベンチ用のコマンドは AWS CloudShell で実行します。まずコンソールを開き、コンソールのトップバーから CloudShell を開いてください。手順書のワークベンチ用コマンドは「貼り付け」の代わりに「コピー」になります。', // 本次实验没有启动工作台实例。工作台命令请在 AWS CloudShell 中执行：先打开控制台，再从控制台顶栏打开 CloudShell。手册中工作台命令的“粘贴”改为“复制”。
+    cloudshellExp: '節約モードでは比較実験の結果をアップロードできないため、関連するチェックはルールに従って格下げされます。', // 省钱模式下对比实验结果无法上传，相关检查只能按规则降级。
+    openConsole: 'AWS コンソールを新しいタブで開く', // 在新标签页打开 AWS 控制台
   },
   manualConfirm: {
-    evidenceTooLong: '', // 证据超过 {n} 个字符，请只粘贴命令输出中的相关部分
-    evidenceJson: '', // 只能粘贴 JSON 格式的命令输出
-    submittedReview: '', // 已提交手动确认，等待助教复核
-    submitted: '', // 已提交手动确认
-    invalid: '', // 输入不符合要求：{detail}
-    failed: '', // 提交失败，可以重试
-    title: '', // 手动确认：{name}
-    done: '', // 完成
-    cancel: '', // 取消
-    submitting: '', // 正在提交…
-    submit: '', // 提交确认
-    doneReview: '', // 已提交。安装中有助教时，复核前会显示“等待助教复核”。
-    doneEvidence: '', // 已手动确认（带证据）。
-    doneManual: '', // 已手动确认。
-    native: '', // 这项检查需要你确认看到的结果（手动·原生）。
-    degraded: '', // 自动检测暂时无法判定，你可以按下面的位置查看后手动确认（手动·降级）。手动确认不能覆盖自动检测的“未通过”。
-    where: '', // 位置：{path}
-    whereRegion: '', // （区域：{region}）
-    labRegion: '', // 实验区域
-    question: '', // 你看到的是什么？
-    notExpected: '', // 这不是期望的结果，不能提交。
-    fixDefault: '', // 先修正配置，再重新检测。
-    valueLabel: '', // 你看到的值
-    example: '', // 例如 {v}
-    badFormat: '', // 格式不符合要求
-    note: '', // 备注（至少 6 个字）
-    noteShort: '', // 备注至少 6 个字
-    evidenceOptional: '', // 可选：粘贴命令输出作为证据（平台会用同一套断言校验，通过记为“带证据的手动”）
-    evidenceLabel: '', // 命令输出（JSON）
+    evidenceTooLong: '証拠が {n} 文字を超えています。コマンド出力の関係する部分だけを貼り付けてください', // 证据超过 {n} 个字符，请只粘贴命令输出中的相关部分
+    evidenceJson: '貼り付けられるのは JSON 形式のコマンド出力だけです', // 只能粘贴 JSON 格式的命令输出
+    submittedReview: '手動確認を提出しました。アシスタントのレビューを待っています', // 已提交手动确认，等待助教复核
+    submitted: '手動確認を提出しました', // 已提交手动确认
+    invalid: '入力が要件を満たしていません：{detail}', // 输入不符合要求：{detail}
+    failed: '提出に失敗しました。再試行できます', // 提交失败，可以重试
+    title: '手動確認：{name}', // 手动确认：{name}
+    done: '完了', // 完成
+    cancel: 'キャンセル', // 取消
+    submitting: '送信しています…', // 正在提交…
+    submit: '確認を提出', // 提交确认
+    doneReview: '提出しました。アシスタントがいる場合、レビューまでは「アシスタントのレビュー待ち」と表示されます。', // 已提交。安装中有助教时，复核前会显示“等待助教复核”。
+    doneEvidence: '手動で確認しました（証拠付き）。', // 已手动确认（带证据）。
+    doneManual: '手動で確認しました。', // 已手动确认。
+    native: 'このチェックは、表示された結果をあなたが確認する必要があります（手動・本来）。', // 这项检查需要你确认看到的结果（手动·原生）。
+    degraded: '自動チェックでは一時的に判定できません。以下の場所で確認してから手動で確認できます（手動・格下げ）。手動確認で自動チェックの「不合格」を上書きすることはできません。', // 自动检测暂时无法判定，你可以按下面的位置查看后手动确认（手动·降级）。手动确认不能覆盖自动检测的“未通过”。
+    where: '場所：{path}', // 位置：{path}
+    whereRegion: '（リージョン：{region}）', // （区域：{region}）
+    labRegion: 'ラボのリージョン', // 实验区域
+    question: '何が表示されていますか？', // 你看到的是什么？
+    notExpected: '期待される結果ではないため、提出できません。', // 这不是期望的结果，不能提交。
+    fixDefault: '先に設定を修正してから、もう一度チェックしてください。', // 先修正配置，再重新检测。
+    valueLabel: '表示された値', // 你看到的值
+    example: '例：{v}', // 例如 {v}
+    badFormat: '形式が要件を満たしていません', // 格式不符合要求
+    note: 'メモ（6 文字以上）', // 备注（至少 6 个字）
+    noteShort: 'メモは 6 文字以上で入力してください', // 备注至少 6 个字
+    evidenceOptional: '任意：証拠としてコマンド出力を貼り付けます（プラットフォームが同じアサーションで確認し、合格すれば「証拠付きの手動」として記録します）', // 可选：粘贴命令输出作为证据（平台会用同一套断言校验，通过记为“带证据的手动”）
+    evidenceLabel: 'コマンド出力（JSON）', // 命令输出（JSON）
   },
   dialogs: {
-    cancelling: '', // 正在取消实验
-    cancelFailed: '', // 取消没有完成，可以重试。
-    cancelTitle: '', // 取消实验
-    keepPreparing: '', // 继续准备
-    cancellingBusy: '', // 正在取消…
-    cancelRequested: '', // 尚未创建任何资源，取消不会产生费用。
-    cancelProvisioning: '', // 取消后，已经创建的资源会被释放，可能需要一些时间。准备期间产生的费用不会退回。
-    t5Title: '', // 还剩 5 分钟
-    extend30: '', // 延长 30 分钟
-    gotIt: '', // 知道了
-    t5Body: '', // 还剩 5 分钟。正在运行的对比实验，请尽快让结果上传完成（结束时平台会接收在途上传）。
-    overdueAnnounce: '', // 实验时间已到，相关对话框已关闭
-    endedAnnounce: '', // 实验已结束，正在收回访问并释放资源
-    overdueTitle: '', // 实验时间已到
-    endedTitle: '', // 实验已结束
-    overdueBody: '', // 实验时间已到，正在收回访问并释放资源。
-    endedBody: '', // 实验已结束，正在收回访问并释放资源。
-    expiredAt: '', // （{t} 到期）
-    drift: '', // 平台正在补触发到期处理（通常几分钟内）。
-    viewReclaim: '', // 查看回收进度
-    viewReport: '', // 查看报告
-    backToCatalog: '', // 回到卡片目录
-    standaloneCancel: '', // 取消实验
-    standaloneExtend: '', // 延长实验
-    standaloneEnd: '', // 结束实验
+    cancelling: 'ラボをキャンセルしています', // 正在取消实验
+    cancelFailed: 'キャンセルは完了しませんでした。再試行できます。', // 取消没有完成，可以重试。
+    cancelTitle: 'ラボをキャンセル', // 取消实验
+    keepPreparing: '準備を続ける', // 继续准备
+    cancellingBusy: 'キャンセルしています…', // 正在取消…
+    cancelRequested: 'まだリソースは作成されていないため、キャンセルしても費用は発生しません。', // 尚未创建任何资源，取消不会产生费用。
+    cancelProvisioning: 'キャンセルすると、作成済みのリソースは解放されます。少し時間がかかることがあります。準備中に発生した費用は返金されません。', // 取消后，已经创建的资源会被释放，可能需要一些时间。准备期间产生的费用不会退回。
+    t5Title: '残り 5 分です', // 还剩 5 分钟
+    extend30: '30 分延長', // 延长 30 分钟
+    gotIt: 'OK', // 知道了
+    t5Body: '残り 5 分です。実行中の比較実験があれば、早めに結果のアップロードを終えてください（終了時にプラットフォームは送信中のアップロードを受け付けます）。', // 还剩 5 分钟。正在运行的对比实验，请尽快让结果上传完成（结束时平台会接收在途上传）。
+    overdueAnnounce: 'ラボの時間が終了したため、関連するダイアログを閉じました', // 实验时间已到，相关对话框已关闭
+    endedAnnounce: 'ラボは終了しました。アクセスを取り消し、リソースを解放しています', // 实验已结束，正在收回访问并释放资源
+    overdueTitle: 'ラボの時間が終了しました', // 实验时间已到
+    endedTitle: 'ラボは終了しました', // 实验已结束
+    overdueBody: 'ラボの時間が終了しました。アクセスを取り消し、リソースを解放しています。', // 实验时间已到，正在收回访问并释放资源。
+    endedBody: 'ラボは終了しました。アクセスを取り消し、リソースを解放しています。', // 实验已结束，正在收回访问并释放资源。
+    expiredAt: '（{t} に期限）', // （{t} 到期）
+    drift: 'プラットフォームが期限の処理を補完で実行しています（通常は数分以内）。', // 平台正在补触发到期处理（通常几分钟内）。
+    viewReclaim: '回収の進捗を表示', // 查看回收进度
+    viewReport: 'レポートを表示', // 查看报告
+    backToCatalog: 'カード一覧に戻る', // 回到卡片目录
+    standaloneCancel: 'ラボをキャンセル', // 取消实验
+    standaloneExtend: 'ラボを延長', // 延长实验
+    standaloneEnd: 'ラボを終了', // 结束实验
   },
   expCard: {
-    title: '', // 对比实验 {key}
-    required: '', // （必做）
-    optional: '', // （选做）
-    view: '', // 查看对比
-    notDeclared: '', // 卡片没有声明这个实验。
+    title: '比較実験 {key}', // 对比实验 {key}
+    required: '（必須）', // （必做）
+    optional: '（任意）', // （选做）
+    view: '比較を表示', // 查看对比
+    notDeclared: 'カードはこの実験を宣言していません。', // 卡片没有声明这个实验。
   },
   splitter: {
-    label: '', // 调整手册宽度
-    collapsed: '', // 手册已折叠
-    width: '', // 手册宽度 {n}%
+    label: '手順書の幅を調整', // 调整手册宽度
+    collapsed: '手順書は折りたたまれています', // 手册已折叠
+    width: '手順書の幅 {n}%', // 手册宽度 {n}%
   },
   command: {
-    afterReady: '', // 环境就绪后可用
-    role: '', // 你的角色不能使用终端
-    ended: '', // 实验已结束，终端不可用
+    afterReady: '環境の準備ができると利用できます', // 环境就绪后可用
+    role: 'このロールではターミナルを使えません', // 你的角色不能使用终端
+    ended: 'ラボは終了したため、ターミナルは使えません', // 实验已结束，终端不可用
   },
   pasteDlg: {
-    severeTitle: '', // 粘贴危险命令
-    busyTitle: '', // 终端正在运行命令
-    executeTitle: '', // 粘贴并执行
-    linesTitle: '', // 将粘贴 {n} 行
-    confirmTitle: '', // 确认粘贴
-    cancel: '', // 取消
-    newTab: '', // 在新的终端子标签中粘贴
-    severeOk: '', // 我了解，粘贴
-    busyOk: '', // 仍然粘贴
-    executeOk: '', // 粘贴并执行
-    ok: '', // 粘贴
-    severeNote: '', // 这条命令会删除或停用资源，影响无法撤销。粘贴后请检查，再自己按 Enter；危险命令不允许“粘贴并执行”。
-    busyNote: '', // 终端正在运行命令（例如 tail -f），粘贴的内容会成为该程序的输入。
-    mismatch: '', // 这条命令本应在 {target} 上执行。
-    multiline: '', // 将向 {target}终端粘贴 {n} 行（安全粘贴，不会立即执行）。
-    host: '', // 目标主机
-    linuxUser: '', // Linux 用户
-    awsIdentity: '', // AWS 身份
-    dontAsk: '', // 本卡片内不再询问（仅普通命令）
-    rejectTitle: '', // 不能粘贴
-    gotIt: '', // 知道了
-    readOnLab: '', // 在实验机终端中读取：
-    copied: '', // 命令已复制到剪贴板，检查后可以在终端里手动粘贴。
-    copyFirst: '', // 可以先复制命令，再在终端里手动粘贴。
+    severeTitle: '危険なコマンドを貼り付け', // 粘贴危险命令
+    busyTitle: 'ターミナルでコマンドを実行中です', // 终端正在运行命令
+    executeTitle: '貼り付けて実行', // 粘贴并执行
+    linesTitle: '{n} 行を貼り付けます', // 将粘贴 {n} 行
+    confirmTitle: '貼り付けの確認', // 确认粘贴
+    cancel: 'キャンセル', // 取消
+    newTab: '新しいターミナルのサブタブに貼り付け', // 在新的终端子标签中粘贴
+    severeOk: '理解したうえで貼り付け', // 我了解，粘贴
+    busyOk: 'それでも貼り付け', // 仍然粘贴
+    executeOk: '貼り付けて実行', // 粘贴并执行
+    ok: '貼り付け', // 粘贴
+    severeNote: 'このコマンドはリソースを削除または無効化し、元に戻せません。貼り付けた後に確認してから、自分で Enter を押してください。危険なコマンドは「貼り付けて実行」できません。', // 这条命令会删除或停用资源，影响无法撤销。粘贴后请检查，再自己按 Enter；危险命令不允许“粘贴并执行”。
+    busyNote: 'ターミナルでコマンド（tail -f など）を実行中です。貼り付けた内容はそのプログラムへの入力になります。', // 终端正在运行命令（例如 tail -f），粘贴的内容会成为该程序的输入。
+    mismatch: 'このコマンドは本来 {target} で実行するものです。', // 这条命令本应在 {target} 上执行。
+    multiline: '{target}のターミナルに {n} 行を貼り付けます（安全な貼り付けのため、すぐには実行されません）。', // 将向 {target}终端粘贴 {n} 行（安全粘贴，不会立即执行）。
+    host: '対象ホスト', // 目标主机
+    linuxUser: 'Linux ユーザー', // Linux 用户
+    awsIdentity: 'AWS ID', // AWS 身份
+    dontAsk: 'このカードでは今後確認しない（通常のコマンドのみ）', // 本卡片内不再询问（仅普通命令）
+    rejectTitle: '貼り付けできません', // 不能粘贴
+    gotIt: 'OK', // 知道了
+    readOnLab: 'ラボ用インスタンスのターミナルで読み取ります：', // 在实验机终端中读取：
+    copied: 'コマンドをクリップボードにコピーしました。確認してからターミナルに手動で貼り付けられます。', // 命令已复制到剪贴板，检查后可以在终端里手动粘贴。
+    copyFirst: '先にコマンドをコピーしてから、ターミナルに手動で貼り付けられます。', // 可以先复制命令，再在终端里手动粘贴。
   },
   step: {
-    est: '', // 约 {n} 分钟 · 
-    optional: '', //  · 选做
-    billing: '', // 从这一步开始{what}{keys}。
-    billingDefault: '', // 计费
-    billingKeys: '', // （{list}）
-    listSep: '', // 、
-    outageOpen: '', // 预期中断：本步骤会暂时中断平台管理通道{reason}。在 {t} 之前，实验机终端与本地检测不可用是正常现象，不计为失败；窗口结束后平台自动重试。
-    reasonParen: '', // （{reason}）
-    outageNotice: '', // 本步骤会让管理通道暂时不可达（约 {n} 分钟）：检测会显示“通道不可达”，属预期，窗口结束后重新检测即可。
-    several: '', // 数
-    noBody: '', // 本步没有手册正文。
-    pitfalls: '', // 常见错误（{n}）
-    hit: '', // ● 命中：
-    cause: '', // ：{cause}
-    fix: '', //  处理：{fix}
-    unskipped: '', // 已撤销跳过
-    skipped: '', // 已跳过本步
-    failed: '', // 操作没有完成，请稍后重试
-    unskip: '', // 撤销跳过
-    skip: '', // 跳过本步
-    readDone: '', // 已记录：本步已读
-    readFailed: '', // 没能记录，请稍后重试
-    read: '', // 我已读完
+    services: 'このステップに関係するサービス', // 本步相关服务
+    billing: 'このステップから{what}が始まります{keys}。', // 从这一步开始{what}{keys}。
+    billingDefault: '課金', // 计费
+    billingKeys: '（{list}）', // （{list}）
+    listSep: '、', // 、
+    outageOpen: '想定内の中断：このステップではプラットフォームの管理チャネルが一時的に中断します{reason}。{t} までは、ラボ用インスタンスのターミナルとローカルチェックが使えないのは正常で、失敗とはみなしません。時間枠が終わるとプラットフォームが自動で再試行します。', // 预期中断：本步骤会暂时中断平台管理通道{reason}。在 {t} 之前，实验机终端与本地检测不可用是正常现象，不计为失败；窗口结束后平台自动重试。
+    reasonParen: '（{reason}）', // （{reason}）
+    outageHeadOpen: '想定内の中断 · {t} までに復旧', // 预期中断 · {t} 前恢复
+    outageHead: '想定内の中断 · 約 {n} 分', // 预期中断 · 约 {n} 分钟
+    outageNotice: 'このステップでは管理チャネルに一時的に到達できなくなります（約 {n} 分）。チェックに「チャネルに到達できません」と表示されるのは想定どおりです。時間枠が終わったらもう一度チェックしてください。', // 本步骤会让管理通道暂时不可达（约 {n} 分钟）：检测会显示“通道不可达”，属预期，窗口结束后重新检测即可。
+    several: '数', // 数
+    noBody: 'このステップには手順書の本文がありません。', // 本步没有手册正文。
+    pitfalls: 'よくあるつまずき（{n}）', // 常见错误（{n}）
+    hit: '● 該当：', // ● 命中：
+    cause: '：{cause}', // ：{cause}
+    fix: ' 対処：{fix}', //  处理：{fix}
+    unskipped: 'スキップを取り消しました', // 已撤销跳过
+    skipped: 'このステップをスキップしました', // 已跳过本步
+    failed: '操作を完了できませんでした。しばらくしてから再試行してください', // 操作没有完成，请稍后重试
+    unskip: 'スキップを取り消す', // 撤销跳过
+    skip: 'このステップをスキップ', // 跳过本步
+    readDone: '既読として記録しました', // 已记录：本步已读
+    readFailed: '記録できませんでした。しばらくしてから再試行してください', // 没能记录，请稍后重试
+    read: '読み終えました', // 我已读完
   },
   vars: {
-    label: '', // 变量
-    collapse: '', // 收起变量
-    all: '', // 全部变量（{n}）
-    unresolved: '', // 未解析
-    masked: '', // （显示已打码）
-    updated: '', // 已更新
-    editLabel: '', // 编辑变量 {label}
-    edit: '', // 编辑
-    badFormat: '', // 格式不符合要求
-    badFormatExample: '', // 格式不符合要求，例如 {example}
-    required: '', // 请填写
-    saved: '', // 已保存变量 {label}
-    saveFailed: '', // 没能保存，请稍后重试
-    fill: '', // 填写变量 {label}
-    saving: '', // 正在保存…
-    roleDenied: '', // 你的角色不能填写变量
-    afterReady: '', // 实验就绪后可以填写
-    save: '', // 保存
-    cancelEdit: '', // 取消编辑
-    current: '', // 当前值：{v}
-    empty: '', // 还没有填写
+    label: '変数', // 变量
+    collapse: '変数を閉じる', // 收起变量
+    all: 'すべての変数（{n}）', // 全部变量（{n}）
+    unresolved: '未解決', // 未解析
+    masked: '（表示は伏せ字）', // （显示已打码）
+    updated: '更新済み', // 已更新
+    editLabel: '変数 {label} を編集', // 编辑变量 {label}
+    edit: '編集', // 编辑
+    badFormat: '形式が要件を満たしていません', // 格式不符合要求
+    badFormatExample: '形式が要件を満たしていません。例：{example}', // 格式不符合要求，例如 {example}
+    required: '入力してください', // 请填写
+    saved: '変数 {label} を保存しました', // 已保存变量 {label}
+    saveFailed: '保存できませんでした。しばらくしてから再試行してください', // 没能保存，请稍后重试
+    fill: '変数 {label} を入力', // 填写变量 {label}
+    saving: '保存しています…', // 正在保存…
+    roleDenied: 'このロールでは変数を入力できません', // 你的角色不能填写变量
+    afterReady: 'ラボの準備ができると入力できます', // 实验就绪后可以填写
+    save: '保存', // 保存
+    cancelEdit: '編集をキャンセル', // 取消编辑
+    current: '現在の値：{v}', // 当前值：{v}
+    empty: 'まだ入力されていません', // 还没有填写
   },
   action: {
-    deploy: '', // 部署 {id}
-    roleDenied: '', // 你的角色不能执行平台动作
-    afterReady: '', // 实验就绪后可用
-    running: '', // 平台正在执行这个动作
-    requested: '', // 已请求平台动作：{title}
-    notAllowed: '', // 本卡片不允许这个平台动作
-    reauth: '', // 这个操作要求最近 60 分钟内登录过
-    failed: '', // 请求没有完成，请稍后重试
-    title: '', // 平台动作：{title}
-    interrupts: '', // 执行期间会暂时中断平台管理通道（预期中断）。
-    modifying: '', // 平台正在修改环境
-    execFailed: '', // 执行失败
-    execFailedSummary: '', // 执行失败：{summary}
-    done: '', // 已完成
-    cancel: '', // 取消
-    requesting: '', // 正在请求…
-    confirm: '', // 确认执行
-    confirmDefault: '', // 平台会以运行器修改你的实验环境。确认执行吗？
-    interruptsNote: '', // 执行期间实验机终端与本地检测会暂时不可用，属预期。
+    deploy: '{id} をデプロイ', // 部署 {id}
+    roleDenied: 'このロールではプラットフォーム操作を実行できません', // 你的角色不能执行平台动作
+    afterReady: 'ラボの準備ができると利用できます', // 实验就绪后可用
+    running: 'プラットフォームがこの操作を実行しています', // 平台正在执行这个动作
+    requested: 'プラットフォーム操作をリクエストしました：{title}', // 已请求平台动作：{title}
+    notAllowed: 'このカードではこのプラットフォーム操作は許可されていません', // 本卡片不允许这个平台动作
+    reauth: 'この操作には直近 60 分以内のログインが必要です', // 这个操作要求最近 60 分钟内登录过
+    failed: 'リクエストを完了できませんでした。しばらくしてから再試行してください', // 请求没有完成，请稍后重试
+    title: 'プラットフォーム操作：{title}', // 平台动作：{title}
+    interrupts: '実行中はプラットフォームの管理チャネルが一時的に中断します（想定内の中断）。', // 执行期间会暂时中断平台管理通道（预期中断）。
+    modifying: 'プラットフォームが環境を変更しています', // 平台正在修改环境
+    execFailed: '実行に失敗しました', // 执行失败
+    execFailedSummary: '実行に失敗しました：{summary}', // 执行失败：{summary}
+    done: '完了しました', // 已完成
+    cancel: 'キャンセル', // 取消
+    requesting: 'リクエストしています…', // 正在请求…
+    confirm: '実行する', // 确认执行
+    confirmDefault: 'プラットフォームがランナーでラボ環境を変更します。実行しますか？', // 平台会以运行器修改你的实验环境。确认执行吗？
+    interruptsNote: '実行中は、ラボ用インスタンスのターミナルとローカルチェックが一時的に使えなくなりますが、想定どおりです。', // 执行期间实验机终端与本地检测会暂时不可用，属预期。
   },
   submit: {
-    previewFailed: '', // 预检查没有完成
-    stepTitle: '', // 步骤 {n}“{title}”
-    submitted: '', // 已提交，平台正在做最终复核
-    failed: '', // 提交失败，请稍后重试
-    title: '', // 提交实验
-    cancel: '', // 取消
-    submitting: '', // 正在提交…
-    submitAnyway: '', // 仍然提交（可能不通过）
-    submit: '', // 提交
-    intro: '', // 平台会对全部必需检查强制重测一次（最终复核），通过即完成并获得徽章。
-    generating: '', // 正在生成预检查…
-    previewError: '', // 预检查没有完成（{error}），可以直接提交。
-    precheck: '', // 当前预检查：必需步骤 {done}/{total} 已达成
-    drifted: '', //  · {n} 项漂移
-    missing: '', // 还差：{step}
-    allDone: '', // 必需步骤都已达成
+    previewFailed: '事前確認を完了できませんでした', // 预检查没有完成
+    stepTitle: 'ステップ {n}「{title}」', // 步骤 {n}“{title}”
+    submitted: '提出しました。プラットフォームが最終確認をしています', // 已提交，平台正在做最终复核
+    failed: '提出に失敗しました。しばらくしてから再試行してください', // 提交失败，请稍后重试
+    title: 'ラボを提出', // 提交实验
+    cancel: 'キャンセル', // 取消
+    submitting: '送信しています…', // 正在提交…
+    submitAnyway: 'このまま提出（不合格になる可能性があります）', // 仍然提交（可能不通过）
+    submit: '提出', // 提交
+    intro: 'プラットフォームはすべての必須チェックを強制的にもう一度実行します（最終確認）。合格すれば完了となり、バッジを獲得できます。', // 平台会对全部必需检查强制重测一次（最终复核），通过即完成并获得徽章。
+    generating: '事前確認を作成しています…', // 正在生成预检查…
+    previewError: '事前確認を完了できませんでした（{error}）。このまま提出できます。', // 预检查没有完成（{error}），可以直接提交。
+    precheck: '現在の事前確認：必須ステップ {done}/{total} を達成', // 当前预检查：必需步骤 {done}/{total} 已达成
+    drifted: ' · {n} 件ドリフト', //  · {n} 项漂移
+    missing: '未完了：{step}', // 还差：{step}
+    allDone: '必須ステップをすべて達成しました', // 必需步骤都已达成
   },
 } satisfies Dict<typeof zh>;

@@ -80,6 +80,10 @@ export interface CheckDecl {
   spec?: ManualSpec;
   manualFallback?: ManualSpec;
   module?: string;
+  /** aws-readonly：AWS 服务名（cloudfront、s3…）；步骤顶部的服务图标用（stepServices.ts）。 */
+  service?: string;
+  /** http-header：请求目标（cdn、alb、public-ip…）。 */
+  target?: string;
   experiment?: string;
   label?: string;
 }
@@ -142,7 +146,9 @@ export interface LabDoc {
   retain?: { allowed?: boolean; maxHours?: number; reason?: string };
   provision?: { class?: 'A' | 'B' | 'C' | string };
   services?: { id: string; name?: string; role?: string; module?: string }[];
-  targetModules?: { id: string; driver?: string; wireStep?: string }[];
+  targetModules?: { id: string; driver?: string; fromDriver?: string; optional?: boolean; wireStep?: string; set?: Record<string, unknown> }[];
+  /** 起始状态（P04 的构成图用：kind=module 的条目是开始时已启用的模块）。 */
+  startProfile?: { provisions?: { item: string; kind: string; set?: Record<string, unknown> }[] };
   workstation?: { required?: boolean; tools?: string[]; savingsMode?: string };
   platform?: { consoleLinks?: string[] };
   platformOps?: PlatformOp[];

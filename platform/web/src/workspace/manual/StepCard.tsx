@@ -1,16 +1,21 @@
 /**
- * 步骤卡 StepCard（08 P05.3、§5.3；04 §4）：标题与预计耗时 → 计费提示（startsBilling）→ 预期中断提示 → 手册正文（做什么、为什么、
- * 做法标签页、代码块、控制台深链、预期结果、等待、提示）→ 常见错误 → 对比实验卡 → 选做步骤的跳过 → 本步检测。
+ * 步骤卡 StepCard（08 P05.3、§5.3；04 §4）：状态 · 预计耗时（时钟图标 + 分钟）· 步骤类型（图标 + 短标签）→ 标题 → 本步相关服务的
+ * 图标行（09 I6 e）→ 计费提示（startsBilling）→ 预期中断提示（较长时折叠）→ 手册正文（做什么、为什么、做法标签页、代码块、控制台深链、
+ * 预期结果、等待、提示；超过 3 行的段落折叠）→ 常见错误 → 对比实验卡 → 选做步骤的跳过 → 本步检测。
  * 只读状态（准备中、只读角色、已结束）下正文照常可读，粘贴与检测禁用。
  */
 import { useMemo, useState } from 'react';
 import { useServices } from '../../app/context';
 import { announce } from '../../lib/announce';
 import { formatClock } from '../../lib/format';
-import { Button, Shape, Status, STEP_STATE_META, type StepState } from '../../ui';
+import { Button, Status, STEP_STATE_META, type StepState } from '../../ui';
+import { MetricIcon, StepTypeTag } from '../../ui/charts';
 import { useWorkbench, useWorkspace } from '../context';
-import { checkLocalId, isOptional, stepManual, STEP_TYPE_TEXT, type LabStep } from '../model/lab';
+import { checkLocalId, isOptional, stepManual, type LabStep } from '../model/lab';
 import { collectPaths } from '../model/vars';
+import { Clamp } from '../visual/Clamp';
+import { WsIcon } from '../visual/icons';
+import { StepServices } from '../visual/StepServices';
 import { ExperimentCard } from './ExperimentCard';
 import { collectTexts, hasChecksDirective, indexCodeBlocks, Nodes, type RenderEnv } from './Mdast';
 import { PlatformActionButton } from './PlatformAction';
@@ -74,10 +79,10 @@ export function StepCard({ step, index }: { step: LabStep; index: number }) {
           <Status meta={STEP_STATE_META[state]} />
           {at ? <span className="faint"> · {formatClock(at)}</span> : null}
         </span>
-        <span className="muted">
-          {step.estMinutes ? t(WSC.est, { n: step.estMinutes }) : ''}
-          {STEP_TYPE_TEXT[step.type] ?? step.type}
-          {optional ? WSC.optional : ''}
+        <span className="step-meta">
+          {step.estMinutes ? <MetricIcon kind="duration" minutes={step.estMinutes} /> : null}
+          <StepTypeTag type={step.type} />
+          {optional ? <span className="tag">{W.manual.optional}</span> : null}
         </span>
       </div>
       <h2 id={`step-h-${step.id}`} tabIndex={-1} data-step-heading="">
@@ -85,9 +90,10 @@ export function StepCard({ step, index }: { step: LabStep; index: number }) {
         {step.title}
         <UntranslatedIf show={!!manual && manualUntranslated(manual)} />
       </h2>
+      <StepServices lab={lab} step={step} />
       {step.startsBilling ? (
         <div className="note" role="note" data-billing="">
-          <Shape name="dot" />
+          <WsIcon name="billing" />
           <span>
             {t(WSC.billing, {
               what: step.startsBilling.note ? `${step.startsBilling.note}` : WSC.billingDefault,
@@ -98,18 +104,20 @@ export function StepCard({ step, index }: { step: LabStep; index: number }) {
       ) : null}
       {eo ? (
         windowOpen ? (
-          <div className="note" role="note" data-outage="open">
-            <Shape name="hg" />
-            <span>
-              {t(WSC.outageOpen, { reason: eo.reason ? t(WSC.reasonParen, { reason: eo.reason }) : '', t: formatClock(windowOpen.until) })}
-            </span>
+          <div className="note amber mnote" role="note" data-outage="open">
+            <WsIcon name="outage" />
+            <div className="stack-4">
+              <b className="small">{t(WSC.outageHeadOpen, { t: formatClock(windowOpen.until) })}</b>
+              <Clamp>{t(WSC.outageOpen, { reason: eo.reason ? t(WSC.reasonParen, { reason: eo.reason }) : '', t: formatClock(windowOpen.until) })}</Clamp>
+            </div>
           </div>
         ) : (
-          <div className="note" role="note" data-outage="notice">
-            <Shape name="hg" />
-            <span>
-              {t(WSC.outageNotice, { n: eo.maxMinutes ?? WSC.several })}
-            </span>
+          <div className="note mnote" role="note" data-outage="notice">
+            <WsIcon name="outage" />
+            <div className="stack-4">
+              <b className="small">{t(WSC.outageHead, { n: eo.maxMinutes ?? WSC.several })}</b>
+              <Clamp>{t(WSC.outageNotice, { n: eo.maxMinutes ?? WSC.several })}</Clamp>
+            </div>
           </div>
         )
       ) : null}

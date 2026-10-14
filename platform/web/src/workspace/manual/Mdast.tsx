@@ -6,13 +6,20 @@
  * `:::wait` 等待说明、`:::reveal` 折叠提示、`:::saa` 考点、`:::code-ref` 代码片段、`::checks` / `::check` 本步检测、
  * `::console-link` 控制台深链、`::open-tab` 切换右侧标签、`::var-input` 变量输入、`::platform-action` 平台动作、`::experiment` 实验卡片、
  * 行内 `:kbd` 键帽、`:term` 术语。代码块按 `runsOn` 给出复制与“粘贴到终端”（03 §7.1）。
+ *
+ * 视觉化（09 I6 e）：做法标签带步骤类型图标；`:::expected` 带靶心图标，其中的示例输出高亮响应头等“名称: 值”（ExpectedOutput）；
+ * `:::wait` 先给出“通常约 n 分钟”的图标行；超过 3 行的段落默认折叠（Clamp；已经在折叠块 why / reveal / saa / 概览里的不再折叠）。
  */
 import { Fragment, useId, useState, type ReactNode } from 'react';
 import { lsGet, lsSet } from '../../lib/storage';
 import { Icon, Shape } from '../../ui';
+import { StepTypeIcon } from '../../ui/charts';
 import type { LabDoc, LabStep, MdNode } from '../model/lab';
 import { resolveTemplate, type VarsResponse } from '../model/vars';
-import { ManualCommand } from './ManualCommand';
+import { Clamp, CLAMP_MIN_CHARS } from '../visual/Clamp';
+import { ExpectedOutput } from '../visual/ExpectedOutput';
+import { WsIcon } from '../visual/icons';
+import { codeAttrs, ManualCommand } from './ManualCommand';
 
 import { msg, t } from '../../i18n';
 import { W } from '../strings';
@@ -29,6 +36,10 @@ export interface RenderEnv {
   onOpenTab?: (tab: string) => void;
   /** 代码块的序号（PasteMeta.blockIndex）。 */
   blockIndex: WeakMap<MdNode, number>;
+  /** 已经在折叠块（why / reveal / saa / 概览）里：段落不再折叠。 */
+  inFold?: boolean;
+  /** 在 `:::expected` 里：没有 runsOn 的代码块显示为高亮的示例输出。 */
+  inExpected?: boolean;
 }
 
 const WD = W.md;
@@ -100,7 +111,10 @@ function MethodTabs({ groups, env }: { groups: MdNode[]; env: RenderEnv }) {
   if (groups.length === 1) {
     return (
       <div className="stack-8 method" data-method={kinds[0]}>
-        <span className="small muted">{t(WD.methodLabel, { m: METHOD_TEXT[kinds[0]!] ?? kinds[0] })}</span>
+        <span className="small muted mlabel">
+          <StepTypeIcon type={kinds[0]!} />
+          {t(WD.methodLabel, { m: METHOD_TEXT[kinds[0]!] ?? kinds[0] })}
+        </span>
         <Nodes nodes={groups[0]!.children ?? []} env={env} />
       </div>
     );
@@ -132,6 +146,7 @@ function MethodTabs({ groups, env }: { groups: MdNode[]; env: RenderEnv }) {
               tabIndex={i === sel ? 0 : -1}
               onClick={() => choose(i)}
             >
+              <StepTypeIcon type={kinds[i]!} />
               {METHOD_TEXT[kinds[i]!] ?? kinds[i]}
               {g.attributes?.default === true ? <span aria-hidden="true"> •</span> : null}
             </button>
@@ -189,6 +204,13 @@ export function Node({ node: n, env }: { node: MdNode; env: RenderEnv }): ReactN
     case 'text':
       return <InlineText text={n.value ?? ''} vars={env.vars} />;
     case 'paragraph':
+      if (!env.inFold && collectTexts(n).join('').length >= CLAMP_MIN_CHARS) {
+        return (
+          <Clamp>
+            <Children node={n} env={env} />
+          </Clamp>
+        );
+      }
       return (
         <p>
           <Children node={n} env={env} />
@@ -287,6 +309,7 @@ export function Node({ node: n, env }: { node: MdNode; env: RenderEnv }): ReactN
         </div>
       );
     case 'code':
+      if (env.inExpected && !codeAttrs(n).runsOn) return <ExpectedOutput text={resolveTemplate(n.value ?? '', env.vars, codeAttrs(n).vars).text} />;
       return <ManualCommand node={n} env={env} />;
     case 'html':
       return <p className="small faint">{n.value}</p>;
@@ -320,7 +343,7 @@ function Container({ node: n, env }: { node: MdNode; env: RenderEnv }) {
         <details className="why">
           <summary>{WD.why}</summary>
           <div className="small stack-8">
-            <Children node={n} env={env} />
+            <Children node={n} env={{ ...env, inFold: true }} />
           </div>
         </details>
       );
@@ -329,7 +352,7 @@ function Container({ node: n, env }: { node: MdNode; env: RenderEnv }) {
         <details className="disc">
           <summary>{attr(n, 'title') ?? WD.reveal}</summary>
           <div className="small stack-8">
-            <Children node={n} env={env} />
+            <Children node={n} env={{ ...env, inFold: true }} />
           </div>
         </details>
       );
@@ -350,10 +373,13 @@ function Container({ node: n, env }: { node: MdNode; env: RenderEnv }) {
     }
     case 'expected':
       return (
-        <div className="stack-4 expected">
-          <b className="small">{WD.expected}</b>
-          <div className="small">
-            <Children node={n} env={env} />
+        <div className="stack-4 expected" data-expected="">
+          <b className="small exp-head">
+            <WsIcon name="target" />
+            {WD.expected}
+          </b>
+          <div className="small stack-4">
+            <Children node={n} env={{ ...env, inExpected: true }} />
           </div>
         </div>
       );
@@ -361,12 +387,11 @@ function Container({ node: n, env }: { node: MdNode; env: RenderEnv }) {
       const typical = attr(n, 'typical');
       const max = attr(n, 'max');
       return (
-        <div className="note mwait">
-          <Shape name="clock" />
+        <div className="note mwait" data-wait="">
+          <WsIcon name="hourglass" />
           <div className="stack-4">
-            <span className="small">
-              {t(WD.wait, { n: typical ?? '—', max: max ? t(WD.waitMax, { n: max }) : '' })}
-            </span>
+            <b className="small">{t(WD.waitTypical, { n: typical ?? '—', max: max ? t(WD.waitMax, { n: max }) : '' })}</b>
+            <span className="small">{WD.waitAuto}</span>
             <Children node={n} env={env} />
           </div>
         </div>
@@ -382,7 +407,7 @@ function Container({ node: n, env }: { node: MdNode; env: RenderEnv }) {
             {n.attributes?.confusable ? WD.confusable : ''}
           </summary>
           <div className="small stack-8">
-            <Children node={n} env={env} />
+            <Children node={n} env={{ ...env, inFold: true }} />
           </div>
         </details>
       );

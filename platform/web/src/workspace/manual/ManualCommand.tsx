@@ -14,7 +14,7 @@ import type { RenderEnv } from './Mdast';
 import { W } from '../strings';
 const SHELL_LANGS = new Set(['bash', 'sh', 'shell', 'zsh', 'console']);
 
-function codeAttrs(n: MdNode): { runsOn: RunsOn | null; copy: boolean; vars: boolean; danger: boolean } {
+export function codeAttrs(n: MdNode): { runsOn: RunsOn | null; copy: boolean; vars: boolean; danger: boolean } {
   const a = n.attributes ?? {};
   const meta = n.meta ?? '';
   const pick = (k: string): string | undefined => {
