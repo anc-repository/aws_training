@@ -2527,4 +2527,4 @@ atl-web-spa CSP 头提供生产构建（CSP 检查）。Python Playwright 用系
 - web 的 `render-share.mjs` 与 api 的 `renderReportHtml` 两份分享渲染并存，生产只用后者。
 - xterm 的 CSP 冲突、终端在生产 CSP 下的表现、真实 `ssmmessages` 都未验证；缺 Storybook、axe-core、xterm 插件（web-links、search、unicode11、webgl、clipboard）、cfn-lint、Go 工具链。
 - dev 替身：价格是夹具；实验机终端是模拟 shell（没有 `aws`）；控制台是本地登录桩；回收在内存账号中，`/__dev/reclaim/*` 注入资源的 CLI 提示是注释，不是可执行命令。
-- `docs/` 下其他文件的未提交改动与未跟踪的 `docs/platform/` 不是本节的改动，没有提交。
+- 本节只提交了自己改动的路径；`docs/` 下的其他文件（含 `docs/platform/`）由并行的提交 bc171f5 加入，本节没有修改。
