@@ -1,0 +1,115 @@
+# 接入 SNS（第 5 步）与之后的观察。notification-wired 与 svc-notification 同名：svc-notification/notification-path-seen 等的
+# dependsOn 解析到这里。引擎的 pendingIf 是“任一成立即等待”，所以只用 detail 中的“订阅待确认”判定等待。
+checks:
+  - id: notification-wired
+    title: notification 已切换到 SNS，且状态正常
+    type: capability
+    module: notification
+    expectedWarnings: []
+    wait: { typicalMinutes: 5, maxMinutes: 30 }
+    pendingIf:
+      - { path: $.detail, op: contains, value: 订阅待确认 }
+    drift: { policy: must-hold, monitor: true }
+    assert:
+      - { path: $.driver, op: eq, value: sns, label: 驱动 }
+      - { path: $, op: healthy, label: 状态正常（本卡没有预期警告，必须是 ok） }
+    explain: 运维订阅（--param AdminEmail）点击确认链接之前，探针报 degraded“运维订阅待确认”，这里记为等待而不是失败（附录 C-18）；其他原因的 degraded 照常判为不通过。
+    reproduce: { run: 'curl -s http://127.0.0.1/api/capabilities | jq ".modules.notification | {driver, status, detail}"', runsOn: lab }
+    pitfalls: [fanout-admin-not-confirmed]
+
+  - id: user-subscriptions
+    title: 通知主题上有收件队列的 SQS 订阅，且至少两个邮件订阅已确认
+    type: aws-readonly
+    service: sns
+    action: ListSubscriptionsByTopic
+    region: app
+    params: { TopicArn: '{{ var.topicArn }}' }
+    dependsOn: [topic-subscriptions]
+    wait: { typicalMinutes: 5, maxMinutes: 20 }
+    pendingIf:
+      - path: $.Subscriptions
+        where: { Protocol: email, SubscriptionArn: PendingConfirmation }
+        op: len_gte
+        value: 1
+    drift: { policy: once }
+    assert:
+      - path: $.Subscriptions
+        where: { Protocol: sqs, Endpoint: '{{ var.inboxArn }}' }
+        op: len_eq
+        value: 1
+        label: 收件队列的 sqs 订阅
+      - path: $.Subscriptions
+        where: { Protocol: email, SubscriptionArn: { op: startsWith, value: 'arn:' } }
+        op: len_gte
+        value: 2
+        label: 已确认的邮件订阅数（+u1、+u2，另有运维邮箱时为 3）
+    explain: 主题的归属已由 topic-subscriptions 确认。待确认的订阅在列表中的 SubscriptionArn 是 PendingConfirmation，确认后才变成 ARN；还有待确认的订阅时这里是等待。
+    reproduce: { run: 'aws sns list-subscriptions-by-topic --topic-arn "{{ var.topicArn }}" --query "Subscriptions[].[Protocol,Endpoint,SubscriptionArn]" --output table', runsOn: workstation }
+    manualFallback:
+      where: { breadcrumb: [SNS, 主题, 'cloudalbum-{{ session.env }}-notification-events', 订阅], region: app }
+      observed:
+        question: 订阅列表中，状态为“已确认”的电子邮件订阅有几个？
+        options:
+          - { value: '2+', label: 2 个或更多, expected: true }
+          - { value: less, label: 少于 2 个, fixHint: 先运行 subscribe-users.ts，再到邮箱点击收件人为 +u1、+u2 的确认邮件（可能在垃圾箱） }
+
+  - id: filter-policy-observed
+    title: 看懂 +u1 订阅的过滤策略
+    type: manual
+    spec:
+      where: { breadcrumb: [SNS, 订阅, '<+u1 的订阅>', 订阅筛选策略], region: app }
+      observed:
+        question: +u1 订阅的筛选策略是哪一种？
+        options:
+          - { value: user-only, label: '{"userId":["<u1 的用户 ID>"]}，作用范围是消息属性', expected: true }
+          - { value: or-admin, label: '{"$or":[{"userId":[…]},{"audience":["admin"]}]}', fixHint: 种子用户被设为了管理员（seed-users.ts 没有加 --no-admins）；不影响本卡，但 +u1 也会收到管理员广播 }
+          - { value: none, label: 没有筛选策略, fixHint: 没有筛选策略的邮件订阅会收到所有人的通知——这是隐私事故；检查 subscribe-users.ts 的输出 }
+    explain: 原生手动确认（04 §5.2.6）：订阅 ARN 只有学员能在控制台里对上号；过滤由 SNS 在投递前执行，不需要应用判断“谁该收”。
+
+  - id: filter-mailbox
+    title: 订阅过滤在邮箱里的结果
+    type: manual
+    spec:
+      observed:
+        question: filter 场景发出的那条评论通知，哪些收件人收到了？
+        options:
+          - { value: u1-only, label: 只有收件人为 +u1 的那封到达, expected: true }
+          - { value: both, label: +u1 与 +u2 都收到了, fixHint: +u2 的订阅没有过滤策略，或发布时没带 userId 属性；看 filter-policy-observed 的答案 }
+          - { value: none, label: 都没收到, fixHint: +u1 的订阅可能还是 PendingConfirmation（待确认的订阅不投递），或邮件进了垃圾箱 }
+    explain: 所有 + 别名都进同一个邮箱，按收件人地址区分。服务端证据（一行 sns、一行 sqs-copy）与 CloudWatch 的 NumberOfNotificationsFilteredOut 由另外两项检查核对。
+
+  - id: exp-worker-stop-after
+    title: worker-stop（worker 停机 45 秒）有一条有效结果
+    type: experiment
+    module: notification
+    experiment: worker-stop
+    label: after
+    accept: [valid]
+
+  - id: worker-active
+    title: worker 已经恢复运行（cloudalbum-worker 为 active）
+    type: local
+    on: lab
+    checkId: systemd-unit
+    args: { unit: cloudalbum-worker }
+    dependsOn: [exp-worker-stop-after]
+    drift: { policy: must-hold, monitor: true }
+    assert:
+      - { path: $.active, op: eq, value: active, label: ActiveState }
+    explain: 停机演练结束后 worker 必须重新启动，否则收件队列与 SES 反馈队列都没人消费：站内信的 sqs-copy 记录不会补齐，退信也不会回流。
+    reproduce: { run: 'systemctl is-active cloudalbum-worker', runsOn: lab }
+
+  - id: sns-vs-ses-mail
+    title: 对照两封邮件：SNS 的通知邮件与 SES 的验证邮件
+    type: manual
+    spec:
+      observed:
+        question: 对照邮箱里的“评论通知”（经 SNS）与“验证码 / 重置密码”（经 SES），哪一项描述正确？
+        options:
+          - { value: diff, label: SNS 邮件发件人是 AWS Notifications、纯文本、带退订链接；SES 邮件发件人是你的身份、带 DKIM 签名, expected: true }
+          - { value: same, label: 两封邮件的发件人与格式完全相同, fixHint: 看发件人与正文底部；SNS 邮件订阅不能自定义发件人，也不能发 HTML }
+    explain: 原生手动确认（04 §5.2.6）。SNS 邮件适合运维告警这类“订阅者自己要的广播”；验证码、个性化内容、需要证明邮箱归属的邮件用 SES。
+
+pitfalls:
+  - { id: fanout-admin-not-confirmed, title: 运维订阅还没确认, match: [ { checkId: notification-wired, result: pending } ],
+      cause: 运维邮箱的订阅处于 PendingConfirmation，探针报 degraded“运维订阅待确认”, fix: 在运维邮箱（你的 +admin 别名）里找 AWS Notifications 的确认邮件并点击链接；可能在垃圾箱 }

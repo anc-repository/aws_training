@@ -1,0 +1,107 @@
+# 源站锁定（第 4 步）：服务端证据 = 安全组规则 + 实验机本机 8080 不带校验头 403；外部直连超时由学员在 CloudShell 观察。
+# 不用 waf/bypass 实验：工作台的公网出口就是 CDN_ADMIN_CIDR，从工作台探测 80 端口必然可达（见 lab.yaml 文件头）。
+checks:
+  - id: origin-locked-sg
+    title: 实验机安全组的 80/443 不再对全网开放，只对工作台的公网出口（管理员 IP）开放
+    type: aws-readonly
+    service: ec2
+    action: DescribeSecurityGroupRules
+    region: app
+    params:
+      Filters:
+        - { Name: group-id, Values: ['{{ target.sgId }}'] }
+    ownership: { resource: 'arn:aws:ec2:{{ session.region }}:{{ session.accountId }}:security-group/{{ target.sgId }}', mode: session-or-start }
+    dependsOn: [cap-cdn-healthy]
+    wait: { typicalMinutes: 2, maxMinutes: 10 }
+    drift: { policy: must-hold, monitor: true }
+    assert:
+      - path: $.SecurityGroupRules
+        where: { IsEgress: false, FromPort: 80, CidrIpv4: 0.0.0.0/0 }
+        op: len_eq
+        value: 0
+        label: 80 端口对 0.0.0.0/0 开放的入站规则
+      - path: $.SecurityGroupRules
+        where: { IsEgress: false, FromPort: 443, CidrIpv4: 0.0.0.0/0 }
+        op: len_eq
+        value: 0
+        label: 443 端口对 0.0.0.0/0 开放的入站规则
+      - path: $.SecurityGroupRules
+        where: { IsEgress: false, FromPort: 80, CidrIpv6: '::/0' }
+        op: len_eq
+        value: 0
+        label: 80 端口对 ::/0 开放的入站规则
+      - path: $.SecurityGroupRules
+        where: { IsEgress: false, FromPort: 443, CidrIpv6: '::/0' }
+        op: len_eq
+        value: 0
+        label: 443 端口对 ::/0 开放的入站规则
+      - path: $.SecurityGroupRules
+        where: { IsEgress: false, FromPort: 80, CidrIpv4: '{{ workstation.publicIp }}/32' }
+        op: len_eq
+        value: 1
+        label: 80 端口只对工作台公网出口开放
+    explain: CDN_DIRECT_ACCESS=admin-ip 让 ec2 基础栈的 PublicHttpIngress 取 admin-ip：80/443 只放行 CDN_ADMIN_CIDR。攻击者再直连弹性 IP 只会超时，绕不过 CloudFront 上的 WAF。
+    reproduce: { run: 'aws ec2 describe-security-group-rules --filters Name=group-id,Values={{ target.sgId }} --query "SecurityGroupRules[?IsEgress==\`false\`].[FromPort,ToPort,CidrIpv4,CidrIpv6,PrefixListId]" --output table', runsOn: workstation }
+    pitfalls: [direct-still-open]
+    manualFallback:
+      where: { breadcrumb: [EC2, 安全组, '{{ target.sgId }}', 入站规则], region: app }
+      observed:
+        question: 端口 80 与 443 的入站规则，来源是什么？
+        options:
+          - { value: admin, label: '只有 {{ workstation.publicIp }}/32', expected: true }
+          - { value: world, label: 0.0.0.0/0 或 ::/0, fixHint: 用 --set CDN_DIRECT_ACCESS=admin-ip --set CDN_ADMIN_CIDR=<工作台公网 IP>/32 重新执行 scripts/module enable cdn }
+
+  - id: origin-sg-prefix-list
+    title: 源站安全组的 8080 只引用 CloudFront 托管前缀列表，不对任何 CIDR 开放
+    type: aws-readonly
+    service: ec2
+    action: DescribeSecurityGroupRules
+    region: app
+    params:
+      Filters:
+        - { Name: group-id, Values: ['{{ var.originSgId }}'] }
+    ownership: { resource: 'arn:aws:ec2:{{ session.region }}:{{ session.accountId }}:security-group/{{ var.originSgId }}', mode: session, createdAfter: session.readyAt }
+    dependsOn: [distribution-deployed]
+    drift: { policy: must-hold }
+    assert:
+      - path: $.SecurityGroupRules
+        where: { IsEgress: false, FromPort: 8080, PrefixListId: { op: matches, value: '^pl-[0-9a-f]+$' } }
+        op: len_eq
+        value: 1
+        label: 8080 引用托管前缀列表的入站规则
+      - path: $.SecurityGroupRules
+        where: { IsEgress: false, CidrIpv4: { op: exists } }
+        op: len_eq
+        value: 0
+        label: 按 IPv4 CIDR 放行的入站规则
+      - path: $.SecurityGroupRules
+        where: { IsEgress: false, CidrIpv6: { op: exists } }
+        op: len_eq
+        value: 0
+        label: 按 IPv6 CIDR 放行的入站规则
+    explain: 源站安全组由本会话的 cdn 栈创建，只有一条入站规则：8080 来自 com.amazonaws.global.cloudfront.origin-facing。前缀列表只说明“来自某个 CloudFront”，所以 Nginx 还要校验只有本分配知道的 X-Origin-Verify（下一项检查）。
+    reproduce: { run: 'aws ec2 describe-security-group-rules --filters Name=group-id,Values={{ var.originSgId }} --query "SecurityGroupRules[?IsEgress==\`false\`].[FromPort,PrefixListId,CidrIpv4]" --output table', runsOn: workstation }
+    manualFallback:
+      where: { breadcrumb: [EC2, 安全组, '{{ var.originSgId }}', 入站规则], region: app }
+      observed:
+        question: 端口 8080 的入站规则来源是什么？
+        options:
+          - { value: prefix-list, label: 一个 pl- 开头的托管前缀列表（CloudFront origin-facing）, expected: true }
+          - { value: cidr, label: 某个 IP 地址段, fixHint: 不要在控制台修改模块管理的安全组；重新执行 scripts/module enable cdn }
+
+  - id: direct-blocked-observed
+    title: 从非管理员地址（CloudShell）直连实验机的结果
+    type: manual
+    spec:
+      where: { breadcrumb: [CloudShell], region: app }
+      observed:
+        question: 在 CloudShell 中 curl 实验机弹性 IP 的 80 端口（--max-time 8），结果是？
+        options:
+          - { value: timeout, label: 超时（连接建立不了）, expected: true }
+          - { value: ok, label: 返回了 200 或 301, fixHint: 安全组仍对全网开放 80；先确认 origin-locked-sg 通过，再确认你没有在工作台上运行这条命令 }
+          - { value: refused, label: 立即被拒绝（connection refused）, fixHint: 安全组丢弃数据包时表现为超时；被拒绝说明请求到达了实例，检查命令里的地址是否为本会话的弹性 IP }
+    explain: 原生手动确认（04 §5.2.6）：平台 Lambda 在锁定后访问不到 public-ip，也没有“不可达”的断言；攻击者视角只能由你在一个不是管理员 IP 的地方观察。
+
+pitfalls:
+  - { id: direct-still-open, title: 直连入口仍对全网开放, match: [ { checkId: origin-locked-sg, result: fail } ],
+      cause: cdn 以默认的 CDN_DIRECT_ACCESS=open 启用，或 CDN_ADMIN_CIDR 不是工作台的公网出口, fix: '重新执行 scripts/module enable cdn --set CDN_DIRECT_ACCESS=admin-ip --set CDN_ADMIN_CIDR={{ workstation.publicIp }}/32' }

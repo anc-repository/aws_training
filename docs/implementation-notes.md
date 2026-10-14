@@ -3127,3 +3127,72 @@ svc-notification / svc-email。全程没有调用真实 AWS API、没有部署�
 | `npm test` | 2630 通过、18 跳过、5 失败——全部是第 5 节第 5 条的共享数量假设（experiments manifest、labs lint ×2 / derive / build） |
 | `npm run smoke:l0` / `smoke:selfhost` | 85 通过 0 失败 / 31 通过 0 失败 |
 | `npm run registry:check` | OK（2 个已有警告） |
+
+## wave1-scenarios
+
+第 1 波完成后模块已齐全的两张场景卡片：`sc-edge-protection`（cdn + waf）与 `sc-event-fanout`（email + notification）由 planned 改为 beta，
+内容以 docs/platform/cards/scenario-cards.md §3.2、§3.5 为准，命令、端点与开关按已实现的代码核对。同时核对了 `labs/_tracks/*.yaml` 中第 1 波单服务卡片的引用，
+并重新生成 `labs/_catalog/catalog.yaml`。全程没有调用 AWS；`scripts/module` 只用 `--dry-run`（scratchpad 中的临时 state 文件）。
+
+### 1. 完成的内容
+
+| 卡片 | 文件 | 内容 |
+|---|---|---|
+| sc-edge-protection 1.0.0 | `labs/sc-edge-protection/**` | 10 个步骤：直连基线（flood、payloads）→ 建分配并锁定直连（wire：cdn）→ 验证锁定 → 挂 Web ACL（wire：waf，Count）→ 观察误杀 → 切 Block → after（flood、payloads，`target=both`）→ 分层（Shield、GuardDuty 讲解）。检查 4 个文件；小测 5 题（3 道场景题，含文档的 2 道场景题）；开始 / 完成两张自绘架构图（`assets/arch-start.svg`、`arch-end.svg`）与徽章 |
+| sc-event-fanout 1.0.0 | `labs/sc-event-fanout/**` | 9 个步骤：种子用户 → fanout before → 接入 SES（wire：email）→ 沙盒 → 接入 SNS 与用户订阅（wire：notification）→ filter → fanout after → worker 停机 →（选做）退信回流。检查 2 个文件；小测 5 题（4 道场景题）；两张架构图与徽章 |
+| 路径 | `labs/_tracks/*.yaml` | 核对 tracks-and-catalog §4：第 1 波 10 张单服务卡与两张场景卡在 9 条路径中的阶段、角色、选修组、`legacyLab` 与“需要域名”的说明都与设计一致，各卡 `tracks` 字段与实际包含关系一致（B23）。**没有改动** |
+| 目录 | `labs/_catalog/catalog.yaml` | `npm run labs:catalog` 重新生成：startable 22、planned 34 |
+
+两张卡片的公共检查尽量引用单服务卡（`svc-cdn/*`、`svc-waf/*`、`svc-notification/*`、`svc-email/*`），变量名与它们保持一致；
+单服务卡主版本变化时两张场景卡要同步提升版本（CHANGELOG 已注明）。
+
+### 2. 设计有歧义或与代码不一致时的取舍
+
+1. **GuardDuty（sc-edge-protection 选做目标）**：threat-detection 本轮没有实现（implemented.ts 没有它的 AWS 驱动，experiments/ 没有对应实验），
+   删去选做目标与 `threat-detection/sample-findings`，改为第 10 步“分层”中的讲解与手动确认（`guardduty-layer`）。费用档位因此是“低”（不再是“低（选做 → 中）”）。
+   模块实现后以选做目标补回（版本 +1）。
+2. **不使用 `waf/bypass` 实验**：卡片设计让 `CDN_ADMIN_CIDR` = 工作台公网出口，而 bypass 从工作台探测 80 端口，必然可达（`originLocked=false`）。
+   “无法绕过”改用服务端证据：实验机安全组 80/443 只有工作台 /32（`origin-locked-sg`，也是最终检查）、源站安全组 8080 只引用托管前缀列表（`origin-sg-prefix-list`）、
+   实验机本机不带校验头请求 8080 得 403（`svc-cdn/origin-direct-denied`），以及学员在 CloudShell 直连超时的手动记录。
+3. **锁定的时机**：文档第 2 步就以 `CDN_DIRECT_ACCESS=admin-ip` 建分配，本卡照此实现（`scripts/module enable cdn --set CDN_DIRECT_ACCESS=admin-ip --set CDN_ADMIN_CIDR={{ workstation.publicIp }}/32`），
+   所以 waf 一启用就应是 ok。卡片级 `expectedWarnings` 仍登记 DEP-018：registry 中它的 `need` 为空、运行期条件在 rules.ts，labs:derive 的参考推导器只要 waf=aws 就报它；
+   waf 的 capability 检查 `cap-waf-healthy` 用检查级 `expectedWarnings: []` 保持严格。
+4. **第 1 步的源站证据**：文档写“entry=nginx 的 429 数 > 0”。被 `limit_req` 拒绝的请求没有上游响应，访问日志的 `path` 为空、按 entry 分组只能落到 unknown，
+   `nginx-log-summary` 也只按 2xx/4xx 分类，所以改为“最近 30 分钟到达实例的登录请求数 ≥ 20、其中 4xx ≥ 1”（`origin-load-before`，drift once）。
+5. **切 Block、Web ACL 检查**：`scripts/module set` 不存在，用 `enable waf --param RuleAction=block`（与 svc-waf 相同）。`webacl-count`、`webacl-block` 在本卡重写：
+   svc-waf 的同名检查用了 `[?(@.Name==…)]`，检测引擎的 JSONPath 子集（`platform/api/src/functions/checks/engine/jsonpath.ts`）不支持过滤表达式，会抛 SyntaxError；
+   本卡改用 `where`（同名，svc-waf/entry-waf、block-not-at-origin 的 dependsOn 解析到本卡的版本）。另加 `webacl-rules`（8 条规则）与 `distribution-webacl`（WebACLId = 本会话 Web ACL ARN）。
+6. **学员输入**：sc-event-fanout 文档的 `recipient-emails`（两个邮箱）改为 `notify-email` 的 `+u1`、`+u2` 别名——`seed-users.ts` 只接受一个 `--email`。
+   种子用 `--count 2 --no-admins`，过滤策略只有 `userId`（与文档一致）。`ses-identity` 是能收信的邮箱地址（email hook 用 `--param Email=`）。
+7. **SES 身份**：文档第 2 步“在 SES 控制台验证身份”并入第 3 步：`enable email --param Email=…` 由栈创建身份并轮询到“已验证”（已存在则只读接入，`keepablePrerequisites`）。
+   种子用户在 outbox 档用验证码完成邮箱验证；SNS 邮件不经 SES，所以沙盒期不需要验证收件人。“验证码真正到达收件箱”用 ses-identity 地址注册（已注册时用“忘记密码”）。
+8. **“SNS 邮件 vs SES 邮件”**：`POST /api/lab/notification/compare` 对比的是 db 与 sns 两个驱动，不是两种邮件；改为学员在邮箱里对照两封邮件（`sns-vs-ses-mail`，手动）。
+   两个功能对照端点只在手册中作选读（不上传），端点由集成阶段登记。
+9. **用户订阅**：迁移框架未接入，`enable notification` 带 `--no-migrate`，用户订阅用 `experiments/notification/subscribe-users.ts`；
+   文档的 `sns:GetSubscriptionAttributes`（FilterPolicy）需要订阅 ARN，静态无法给出，改为 `ListSubscriptionsByTopic`（`user-subscriptions`：收件队列订阅 + ≥ 2 个已确认邮件订阅）+ 手动确认过滤策略。
+10. **`notification-wired`、`email-wired` 在本卡重写**：检测引擎的 `pendingIf` 是“任一成立即等待”（`assert.ts isPending`），svc-notification 的写法会把任何 degraded 都当等待；
+    本卡只用 detail 含“订阅待确认”判定等待。同名，svc-notification / svc-email 被引用检查的 dependsOn 解析到本卡的版本。
+11. **选做步骤**：sc-event-fanout 增加“退信与投诉回流”（SES 邮箱模拟器，手动确认），对应文档的场景题 1 与“退信的地址要自动停止发送”。
+
+### 3. 需要集成阶段处理的事项（共享文件或他人路径）
+
+1. **labs:derive 的 DRV-6 与 hook 的 planHints**：`plan --start-of` 把 `module-hooks/*.planHints()` 的说明文字放进 `warnings`，derive 按字符串与 expectedWarnings 比较，
+   所以 waf、email、notification 为目标的卡片（svc-waf、svc-email、svc-notification 与本节两张场景卡）在 `labs:derive`（scripts/module 推导器）与 `labs:build` 中各报 1～2 条 DRV-6 错误。
+   建议 derive 只比较规则 ID 形式的警告（`^[A-Z]{2,5}-\d{3}$`，或去掉 `rules: ` 前缀后再比较；svc-identity-pool 的 `rules: DEP-013` 同源），说明文字另列为 note。
+2. **参考推导器的 DEP-018**：`scripts/labs/src/derive/reference.ts` 对 `need: []` 的 warn 规则一律报警告；若按 rules.ts 的条件（入口未锁定）建模，sc-edge-protection 可以去掉卡片级的 DEP-018。
+3. **svc-waf（labs/svc-waf，waf 实现者的路径）**：① `checks/waf.yaml` 的 `webacl-count`、`webacl-block` 用了引擎不支持的 `[?(@.Name==…)]`（见 2.5）；
+   ② `assets/badge.svg` 是 svc-notification 的 SNS 徽章的复制品；③ `bypass` after 从工作台运行时，工作台就是 `CDN_ADMIN_CIDR`，80 端口必然可达（见 2.2）。
+4. **scripts/labs 的数量测试**：`test/{lint,derive,build}.test.ts` 写死 10 张完整卡片 / 46 个占位；现在是 22 / 34。参考推导器下 build 测试另有 svc-logging、svc-monitoring 的 DRV-1（logs-ssm 已报告）。
+5. **功能对照端点**：`/api/lab/notification/compare`、`/api/lab/email/compare` 与 `/api/lab/waf/origin`（waf 实验的服务端证据）都依赖集成阶段在 `http/app.ts` 登记 lab-routes（sns-ses、waf 已报告）。
+
+### 4. 自测（2026-10-14，Windows 11 / Node 22.14.0；没有调用 AWS）
+
+| 命令 | 结果 |
+|---|---|
+| `npm run labs:lint` | 56 张卡片 0 错误 0 警告（重新生成 catalog 之后） |
+| `npm run labs:derive -- --card sc-edge-protection,sc-event-fanout` | 起始状态都是 iam（role）、preview on、部署等级 A、费用档位 低 / 低；只有第 3 节第 1 条的 DRV-6（hook 说明文字）。参考推导器（`--deriver reference`）0 错误 |
+| `npm run labs:build` | 产物 195 个文件（dist/content/0.1.0-dev）；两张卡片的检查全部解析（31、32 项）；退出码 1，全部来自第 3 节第 1 条的 DRV-6（6 张卡片） |
+| `npm run labs:catalog` | startable 22、planned 34 |
+| `scripts/module --dry-run --state <scratch>`：`enable cdn --set CDN_DIRECT_ACCESS=admin-ip --set CDN_ADMIN_CIDR=…/32`、`enable waf --with-deps [--param RuleAction=block]`、`enable email --with-deps --param Email=…`、`enable notification --with-deps --param AdminEmail=… --no-migrate`、`disable waf`、`disable email`、`plan --start-of sc-edge-protection / sc-event-fanout --platform --json` | 全部退出码 0（PublicHttpIngress open → admin-ip、AdminIngressCidr 写入基础栈参数）；空 state 下不带 `--with-deps` 时 waf 报 DEP-006、email / notification 报 CRED-001（卡片起始状态已预置 iam，按手册顺序 cdn 先于 waf） |
+| `scripts/labs` vitest | 14 通过、3 失败——第 3 节第 4 条的数量假设（build 测试的参考推导器另报 svc-logging、svc-monitoring 的 DRV-1，与本节无关） |
+| `npm run smoke:l0` / `smoke:selfhost` | 85 通过 0 失败 / 31 通过 0 失败（本节只改 labs/ 内容） |

@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="80" height="80" viewBox="0 0 80 80" role="img" aria-label="边缘纵深防护">
+  <path d="M40 3 L72 21.5 L72 58.5 L40 77 L8 58.5 L8 21.5 Z" fill="#F4F2EE" stroke="#2B2B2B" stroke-width="2"/>
+  <path d="M40 16 L54 22 L54 34 C54 42 48 48 40 51 C32 48 26 42 26 34 L26 22 Z" fill="none" stroke="#2F6690" stroke-width="2.5"/>
+  <text x="40" y="65" text-anchor="middle" font-family="system-ui, sans-serif" font-size="12" font-weight="700" fill="#2B2B2B">边缘防护</text>
+</svg>

@@ -1,0 +1,42 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="260" viewBox="0 0 760 260" role="img" aria-label="开始时：攻击者与用户都直接请求实验机的弹性 IP，防护只有 Nginx">
+  <defs>
+    <marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 Z" fill="#2B2B2B"/>
+    </marker>
+    <marker id="r" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 Z" fill="#B23A2E"/>
+    </marker>
+  </defs>
+  <rect x="0" y="0" width="760" height="260" fill="#FFFFFF"/>
+  <g font-family="system-ui, -apple-system, 'Segoe UI', 'Noto Sans SC', sans-serif" font-size="13" fill="#2B2B2B">
+    <text x="20" y="28" font-size="15" font-weight="700">开始时（L0）</text>
+
+    <rect x="20" y="58" width="150" height="56" rx="8" fill="#FBEAE7" stroke="#B23A2E" stroke-width="1.5"/>
+    <text x="95" y="82" text-anchor="middle" font-weight="700">攻击者 / 扫描器</text>
+    <text x="95" y="101" text-anchor="middle" font-size="12">撞库 · 扫描 · 恶意载荷</text>
+
+    <rect x="20" y="160" width="150" height="56" rx="8" fill="#F4F2EE" stroke="#2B2B2B" stroke-width="1.5"/>
+    <text x="95" y="184" text-anchor="middle" font-weight="700">正常用户</text>
+    <text x="95" y="203" text-anchor="middle" font-size="12">浏览器</text>
+
+    <rect x="250" y="100" width="130" height="64" rx="8" fill="#F4F2EE" stroke="#2B2B2B" stroke-width="1.5"/>
+    <text x="315" y="126" text-anchor="middle" font-weight="700">弹性 IP</text>
+    <text x="315" y="146" text-anchor="middle" font-size="12">80 / 443 对全网开放</text>
+
+    <rect x="450" y="86" width="160" height="92" rx="8" fill="#E8F0F6" stroke="#2F6690" stroke-width="1.5"/>
+    <text x="530" y="110" text-anchor="middle" font-weight="700">EC2 · Nginx</text>
+    <text x="530" y="130" text-anchor="middle" font-size="12">limit_req 限速</text>
+    <text x="530" y="148" text-anchor="middle" font-size="12">几条正则 · denylist</text>
+    <text x="530" y="166" text-anchor="middle" font-size="12">每个请求都到达实例</text>
+
+    <rect x="660" y="106" width="84" height="52" rx="8" fill="#F4F2EE" stroke="#2B2B2B" stroke-width="1.5"/>
+    <text x="702" y="137" text-anchor="middle" font-weight="700">Node API</text>
+
+    <path d="M170 86 C 210 86, 215 120, 248 124" fill="none" stroke="#B23A2E" stroke-width="2" marker-end="url(#r)"/>
+    <path d="M170 188 C 210 188, 215 146, 248 142" fill="none" stroke="#2B2B2B" stroke-width="2" marker-end="url(#a)"/>
+    <path d="M380 132 L448 132" fill="none" stroke="#2B2B2B" stroke-width="2" marker-end="url(#a)"/>
+    <path d="M610 132 L658 132" fill="none" stroke="#2B2B2B" stroke-width="2" marker-end="url(#a)"/>
+
+    <text x="450" y="214" font-size="12" fill="#B23A2E">429 / 403 由 Nginx 返回：连接、TLS 与日志的开销已经发生在 EC2 上</text>
+  </g>
+</svg>

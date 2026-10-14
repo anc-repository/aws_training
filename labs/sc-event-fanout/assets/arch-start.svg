@@ -1,0 +1,36 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="250" viewBox="0 0 760 250" role="img" aria-label="开始时：api 写站内信并逐个调用 EmailPort，邮件只写进本机 outbox">
+  <defs>
+    <marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 Z" fill="#2B2B2B"/>
+    </marker>
+  </defs>
+  <rect x="0" y="0" width="760" height="250" fill="#FFFFFF"/>
+  <g font-family="system-ui, -apple-system, 'Segoe UI', 'Noto Sans SC', sans-serif" font-size="13" fill="#2B2B2B">
+    <text x="20" y="28" font-size="15" font-weight="700">开始时（L0）</text>
+
+    <rect x="20" y="96" width="130" height="56" rx="8" fill="#F4F2EE" stroke="#2B2B2B" stroke-width="1.5"/>
+    <text x="85" y="122" text-anchor="middle" font-weight="700">发表评论</text>
+    <text x="85" y="140" text-anchor="middle" font-size="12">浏览器</text>
+
+    <rect x="220" y="80" width="170" height="88" rx="8" fill="#E8F0F6" stroke="#2F6690" stroke-width="1.5"/>
+    <text x="305" y="106" text-anchor="middle" font-weight="700">EC2 · api</text>
+    <text x="305" y="126" text-anchor="middle" font-size="12">NOTIFY_DRIVER=db</text>
+    <text x="305" y="146" text-anchor="middle" font-size="12">接收人越多，请求越慢</text>
+
+    <rect x="470" y="48" width="200" height="60" rx="8" fill="#F4F2EE" stroke="#2B2B2B" stroke-width="1.5"/>
+    <text x="570" y="74" text-anchor="middle" font-weight="700">notifications 表</text>
+    <text x="570" y="93" text-anchor="middle" font-size="12">站内信（铃铛未读数）</text>
+
+    <rect x="470" y="140" width="200" height="72" rx="8" fill="#FBEAE7" stroke="#B23A2E" stroke-width="1.5"/>
+    <text x="570" y="166" text-anchor="middle" font-weight="700">outbox（.eml + 表）</text>
+    <text x="570" y="185" text-anchor="middle" font-size="12">EMAIL_DRIVER=outbox</text>
+    <text x="570" y="203" text-anchor="middle" font-size="12" fill="#B23A2E">未真正发信</text>
+
+    <path d="M150 124 L218 124" fill="none" stroke="#2B2B2B" stroke-width="2" marker-end="url(#a)"/>
+    <path d="M390 108 C 430 100, 440 80, 468 78" fill="none" stroke="#2B2B2B" stroke-width="2" marker-end="url(#a)"/>
+    <path d="M390 140 C 420 146, 440 170, 468 172" fill="none" stroke="#2B2B2B" stroke-width="2" marker-end="url(#a)"/>
+    <path d="M390 152 C 420 160, 440 186, 468 186" fill="none" stroke="#2B2B2B" stroke-width="2" marker-end="url(#a)"/>
+    <path d="M390 164 C 420 174, 440 198, 468 200" fill="none" stroke="#2B2B2B" stroke-width="2" marker-end="url(#a)"/>
+    <text x="405" y="232" font-size="12">逐个调用 EmailPort：每位收件人一次</text>
+  </g>
+</svg>

@@ -1,0 +1,26 @@
+# 起点（before 一律 drift once，C3、04 §3.5 第 9 条）：防护只有实例上的 Nginx，入口就是实验机的弹性 IP
+checks:
+  - id: waf-nginx-start
+    title: 起始状态：WAF 是实验机上的 Nginx（WAF_MODE=nginx）
+    type: capability
+    module: waf
+    drift: { policy: once }
+    assert:
+      - { path: $.driver, op: eq, value: nginx, label: 驱动 }
+    explain: 启用 AWS WAF 之前，限速（limit_req）、特征拦截与 denylist 都在实例上的 Nginx 完成，每个恶意请求都已经到达 EC2。
+    reproduce: { run: 'curl -s http://127.0.0.1/api/capabilities | jq ".modules | {waf: .waf.driver, cdn: .cdn.driver}"', runsOn: lab }
+
+  - id: origin-load-before
+    title: 基线：直连攻击期间，登录请求（包括被 Nginx 拒绝的）全部记在实例的访问日志里
+    type: local
+    on: lab
+    checkId: nginx-log-summary
+    args: { window: 30m, path: /api/auth/login }
+    dependsOn: [exp-flood-before]
+    drift: { policy: once }
+    assert:
+      - { path: $.logPresent, op: eq, value: true, label: 实例上有 Nginx 访问日志 }
+      - { path: $.counts.total, op: gte, value: 20, label: 最近 30 分钟到达实例的登录请求数 }
+      - { path: $.counts.byStatus.4xx, op: gte, value: 1, label: 其中被拒绝（429 / 401）的请求同样到达了实例 }
+    explain: 服务端证据：flood 的每个请求都出现在实验机的访问日志里——不管 Nginx 最后回的是 429 还是 401，连接、TLS 与日志的开销都已经发生在 EC2 上。这就是“在进入区域之前挡住”要改变的东西。
+    reproduce: { run: 'sudo tail -n 2000 /var/lib/cloudalbum/logs/nginx-access.json | jq -r "select(.uri==\"/api/auth/login\") | .status" | sort | uniq -c', runsOn: lab }

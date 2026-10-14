@@ -9,8 +9,8 @@ counts:
   service: 40
   scenario: 16
   tracks: 9
-  startable: 10
-  planned: 46
+  startable: 22
+  planned: 34
 cards:
   - id: svc-ec2
     kind: service
@@ -119,14 +119,14 @@ cards:
       - labId: svc-iam
         extraModules:
           - iam
-      - labId: svc-storage
+      - labId: svc-cost
         extraModules:
           - iam
-          - storage
-      - labId: svc-cdn
+          - cost
+      - labId: svc-shell-access
         extraModules:
           - iam
-          - cdn
+          - shell-access
     searchText: svc-ec2 amazon ec2：运行整个应用 只有一台 ec2 的 cloudalbum（l0 基线） amazon ec2 运行整个应用 只有一台 ec2 时 cloudalbum 的全部功能就能运行。认识实例、独立数据卷、弹性 ip 与 imdsv2，亲手体会“实例可替换”与“单点故障”。 ec2 ebs eip imds baseline amazon ec2 amazon ebs aws systems manager session manager aws cloudtrail lab 0 lab-00
   - id: svc-iam
     kind: service
@@ -229,10 +229,11 @@ cards:
     searchText: svc-iam aws iam：服务器访问 aws 的凭证 应用不用凭证 → 实例角色的临时凭证 aws iam 服务器访问 aws 的凭证 让应用第一次拥有 aws 身份：比较“不用凭证”与“实例角色临时凭证”，看清 imdsv2、asia 临时密钥与 cloudtrail 中的 assumedrole。 iam sts credentials imdsv2 cloudtrail aws iam aws sts aws cloudtrail amazon ec2 lab 1 lab-01
   - id: svc-cost
     kind: service
-    version: 0.1.0
-    status: planned
-    startable: false
+    version: 1.0.0
+    status: beta
+    startable: true
     title: AWS Budgets：费用护栏与告警
+    subtitle: 本地计费资源清单 → AWS Budgets 月度预算 + Cost Explorer
     service: AWS Budgets
     function: 费用护栏与告警
     summary: 给项目装上费用护栏：本地计费资源清单“快而粗”，AWS Budgets 与 Cost Explorer“准而慢”，把两者并排看清。
@@ -240,7 +241,11 @@ cards:
     services:
       - id: budgets
         role: primary
-    servicesCount: 1
+      - id: cost-explorer
+        role: supporting
+      - id: sns
+        role: supporting
+    servicesCount: 3
     domains: &a3
       - cost
     difficulty: beginner
@@ -254,9 +259,12 @@ cards:
       accountScoped: []
     costSources:
       hourly: []
-      usage: []
+      usage:
+        - budgets.actions
       monthly: []
-    mainDrivers: []
+    mainDrivers:
+      - Cost Explorer API 请求（本卡最多一次）
+      - 启用了 Actions 的预算（选做）
     provisionClass: A
     startProfiles:
       - name: atl/svc-cost/default
@@ -304,10 +312,17 @@ cards:
     saa:
       domains: *a3
       primaryDomain: cost
-      topicTitles: []
+      topicTitles:
+        - Budgets、Cost Explorer 与 Cost Anomaly Detection 的分工
+        - 成本分配标签必须激活、有延迟、不追溯；组织中由管理账号激活
+        - Budgets Actions 可以附加 IAM 策略或 SCP、停止 EC2 / RDS
+        - 识别按小时计费的资源（公网 IPv4、NAT Gateway、Interface Endpoint、RDS）
     tags:
       - cost
       - budgets
+      - cost-explorer
+      - tags
+      - governance
     tracks:
       - trackId: cost-optimized
         stageId: s1-billing
@@ -321,7 +336,7 @@ cards:
       - needs-advance
       - needs-email
       - account-impact
-      - planned
+      - beta
     credits:
       - budgets
     badge:
@@ -334,22 +349,35 @@ cards:
     workstation:
       required: true
       savingsMode: ok
-    reuseFrom: []
-    searchText: svc-cost aws budgets：费用护栏与告警 aws budgets 费用护栏与告警 给项目装上费用护栏：本地计费资源清单“快而粗”，aws budgets 与 cost explorer“准而慢”，把两者并排看清。 cost budgets aws budgets aws iam lab 1 lab-01
+    reuseFrom:
+      - labId: svc-iam
+        extraModules: []
+      - labId: svc-shell-access
+        extraModules:
+          - shell-access
+      - labId: svc-logging
+        extraModules:
+          - logging
+    searchText: svc-cost aws budgets：费用护栏与告警 本地计费资源清单 → aws budgets 月度预算 + cost explorer aws budgets 费用护栏与告警 给项目装上费用护栏：本地计费资源清单“快而粗”，aws budgets 与 cost explorer“准而慢”，把两者并排看清。 cost budgets cost-explorer tags governance aws budgets aws cost explorer amazon sns aws iam lab 1 lab-01
   - id: svc-shell-access
     kind: service
-    version: 0.1.0
-    status: planned
-    startable: false
+    version: 1.0.0
+    status: beta
+    startable: true
     title: AWS Systems Manager Session Manager：运维登录
+    subtitle: SSH 22 + 密钥对 → IAM 身份登录、零入站端口、命令级审计
     service: AWS Systems Manager Session Manager
     function: 运维登录
-    summary: 把运维登录从“SSH 22 + 密钥对”换成 Session Manager：安全组零管理端口入站，用 IAM 身份登录和端口转发，会话里的命令写进 CloudWatch Logs。
+    summary: 把实验机的运维登录从 SSH 22 换成 Session Manager：安全组不再有管理端口入站，用 IAM 身份登录与端口转发，会话命令写进 CloudWatch Logs，并能与 CloudTrail 的 StartSession 对上。
     category: E
     services:
       - id: ssm-session-manager
         role: primary
-    servicesCount: 1
+      - id: cloudwatch-logs
+        role: supporting
+      - id: ec2
+        role: supporting
+    servicesCount: 3
     domains: &a4
       - secure
     difficulty: beginner
@@ -363,9 +391,11 @@ cards:
       accountScoped: []
     costSources:
       hourly: []
-      usage: []
+      usage:
+        - logs.ingestion
       monthly: []
-    mainDrivers: []
+    mainDrivers:
+      - 会话日志的 CloudWatch Logs 摄取与存储（量极小）
     provisionClass: A
     startProfiles:
       - name: atl/svc-shell-access/default
@@ -395,16 +425,24 @@ cards:
     learnerInputs: []
     accountImpact:
       - id: ssm-session-prefs
-        resource: SSM-SessionManagerRunShell 会话首选项
+        resource: SSM-SessionManagerRunShell
         revert: restore
     platformOps: []
     saa:
       domains: *a4
       primaryDomain: secure
-      topicTitles: []
+      topicTitles:
+        - SSM 托管节点的三个前提
+        - 零入站规则也能管理实例（出站通道 + 有状态安全组）
+        - 会话日志与 StartSession 构成审计链
+        - 端口转发访问私有资源，取代堡垒机
+        - AmazonSSMManagedInstanceCore 与最小权限
     tags:
       - shell-access
-      - ssm-session-manager
+      - ssm
+      - session-manager
+      - least-privilege
+      - audit
     tracks:
       - trackId: operations
         stageId: s1-observe
@@ -419,7 +457,7 @@ cards:
       - 2
     flags:
       - account-impact
-      - planned
+      - beta
     credits:
       - ssm-session-manager
     badge:
@@ -431,15 +469,24 @@ cards:
         kind: soft
     workstation:
       required: true
-      savingsMode: ok
-    reuseFrom: []
-    searchText: svc-shell-access aws systems manager session manager：运维登录 aws systems manager session manager 运维登录 把运维登录从“ssh 22 + 密钥对”换成 session manager：安全组零管理端口入站，用 iam 身份登录和端口转发，会话里的命令写进 cloudwatch logs。 shell-access ssm-session-manager aws systems manager session manager aws iam lab 2 lab-02
+      savingsMode: unsupported
+    reuseFrom:
+      - labId: svc-cost
+        extraModules:
+          - cost
+      - labId: svc-logging
+        extraModules:
+          - logging
+      - labId: svc-iam
+        extraModules: []
+    searchText: svc-shell-access aws systems manager session manager：运维登录 ssh 22 + 密钥对 → iam 身份登录、零入站端口、命令级审计 aws systems manager session manager 运维登录 把实验机的运维登录从 ssh 22 换成 session manager：安全组不再有管理端口入站，用 iam 身份登录与端口转发，会话命令写进 cloudwatch logs，并能与 cloudtrail 的 startsession 对上。 shell-access ssm session-manager least-privilege audit aws systems manager session manager amazon cloudwatch logs amazon ec2 aws iam aws cloudtrail lab 2 lab-02
   - id: svc-logging
     kind: service
-    version: 0.1.0
-    status: planned
-    startable: false
+    version: 1.0.0
+    status: beta
+    startable: true
     title: Amazon CloudWatch Logs：集中日志
+    subtitle: EBS 上的日志文件 → CloudWatch Logs（本地文件照写）
     service: Amazon CloudWatch Logs
     function: 集中日志
     summary: 把只躺在 EBS 文件里的日志批量送进 CloudWatch Logs：跨实例检索、Logs Insights 聚合、指标过滤器把日志变成指标。
@@ -447,10 +494,13 @@ cards:
     services:
       - id: cloudwatch-logs
         role: primary
-    servicesCount: 1
+      - id: cloudwatch
+        role: supporting
+    servicesCount: 2
     domains: &a5
       - resilient
       - secure
+      - cost
     difficulty: beginner
     estimatedMinutes: 45
     timeLimitMinutes: 90
@@ -462,9 +512,15 @@ cards:
       accountScoped: []
     costSources:
       hourly: []
-      usage: []
-      monthly: []
-    mainDrivers: []
+      usage:
+        - logs.ingestion
+      monthly:
+        - cloudwatch.metrics
+    mainDrivers:
+      - 日志摄取量（GB）
+      - 日志存储（GB-月）
+      - Logs Insights 扫描量
+      - 指标过滤器生成的自定义指标
     provisionClass: A
     startProfiles:
       - name: atl/svc-logging/default
@@ -498,10 +554,18 @@ cards:
     saa:
       domains: *a5
       primaryDomain: resilient
-      topicTitles: []
+      topicTitles:
+        - 集中日志与可替换实例（ASG）
+        - EC2 日志需要 CloudWatch Agent 或 SDK；Lambda 日志自动进入
+        - 指标过滤器 → 指标 → 告警；不回溯历史日志
+        - 日志组保留期（默认永不过期）与 KMS 加密
+        - Logs Insights 按扫描量计费；订阅过滤器与导出到 S3
     tags:
       - logging
       - cloudwatch-logs
+      - logs-insights
+      - metric-filter
+      - observability
     tracks:
       - trackId: operations
         stageId: s1-observe
@@ -512,7 +576,7 @@ cards:
     legacyLabs:
       - 3
     flags:
-      - planned
+      - beta
     credits:
       - cloudwatch-logs
     badge:
@@ -526,15 +590,25 @@ cards:
         kind: soft
     workstation:
       required: true
-      savingsMode: ok
-    reuseFrom: []
-    searchText: svc-logging amazon cloudwatch logs：集中日志 amazon cloudwatch logs 集中日志 把只躺在 ebs 文件里的日志批量送进 cloudwatch logs：跨实例检索、logs insights 聚合、指标过滤器把日志变成指标。 logging cloudwatch-logs amazon cloudwatch logs aws iam lab 3 lab-03
+      savingsMode: degraded
+    reuseFrom:
+      - labId: svc-shell-access
+        extraModules:
+          - shell-access
+      - labId: svc-monitoring
+        extraModules:
+          - monitoring
+      - labId: svc-cost
+        extraModules:
+          - cost
+    searchText: svc-logging amazon cloudwatch logs：集中日志 ebs 上的日志文件 → cloudwatch logs（本地文件照写） amazon cloudwatch logs 集中日志 把只躺在 ebs 文件里的日志批量送进 cloudwatch logs：跨实例检索、logs insights 聚合、指标过滤器把日志变成指标。 logging cloudwatch-logs logs-insights metric-filter observability amazon cloudwatch logs amazon cloudwatch amazon ec2 aws iam lab 3 lab-03
   - id: svc-monitoring
     kind: service
-    version: 0.1.0
-    status: planned
-    startable: false
+    version: 1.0.0
+    status: beta
+    startable: true
     title: Amazon CloudWatch：指标、告警与仪表板
+    subtitle: worker 内的本地评估器 → AWS 侧评估的告警 + SNS
     service: Amazon CloudWatch
     function: 指标、告警与仪表板
     summary: 让告警与实例解耦：指标双写到 CloudWatch，Agent 补上内存与磁盘，告警在 AWS 侧评估并经 SNS 送达——实例停了也能报警。
@@ -542,7 +616,9 @@ cards:
     services:
       - id: cloudwatch
         role: primary
-    servicesCount: 1
+      - id: sns
+        role: supporting
+    servicesCount: 2
     domains: &a6
       - resilient
       - performance
@@ -558,9 +634,15 @@ cards:
       accountScoped: []
     costSources:
       hourly: []
-      usage: []
-      monthly: []
-    mainDrivers: []
+      usage:
+        - sns.requests
+      monthly:
+        - cloudwatch.metrics
+        - cloudwatch.alarms
+    mainDrivers:
+      - 自定义指标数（维度组合）
+      - 告警数
+      - GetMetricData 等 API 调用
     provisionClass: A
     startProfiles:
       - name: atl/svc-monitoring/default
@@ -596,10 +678,17 @@ cards:
     saa:
       domains: *a6
       primaryDomain: resilient
-      topicTitles: []
+      topicTitles:
+        - 心跳缺失告警与 TreatMissingData=breaching
+        - EC2 没有内存与磁盘使用率，需要 CloudWatch Agent
+        - 告警动作：SNS、EC2 recover / reboot、Auto Scaling
+        - 自定义指标的维度与基数决定指标数与费用
     tags:
       - monitoring
       - cloudwatch
+      - alarms
+      - sns
+      - observability
     tracks:
       - trackId: operations
         stageId: s1-observe
@@ -614,7 +703,7 @@ cards:
       - 3
     flags:
       - needs-email
-      - planned
+      - beta
     credits:
       - cloudwatch
     badge:
@@ -628,9 +717,18 @@ cards:
         kind: soft
     workstation:
       required: true
-      savingsMode: ok
-    reuseFrom: []
-    searchText: svc-monitoring amazon cloudwatch：指标、告警与仪表板 amazon cloudwatch 指标、告警与仪表板 让告警与实例解耦：指标双写到 cloudwatch，agent 补上内存与磁盘，告警在 aws 侧评估并经 sns 送达——实例停了也能报警。 monitoring cloudwatch amazon cloudwatch aws iam lab 3 lab-03
+      savingsMode: degraded
+    reuseFrom:
+      - labId: svc-logging
+        extraModules:
+          - logging
+      - labId: svc-storage
+        extraModules:
+          - storage
+      - labId: svc-shell-access
+        extraModules:
+          - shell-access
+    searchText: svc-monitoring amazon cloudwatch：指标、告警与仪表板 worker 内的本地评估器 → aws 侧评估的告警 + sns amazon cloudwatch 指标、告警与仪表板 让告警与实例解耦：指标双写到 cloudwatch，agent 补上内存与磁盘，告警在 aws 侧评估并经 sns 送达——实例停了也能报警。 monitoring cloudwatch alarms sns observability amazon cloudwatch amazon sns aws iam amazon ec2 aws systems manager session manager lab 3 lab-03
   - id: svc-storage
     kind: service
     version: 1.0.0
@@ -747,14 +845,15 @@ cards:
       required: true
       savingsMode: degraded
     reuseFrom:
-      - labId: svc-iam
-        extraModules: []
+      - labId: svc-monitoring
+        extraModules:
+          - monitoring
       - labId: svc-cdn
         extraModules:
           - cdn
-      - labId: svc-auth
+      - labId: svc-logging
         extraModules:
-          - auth
+          - logging
     searchText: svc-storage amazon s3：照片对象存储 上传字节从 ec2 网卡移到浏览器直传 s3 amazon s3 照片对象存储 把照片从 ec2 的 ebs 数据卷搬进 s3，上传改为预签名 url 直传；用同一组压测对比 ec2 网卡入流量、api cpu 与数据卷水位的变化。 storage s3 presigned-url performance beginner amazon s3 aws iam amazon eventbridge amazon ebs aws systems manager session manager lab 4 lab-04
   - id: svc-cdn
     kind: service
@@ -875,18 +974,20 @@ cards:
       - labId: svc-storage
         extraModules:
           - storage
-      - labId: svc-iam
-        extraModules: []
-      - labId: svc-auth
+      - labId: svc-dns
         extraModules:
-          - auth
+          - dns
+      - labId: svc-monitoring
+        extraModules:
+          - monitoring
     searchText: svc-cdn amazon cloudfront：内容分发与边缘缓存 ec2 直出 → cloudfront 边缘缓存 amazon cloudfront 内容分发与边缘缓存 给 ec2 直出的相册加一层 cloudfront：命中缓存时不回源，源站流量与连接被卸载，用户拿到受信任的 https。 cdn cloudfront edge caching performance amazon cloudfront amazon ec2 aws iam aws systems manager session manager lab 5 lab-05
   - id: svc-dns
     kind: service
-    version: 0.1.0
-    status: planned
-    startable: false
+    version: 1.0.0
+    status: beta
+    startable: true
     title: Amazon Route 53：域名解析
+    subtitle: http://<EIP> → 固定域名
     service: Amazon Route 53
     function: 域名解析
     summary: 让相册用固定域名访问：背后的 IP 变了，域名链接在 TTL 过后自动恢复；顺带认识 Alias、TTL 与健康检查。
@@ -894,7 +995,9 @@ cards:
     services:
       - id: route53
         role: primary
-    servicesCount: 1
+      - id: ec2
+        role: supporting
+    servicesCount: 2
     domains: &a9
       - resilient
       - cost
@@ -909,9 +1012,14 @@ cards:
       accountScoped: []
     costSources:
       hourly: []
-      usage: []
-      monthly: []
-    mainDrivers: []
+      usage:
+        - route53.queries
+      monthly:
+        - route53.hosted-zone
+    mainDrivers:
+      - Route 53 托管区域（按月）
+      - Route 53 标准查询
+      - 健康检查（选做，按月）
     provisionClass: A
     startProfiles:
       - name: atl/svc-dns/default
@@ -941,15 +1049,25 @@ cards:
     learnerInputs:
       - id: domain
         required: true
+      - id: hosted-zone
+        required: false
     accountImpact: []
     platformOps: []
     saa:
       domains: *a9
       primaryDomain: resilient
-      topicTitles: []
+      topicTitles:
+        - A、CNAME 与 Alias；区域顶点只能用 Alias
+        - TTL 与缓存：迁移前先调低 TTL
+        - 简单、加权、故障转移等路由策略
+        - 端点、计算型与基于告警的健康检查；Evaluate Target Health
+        - 域名注册与 DNS 托管是两件事；NS 委派
     tags:
       - dns
       - route53
+      - alias
+      - ttl
+      - failover
     tracks:
       - trackId: networking
         stageId: s2-edge
@@ -965,7 +1083,7 @@ cards:
       - 6
     flags:
       - needs-domain
-      - planned
+      - beta
     credits:
       - route53
     badge:
@@ -975,15 +1093,25 @@ cards:
         kind: soft
     workstation:
       required: true
-      savingsMode: ok
-    reuseFrom: []
-    searchText: svc-dns amazon route 53：域名解析 amazon route 53 域名解析 让相册用固定域名访问：背后的 ip 变了，域名链接在 ttl 过后自动恢复；顺带认识 alias、ttl 与健康检查。 dns route53 amazon route 53 aws iam lab 6 lab-06
+      savingsMode: degraded
+    reuseFrom:
+      - labId: svc-cdn
+        extraModules:
+          - cdn
+      - labId: svc-tls
+        extraModules:
+          - tls
+      - labId: svc-storage
+        extraModules:
+          - storage
+    searchText: svc-dns amazon route 53：域名解析 http://<eip> → 固定域名 amazon route 53 域名解析 让相册用固定域名访问：背后的 ip 变了，域名链接在 ttl 过后自动恢复；顺带认识 alias、ttl 与健康检查。 dns route53 alias ttl failover amazon route 53 amazon ec2 aws iam aws systems manager session manager lab 6 lab-06
   - id: svc-tls
     kind: service
-    version: 0.1.0
-    status: planned
-    startable: false
+    version: 1.0.0
+    status: beta
+    startable: true
     title: AWS Certificate Manager：HTTPS 证书
+    subtitle: 自签名 → ACM（ACME → Nginx，或 CloudFront 上的集成证书）
     service: AWS Certificate Manager
     function: HTTPS 证书
     summary: 从浏览器拦截页到地址栏的锁：用 ACM 的 ACME 端点把受信任证书装到 Nginx，并分清“考试结论”和“2026 新能力”。
@@ -1008,7 +1136,9 @@ cards:
       hourly: []
       usage: []
       monthly: []
-    mainDrivers: []
+    mainDrivers:
+      - ACME 证书（按证书中的域名，在签发与每次续期时计费）
+      - 回退分支的 CloudFront 按量
     provisionClass: A
     startProfiles:
       - name: atl/svc-tls/default
@@ -1026,7 +1156,7 @@ cards:
       - name: atl/svc-tls/acme-off
         variant: acme-off
         select: preflight
-        title: ACME 端点不可用时的回退档
+        title: ACME 端点不可用：证书挂在 CloudFront 上（考试形态）
         modules:
           - iam
           - cdn
@@ -1035,7 +1165,7 @@ cards:
         seeds: []
         platform:
           previewDirectHttps: off
-        provisionClass: A
+        provisionClass: B
         costTier: low
     variants:
       - id: default
@@ -1044,9 +1174,9 @@ cards:
         provisionClass: A
         costTier: low
       - id: acme-off
-        title: ACME 端点不可用时的回退档
+        title: ACME 端点不可用：证书挂在 CloudFront 上（考试形态）
         select: preflight
-        provisionClass: A
+        provisionClass: B
         costTier: low
     targets:
       - module: tls
@@ -1057,15 +1187,25 @@ cards:
     learnerInputs:
       - id: domain
         required: true
+      - id: hosted-zone
+        required: false
     accountImpact: []
     platformOps: []
     saa:
       domains: *a10
       primaryDomain: secure
-      topicTitles: []
+      topicTitles:
+        - ACM 公有证书用于集成服务时免费、自动续期，私钥不可导出
+        - CloudFront（与 Cognito 托管登录页自定义域名）的证书必须在 us-east-1
+        - DNS 验证与邮件验证；验证记录必须保留才能续期
+        - HSTS 与 80→443 跳转的风险
+        - 在边缘终止 TLS 降低远端用户的握手延迟
     tags:
       - tls
       - acm
+      - acme
+      - https
+      - certificate
     tracks:
       - trackId: networking
         stageId: s2-edge
@@ -1080,7 +1220,7 @@ cards:
       - 6
     flags:
       - needs-domain
-      - planned
+      - beta
     credits:
       - acm
     badge:
@@ -1092,15 +1232,26 @@ cards:
         kind: soft
     workstation:
       required: true
-      savingsMode: ok
-    reuseFrom: []
-    searchText: svc-tls aws certificate manager：https 证书 aws certificate manager https 证书 从浏览器拦截页到地址栏的锁：用 acm 的 acme 端点把受信任证书装到 nginx，并分清“考试结论”和“2026 新能力”。 tls acm aws certificate manager aws iam lab 6 lab-06
+      savingsMode: degraded
+    reuseFrom:
+      - labId: svc-dns
+        extraModules:
+          - dns
+      - labId: svc-waf
+        extraModules:
+          - cdn
+          - waf
+      - labId: svc-cdn
+        extraModules:
+          - cdn
+    searchText: svc-tls aws certificate manager：https 证书 自签名 → acm（acme → nginx，或 cloudfront 上的集成证书） aws certificate manager https 证书 从浏览器拦截页到地址栏的锁：用 acm 的 acme 端点把受信任证书装到 nginx，并分清“考试结论”和“2026 新能力”。 tls acm acme https certificate aws certificate manager aws iam amazon cloudfront aws systems manager session manager lab 6 lab-06
   - id: svc-waf
     kind: service
-    version: 0.1.0
-    status: planned
-    startable: false
+    version: 1.0.0
+    status: beta
+    startable: true
     title: AWS WAF：Web 应用防护
+    subtitle: Nginx limit_req → CloudFront 边缘的 AWS WAF
     service: AWS WAF
     function: Web 应用防护
     summary: 同一套攻击脚本分别打向“只有 Nginx 限速”和“CloudFront + AWS WAF”：看被拦截的请求还会不会到达 EC2。
@@ -1108,7 +1259,9 @@ cards:
     services:
       - id: waf
         role: primary
-    servicesCount: 1
+      - id: cloudfront
+        role: supporting
+    servicesCount: 2
     domains: &a11
       - secure
       - resilient
@@ -1123,9 +1276,18 @@ cards:
       accountScoped: []
     costSources:
       hourly: []
-      usage: []
-      monthly: []
-    mainDrivers: []
+      usage:
+        - cloudfront.requests.https
+        - cloudfront.dto
+        - waf.requests
+        - logs.ingestion
+      monthly:
+        - waf.web-acl
+    mainDrivers:
+      - WAF Web ACL 与规则（按月，按存续折算）
+      - WAF 请求检查（按百万请求）
+      - WAF 日志写入 CloudWatch Logs
+      - CloudFront 请求与出网
     provisionClass: B
     startProfiles:
       - name: atl/svc-waf/default
@@ -1160,9 +1322,19 @@ cards:
     saa:
       domains: *a11
       primaryDomain: secure
-      topicTitles: []
+      topicTitles:
+        - WAF 的挂载点与不能挂载的资源
+        - CLOUDFRONT 范围的 Web ACL、IP 集合、日志组都在 us-east-1
+        - 托管规则组先 Count 后 Block；CRS 对大请求体的误杀
+        - 基于速率的规则按窗口聚合、有检测延迟
+        - 源站锁定与绕过 WAF
     tags:
       - waf
+      - web-acl
+      - rate-based
+      - managed-rules
+      - edge
+      - secure
     tracks:
       - trackId: networking
         stageId: s2-edge
@@ -1176,7 +1348,7 @@ cards:
     legacyLabs:
       - 7
     flags:
-      - planned
+      - beta
     credits:
       - waf
     badge:
@@ -1186,17 +1358,22 @@ cards:
         kind: soft
     workstation:
       required: true
-      savingsMode: ok
-    reuseFrom: []
-    searchText: svc-waf aws waf：web 应用防护 aws waf web 应用防护 同一套攻击脚本分别打向“只有 nginx 限速”和“cloudfront + aws waf”：看被拦截的请求还会不会到达 ec2。 waf aws waf aws iam amazon cloudfront lab 7 lab-07
+      savingsMode: degraded
+    reuseFrom:
+      - labId: sc-static-acceleration
+        extraModules:
+          - storage
+      - labId: svc-cdn
+        extraModules: []
+    searchText: svc-waf aws waf：web 应用防护 nginx limit_req → cloudfront 边缘的 aws waf aws waf web 应用防护 同一套攻击脚本分别打向“只有 nginx 限速”和“cloudfront + aws waf”：看被拦截的请求还会不会到达 ec2。 waf web-acl rate-based managed-rules edge secure aws waf amazon cloudfront amazon cloudwatch logs aws iam aws shield lab 7 lab-07
   - id: sc-edge-protection
     kind: scenario
-    version: 0.1.0
-    status: planned
-    startable: false
+    version: 1.0.0
+    status: beta
+    startable: true
     title: 边缘纵深防护
-    subtitle: CloudFront + WAF（+ Shield Standard 讲解，GuardDuty 选做）
-    summary: 把撞库、扫描和恶意载荷挡在 CloudFront 边缘，锁死源站让攻击者无法绕过，并弄清 Shield 与 GuardDuty 各管什么
+    subtitle: CloudFront + WAF（+ Shield Standard 与 GuardDuty 讲解）
+    summary: 把撞库、扫描和恶意载荷挡在 CloudFront 边缘，锁死源站让攻击者无法绕过，并用源站日志证明被拦截的请求根本没有到达 EC2；最后弄清 Shield 与 GuardDuty 各管哪一层。
     services:
       - id: cloudfront
         role: primary
@@ -1204,10 +1381,7 @@ cards:
         role: primary
       - id: ec2
         role: supporting
-      - id: guardduty
-        role: supporting
-        optional: true
-    servicesCount: 4
+    servicesCount: 3
     domains: &a12
       - secure
       - resilient
@@ -1218,14 +1392,23 @@ cards:
     durationBucket: medium
     costTier:
       required: low
-      withOptional: medium
+      withOptional: low
       hourlyUnits: 0
       accountScoped: []
     costSources:
       hourly: []
-      usage: []
-      monthly: []
-    mainDrivers: []
+      usage:
+        - cloudfront.requests.https
+        - cloudfront.dto
+        - waf.requests
+        - logs.ingestion
+      monthly:
+        - waf.web-acl
+    mainDrivers:
+      - WAF Web ACL 与规则（按月，按存续折算）
+      - WAF 请求检查（按百万请求）
+      - WAF 日志写入 CloudWatch Logs
+      - CloudFront 请求与出网
     provisionClass: A
     startProfiles:
       - name: atl/sc-edge-protection/default
@@ -1255,25 +1438,30 @@ cards:
         from: nginx
         to: aws
         optional: false
-      - module: threat-detection
-        from: fail2ban
-        to: guardduty
-        optional: true
-    expectedWarnings: []
-    learnerInputs:
-      - id: alert-email
-        required: false
+    expectedWarnings:
+      - DEP-018
+    learnerInputs: []
     accountImpact: []
     platformOps: []
     saa:
       domains: *a12
       primaryDomain: secure
-      topicTitles: []
+      topicTitles:
+        - WAF 的挂载点与两种范围；CLOUDFRONT 范围的资源都在 us-east-1
+        - 源站保护：托管前缀列表 + 自定义请求头（S3 源用 OAC）
+        - 托管规则组先 Count 后 Block；规则动作覆盖与范围缩小语句
+        - 基于速率的规则按窗口聚合、在 CloudFront 后面按真实客户端 IP 计数
+        - Shield Standard（自动、免费）与 Shield Advanced（付费、DRT、成本保护）
+        - 安全组 / NACL、WAF、Shield、GuardDuty、Network Firewall 各管哪一层
     scenarioQuestion: 一个电商网站部署在 ALB 后面的 EC2 Auto Scaling 组中，前面有 CloudFront。登录接口遭受大量来自少数 IP 的撞库请求，同时有人直接访问 ALB 的 DNS 名称。要求在边缘限制每个 IP 的登录频率，并确保所有流量都经过防护。最合适的组合是？
     tags:
       - cdn
-      - threat-detection
       - waf
+      - cloudfront
+      - edge
+      - origin-lock
+      - shield
+      - secure
     tracks:
       - trackId: networking
         stageId: s2-edge
@@ -1288,7 +1476,7 @@ cards:
     legacyLabs:
       - 7
     flags:
-      - planned
+      - beta
     credits:
       - cloudfront
       - waf
@@ -1302,9 +1490,18 @@ cards:
         kind: soft
     workstation:
       required: true
-      savingsMode: ok
-    reuseFrom: []
-    searchText: sc-edge-protection 边缘纵深防护 cloudfront + waf（+ shield standard 讲解，guardduty 选做） 把撞库、扫描和恶意载荷挡在 cloudfront 边缘，锁死源站让攻击者无法绕过，并弄清 shield 与 guardduty 各管什么 cdn threat-detection waf amazon cloudfront aws waf amazon ec2 amazon guardduty aws shield aws iam lab 7 lab-07
+      savingsMode: degraded
+    reuseFrom:
+      - labId: svc-tls
+        extraModules:
+          - tls
+      - labId: svc-auth
+        extraModules:
+          - auth
+      - labId: svc-dns
+        extraModules:
+          - dns
+    searchText: sc-edge-protection 边缘纵深防护 cloudfront + waf（+ shield standard 与 guardduty 讲解） 把撞库、扫描和恶意载荷挡在 cloudfront 边缘，锁死源站让攻击者无法绕过，并用源站日志证明被拦截的请求根本没有到达 ec2；最后弄清 shield 与 guardduty 各管哪一层。 cdn waf cloudfront edge origin-lock shield secure amazon cloudfront aws waf amazon ec2 amazon cloudwatch logs aws shield amazon guardduty aws iam lab 7 lab-07
   - id: sc-static-acceleration
     kind: scenario
     version: 1.0.0
@@ -1422,6 +1619,10 @@ cards:
       required: true
       savingsMode: degraded
     reuseFrom:
+      - labId: svc-identity-pool
+        extraModules:
+          - auth
+          - identity-pool
       - labId: svc-storage
         extraModules: []
       - labId: svc-image-processing
@@ -1537,19 +1738,21 @@ cards:
         extraModules:
           - storage
           - cdn
-      - labId: svc-queue
-        extraModules:
-          - queue
-      - labId: svc-cdn
+      - labId: sc-edge-protection
         extraModules:
           - cdn
+          - waf
+      - labId: svc-notification
+        extraModules:
+          - notification
     searchText: svc-auth amazon cognito user pool：用户注册登录 ec2 上的本地账号 → cognito user pool amazon cognito user pool 用户注册登录 把“ec2 自己存密码哈希、自己签 jwt”的登录换成 cognito user pool：功能更多、代码更少，但令牌的签发者、登出语义与责任划分都变了。 auth cognito jwt identity security amazon cognito user pool aws iam aws lambda lab 8 lab-08
   - id: svc-identity-pool
     kind: service
-    version: 0.1.0
-    status: planned
-    startable: false
+    version: 1.0.0
+    status: beta
+    startable: true
     title: Amazon Cognito Identity Pool：终端用户直传 S3
+    subtitle: 应用自签前缀令牌 → STS 临时凭证 + IAM 策略变量
     service: Amazon Cognito Identity Pool
     function: 终端用户直传 S3
     summary: 已登录用户换取一组只能写自己前缀的 STS 临时凭证，浏览器直接分片上传到 S3：授权从“应用代码”搬到“IAM 策略变量”。
@@ -1572,9 +1775,15 @@ cards:
       accountScoped: []
     costSources:
       hourly: []
-      usage: []
+      usage:
+        - s3.standard.storage
+        - cognito.mau
+        - s3.requests.put
       monthly: []
-    mainDrivers: []
+    mainDrivers:
+      - S3 请求（每张照片多一次 CopyObject 与 DeleteObject）
+      - 暂存对象的短暂存储（1 天过期）
+      - Cognito 月活跃用户（起始状态的 auth）
     provisionClass: B
     startProfiles:
       - name: atl/svc-identity-pool/default
@@ -1612,10 +1821,19 @@ cards:
     saa:
       domains: *a15
       primaryDomain: secure
-      topicTitles: []
+      topicTitles:
+        - User Pool 与 Identity Pool 的分工；Web 身份联合
+        - IAM 策略变量 ${cognito-identity.amazonaws.com:sub}
+        - 信任策略中的 aud、amr 条件；访客（未认证）身份的风险
+        - 预签名 URL、应用自签令牌与临时凭证的取舍
+        - S3 分片上传、CORS 暴露 ETag、生命周期规则清理未完成的分片
+        - SSE-KMS 下分片上传还需要 kms:Decrypt
     tags:
       - identity-pool
       - cognito-identity-pool
+      - sts
+      - s3-multipart
+      - iam-policy-variables
     tracks:
       - trackId: saa-main
         stageId: s3-identity
@@ -1627,7 +1845,7 @@ cards:
     legacyLabs:
       - 8
     flags:
-      - planned
+      - beta
     credits:
       - cognito-identity-pool
     badge:
@@ -1639,15 +1857,16 @@ cards:
         kind: soft
     workstation:
       required: true
-      savingsMode: ok
+      savingsMode: degraded
     reuseFrom: []
-    searchText: svc-identity-pool amazon cognito identity pool：终端用户直传 s3 amazon cognito identity pool 终端用户直传 s3 已登录用户换取一组只能写自己前缀的 sts 临时凭证，浏览器直接分片上传到 s3：授权从“应用代码”搬到“iam 策略变量”。 identity-pool cognito-identity-pool amazon cognito identity pool aws iam amazon s3 amazon cognito user pool lab 8 lab-08
+    searchText: svc-identity-pool amazon cognito identity pool：终端用户直传 s3 应用自签前缀令牌 → sts 临时凭证 + iam 策略变量 amazon cognito identity pool 终端用户直传 s3 已登录用户换取一组只能写自己前缀的 sts 临时凭证，浏览器直接分片上传到 s3：授权从“应用代码”搬到“iam 策略变量”。 identity-pool cognito-identity-pool sts s3-multipart iam-policy-variables amazon cognito identity pool aws iam aws sts amazon s3 amazon cognito user pool lab 8 lab-08
   - id: svc-notification
     kind: service
-    version: 0.1.0
-    status: planned
-    startable: false
+    version: 1.0.0
+    status: beta
+    startable: true
     title: Amazon SNS：通知扇出与订阅过滤
+    subtitle: 逐个发信 → 一次 Publish + 订阅过滤
     service: Amazon SNS
     function: 通知扇出与订阅过滤
     summary: 把“应用逐个发邮件”的站外通知换成一次 SNS Publish，按订阅过滤策略扇出到邮件订阅与模块自带的 SQS 收件队列。
@@ -1670,9 +1889,13 @@ cards:
       accountScoped: []
     costSources:
       hourly: []
-      usage: []
+      usage:
+        - sns.requests
+        - sqs.requests
       monthly: []
-    mainDrivers: []
+    mainDrivers:
+      - SNS 发布与投递（邮件协议单价高于 SQS）
+      - 收件队列的 SQS 请求
     provisionClass: A
     startProfiles:
       - name: atl/svc-notification/default
@@ -1707,10 +1930,17 @@ cards:
     saa:
       domains: *a16
       primaryDomain: resilient
-      topicTitles: []
+      topicTitles:
+        - SNS + SQS 扇出与竞争消费的区别
+        - 订阅过滤策略（消息属性 / 消息体）
+        - 邮件订阅确认、原始消息传递、订阅级 DLQ
+        - 队列策略中的 aws:SourceArn（混淆代理人）
     tags:
       - notification
       - sns
+      - sqs
+      - fan-out
+      - filter-policy
     tracks:
       - trackId: resilient
         stageId: s1-decouple
@@ -1726,7 +1956,7 @@ cards:
       - 9
     flags:
       - needs-email
-      - planned
+      - beta
     credits:
       - sns
     badge:
@@ -1742,15 +1972,27 @@ cards:
         kind: soft
     workstation:
       required: true
-      savingsMode: ok
-    reuseFrom: []
-    searchText: svc-notification amazon sns：通知扇出与订阅过滤 amazon sns 通知扇出与订阅过滤 把“应用逐个发邮件”的站外通知换成一次 sns publish，按订阅过滤策略扇出到邮件订阅与模块自带的 sqs 收件队列。 notification sns amazon sns aws iam lab 9 lab-09
+      savingsMode: degraded
+    reuseFrom:
+      - labId: svc-identity-pool
+        extraModules:
+          - storage
+          - auth
+          - identity-pool
+      - labId: svc-email
+        extraModules:
+          - email
+      - labId: svc-auth
+        extraModules:
+          - auth
+    searchText: svc-notification amazon sns：通知扇出与订阅过滤 逐个发信 → 一次 publish + 订阅过滤 amazon sns 通知扇出与订阅过滤 把“应用逐个发邮件”的站外通知换成一次 sns publish，按订阅过滤策略扇出到邮件订阅与模块自带的 sqs 收件队列。 notification sns sqs fan-out filter-policy amazon sns amazon sqs aws iam amazon cloudwatch lab 9 lab-09
   - id: svc-email
     kind: service
-    version: 0.1.0
-    status: planned
-    startable: false
+    version: 1.0.0
+    status: beta
+    startable: true
     title: Amazon SES：真实发信与退信回流
+    subtitle: 本地 outbox → SES + 反馈回流
     service: Amazon SES
     function: 真实发信与退信回流
     summary: 把只写进本地 outbox 的邮件改由 SES 真正发出，验证发件身份、查看 DKIM 签名，并用 SES 邮箱模拟器演练退信与投诉回流。
@@ -1773,9 +2015,14 @@ cards:
       accountScoped: []
     costSources:
       hourly: []
-      usage: []
+      usage:
+        - ses.messages
+        - sns.requests
+        - sqs.requests
       monthly: []
-    mainDrivers: []
+    mainDrivers:
+      - SES 发送封数
+      - 反馈通道的 SNS / SQS 请求
     provisionClass: A
     startProfiles:
       - name: atl/svc-email/default
@@ -1805,6 +2052,8 @@ cards:
     learnerInputs:
       - id: ses-identity
         required: true
+      - id: domain
+        required: false
     accountImpact:
       - id: ses-identity
         resource: SES 发件身份
@@ -1813,10 +2062,17 @@ cards:
     saa:
       domains: *a17
       primaryDomain: secure
-      topicTitles: []
+      topicTitles:
+        - SES 身份（邮箱 / 域名）、Easy DKIM、SPF、DMARC
+        - 沙盒与生产访问（按区域）、发送配额与速率
+        - 配置集事件目标、退信与投诉、抑制列表
+        - 原始邮件中的 DKIM-Signature 与 Authentication-Results
     tags:
       - email
       - ses
+      - dkim
+      - bounce
+      - sandbox
     tracks:
       - trackId: saa-main
         stageId: s3-identity
@@ -1824,9 +2080,10 @@ cards:
     legacyLabs:
       - 9
     flags:
+      - domain-optional
       - needs-email
       - account-impact
-      - planned
+      - beta
     credits:
       - ses
     badge:
@@ -1840,9 +2097,20 @@ cards:
         kind: soft
     workstation:
       required: true
-      savingsMode: ok
-    reuseFrom: []
-    searchText: svc-email amazon ses：真实发信与退信回流 amazon ses 真实发信与退信回流 把只写进本地 outbox 的邮件改由 ses 真正发出，验证发件身份、查看 dkim 签名，并用 ses 邮箱模拟器演练退信与投诉回流。 email ses amazon ses aws iam lab 9 lab-09
+      savingsMode: degraded
+    reuseFrom:
+      - labId: svc-notification
+        extraModules:
+          - notification
+      - labId: svc-identity-pool
+        extraModules:
+          - storage
+          - auth
+          - identity-pool
+      - labId: svc-queue
+        extraModules:
+          - queue
+    searchText: svc-email amazon ses：真实发信与退信回流 本地 outbox → ses + 反馈回流 amazon ses 真实发信与退信回流 把只写进本地 outbox 的邮件改由 ses 真正发出，验证发件身份、查看 dkim 签名，并用 ses 邮箱模拟器演练退信与投诉回流。 email ses dkim bounce sandbox amazon ses amazon sns amazon sqs aws iam lab 9 lab-09
   - id: sc-user-identity
     kind: scenario
     version: 0.1.0
@@ -1967,12 +2235,12 @@ cards:
     searchText: sc-user-identity 用户身份全链路 cognito user pool + identity pool + s3 + api gateway 用户在 cognito 托管登录页登录，拿到的令牌既能直接调用 api gateway（网关验签），又能换成只允许写自己 s3 前缀的临时凭证 auth identity-pool social-api amazon cognito user pool amazon cognito identity pool amazon api gateway amazon s3 amazon cloudfront aws iam lab 8 lab-08
   - id: sc-event-fanout
     kind: scenario
-    version: 0.1.0
-    status: planned
-    startable: false
+    version: 1.0.0
+    status: beta
+    startable: true
     title: 事件扇出与通知
     subtitle: SNS + SQS + SES
-    summary: 一条“有新评论”事件只发布一次，由 SNS 按订阅过滤分发给邮件和队列；事务性邮件改由 SES 真正发出，并把退信与投诉安全地送回应用
+    summary: 一条“有新评论”事件只发布一次，由 SNS 按订阅过滤策略分发给邮件与 SQS 收件队列；事务性邮件改由 SES 真正发出，退信与投诉经 SNS → SQS 安全地送回应用。
     services:
       - id: sns
         role: primary
@@ -1995,9 +2263,15 @@ cards:
       accountScoped: []
     costSources:
       hourly: []
-      usage: []
+      usage:
+        - ses.messages
+        - sns.requests
+        - sqs.requests
       monthly: []
-    mainDrivers: []
+    mainDrivers:
+      - SES 发送封数
+      - SNS 发布与投递（邮件协议单价高于 SQS）
+      - 收件队列与反馈队列的 SQS 请求
     provisionClass: A
     startProfiles:
       - name: atl/sc-event-fanout/default
@@ -2031,18 +2305,31 @@ cards:
     learnerInputs:
       - id: ses-identity
         required: true
-      - id: recipient-emails
+      - id: notify-email
         required: true
-    accountImpact: []
+    accountImpact:
+      - id: ses-identity
+        resource: SES 发件身份
+        revert: delete
     platformOps: []
     saa:
       domains: *a19
       primaryDomain: resilient
-      topicTitles: []
+      topicTitles:
+        - SNS + SQS 扇出与 SQS 竞争消费的区别
+        - 订阅过滤策略（消息属性 / 消息体）、邮件订阅确认
+        - 队列在消费者停机时缓冲消息；订阅级 DLQ
+        - SES 身份验证、DKIM、沙盒与生产访问
+        - 配置集事件目标 → SNS → SQS：没有入站端口也能收到 AWS 的异步事件
     scenarioQuestion: 一家 SaaS 公司的应用部署在私有子网中，没有任何入站端口。需要接收 SES 的退信与投诉事件，并在应用中把对应地址加入抑制名单，且应用停机期间事件不能丢。最合适的方案是？
     tags:
-      - email
       - notification
+      - email
+      - sns
+      - ses
+      - sqs
+      - fan-out
+      - filter-policy
     tracks:
       - trackId: resilient
         stageId: s1-decouple
@@ -2059,7 +2346,8 @@ cards:
       - 9
     flags:
       - needs-email
-      - planned
+      - account-impact
+      - beta
     credits:
       - ses
       - sns
@@ -2073,9 +2361,21 @@ cards:
         kind: soft
     workstation:
       required: true
-      savingsMode: ok
-    reuseFrom: []
-    searchText: sc-event-fanout 事件扇出与通知 sns + sqs + ses 一条“有新评论”事件只发布一次，由 sns 按订阅过滤分发给邮件和队列；事务性邮件改由 ses 真正发出，并把退信与投诉安全地送回应用 email notification amazon sns amazon ses amazon sqs aws iam lab 9 lab-09
+      savingsMode: degraded
+    reuseFrom:
+      - labId: svc-queue
+        extraModules:
+          - queue
+      - labId: svc-image-processing
+        extraModules:
+          - storage
+          - image-processing
+      - labId: svc-identity-pool
+        extraModules:
+          - storage
+          - auth
+          - identity-pool
+    searchText: sc-event-fanout 事件扇出与通知 sns + sqs + ses 一条“有新评论”事件只发布一次，由 sns 按订阅过滤策略分发给邮件与 sqs 收件队列；事务性邮件改由 ses 真正发出，退信与投诉经 sns → sqs 安全地送回应用。 notification email sns ses sqs fan-out filter-policy amazon sns amazon ses amazon sqs aws iam lab 9 lab-09
   - id: svc-queue
     kind: service
     version: 1.0.0
@@ -2186,17 +2486,17 @@ cards:
       required: true
       savingsMode: degraded
     reuseFrom:
-      - labId: svc-auth
+      - labId: sc-event-fanout
         extraModules:
-          - auth
+          - email
+          - notification
       - labId: svc-image-processing
         extraModules:
           - storage
           - image-processing
-      - labId: sc-static-acceleration
+      - labId: svc-email
         extraModules:
-          - storage
-          - cdn
+          - email
     searchText: svc-queue amazon sqs：异步任务队列与死信队列 进程内队列 → sqs + dlq amazon sqs 异步任务队列与死信队列 把后台任务从 api 进程的内存队列换成 sqs + dlq，在批量上传中途 kill -9 worker 看任务一个不丢，再把坏消息送进死信队列并重放。 queue sqs dlq decoupling resilience amazon sqs aws iam amazon ec2 aws systems manager session manager lab 10 lab-10
   - id: svc-image-processing
     kind: service
@@ -2317,6 +2617,10 @@ cards:
       required: true
       savingsMode: degraded
     reuseFrom:
+      - labId: svc-identity-pool
+        extraModules:
+          - auth
+          - identity-pool
       - labId: sc-static-acceleration
         extraModules:
           - cdn
@@ -3340,9 +3644,10 @@ cards:
       - labId: svc-queue
         extraModules:
           - queue
-      - labId: svc-auth
+      - labId: sc-event-fanout
         extraModules:
-          - auth
+          - email
+          - notification
     searchText: svc-database amazon rds for postgresql：托管关系数据库 ebs 上的 sqlite → multi-az 的 rds for postgresql amazon rds for postgresql 托管关系数据库 把 sqlite 换成 multi-az 的 rds for postgresql，同一套 knex 仓储代码换来托管备份、时间点恢复与自动故障转移，并亲手触发一次故障转移。 database rds postgresql multi-az backup amazon rds for postgresql amazon vpc aws iam amazon cloudwatch lab 15 lab-15
   - id: svc-db-proxy
     kind: service
@@ -3555,9 +3860,10 @@ cards:
       - labId: svc-queue
         extraModules:
           - queue
-      - labId: svc-auth
+      - labId: sc-event-fanout
         extraModules:
-          - auth
+          - email
+          - notification
     searchText: svc-cache amazon elasticache：共享缓存 每次查库 → elasticache（valkey）旁路缓存 amazon elasticache 共享缓存 给时间线加上 elasticache（valkey），用同一部署里的逐请求 a/b 看“命中省掉几次查库”，再看清谁能连到缓存、缓存故障时请求为什么不失败。 cache elasticache valkey cache-aside vpc amazon elasticache amazon vpc aws iam amazon cloudwatch lab 16 lab-16
   - id: svc-analytics
     kind: service
@@ -6467,8 +6773,7 @@ serviceMap:
     serviceCard: svc-threat-detection
     creditedBy:
       - sc-threat-compliance
-    appearsIn:
-      - sc-edge-protection
+    appearsIn: []
   - id: config
     module: compliance
     category: F

@@ -1,66 +1,343 @@
-# labs/sc-edge-protection/lab.yaml —— 目录占位（status: planned）：只有目录元数据，可在目录中显示但不能开始实验；
-# 取值来自 05 §4 与 cards/ 逐卡文档。步骤、手册、检查与小测在后续批次补齐，届时 status 改为 beta 并提升版本。
+# labs/sc-edge-protection/lab.yaml —— 边缘纵深防护：CloudFront + WAF（cards/scenario-cards §3.2）
+# 实现核对（docs/implementation-notes.md wave1-scenarios）：
+# - threat-detection（GuardDuty）本轮没有实现（implemented.ts 无其 AWS 驱动、experiments/ 无 threat-detection），选做目标与
+#   threat-detection/sample-findings 实验删去，GuardDuty 改为第 10 步“分层”中的讲解与手动确认；模块实现后以选做目标补回（版本 +1）。
+#   费用档位因此为“低”（不再有“选做 → 中”）。
+# - 锁定源站：`scripts/module enable cdn --set CDN_DIRECT_ACCESS=admin-ip --set CDN_ADMIN_CIDR=…`（cdn 的 prepare 读 --set）；
+#   切 Block：`scripts/module enable waf --param RuleAction=block`（§9.2 没有 set 子命令，附录 B-27）。
+# - waf/bypass 实验不在本卡使用：工作台的公网出口就是 CDN_ADMIN_CIDR，从工作台探测 80 端口必然可达（originLocked=false），
+#   不能证明“攻击者无法绕过”。改用服务端证据：实验机与源站安全组的规则（DescribeSecurityGroupRules）+ 实验机本机 8080 不带
+#   校验头 403 + CloudShell 直连超时的手动记录。
+# - 托管规则组 Block 返回 CloudFront 的 403、不带 X-CloudAlbum-Path：边缘拦截用“源站 nonce 计数为 0”判定（引用 svc-waf 的检查）。
+# - cdn、waf 的公共检查引用 svc-cdn、svc-waf 的同名检查，变量名与两张单服务卡保持一致；两卡主版本变化时本卡同步提升版本。
 schema: atl.lab/v2
 id: sc-edge-protection
 kind: scenario
-version: 0.1.0
-status: planned
+version: 1.0.0
+status: beta
 title: 边缘纵深防护
-subtitle: CloudFront + WAF（+ Shield Standard 讲解，GuardDuty 选做）
-summary: 把撞库、扫描和恶意载荷挡在 CloudFront 边缘，锁死源站让攻击者无法绕过，并弄清 Shield 与 GuardDuty 各管什么
-story: 相册上线一个月后，登录接口每天收到成千上万次撞库尝试，访问日志里满是 `/wp-login.php`、`/.env` 之类的扫描，偶尔还有一个 IP 用脚本反复刷首页。现在只有一台 t4g.small，Nginx 的 `limit_req` 能挡住一部分，但每个恶意请求都已经消耗了实例的连接、TLS 与带宽。CTO
-  要求：不扩容服务器，在流量进入东京区域之前就把它挡住，并且要证明攻击者不能直接打 EC2 绕过防护；同时想知道“是不是还要买 Shield Advanced、开 GuardDuty”。
-scenario: {question: 一个电商网站部署在 ALB 后面的 EC2 Auto Scaling 组中，前面有 CloudFront。登录接口遭受大量来自少数 IP 的撞库请求，同时有人直接访问 ALB 的 DNS 名称。要求在边缘限制每个 IP 的登录频率，并确保所有流量都经过防护。最合适的组合是？}
+subtitle: CloudFront + WAF（+ Shield Standard 与 GuardDuty 讲解）
+summary: 把撞库、扫描和恶意载荷挡在 CloudFront 边缘，锁死源站让攻击者无法绕过，并用源站日志证明被拦截的请求根本没有到达 EC2；最后弄清 Shield 与 GuardDuty 各管哪一层。
+story: |
+  相册上线一个月后，登录接口每天收到成千上万次撞库尝试，访问日志里满是 `/wp-login.php`、`/.env` 之类的扫描，偶尔还有一个 IP 用脚本反复刷首页。
+  现在只有一台 t4g.small，Nginx 的 `limit_req` 能挡住一部分，但每个恶意请求都已经消耗了实例的连接、TLS 与带宽。
+  CTO 要求：不扩容服务器，在流量进入东京区域之前就把它挡住，并且要证明攻击者不能直接打 EC2 绕过防护；同时想知道“是不是还要买 Shield Advanced、开 GuardDuty”。
+scenario:
+  question: 一个电商网站部署在 ALB 后面的 EC2 Auto Scaling 组中，前面有 CloudFront。登录接口遭受大量来自少数 IP 的撞库请求，同时有人直接访问 ALB 的 DNS 名称。要求在边缘限制每个 IP 的登录频率，并确保所有流量都经过防护。最合适的组合是？
+  constraints: [不扩容服务器, 恶意流量在进入区域前被拦截, 攻击者无法直连源站绕过防护, 照片上传不能被误杀]
+  antiPatterns:
+    - 只开 WAF 不锁源站：攻击者直接打 EIP 就绕过了全部规则
+    - 只用前缀列表锁源站：别人的 CloudFront 分配也来自同一批网段，必须再校验自定义请求头
+    - 把 CLOUDFRONT 范围的 Web ACL 建在 ap-northeast-1：它只能在 us-east-1
+    - 托管规则组不经 Count 观察直接 Block：CRS 会误杀大请求体（照片上传）
+    - 以为 GuardDuty 能挡住 SQL 注入：它只检测、不阻断，也不分析 HTTP 内容
+    - 为了防撞库购买 Shield Advanced：撞库是七层滥用，靠 WAF 的限速与托管规则
+objectives:
+  - { text: 说清 WAF 的挂载点与范围：CLOUDFRONT 范围的 Web ACL 在 us-east-1, domain: secure, relatesTo: enable-waf }
+  - { text: 用托管前缀列表加自定义请求头锁定源站，并用安全组规则证明无法绕过, domain: secure, relatesTo: verify-lock }
+  - { text: 托管规则组先 Count 观察误杀，再切到 Block, domain: secure, relatesTo: observe-count }
+  - { text: 用源站日志的服务端证据区分“边缘拦截”与“源站 Nginx 拒绝”, domain: secure, relatesTo: switch-block }
+  - { text: 比较 Nginx 精确限速与 WAF 速率规则的窗口聚合, domain: resilient, relatesTo: after }
+  - { text: 区分 Shield Standard、Shield Advanced、WAF 与 GuardDuty 各管哪一层, domain: secure, relatesTo: layers }
 difficulty: intermediate
 estimatedMinutes: 90
 timeLimitMinutes: 150
-extensions: {maxCount: 2, minutesEach: 30}
-retain: {allowed: true, maxHours: 24}
+extensions: { maxCount: 2, minutesEach: 30 }
+retain: { allowed: true, maxHours: 24, reason: Web ACL 按月计费（按存续折算），分配的禁用与删除较慢；保留后可以继续观察 WAF 日志与采样请求 }
 regions:
   supported: [ap-northeast-1]
   alsoUses: [global, us-east-1]
 services:
-- {id: cloudfront, role: primary, module: cdn}
-- {id: waf, role: primary, module: waf}
-- {id: ec2, role: supporting, module: ec2}
-- {id: guardduty, role: supporting, module: threat-detection, optional: true}
-- {id: shield, role: observed}
-- {id: iam, role: context, module: iam}
-modules:
-  target: [cdn, waf, threat-detection]
-  start: [iam]
-  context: []
-  related: []
+  - { id: cloudfront, name: Amazon CloudFront（分配、源站锁定）, role: primary, module: cdn }
+  - { id: waf, name: AWS WAF（CLOUDFRONT 范围的 Web ACL、托管规则组、速率规则、IP 集合）, role: primary, module: waf }
+  - { id: ec2, name: Amazon EC2（源站：安全组与 8080 源站监听器）, role: supporting, module: ec2 }
+  - { id: cloudwatch-logs, name: Amazon CloudWatch Logs（WAF 日志，us-east-1）, role: observed }
+  - { id: shield, name: AWS Shield Standard（只讲解，不订阅 Advanced）, role: observed }
+  - { id: guardduty, name: Amazon GuardDuty（只讲解，本版不启用）, role: observed }
+  - { id: iam, name: AWS IAM（实例角色）, role: context, module: iam }
+modules: { target: [cdn, waf], start: [iam], context: [], related: [threat-detection, logging, monitoring, tls, dns] }
 prerequisites:
   cards:
-  - {id: svc-cdn, kind: soft}
-  - {id: svc-waf, kind: soft}
-  learnerInputs:
-  - {id: alert-email, required: false}
+    - { id: svc-cdn, kind: soft }
+    - { id: svc-waf, kind: soft }
+  learnerInputs: []
+  knowledge: [HTTP 状态码与请求头, 安全组规则的基本结构, 七层与三/四层防护的区别]
+
 startProfile:
   provisions:
-  - item: iam
-    kind: module
-    basis: credential
-    set: {IAM_CREDENTIALS: role}
-    reason: 平台约定除 svc-ec2、svc-iam 外起始状态都带实例角色（C3）
-  - {item: preview-direct-https, kind: platform, reason: 预览使用方案 B 的 Let's Encrypt IP 证书（03 §6.2）}
-  platform:
-    preview: {directHttps: 'on'}
+    - { item: iam, kind: module, basis: credential, set: { IAM_CREDENTIALS: role },
+        reason: 平台约定除 svc-ec2、svc-iam 外起始状态都带实例角色（C3）；waf 的 BlocklistPort 同步 IP 集合、读取 Web ACL，cdn 的失效按钮与控制面探针都靠它 }
+    - { item: mgmt-channel, kind: platform, reason: 实验机挂只含 AmazonSSMManagedInstanceCore 的 CloudAlbumAppRole，是平台的管理通道，不是应用权限 }
+    - { item: workstation, kind: platform, reason: 每个会话一台工作台，用于运行 scripts/module、AWS CLI 与对比实验；它的公网出口就是“管理员 IP” }
+    - { item: check-bundle, kind: platform, reason: 检查包随 CloudAlbum 发布包安装在实验机的 /opt/atl（06 PM-04） }
+    - { item: preview-direct-https, kind: platform, reason: 预览使用方案 B 的 Let's Encrypt IP 证书（03 §6.2）；锁定源站后直连预览被安全组挡住，预览改用分配域名，会话内无需续期 }
+  platform: { preview: { directHttps: 'on' } }
+  reason: 起始状态是 L0 + 实例角色（档位 atl/sc-edge-protection/default）。storage 刻意保持本地：照片经 /api/storage/upload 上传，大请求体会触发 CRS 的 SizeRestrictions_BODY，这正是“误杀与调优”的观察点；waf 的挂载点选 cdn（CLOUDFRONT 范围，没有按小时计费）
 targetModules:
-- id: cdn
-  driver: cloudfront
-  set: {CDN_DIRECT_ACCESS: admin-ip}
-- id: waf
-  driver: aws
-  params: {Scope: CLOUDFRONT}
-- {id: threat-detection, driver: guardduty, optional: true}
-expectedWarnings: []
-cost: {tier: low, tierWithOptional: medium}
-provision: {class: A}
-badge: {title: 边缘纵深防护, short: 边缘防护}
+  - id: cdn
+    driver: cloudfront
+    set: { CDN_ORIGIN_TYPE: ec2, CDN_MEDIA_ORIGIN: ec2, CDN_DIRECT_ACCESS: admin-ip }
+    wireStep: enable-cdn
+    adoptsExisting: false
+  - { id: waf, driver: aws, fromDriver: nginx, set: { WAF_RULE_ACTION: count }, params: { Scope: CLOUDFRONT }, wireStep: enable-waf, adoptsExisting: false }
+# DEP-018 在本卡的流程中不会出现（cdn 启用时就已 admin-ip）；登记它只是因为 registry 中 DEP-018 的 need 为空、运行期条件在 rules.ts，
+# labs:derive 的参考推导器无法求值，只要 waf=aws 就报它（svc-waf 同）。waf 的 capability 检查用检查级 expectedWarnings: [] 保持严格（必须 ok）。
+expectedWarnings: [DEP-018]
+workstation: { required: true, tools: [aws-cli, node, jq], savingsMode: degraded }
+platform:
+  consoleLinks: [cloudfront.distribution, ec2.securityGroup, wafv2.webAcls, cloudshell.home]
+provision: { class: A, cleanupBudgetMinutes: 90 }
+
+variables:
+  distributionId: { label: 分配 ID, from: derived, fillFrom: stack.cdn.EnvCdnDistributionId, pattern: '^E[A-Z0-9]{8,20}$' }
+  cdnDomain: { label: 分配域名, from: derived, fillFrom: stack.cdn.InfoDistributionDomainName, pattern: '^[a-z0-9]+\.cloudfront\.net$' }
+  originSgId: { label: 源站安全组, from: derived, fillFrom: stack.cdn.InfoOriginSecurityGroupId, pattern: '^sg-[0-9a-f]{8,17}$' }
+  webAclArn: { label: Web ACL ARN, from: derived, fillFrom: stack.waf.EnvWafWebAclArn, pattern: '^arn:aws[a-z-]*:wafv2:us-east-1:\d{12}:global/webacl/[^/]+/[0-9a-f-]+$' }
+  webAclId: { label: Web ACL ID, from: derived, fillFrom: stack.waf.InfoWebAclId }
+  webAclName: { label: Web ACL 名称, from: derived, fillFrom: stack.waf.InfoWebAclName, example: cloudalbum-e7k2m9qx-acl }
+  logGroup: { label: WAF 日志组, from: derived, fillFrom: stack.waf.EnvWafLogGroup, example: aws-waf-logs-cloudalbum-e7k2m9qx }
+
+cost:
+  currency: USD
+  tier: low
+  mainDrivers: [WAF Web ACL 与规则（按月，按存续折算）, WAF 请求检查（按百万请求）, WAF 日志写入 CloudWatch Logs, CloudFront 请求与出网]
+  basis:
+    - { ref: start-profile, note: 实验机 EC2、EBS（根卷与数据卷）、公网 IPv4 }
+    - { ref: workstation, note: 工作台 EC2、EBS、公网 IPv4 }
+    - { key: cf-requests, pricingKey: cloudfront.requests.https, billing: usage, quantity: 1, unit: requests,
+        assumedUsagePerHour: 5000, source: target, whenRetained: false }
+    - { key: cf-dto, pricingKey: cloudfront.dto, billing: usage, quantity: 1, unit: GB,
+        assumedUsagePerHour: 0.2, source: target, whenRetained: false }
+    - { key: waf-acl, pricingKey: waf.web-acl, billing: monthly, quantity: 1, unit: month, source: target, whenRetained: true,
+        note: Web ACL 按月（按存续折算）；自定义规则各按月，AWS 托管规则组（本卡用到的几组）不另收订阅费 }
+    - { key: waf-requests, pricingKey: waf.requests, billing: usage, quantity: 1, unit: requests,
+        assumedUsagePerHour: 3000, source: target, whenRetained: false, note: 按百万请求检查 }
+    - { key: waf-logs, pricingKey: logs.ingestion, billing: usage, quantity: 1, unit: GB,
+        assumedUsagePerHour: 0.02, source: target, whenRetained: false, note: 只投递 BLOCK / COUNT 记录 }
+  assumptions:
+    - 攻击脚本都是短轮次、略高于阈值的低速率，请求量与费用都很小；以官方定价为准
+    - Shield Standard 对 CloudFront 自动生效、不另收费；本卡不订阅 Shield Advanced，不启用 GuardDuty
+
+steps:
+  - id: baseline
+    type: experiment
+    title: 基线攻击（一）：直连 Nginx 的限速，每个请求都到达 EC2
+    manual: manual/10-baseline.md
+    experiment: { module: waf, id: flood, label: before }
+    panel: terminal-workstation
+    estMinutes: 8
+    checks: [waf-nginx-start, svc-cdn/cdn-off, svc-waf/exp-flood-before, origin-load-before]
+
+  - id: baseline-payloads
+    type: experiment
+    title: 基线攻击（二）：Nginx 正则对编码变体的漏网
+    manual: manual/15-baseline-payloads.md
+    experiment: { module: waf, id: payloads, label: before }
+    panel: terminal-workstation
+    estMinutes: 5
+    checks: [svc-waf/exp-payloads-before]
+
+  - id: enable-cdn
+    type: script
+    wire: true
+    title: 建分配，入口改走边缘，直连只留给管理员 IP
+    manual: manual/20-enable-cdn.md
+    methods: [script]
+    requires: { steps: [baseline, baseline-payloads] }
+    panel: terminal-workstation
+    estMinutes: 15
+    startsBilling: { class: usage, pricingKeys: [cloudfront.requests.https, cloudfront.dto], note: 按量计费 }
+    wait: { typicalMinutes: 6, maxMinutes: 20, text: 分配状态从“正在部署”变为“已启用”，实验机安全组收紧 80/443 }
+    checks: [svc-cdn/cap-cdn-healthy, svc-cdn/entry-cloudfront, svc-cdn/distribution-deployed]
+
+  - id: verify-lock
+    type: cli
+    title: 验证源站已锁定：安全组、8080 校验头与外部直连
+    manual: manual/30-verify-lock.md
+    requires: { steps: [enable-cdn] }
+    panel: terminal-workstation
+    estMinutes: 10
+    checks: [origin-locked-sg, origin-sg-prefix-list, svc-cdn/origin-direct-denied, direct-blocked-observed]
+
+  - id: enable-waf
+    type: script
+    wire: true
+    title: 挂上 Web ACL（us-east-1，托管规则组先 Count）
+    manual: manual/40-enable-waf.md
+    methods: [script]
+    requires: { steps: [verify-lock] }
+    panel: terminal-workstation
+    estMinutes: 12
+    startsBilling: { class: usage, pricingKeys: [waf.web-acl, waf.requests, logs.ingestion], note: Web ACL 按月（按存续折算）、请求与日志按量 }
+    wait: { typicalMinutes: 6, maxMinutes: 20, text: 部署 us-east-1 的 Web ACL，再把 WebAclArn 注入 cdn 栈，分配重新部署 }
+    checks: [cap-waf-healthy, svc-waf/webacl-count, svc-waf/entry-waf, distribution-webacl, webacl-rules]
+
+  - id: observe-count
+    type: experiment
+    title: Count 模式下观察误杀
+    manual: manual/50-observe-count.md
+    experiment: { module: waf, id: false-positive, label: after }
+    requires: { steps: [enable-waf] }
+    panel: terminal-workstation
+    estMinutes: 10
+    checks: [svc-waf/exp-false-positive-after, svc-waf/false-positive-rule]
+
+  - id: switch-block
+    type: script
+    title: 切到 Block，并用源站日志证明拦截发生在边缘
+    manual: manual/55-switch-block.md
+    methods: [script]
+    requires: { steps: [observe-count] }
+    panel: terminal-workstation
+    estMinutes: 8
+    wait: { typicalMinutes: 3, maxMinutes: 10, text: Web ACL 更新托管规则组动作 }
+    checks: [svc-waf/webacl-block, svc-waf/block-not-at-origin]
+
+  - id: after
+    type: experiment
+    title: 对比实验：同一套限速攻击打向边缘
+    manual: manual/60-after.md
+    experiment: { module: waf, id: flood, label: after }
+    requires: { steps: [switch-block] }
+    panel: terminal-workstation
+    estMinutes: 8
+    checks: [svc-waf/exp-flood-pair]
+
+  - id: after-payloads
+    type: experiment
+    title: 对比实验：同一组载荷打向边缘
+    manual: manual/65-after-payloads.md
+    experiment: { module: waf, id: payloads, label: after }
+    requires: { steps: [switch-block] }
+    panel: terminal-workstation
+    estMinutes: 5
+    checks: [svc-waf/exp-payloads-pair]
+
+  - id: layers
+    type: observe
+    title: 分层：Shield Standard 与 Advanced、GuardDuty 各管什么
+    manual: manual/70-layers.md
+    requires: { steps: [enable-waf] }
+    panel: console
+    estMinutes: 8
+    checks: [shield-scope, guardduty-layer]
+
+finalChecks:
+  - no-world-ssh
+  - { ref: svc-cdn/cap-cdn-healthy, as: final-cdn-healthy }
+  - { ref: cap-waf-healthy, as: final-waf-healthy }
+  - { ref: origin-locked-sg, as: final-origin-locked }
+
+experiments:
+  - module: waf
+    id: flood
+    labels:
+      - { id: before, role: baseline, requires: { waf: nginx } }
+      - { id: after, role: treatment, requires: { waf: aws } }
+    pairs: [[before, after]]
+    requiredLabels: [before, after]
+    required: true
+    runner: workstation
+    allowSimulatedBaseline: false
+    corroboration: { minServerRatio: 0.9 }
+  - module: waf
+    id: payloads
+    labels:
+      - { id: before, role: baseline, requires: { waf: nginx } }
+      - { id: after, role: treatment, requires: { waf: aws } }
+    pairs: [[before, after]]
+    requiredLabels: [before, after]
+    required: true
+    runner: workstation
+    allowSimulatedBaseline: false
+  - module: waf
+    id: false-positive
+    labels: [ { id: after, role: single, requires: { waf: aws } } ]
+    required: true
+    runner: workstation
+    validity: functional
+    corroborateWith: [cap-waf-healthy]
+
+quiz: { file: quiz.yaml, draw: 3 }
+badge: { title: 边缘纵深防护, short: 边缘防护, icon: assets/badge.svg }
 tracks: [networking, saa-main, secure]
+
+cleanup:
+  summary: 结束实验后，平台先用空的 WebAclArn 更新 cdn 栈解除关联（分配重新部署数分钟），再删除 us-east-1 的 Web ACL 与 IP 集合，然后禁用并删除分配、源站安全组与 8080 监听器；实验机安全组恢复 80/443 的默认放行随实验机一起删除。WAF 日志组按数据保护约定保留到回收器清理阶段。
+  autoReclaim: true
+  dataRisk: [没有业务数据；实验机、denylist.conf 与照片随会话删除，报告中保留证据摘要]
+  learnerCreatedHints:
+    - { resourceType: 'AWS::WAFv2::WebACL', how: 先用空的 WebAclArn 更新 cdn 栈解除关联，再删除 }
+    - { resourceType: 'AWS::CloudFront::Distribution', how: 先禁用，状态变为已部署后再删除 }
+    - { resourceType: 'AWS::Logs::LogGroup', how: 日志组保留（us-east-1）；不需要时手动删除 aws-waf-logs-cloudalbum-<env> }
+  verify:
+    - svc-waf/webacl-gone
+    - svc-cdn/dist-gone
+
 saa:
   domains: [secure, resilient, cost]
-tags: [cdn, threat-detection, waf]
-certificate: {enabled: false}
+  topics:
+    - { id: mount-points, title: WAF 的挂载点与两种范围；CLOUDFRONT 范围的资源都在 us-east-1, domain: secure, relatesTo: enable-waf }
+    - { id: origin-lock, title: 源站保护：托管前缀列表 + 自定义请求头（S3 源用 OAC）, domain: secure, relatesTo: verify-lock }
+    - { id: count-then-block, title: 托管规则组先 Count 后 Block；规则动作覆盖与范围缩小语句, domain: secure, relatesTo: observe-count }
+    - { id: rate-based, title: 基于速率的规则按窗口聚合、在 CloudFront 后面按真实客户端 IP 计数, domain: resilient, relatesTo: after }
+    - { id: shield, title: Shield Standard（自动、免费）与 Shield Advanced（付费、DRT、成本保护）, domain: cost, relatesTo: layers }
+    - { id: layers, title: 安全组 / NACL、WAF、Shield、GuardDuty、Network Firewall 各管哪一层, domain: secure, relatesTo: layers }
+  confusables:
+    - { a: 安全组 / NACL, b: AWS WAF, rule: 安全组与 NACL 在三/四层按 IP 与端口；WAF 在七层按 URI、请求头、速率与托管规则判断 }
+    - { a: Shield Standard, b: Shield Advanced, rule: Standard 对 CloudFront 等自动生效、不另收费；Advanced 按年订阅，含 DDoS 响应团队与成本保护 }
+    - { a: AWS WAF, b: Amazon GuardDuty, rule: WAF 在请求路径上检查并阻断；GuardDuty 分析 CloudTrail、VPC 流日志与 DNS 日志，只产生发现、不阻断 }
+
+tags: [cdn, waf, cloudfront, edge, origin-lock, shield, secure]
+
+permissions:
+  learner:
+    - cloudformation:CreateChangeSet
+    - cloudformation:DescribeChangeSet
+    - cloudformation:ExecuteChangeSet
+    - cloudformation:DescribeStacks
+    - cloudformation:DescribeStackEvents
+    - cloudfront:CreateDistribution
+    - cloudfront:UpdateDistribution
+    - cloudfront:GetDistribution
+    - cloudfront:GetDistributionConfig
+    - cloudfront:ListDistributionsByWebACLId
+    - cloudfront:CreateCachePolicy
+    - cloudfront:CreateResponseHeadersPolicy
+    - cloudfront:CreateOriginAccessControl
+    - cloudfront:CreateFunction
+    - cloudfront:PublishFunction
+    - cloudfront:TagResource
+    - wafv2:CreateWebACL
+    - wafv2:UpdateWebACL
+    - wafv2:GetWebACL
+    - wafv2:DeleteWebACL
+    - wafv2:CreateIPSet
+    - wafv2:GetIPSet
+    - wafv2:UpdateIPSet
+    - wafv2:DeleteIPSet
+    - wafv2:PutLoggingConfiguration
+    - wafv2:GetLoggingConfiguration
+    - wafv2:GetSampledRequests
+    - wafv2:TagResource
+    - ec2:DescribeManagedPrefixLists
+    - ec2:DescribeSecurityGroupRules
+    - ec2:CreateSecurityGroup
+    - ec2:AuthorizeSecurityGroupIngress
+    - ec2:RevokeSecurityGroupIngress
+    - logs:CreateLogGroup
+    - logs:DescribeLogGroups
+    - logs:PutResourcePolicy
+    - logs:DescribeResourcePolicies
+    - logs:StartQuery
+    - logs:GetQueryResults
+    - iam:CreatePolicy
+    - iam:AttachRolePolicy
+    - ssm:SendCommand
+    - ssm:GetCommandInvocation
+  notes: >-
+    CLOUDFRONT 范围的 wafv2 / logs 调用与 waf-edge 栈都在 us-east-1（01 §6.5 的 UsEast1EdgeOnly 放行、护栏 UsEast1LabStacksOnly 只允许
+    stack/cloudalbum-*，附录 B-36）。Shield 页面只查看、不订阅 Advanced；CloudShell 只用于从“非管理员地址”直连实验机观察超时。
+
+certificate: { enabled: false }
+owners: [cloudalbum-maintainers]

@@ -1,0 +1,67 @@
+# 接入 SES（第 3、4 步）。email-wired 与 svc-email 同名：svc-email/email-path-seen、feedback-dlq-empty 的 dependsOn 解析到这里。
+checks:
+  - id: email-wired
+    title: email 已切换到 SES（沙盒中为黄色，视为正常）
+    type: capability
+    module: email
+    drift: { policy: must-hold, monitor: true }
+    assert:
+      - { path: $.driver, op: eq, value: ses, label: 驱动 }
+    anyOf:
+      - [ { path: $, op: healthy, label: 状态正常（本区域已有生产访问） } ]
+      - [ { path: $.status, op: eq, value: degraded, label: 状态为 degraded }, { path: $.detail, op: startsWith, value: 沙盒, label: 原因是 SES 沙盒 } ]
+    explain: SES 沙盒是 email 探针的结果，不是规则表里的 warn，op healthy 不接受它；这里用 anyOf 单独放行“沙盒”这一种 degraded（附录 C-18）。会话内不会离开沙盒。
+    reproduce: { run: 'curl -s http://127.0.0.1/api/capabilities | jq ".modules.email | {driver, status, detail}"', runsOn: lab }
+
+  - id: feedback-subscription
+    title: SES 事件主题由本模块的反馈队列订阅（退信与投诉经 SNS → SQS 回流）
+    type: aws-readonly
+    service: sns
+    action: ListSubscriptionsByTopic
+    region: app
+    params: { TopicArn: '{{ var.emailEventsTopicArn }}' }
+    ownership: { resource: '{{ var.emailEventsTopicArn }}', mode: session, createdAfter: session.readyAt }
+    dependsOn: [email-wired]
+    drift: { policy: must-hold }
+    assert:
+      - path: $.Subscriptions
+        where: { Protocol: sqs, Endpoint: { op: endsWith, value: ':cloudalbum-{{ session.env }}-email-feedback' } }
+        op: len_eq
+        value: 1
+        label: 反馈队列的 sqs 订阅
+      - path: $.Subscriptions
+        where: { Protocol: { op: in, value: [http, https] } }
+        op: len_eq
+        value: 0
+        label: 推送到 HTTP(S) 端点的订阅
+    explain: 配置集的事件目标把投递、退信、投诉事件发到本模块的 SNS 主题，主题由反馈队列订阅，worker 长轮询拉取——实验机只发起出站连接，不需要任何入站端口；worker 停机时事件留在队列里。
+    reproduce: { run: 'aws sns list-subscriptions-by-topic --topic-arn "{{ var.emailEventsTopicArn }}" --query "Subscriptions[].[Protocol,Endpoint]" --output table', runsOn: workstation }
+    manualFallback:
+      where: { breadcrumb: [SNS, 主题, 'cloudalbum-{{ session.env }}-email-events', 订阅], region: app }
+      observed:
+        question: 这个主题的订阅是什么协议、指向哪里？
+        options:
+          - { value: sqs, label: '协议 SQS，终端节点是 cloudalbum-{{ session.env }}-email-feedback 队列', expected: true }
+          - { value: https, label: 协议 HTTPS，指向实验机, fixHint: 不要把 SES 事件推到实例的公网端点；重新执行 scripts/module enable email }
+
+  - id: exp-sandbox-after
+    title: sandbox（发给未验证地址）有一条有效结果
+    type: experiment
+    module: email
+    experiment: sandbox
+    label: after
+    accept: [valid]
+
+  - id: bounce-observed
+    title: （选做）退信与投诉回流到应用
+    type: manual
+    required: false
+    spec:
+      where: { breadcrumb: [CloudAlbum, 管理后台, 邮件 outbox] }
+      observed:
+        question: 用 bounce@simulator.amazonses.com 注册的那封验证邮件，在 /admin/outbox 中最后显示什么状态？
+        options:
+          - { value: bounced, label: 退信（bounced），该用户之后只收必要邮件, expected: true }
+          - { value: sent, label: 一直是“已发送”, fixHint: 反馈事件通常几秒到几分钟回流；确认 worker 在运行（systemctl is-active cloudalbum-worker）、反馈 DLQ 为空 }
+          - { value: rejected, label: 失败（MessageRejected）, fixHint: 邮箱模拟器的地址在沙盒中也能收信；检查地址是否拼写正确 }
+    explain: 原生手动确认（04 §5.2.6）：投递状态由 SES 事件 → SNS → SQS → worker 更新，只有你在管理后台能看到对应的那一行。

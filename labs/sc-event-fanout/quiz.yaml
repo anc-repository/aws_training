@@ -1,0 +1,82 @@
+schema: atl.quiz/v1
+version: 1.0.0
+questions:
+  - id: ef-fanout-design
+    domain: resilient
+    type: single
+    kind: scenario
+    services: [sns, sqs]
+    stem: 一条订单事件需要同时被库存服务、积分服务和数据分析服务各处理一次，任一服务暂时不可用时不能丢消息。最合适的是？
+    options:
+      - { id: a, text: 发到一个 SQS 队列，三个服务一起消费 }
+      - { id: b, text: 发布到 SNS 主题，三个服务各自用一个 SQS 队列订阅 }
+      - { id: c, text: 三个服务轮询同一个 DynamoDB 表 }
+      - { id: d, text: 发到一个 SQS FIFO 队列 }
+    answer: [b]
+    explain: SNS + SQS 扇出让每个服务各拿到一份副本并独立重试，消费者停机时消息在自己的队列里等待；单个队列（包括 FIFO）是竞争消费，每条消息只会被一个服务处理。
+    relatesTo: after
+    difficulty: 1
+
+  - id: ef-transactional-mail
+    domain: secure
+    type: single
+    kind: scenario
+    services: [ses, sns]
+    stem: 应用需要给注册用户发送包含个性化验证链接的 HTML 邮件，并处理退信。应该使用？
+    options:
+      - { id: a, text: SNS 邮件订阅 }
+      - { id: b, text: Amazon SES }
+      - { id: c, text: 在 EC2 上安装 Postfix 直接经 25 端口发信 }
+      - { id: d, text: CloudWatch 告警通知 }
+    answer: [b]
+    explain: SES 用于事务性邮件，支持模板、DKIM 与退信 / 投诉事件；SNS 邮件订阅是同一条纯文本广播，收件人还要先确认订阅；EC2 的出站 25 端口默认受限，也没有发信信誉。
+    relatesTo: enable-email
+    difficulty: 1
+
+  - id: ef-filter-policy
+    domain: resilient
+    type: multi
+    kind: concept
+    services: [sns]
+    stem: 关于 SNS 订阅过滤策略，哪两项正确？
+    options:
+      - { id: a, text: 可以基于消息属性过滤 }
+      - { id: b, text: 可以基于消息体过滤（需要设置过滤范围） }
+      - { id: c, text: 过滤在订阅者收到消息后由订阅者执行 }
+      - { id: d, text: 使用过滤策略后必须改用 FIFO 主题 }
+    answer: [a, b]
+    explain: 过滤由 SNS 在投递前执行，FilterPolicyScope 决定按消息属性（默认）还是消息体匹配，与是否 FIFO 无关；不匹配的投递在 CloudWatch 中记为 NumberOfNotificationsFilteredOut。
+    relatesTo: filter
+    difficulty: 1
+
+  - id: ef-feedback-private
+    domain: secure
+    type: single
+    kind: scenario
+    services: [ses, sns, sqs]
+    stem: 一家 SaaS 公司的应用部署在私有子网中，没有任何入站端口。需要接收 SES 的退信与投诉事件，并在应用中把对应地址加入抑制名单，且应用停机期间事件不能丢。最合适的方案是？
+    options:
+      - { id: a, text: SES 配置集的事件目标为 SNS 主题，主题由 SQS 队列订阅，应用 worker 长轮询该队列 }
+      - { id: b, text: SES 事件目标为 SNS，SNS 以 HTTPS 订阅应用的公网端点 }
+      - { id: c, text: 应用每分钟调用 SES API 读取账号级抑制列表 }
+      - { id: d, text: 用 CloudWatch 告警监控退信率并发邮件给管理员 }
+    answer: [a]
+    explain: A 只需要出站连接，事件在队列中持久保存，停机恢复后照常处理。B 要求暴露入站端点，违背约束，停机时只能依赖重试策略。C 只能看到已被抑制的地址，拿不到每封邮件的投递、退信、投诉事件，轮询还有延迟与额外请求。D 只能看到比例，拿不到具体地址，无法自动加入抑制名单。
+    relatesTo: enable-email
+    difficulty: 2
+
+  - id: ef-per-user
+    domain: resilient
+    type: single
+    kind: scenario
+    services: [sns, ses, sqs]
+    stem: 系统要把“有新评论”通知发送给照片主人，用户数量很大，每个用户只能收到与自己相关的通知，并且以后要增加短信与移动推送。哪个设计最合适？
+    options:
+      - { id: a, text: 每个用户一个 SNS 主题 }
+      - { id: b, text: 一个 SNS 主题，发布时带 userId 消息属性，每个订阅设置过滤策略；新增渠道只需新增订阅 }
+      - { id: c, text: 一个 SQS 队列，所有用户的客户端轮询并丢弃不属于自己的消息 }
+      - { id: d, text: 应用为每个用户调用一次 SES }
+    answer: [b]
+    explain: B 一次发布、按属性过滤、渠道可扩展。A 主题数量随用户增长，管理与配额都是问题。C 竞争消费会让消息被错误的客户端拿走，而且无法推送。D 只覆盖邮件，增加短信与推送要改代码，发布方耗时随用户数线性增长。
+    relatesTo: filter
+    difficulty: 2

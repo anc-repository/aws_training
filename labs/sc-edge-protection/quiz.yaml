@@ -1,0 +1,82 @@
+schema: atl.quiz/v1
+version: 1.0.0
+questions:
+  - id: ep-mount-points
+    domain: secure
+    type: single
+    kind: concept
+    services: [waf]
+    stem: 以下哪个资源**不能**直接关联 AWS WAF Web ACL？
+    options:
+      - { id: a, text: Application Load Balancer }
+      - { id: b, text: Amazon CloudFront 分配 }
+      - { id: c, text: Network Load Balancer }
+      - { id: d, text: Amazon API Gateway REST API }
+    answer: [c]
+    explain: WAF 是七层服务，可关联 CloudFront、ALB、API Gateway REST API、AppSync、Cognito User Pool 等；NLB、EC2、弹性 IP 不能关联。
+    relatesTo: enable-waf
+    difficulty: 1
+
+  - id: ep-bypass
+    domain: secure
+    type: single
+    kind: scenario
+    services: [waf, cloudfront, ec2]
+    stem: WAF 已挂在 CloudFront 上，但安全团队发现攻击者仍能绕过 WAF 访问应用。最可能的原因与修复是？
+    options:
+      - { id: a, text: Web ACL 建在了错误的区域，应改到 ap-northeast-1 }
+      - { id: b, text: 源站仍对公网开放；应让源站只接受 CloudFront 托管前缀列表，并校验 CloudFront 添加的自定义请求头 }
+      - { id: c, text: 未订阅 Shield Advanced，应立即订阅 }
+      - { id: d, text: CloudFront 的价格等级太低，应改为 PriceClass_All }
+    answer: [b]
+    explain: 绕过的本质是直连源站。CLOUDFRONT 范围的 Web ACL 本来就必须在 us-east-1；只用前缀列表还不够（别人的分配也来自这些网段），要再校验自定义请求头；Shield Advanced 与价格等级都与绕过无关。
+    relatesTo: verify-lock
+    difficulty: 2
+
+  - id: ep-guardduty
+    domain: secure
+    type: multi
+    kind: concept
+    services: [guardduty]
+    stem: 关于 Amazon GuardDuty，哪两项正确？
+    options:
+      - { id: a, text: 它分析 CloudTrail 管理事件、VPC 流日志与 DNS 日志，无需你自己开启这些日志 }
+      - { id: b, text: 它能检查 HTTP 请求体并阻断 SQL 注入 }
+      - { id: c, text: 它只产生发现，自动响应需要借助 EventBridge 等服务 }
+      - { id: d, text: 它必须先在每台 EC2 上安装代理才能工作 }
+    answer: [a, c]
+    explain: GuardDuty 独立采集基础数据源，只检测不阻断；不分析 HTTP 内容；基础检测不需要代理（运行时监控等可选保护计划另说）。阻断七层攻击是 WAF 的工作。
+    relatesTo: layers
+    difficulty: 2
+
+  - id: ep-login-rate
+    domain: secure
+    type: single
+    kind: scenario
+    services: [waf, cloudfront, elb, autoscaling]
+    stem: 一个电商网站部署在 ALB 后面的 EC2 Auto Scaling 组中，前面有 CloudFront。登录接口遭受大量来自少数 IP 的撞库请求，同时有人直接访问 ALB 的 DNS 名称。要求在边缘限制每个 IP 的登录频率，并确保所有流量都经过防护。最合适的组合是？
+    options:
+      - { id: a, text: 在 CloudFront 上关联 WAF，添加只作用于登录路径的基于速率的规则；ALB 安全组只允许 CloudFront 托管前缀列表，并用监听器规则校验自定义请求头 }
+      - { id: b, text: 在 ALB 上关联 REGIONAL Web ACL，速率规则按源 IP 聚合；不修改 ALB 安全组 }
+      - { id: c, text: 在 EC2 安全组中逐个拒绝攻击 IP }
+      - { id: d, text: 订阅 Shield Advanced 并启用自动应用层 DDoS 缓解 }
+    answer: [a]
+    explain: A 在边缘按 IP 限速，并封住直连 ALB 的绕过路径。B：ALB 看到的源 IP 是 CloudFront 节点，应按 X-Forwarded-For（FORWARDED_IP）聚合，而且不锁定 ALB 仍可被绕过。C：安全组只有允许规则，不能写拒绝，在 CloudFront 后面看到的也是代理地址。D：撞库是低速率的应用层滥用，不是 DDoS；Shield Advanced 成本高，同样无法阻止直连 ALB。
+    relatesTo: after
+    difficulty: 2
+
+  - id: ep-crs-upload
+    domain: secure
+    type: single
+    kind: scenario
+    services: [waf]
+    stem: 安全审计要求“在不影响用户上传照片的前提下启用 AWS 托管的核心规则集”。上线当天用户反馈大图上传失败，WAF 日志显示命中 SizeRestrictions_BODY。正确的处理方式是？
+    options:
+      - { id: a, text: 删除整个核心规则集 }
+      - { id: b, text: 先把该规则组设为 Count 观察，再对 SizeRestrictions_BODY 做规则动作覆盖或为上传路径添加范围缩小语句，然后恢复 Block }
+      - { id: c, text: 把上传改为浏览器经预签名 URL 直传 S3 }
+      - { id: d, text: 提高 CloudFront 的源站读取超时 }
+    answer: [b]
+    explain: B 精确处理误杀，保留其余规则。A 放弃了全部 OWASP 类防护，范围过大。C 确实能让上传绕开 WAF（S3 不能关联 WAF），但需要改造存储方案，不是“启用规则集”的正确做法。D 与请求体检查无关。
+    relatesTo: observe-count
+    difficulty: 2

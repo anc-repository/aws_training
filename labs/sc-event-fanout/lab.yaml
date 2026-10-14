@@ -1,59 +1,310 @@
-# labs/sc-event-fanout/lab.yaml —— 目录占位（status: planned）：只有目录元数据，可在目录中显示但不能开始实验；
-# 取值来自 05 §4 与 cards/ 逐卡文档。步骤、手册、检查与小测在后续批次补齐，届时 status 改为 beta 并提升版本。
+# labs/sc-event-fanout/lab.yaml —— 事件扇出与通知：SNS + SQS + SES（cards/scenario-cards §3.5）
+# 实现核对（docs/implementation-notes.md wave1-scenarios）：
+# - 学员输入：卡片文档的 recipient-emails（两个收件邮箱）改为 notify-email 的 + 别名（+u1、+u2）。种子脚本
+#   experiments/notification/seed-users.ts 只接受一个 --email，生成 <you>+u<i>@…；所有别名进同一个邮箱，按收件人地址区分。
+#   ses-identity 是“能收信的邮箱地址”（email hook 用 --param Email=…；域名身份留给 svc-email 的选做步骤）。
+# - 文档第 2 步“在 SES 控制台验证身份”并入第 3 步：`scripts/module enable email --param Email=…` 由栈创建身份、轮询到“已验证”才写 env
+#   （身份已存在时只读接入，keepablePrerequisites 可保留）。SNS 邮件不经 SES，种子用户在 outbox 档完成邮箱验证，沙盒期不需要验证收件人。
+# - 用户订阅：迁移框架尚未接入，enable notification 带 --no-migrate，用户订阅改用 experiments/notification/subscribe-users.ts；
+#   种子用户用 --no-admins，过滤策略只有 userId（与卡片文档一致）。
+# - 文档第 7 步的“SNS 邮件 vs SES 邮件”对比：/api/lab/notification/compare 对比的是 db 与 sns 两个驱动，不是两种邮件，
+#   本卡改为学员在邮箱里对照两封邮件（手动确认）；两个功能对照端点由集成阶段登记，手册中只作选读。
+# - notification-wired / email-wired 在本卡重写（与 svc-notification、svc-email 同名，两卡被引用检查的 dependsOn 解析到这里）：
+#   引擎的 pendingIf 是“任一成立即等待”，原写法会把任何 degraded 都当成等待。
 schema: atl.lab/v2
 id: sc-event-fanout
 kind: scenario
-version: 0.1.0
-status: planned
+version: 1.0.0
+status: beta
 title: 事件扇出与通知
 subtitle: SNS + SQS + SES
-summary: 一条“有新评论”事件只发布一次，由 SNS 按订阅过滤分发给邮件和队列；事务性邮件改由 SES 真正发出，并把退信与投诉安全地送回应用
-story: 相册新增“有人评论你的照片就通知你”。最初的实现是 EC2 逐个给关注者发邮件：一张热门照片有几十个关注者时，发表评论的接口要等几十次邮件调用；邮件只写进 outbox，用户根本收不到；有人只想要站内信、有人想要邮件，以后还要接短信和数据分析。邮箱验证链接也必须真的发到用户的收件箱里，退信的地址要自动停止发送。
-scenario: {question: 一家 SaaS 公司的应用部署在私有子网中，没有任何入站端口。需要接收 SES 的退信与投诉事件，并在应用中把对应地址加入抑制名单，且应用停机期间事件不能丢。最合适的方案是？}
+summary: 一条“有新评论”事件只发布一次，由 SNS 按订阅过滤策略分发给邮件与 SQS 收件队列；事务性邮件改由 SES 真正发出，退信与投诉经 SNS → SQS 安全地送回应用。
+story: |
+  相册新增“有人评论你的照片就通知你”。最初的实现是 EC2 逐个给关注者发邮件：一张热门照片有几十个关注者时，发表评论的接口要等几十次邮件调用；
+  邮件只写进 outbox，用户根本收不到；有人只想要站内信、有人想要邮件，以后还要接短信和数据分析。
+  邮箱验证链接也必须真的发到用户的收件箱里，退信的地址要自动停止发送——而实验机没有、也不应该开放任何入站端口来接收这些事件。
+scenario:
+  question: 一家 SaaS 公司的应用部署在私有子网中，没有任何入站端口。需要接收 SES 的退信与投诉事件，并在应用中把对应地址加入抑制名单，且应用停机期间事件不能丢。最合适的方案是？
+  constraints: [事件只发布一次, 每个用户只收到与自己有关的通知, 验证邮件真正送达收件箱, 退信与投诉能回到应用, 实验机不开放入站端口]
+  antiPatterns:
+    - 用 SNS 邮件订阅发送验证码：同一条纯文本发给所有订阅者，带退订尾注，还要收件人先确认订阅
+    - 用一个 SQS 队列做“一对多”：竞争消费，一条消息只会被一个消费者处理
+    - 在 EC2 上跑 SMTP 直接发信：出站 25 端口默认受限，也没有发信信誉与退信处理
+    - 让 SES 事件推送到 EC2 的 HTTPS 端点：实例必须暴露入站端口
+    - 忽略沙盒：沙盒期只能发给已验证地址与邮箱模拟器，上线前要申请生产访问
+objectives:
+  - { text: 用 SNS 一次发布、按订阅扇出，发布方耗时与接收人数无关, domain: resilient, relatesTo: after }
+  - { text: 用订阅过滤策略（消息属性 userId）让每位用户只收到自己的通知, domain: resilient, relatesTo: filter }
+  - { text: 区分 SNS + SQS 扇出与 SQS 竞争消费；worker 停机时消息在队列中等待, domain: resilient, relatesTo: worker-stop }
+  - { text: 理解 SES 身份验证、沙盒与生产访问, domain: secure, relatesTo: enable-email }
+  - { text: 用配置集事件目标 + SNS → SQS 把退信与投诉送回没有入站端口的应用, domain: secure, relatesTo: enable-email }
+  - { text: 区分 SNS 邮件订阅与 SES 事务邮件的适用场景, domain: resilient, relatesTo: worker-stop }
 difficulty: intermediate
 estimatedMinutes: 75
 timeLimitMinutes: 120
-extensions: {maxCount: 2, minutesEach: 30}
-retain: {allowed: true, maxHours: 24}
+extensions: { maxCount: 2, minutesEach: 30 }
+retain: { allowed: true, maxHours: 24, reason: 只有按请求与按封计费的 SNS、SQS、SES；保留后可以继续观察退信回流与订阅状态 }
 regions:
   supported: [ap-northeast-1]
 services:
-- {id: sns, role: primary, module: notification}
-- {id: ses, role: primary, module: email}
-- {id: sqs, role: supporting}
-- {id: iam, role: context, module: iam}
-modules:
-  target: [email, notification]
-  start: [iam]
-  context: []
-  related: []
+  - { id: sns, name: Amazon SNS（通知主题、订阅过滤、反馈主题）, role: primary, module: notification }
+  - { id: ses, name: Amazon SES（发件身份、配置集、事件目标）, role: primary, module: email }
+  - { id: sqs, name: Amazon SQS（通知收件队列、订阅级 DLQ、SES 反馈队列；模块自带，不是 queue 模块）, role: supporting }
+  - { id: iam, name: AWS IAM（实例角色）, role: context, module: iam }
+modules: { target: [email, notification], start: [iam], context: [], related: [queue, monitoring, auth] }
 prerequisites:
   cards:
-  - {id: svc-notification, kind: soft}
-  - {id: svc-email, kind: soft}
+    - { id: svc-notification, kind: soft }
+    - { id: svc-email, kind: soft }
   learnerInputs:
-  - {id: ses-identity}
-  - {id: recipient-emails}
+    - { id: ses-identity }
+    - { id: notify-email }
+  knowledge: [电子邮件的 + 子地址（plus addressing）, 邮件头（From、Message-ID）, JSON]
+
 startProfile:
   provisions:
-  - item: iam
-    kind: module
-    basis: credential
-    set: {IAM_CREDENTIALS: role}
-    reason: 平台约定除 svc-ec2、svc-iam 外起始状态都带实例角色（C3）
-  - {item: preview-direct-https, kind: platform, reason: 预览使用方案 B 的 Let's Encrypt IP 证书（03 §6.2）}
-  platform:
-    preview: {directHttps: 'on'}
+    - { item: iam, kind: module, basis: credential, set: { IAM_CREDENTIALS: role },
+        reason: 平台约定除 svc-ec2、svc-iam 外起始状态都带实例角色（C3）；email 与 notification 也都是 credentials required（CRED-001） }
+    - { item: mgmt-channel, kind: platform, reason: 实验机挂只含 AmazonSSMManagedInstanceCore 的 CloudAlbumAppRole，是平台的管理通道，不是应用权限；第 8 步经它停止与启动 worker }
+    - { item: workstation, kind: platform, reason: 每个会话一台工作台，用于运行 scripts/module、AWS CLI、种子脚本与对比实验 }
+    - { item: check-bundle, kind: platform, reason: 检查包随 CloudAlbum 发布包安装在实验机的 /opt/atl（06 PM-04） }
+    - { item: preview-direct-https, kind: platform, reason: 预览使用方案 B 的 Let's Encrypt IP 证书（03 §6.2）；本卡不涉及 tls，保持开启 }
+  platform: { preview: { directHttps: 'on' } }
+  reason: 起始状态是 L0 + 实例角色（档位 atl/sc-event-fanout/default）。不预置 queue 模块：SNS → SQS 的扇出用 notification 自带的收件队列，SES 的反馈用 email 自带的反馈队列（registry auxQueues），让学员看清“没开 queue 模块也在用 SQS”的边界
 targetModules:
-- {id: email, driver: ses}
-- {id: notification, driver: sns}
+  - { id: email, driver: ses, fromDriver: outbox, wireStep: enable-email, adoptsExisting: false }
+  - { id: notification, driver: sns, fromDriver: db, wireStep: enable-notification, adoptsExisting: false }
 expectedWarnings: []
-cost: {tier: low}
-provision: {class: A}
+workstation: { required: true, tools: [aws-cli, node, jq], savingsMode: degraded }
+platform:
+  consoleLinks: [sqs.queue]
+  accountImpact:
+    - { id: ses-identity, scope: region, resource: SES 发件身份, revert: delete, note: 本会话创建的删除；可勾选保留（再次部署时只读接入） }
+provision: { class: A }
 keepablePrerequisites: [ses-identity]
-badge: {title: 事件扇出, short: 扇出}
+
+variables:
+  topicArn: { label: 通知主题 ARN, from: derived, fillFrom: stack.notification.EnvNotifyTopicArn }
+  inboxUrl: { label: 收件队列 URL, from: derived, fillFrom: stack.notification.EnvNotifyInboxQueueUrl }
+  inboxArn: { label: 收件队列 ARN, from: derived, fillFrom: stack.notification.InfoInboxQueueArn }
+  dlqUrl: { label: 订阅级 DLQ URL, from: derived, fillFrom: stack.notification.EnvNotifyDlqUrl }
+  emailEventsTopicArn: { label: SES 事件主题 ARN, from: derived, fillFrom: stack.email.InfoEventsTopicArn }
+  feedbackUrl: { label: 反馈队列 URL, from: derived, fillFrom: stack.email.EnvSesFeedbackQueueUrl }
+  feedbackDlqUrl: { label: 反馈 DLQ URL, from: derived, fillFrom: stack.email.InfoFeedbackDlqUrl }
+  configSet: { label: 配置集, from: derived, fillFrom: stack.email.EnvSesConfigurationSet }
+
+cost:
+  currency: USD
+  tier: low
+  mainDrivers: [SES 发送封数, SNS 发布与投递（邮件协议单价高于 SQS）, 收件队列与反馈队列的 SQS 请求]
+  basis:
+    - { ref: start-profile, note: 实验机 EC2、EBS（根卷与数据卷）、公网 IPv4 }
+    - { ref: workstation, note: 工作台 EC2、EBS、公网 IPv4 }
+    - { key: ses-messages, pricingKey: ses.messages, billing: usage, quantity: 1, unit: messages,
+        assumedUsagePerHour: 30, source: target, whenRetained: true, note: 按发送封数计费；免费额度的条件以官方定价为准 }
+    - { key: sns-requests, pricingKey: sns.requests, billing: usage, quantity: 1, unit: requests,
+        assumedUsagePerHour: 300, source: target, whenRetained: true, note: 通知主题与 SES 事件主题的发布与按协议计的投递 }
+    - { key: sqs-requests, pricingKey: sqs.requests, billing: usage, quantity: 1, unit: requests,
+        assumedUsagePerHour: 4000, source: target, whenRetained: true, note: worker 对收件队列与反馈队列的长轮询（空队列也计请求） }
+  assumptions:
+    - 卡片始终在 SES 沙盒中完成，不申请生产访问；不使用短信、移动推送与专用 IP；学习规模通常在免费额度内，以官方定价为准
+
+steps:
+  - id: seed
+    type: cli
+    title: 准备两位测试用户（+u1、+u2），记录起点
+    manual: manual/10-seed.md
+    panel: terminal-workstation
+    estMinutes: 6
+    checks: [svc-notification/notification-db-baseline, svc-email/email-outbox-baseline]
+
+  - id: baseline
+    type: experiment
+    title: 基线：EC2 逐个发、邮件只进 outbox
+    manual: manual/15-baseline.md
+    experiment: { module: notification, id: fanout, label: before }
+    requires: { steps: [seed] }
+    panel: terminal-workstation
+    estMinutes: 6
+    checks: [svc-notification/exp-fanout-before]
+
+  - id: enable-email
+    type: script
+    wire: true
+    title: 接入 SES：发件身份、沙盒与退信回流通道
+    manual: manual/20-enable-email.md
+    methods: [script]
+    requires: { steps: [baseline] }
+    panel: terminal-workstation
+    estMinutes: 12
+    startsBilling: { class: usage, pricingKeys: [ses.messages, sns.requests, sqs.requests], note: 按封与请求计费 }
+    wait: { typicalMinutes: 5, maxMinutes: 20, text: 部署后到邮箱点击 AWS 的验证链接，脚本轮询到“已验证”才写 env }
+    checks: [email-wired, svc-email/email-path-seen, svc-email/identity-verified, feedback-subscription, { ref: svc-email/account-production, required: false }]
+
+  - id: sandbox
+    type: experiment
+    title: 沙盒：发给未验证地址被拒，而不是悄悄“发送成功”
+    manual: manual/25-sandbox.md
+    experiment: { module: email, id: sandbox, label: after }
+    requires: { steps: [enable-email] }
+    panel: terminal-workstation
+    estMinutes: 5
+    checks: [exp-sandbox-after, svc-email/sandbox-observed]
+
+  - id: enable-notification
+    type: script
+    wire: true
+    title: 接入 SNS，为两位用户建带过滤策略的邮件订阅
+    manual: manual/30-enable-notification.md
+    methods: [script]
+    requires: { steps: [enable-email] }
+    panel: terminal-workstation
+    estMinutes: 12
+    startsBilling: { class: usage, pricingKeys: [sns.requests, sqs.requests], note: 按请求与投递计费 }
+    wait: { typicalMinutes: 5, maxMinutes: 20, text: 部署主题与两条队列，然后到邮箱点击运维与两位用户的确认订阅邮件 }
+    checks: [notification-wired, svc-notification/notification-path-seen, svc-notification/topic-subscriptions, svc-notification/inbox-queue-policy, user-subscriptions, filter-policy-observed]
+
+  - id: filter
+    type: experiment
+    title: 订阅过滤：只有照片主人收到邮件
+    manual: manual/40-filter.md
+    experiment: { module: notification, id: filter, label: after }
+    requires: { steps: [enable-notification] }
+    panel: terminal-workstation
+    estMinutes: 6
+    wait: { typicalMinutes: 3, maxMinutes: 10, text: SNS 指标有分钟级延迟 }
+    checks: [svc-notification/exp-filter-after, svc-notification/filtered-out-metric, filter-mailbox]
+
+  - id: after
+    type: experiment
+    title: 扇出耗时对比：发布一次，与人数无关
+    manual: manual/50-after.md
+    experiment: { module: notification, id: fanout, label: after }
+    requires: { steps: [enable-notification] }
+    panel: terminal-workstation
+    estMinutes: 6
+    checks: [svc-notification/exp-fanout-pair]
+
+  - id: worker-stop
+    type: experiment
+    title: worker 停机时：邮件照常到达，收件队列积压后补齐
+    manual: manual/60-worker-stop.md
+    experiment: { module: notification, id: worker-stop, label: after }
+    requires: { steps: [enable-notification] }
+    panel: terminal-workstation
+    estMinutes: 10
+    checks: [exp-worker-stop-after, worker-active, svc-notification/worker-stop-mail, sns-vs-ses-mail, { ref: svc-notification/inbox-backlog, required: false }]
+
+  - id: feedback-loop
+    type: observe
+    title: （选做）退信与投诉经 SNS → SQS 回流
+    manual: manual/70-feedback-loop.md
+    optional: { reason: 不影响完成；用 SES 邮箱模拟器演练 }
+    requires: { steps: [enable-email] }
+    panel: preview
+    estMinutes: 6
+    checks: [ { ref: bounce-observed, required: false } ]
+
+finalChecks:
+  - no-world-ssh
+  - { ref: email-wired, as: final-email-wired }
+  - { ref: notification-wired, as: final-notification-wired }
+  - { ref: svc-email/feedback-dlq-empty, as: final-feedback-dlq-empty }
+
+experiments:
+  - module: notification
+    id: fanout
+    labels:
+      - { id: before, role: baseline, requires: { notification: db } }
+      - { id: after, role: treatment, requires: { notification: sns } }
+    pairs: [[before, after]]
+    requiredLabels: [before, after]
+    required: true
+    runner: workstation
+    allowSimulatedBaseline: false
+    corroboration: { minServerRatio: 0.9 }
+  - module: notification
+    id: filter
+    labels: [ { id: after, role: single, requires: { notification: sns } } ]
+    required: true
+    runner: workstation
+    validity: functional
+    corroborateWith: [notification-wired]
+  - module: notification
+    id: worker-stop
+    labels: [ { id: after, role: single, requires: { notification: sns } } ]
+    required: true
+    runner: workstation
+    validity: functional
+    corroborateWith: [notification-wired]
+  - module: email
+    id: sandbox
+    labels: [ { id: after, role: single, requires: { email: ses } } ]
+    required: true
+    runner: workstation
+    validity: functional
+    corroborateWith: [email-wired]
+
+quiz: { file: quiz.yaml, draw: 3 }
+badge: { title: 事件扇出, short: 扇出, icon: assets/badge.svg }
 tracks: [resilient, saa-main, serverless]
+
+cleanup:
+  summary: 结束实验后，平台删除本次会话创建的通知主题、收件队列、订阅级 DLQ，以及 SES 的配置集、事件主题、反馈队列与 DLQ；主题删除后所有订阅（包括待确认的）随之删除。SES 发件身份可以勾选保留（下次再部署时只读接入）。沙盒状态按区域保持不变。
+  autoReclaim: true
+  dataRisk: [发出的邮件已经在收件人的邮箱里，无法撤回；不要用真实用户的地址做实验, 测试用户、站内信与 outbox 记录随实验机删除]
+  learnerCreatedHints:
+    - { resourceType: AWS::SES::EmailIdentity, how: 勾选保留的发件身份留在账号中；不再需要时在 SES 控制台“已验证身份”中删除 }
+  verify:
+    - svc-notification/notification-topic-gone
+    - svc-email/email-feedback-gone
+
 saa:
   domains: [resilient, secure]
-tags: [email, notification]
-certificate: {enabled: false}
+  topics:
+    - { id: fan-out, title: SNS + SQS 扇出与 SQS 竞争消费的区别, domain: resilient, relatesTo: after }
+    - { id: filter-policy, title: 订阅过滤策略（消息属性 / 消息体）、邮件订阅确认, domain: resilient, relatesTo: filter }
+    - { id: buffer, title: 队列在消费者停机时缓冲消息；订阅级 DLQ, domain: resilient, relatesTo: worker-stop }
+    - { id: ses-identity, title: SES 身份验证、DKIM、沙盒与生产访问, domain: secure, relatesTo: enable-email }
+    - { id: feedback, title: 配置集事件目标 → SNS → SQS：没有入站端口也能收到 AWS 的异步事件, domain: secure, relatesTo: enable-email }
+  confusables:
+    - { a: SNS, b: SQS, rule: SNS 推送式一对多（每个订阅一份副本）；SQS 拉取式，一条消息只交给一个消费者 }
+    - { a: SNS 邮件订阅, b: Amazon SES, rule: SNS 邮件要先确认、纯文本、所有订阅者内容相同、带退订尾注；事务性个性化邮件用 SES }
+    - { a: SNS, b: EventBridge, rule: SNS 按订阅扇出、过滤看消息属性或消息体；EventBridge 按规则匹配事件内容并路由到目标，另有归档与重放 }
+
+tags: [notification, email, sns, ses, sqs, fan-out, filter-policy]
+
+permissions:
+  learner:
+    - cloudformation:CreateChangeSet
+    - cloudformation:DescribeChangeSet
+    - cloudformation:ExecuteChangeSet
+    - cloudformation:DescribeStacks
+    - cloudformation:DescribeStackEvents
+    - ses:CreateEmailIdentity
+    - ses:GetEmailIdentity
+    - ses:GetAccount
+    - ses:CreateConfigurationSet
+    - ses:CreateConfigurationSetEventDestination
+    - ses:TagResource
+    - sns:CreateTopic
+    - sns:Subscribe
+    - sns:GetTopicAttributes
+    - sns:SetTopicAttributes
+    - sns:ListSubscriptionsByTopic
+    - sns:GetSubscriptionAttributes
+    - sns:TagResource
+    - sqs:CreateQueue
+    - sqs:SetQueueAttributes
+    - sqs:GetQueueAttributes
+    - sqs:TagQueue
+    - iam:CreatePolicy
+    - iam:AttachRolePolicy
+    - ssm:SendCommand
+    - ssm:GetCommandInvocation
+  notes: >-
+    平台模式下 scripts/module 给栈打 atl:component=env、atl:session-id、atl:lab-id 标签（C4(d)）。SES 的沙盒状态是账号级、按区域的，
+    平台不代为申请生产访问；SES 验证邮件与 SNS 确认订阅邮件都由学员在自己的邮箱中点击（人工前置 ses-identity、confirm-email），平台不代为确认。
+
+certificate: { enabled: false }
+owners: [cloudalbum-maintainers]

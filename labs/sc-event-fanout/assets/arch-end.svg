@@ -1,0 +1,81 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="920" height="420" viewBox="0 0 920 420" role="img" aria-label="完成后：api 发布一次到 SNS 通知主题，按 userId 过滤投递到用户邮箱并复制到 SQS 收件队列；验证码经 SES 发出，退信与投诉经 SNS 与 SQS 回到 worker">
+  <defs>
+    <marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 Z" fill="#2B2B2B"/>
+    </marker>
+    <marker id="o" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 Z" fill="#A35A12"/>
+    </marker>
+  </defs>
+  <rect x="0" y="0" width="920" height="420" fill="#FFFFFF"/>
+  <g font-family="system-ui, -apple-system, 'Segoe UI', 'Noto Sans SC', sans-serif" font-size="13" fill="#2B2B2B">
+    <text x="20" y="28" font-size="15" font-weight="700">完成后</text>
+
+    <rect x="20" y="100" width="120" height="52" rx="8" fill="#F4F2EE" stroke="#2B2B2B" stroke-width="1.5"/>
+    <text x="80" y="131" text-anchor="middle" font-weight="700">发表评论</text>
+
+    <rect x="190" y="84" width="150" height="84" rx="8" fill="#E8F0F6" stroke="#2F6690" stroke-width="1.5"/>
+    <text x="265" y="110" text-anchor="middle" font-weight="700">EC2 · api</text>
+    <text x="265" y="130" text-anchor="middle" font-size="12">Publish 一次</text>
+    <text x="265" y="148" text-anchor="middle" font-size="12">消息属性 userId</text>
+
+    <circle cx="455" cy="126" r="54" fill="#FFF6E5" stroke="#A35A12" stroke-width="1.5"/>
+    <text x="455" y="120" text-anchor="middle" font-weight="700">SNS</text>
+    <text x="455" y="139" text-anchor="middle" font-size="12">通知主题</text>
+
+    <rect x="610" y="44" width="150" height="44" rx="8" fill="#F4F2EE" stroke="#2B2B2B" stroke-width="1.5"/>
+    <text x="685" y="71" text-anchor="middle">+u1 的邮箱</text>
+    <rect x="610" y="104" width="150" height="44" rx="8" fill="#F4F2EE" stroke="#2B2B2B" stroke-width="1.5"/>
+    <text x="685" y="131" text-anchor="middle">+u2 的邮箱</text>
+    <rect x="610" y="166" width="150" height="48" rx="8" fill="#E7F3EC" stroke="#2E7D4F" stroke-width="1.5"/>
+    <text x="685" y="187" text-anchor="middle" font-weight="700">SQS 收件队列</text>
+    <text x="685" y="205" text-anchor="middle" font-size="12">+ 订阅级 DLQ</text>
+
+    <rect x="800" y="166" width="100" height="48" rx="8" fill="#E8F0F6" stroke="#2F6690" stroke-width="1.5"/>
+    <text x="850" y="187" text-anchor="middle" font-weight="700">worker</text>
+    <text x="850" y="205" text-anchor="middle" font-size="12">长轮询</text>
+
+    <path d="M140 126 L188 126" fill="none" stroke="#2B2B2B" stroke-width="2" marker-end="url(#a)"/>
+    <path d="M340 126 L399 126" fill="none" stroke="#2B2B2B" stroke-width="2" marker-end="url(#a)"/>
+    <path d="M505 104 C 560 80, 580 66, 608 66" fill="none" stroke="#A35A12" stroke-width="2" marker-end="url(#o)"/>
+    <text x="548" y="74" font-size="11" fill="#A35A12">过滤 userId=u1</text>
+    <path d="M509 126 L608 126" fill="none" stroke="#A35A12" stroke-width="2" marker-end="url(#o)"/>
+    <text x="548" y="120" font-size="11" fill="#A35A12">过滤 userId=u2</text>
+    <path d="M500 152 C 560 180, 580 190, 608 190" fill="none" stroke="#A35A12" stroke-width="2" marker-end="url(#o)"/>
+    <text x="520" y="190" font-size="11" fill="#A35A12">全部副本</text>
+    <path d="M760 190 L798 190" fill="none" stroke="#2B2B2B" stroke-width="2" marker-end="url(#a)"/>
+
+    <line x1="20" y1="244" x2="900" y2="244" stroke="#D8D4CC" stroke-width="1"/>
+    <text x="20" y="268" font-size="12" fill="#5A5A5A">事务邮件与反馈回流</text>
+
+    <rect x="190" y="290" width="150" height="76" rx="8" fill="#E8F0F6" stroke="#2F6690" stroke-width="1.5"/>
+    <text x="265" y="316" text-anchor="middle" font-weight="700">EC2 · api</text>
+    <text x="265" y="336" text-anchor="middle" font-size="12">验证码 · 重置密码</text>
+    <text x="265" y="354" text-anchor="middle" font-size="12">日报</text>
+
+    <rect x="390" y="290" width="140" height="76" rx="8" fill="#FFF6E5" stroke="#A35A12" stroke-width="1.5"/>
+    <text x="460" y="316" text-anchor="middle" font-weight="700">Amazon SES</text>
+    <text x="460" y="336" text-anchor="middle" font-size="12">发件身份 · DKIM</text>
+    <text x="460" y="354" text-anchor="middle" font-size="12">配置集 · 沙盒</text>
+
+    <rect x="580" y="282" width="110" height="40" rx="8" fill="#F4F2EE" stroke="#2B2B2B" stroke-width="1.5"/>
+    <text x="635" y="307" text-anchor="middle">收件箱</text>
+
+    <circle cx="620" cy="378" r="28" fill="#FFF6E5" stroke="#A35A12" stroke-width="1.5"/>
+    <text x="620" y="374" text-anchor="middle" font-size="12" font-weight="700">SNS</text>
+    <text x="620" y="390" text-anchor="middle" font-size="11">事件主题</text>
+
+    <rect x="680" y="356" width="120" height="44" rx="8" fill="#E7F3EC" stroke="#2E7D4F" stroke-width="1.5"/>
+    <text x="740" y="376" text-anchor="middle" font-weight="700">SQS 反馈队列</text>
+    <text x="740" y="393" text-anchor="middle" font-size="11">+ DLQ</text>
+
+    <path d="M340 328 L388 328" fill="none" stroke="#2B2B2B" stroke-width="2" marker-end="url(#a)"/>
+    <path d="M530 312 L578 304" fill="none" stroke="#2B2B2B" stroke-width="2" marker-end="url(#a)"/>
+    <path d="M530 348 C 560 360, 570 372, 590 376" fill="none" stroke="#A35A12" stroke-width="2" marker-end="url(#o)"/>
+    <text x="520" y="392" font-size="11" fill="#A35A12">退信 / 投诉</text>
+    <path d="M648 378 L678 378" fill="none" stroke="#A35A12" stroke-width="2" marker-end="url(#o)"/>
+    <path d="M800 378 C 850 378, 860 300, 850 216" fill="none" stroke="#2B2B2B" stroke-width="2" marker-end="url(#a)"/>
+    <text x="862" y="300" font-size="11">拉取</text>
+    <text x="20" y="410" font-size="12" fill="#5A5A5A">实验机没有任何入站端口：SNS → SQS 与 SES → SNS → SQS 都由 worker 主动拉取</text>
+  </g>
+</svg>

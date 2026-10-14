@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="80" height="80" viewBox="0 0 80 80" role="img" aria-label="事件扇出">
+  <path d="M40 3 L72 21.5 L72 58.5 L40 77 L8 58.5 L8 21.5 Z" fill="#F4F2EE" stroke="#2B2B2B" stroke-width="2"/>
+  <circle cx="26" cy="34" r="5" fill="#A35A12"/>
+  <path d="M31 34 L52 22 M31 34 L54 34 M31 34 L52 46" fill="none" stroke="#A35A12" stroke-width="2.5" stroke-linecap="round"/>
+  <circle cx="54" cy="22" r="3" fill="#2B2B2B"/><circle cx="56" cy="34" r="3" fill="#2B2B2B"/><circle cx="54" cy="46" r="3" fill="#2B2B2B"/>
+  <text x="40" y="66" text-anchor="middle" font-family="system-ui, sans-serif" font-size="12" font-weight="700" fill="#2B2B2B">事件扇出</text>
+</svg>
