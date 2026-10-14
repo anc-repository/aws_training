@@ -2747,3 +2747,98 @@ svc-notification / svc-email。全程没有调用真实 AWS API、没有部署�
 | `npm run labs:lint` / `labs:derive` | 两张卡 0 错误 0 警告 / derive 通过；全仓库剩余问题来自其他模块的进行中卡片与 `_catalog`（见第 6 节） |
 | `npm test`（全仓库，含其他实现者的进行中改动） | 2504 通过、18 跳过、6 失败（均为第 6 节所列的数量假设：experiments manifest、labs 工具的 10 / 46 张卡片假设与 catalog） |
 | `npm run smoke:l0` / `smoke:selfhost` | 85 通过 0 失败 / 31 通过 0 失败 |
+
+## wave1-route53-acm
+
+第 1 波模块补齐中的 dns（Amazon Route 53）与 tls（AWS Certificate Manager）。只修改了本组负责的路径；没有调用任何真实 AWS API，
+`scripts/module` 只用 `--dry-run`。用户没有自有域名：两个模块都把“自有域名”当作人工前置处理，代码、模板与卡片照常完整实现。
+
+### 1. 完成的内容
+
+| 范围 | 文件 | 内容 |
+|---|---|---|
+| dns 模板 | `infra/modules/dns.yaml` | 公有托管区域（新建时 `DeletionPolicy: Retain`，或 `ExistingHostedZoneId`）；目标 `eip`（A 记录）/ `alb`、`cloudfront`（A + AAAA Alias，ALB 用注入的 `TargetHostedZoneId`，CloudFront 用固定的 `Z2FDTNDATAQYW2`）；路由策略 `simple` / `failover`（PRIMARY = EIP + 健康检查，SECONDARY = 与记录同名的 S3 网站桶）/ `weighted`（EIP + Alias 或第二个 IP）；健康检查查 `origin.<域名>`（同时建 origin 记录）；可选健康检查器安全组（`com.amazonaws.<region>.route53-healthchecks` 前缀列表，`InfoHealthCheckSecurityGroupId` 经 baseParams 追加）。Outputs：`EnvAppBaseUrl`（`AppScheme` 由 hook 决定 http/https）、`EnvDnsHostedZoneId`、`EnvDnsRecordName`、`EnvDnsTargetType`、`EnvDnsTtl`、`EnvDnsRoutingPolicy`、`EnvDnsHealthCheckId`、`EnvDnsTargetIp`、`Info*`；PolicyArn 只读（GetHostedZone / ListResourceRecordSets 限定本区域，GetHealthCheckStatus） |
+| dns 主机侧 | `infra/modules/dns/nginx/dns-canonical.conf.tpl`、`infra/modules/dns/host-setup.sh` | `DNS_CANONICAL_REDIRECT=on` 时 IP / EC2 主机名访问 301 到 `APP_BASE_URL`；`/api/health/*`、ACME HTTP-01、`/_ca/`、回环地址不跳转（变量 `$ca_dns_canonical`，只放 `cloudalbum.server.d/`）。hostSetup 校验填进 Nginx 的值，并写 `/var/lib/cloudalbum/dns/state.json` |
+| tls 模板 | `infra/modules/tls.yaml` | 一个模板三个栈（`StackRole=main|edge|regional`，由 hook 按 registry 栈名传入）：main = `AWS::CertificateManager::AcmeEndpoint`（PRE_APPROVED，EC_prime256v1 / RSA_2048，CertificateTags）+ `AcmeDomainValidation`（ExactDomain，`HostedZoneId` 有值时自动建 CNAME）+ EAB 签发角色 `cloudalbum-<env>-acme-issuer`（信任 `acm-acme.amazonaws.com`，`acm:RequestCertificate` 用 `acm:DomainNames` 限定 TLS_DOMAIN，支持 PermissionsBoundaryArn）；edge / regional = DNS 验证的集成证书（edge 有 `AWS::Region = us-east-1` 的 Rules 断言）。每个栈各自一个 `cloudalbum-<env>-tls-<StackRole>` 只读策略。另输出 `InfoEdgeAliases` / `InfoRegionalDomainName`（见第 4 节） |
+| tls 主机侧 | `infra/modules/tls/host-setup.sh` | `/opt/certbot` 虚拟环境（pip，失败时回退 dnf；回放时装不上不影响启动）；按 `TLS_MODE` / `TLS_ACME` 切换 `/etc/cloudalbum/tls/server.*` 符号链接（ACME lineage `cloudalbum-acm`，本地档 Let's Encrypt `cloudalbum-le`）；certbot 目录都在数据卷（`/etc/cloudalbum/letsencrypt`、`/var/lib/cloudalbum/certbot/work`、`/var/lib/cloudalbum/logs/certbot`）；子命令 `issue-acme`（EAB 注册 + 签发，`--issuance-timeout 120`，EAB 只经环境变量或 SecureString 参数传入）、`renew`（定时器入口，写 `/var/lib/cloudalbum/tls/renew-status.json`）、`deploy-hook`、`renew-drill`、`revoke-acme`、`purge-acme`、`status`；`TLS_FORCE_HTTPS=true` 且 Nginx 已是受信证书时投放 80→443 跳转（只用 ec2 的 `$ca_https_redirect`）与 HSTS（`TLS_HSTS_MAX_AGE`，回环不输出） |
+| 感知器 | `backend/src/modules/detectors/{dns,tls}.ts` | dns：被动统计 Host（记录名 / IP / EC2 主机名）；`Resolver.resolve4(…, {ttl:true})` 与目标比较（eip = IMDS `public-ipv4`，缺省 `DNS_TARGET_IP`；alb = `LB_DNS_NAME` 的地址；cloudfront = PTR 落在 `*.cloudfront.net` 或与分配域名相交）；NXDOMAIN 持续超过 max(TTL, 60 s) 才 error；解析器超时 / SERVFAIL = degraded + transient；deep：GetHostedZone（不存在 = error）、委派 NS 核对、ListResourceRecordSets、GetHealthCheckStatus（us-east-1，经 `withAwsRetry`）。tls：对 direct / cdn / alb / 有效入口 URL 握手（每次 1.5 s 超时，结果缓存 300 s，deep 重测），签发者、SAN、剩余天数、协议、ALPN、链校验；ACME 下直连不是 Amazon = degraded；过期 / 域名不匹配 = error；网络类握手失败带 transient；续期窗口（短期证书寿命 1/3 - 2 天，集成证书 30 天）；`renew-status.json` 失败 = degraded；deep：DescribeCertificate（edge 在 us-east-1）、SearchCertificates（CertificateKeyPairOrigin=ACME）；`data.via` / `data.trusted` 给出观测到的终止点 |
+| hook | `scripts/module-cli/src/module-hooks/{dns,tls}.ts` | 见第 2 节 |
+| 实验 | `experiments/dns/**`、`experiments/tls/**` | dns：ip-change-drill（`faults/reassociate-eip.sh` 在运行器所在机器上用部署者身份 swap / restore 临时 EIP，after 另 UPSERT 记录）、failover-drill（stop/start-nginx）、weighted-sample（直查权威 NS）；tls：inspect、handshake、cipher-scan（nmap ssl-enum-ciphers 解析）、renew-drill（hostSetup `renew-drill --force`，轮询直连证书序列号）。全部附服务端证据（`/api/lab/echo` 的 Host、dns / tls 感知器数据、`capabilities.https`） |
+| 卡片 | `labs/svc-dns/**`、`labs/svc-tls/**` | `status: beta`、1.0.0：lab.yaml v2、手册、检查、小测、徽章；svc-tls 含回退变体 `acme-off`（起始状态 iam + cdn，部署等级 B） |
+| 测试 | `backend/test/modules/detector-{dns,tls}.test.ts`、`scripts/module-cli/test/module-hooks-{dns,tls}.test.ts`、`experiments/test/dns-tls.test.ts` | aws-sdk-client-mock（Route 53、ACM）、注入的解析器与握手；hook 全部在 dry-run / 脚本化网关上运行 |
+
+### 2. hook 的行为
+
+- **没有域名**：dns / tls 的 `plan()` 返回 `missing: [{ prerequisite: 'domain' }]`，`enable` 在部署任何东西之前以退出码 2 结束并打印
+  `scripts/module enable <id> --domain album.example.com …` 与“没有域名时跳过本模块”；`plan`（含 `--single`）打印后跳过，退出码 0。
+  `planHints()` 只在目标没有写出域名时给出提示（卡片的 `targetModules[].set` 写了 `learner.inputs.domain`，见第 3 节第 4 条）。
+  IP、`*.amazonaws.com`、`*.cloudfront.net` 与保留顶级域直接拒绝（`DOMAIN_INVALID`）。
+- **dns**：`--zone-id` 经 GetHostedZone 核对（私有区域、不包含该域名都拒绝）；目标自动选择 cdn + tls → cloudfront、load-balancer → alb、否则 eip
+  （只有 cdn 没有 tls 时选 eip 并说明 DEP-041）；`RoutingPolicy=failover` 自动开启健康检查；新建托管区域时打印 NS 并轮询公共解析器
+  （`--param DelegationWaitMin`，默认 15，超时只告警）；禁用时新建的托管区域保留（Retain，按月计费）并记入 `outOfBand`，下次 enable 自动复用
+  （NS 不变），`--param PurgeHostedZone=true` 删除；提醒删除注册商处的 NS 委派（平台模式另记一条 `dangling-delegation` 安全项）。tls 的验证记录
+  还在本托管区域时拒绝禁用（`DNS_IN_USE`，文档第 6 节“被 tls 依赖的验证 CNAME 阻止删除”；`--param Force=true` 覆盖），否则 tls 栈会以空的
+  `HostedZoneId` 更新并替换域验证与证书（create-only 属性）。本地档
+  `--driver external --domain x` 只写 `APP_BASE_URL=http://x`。
+- **tls**：preflight `acme-endpoint` = 部署者身份的 `acm:ListAcmeEndpoints`（只读，`plan` 也调用）；成功 → `TLS_ACME=on`，失败 → off 并按 DEP-005 ③
+  检查依赖；`--no-acme` 不探测；`--dry-run` 不调用 AWS，按 on 计划并说明。`stacks()` 给每个栈传 `StackRole`；main 部署后：
+  DescribeAcmeDomainValidation 打印验证 CNAME（没有托管区域时由学员添加）→ 等待 VALID（`--param ValidationWaitMin`，默认 30；超时 /
+  INVALID 时给出“添加后重跑”的提示，重跑时栈不变）→ 1 天 EAB（RoleArn = 签发角色）→ 实例上 `host-setup.sh issue-acme`
+  （ssh：EAB 只在 stdin 脚本里并注册为机密；SSM：`/cloudalbum/<env>/handoff/tls-eab-*` SecureString，结束即删）→ 删除 EAB →
+  SearchCertificates 记录证书 ARN。`TLS_FORCE_HTTPS=true` 与 `TLS_ACME=off` 同时出现直接拒绝（直连仍是自签名）。禁用：`--param RevokeAcme=true`
+  先 `certbot revoke`；栈删除后 `purge-acme` 删除本端点的 lineage 与 ACME 账户；清理 `outOfBand` 的 tls 记录，提醒删除外部 DNS 中的 CNAME。
+
+### 3. 设计有歧义时的取舍
+
+1. **续期定时器单元的归属**：`cloudalbum-tls-renew.{service,timer}` 已由 ec2 的 install-host-files.sh 为预览方案 B 安装（指向 tls-preview.sh）。
+   tls 的 hostSetup 不改 ec2 的文件，改为写 drop-in `cloudalbum-tls-renew.service.d/50-tls.conf` 把 `ExecStart` 指向自己的 `renew`
+   （方案 B 时再转交 tls-preview.sh renew）；单元不存在（旧发布包）时自己写出两个单元。
+2. **ACME 证书的续期窗口**：45 天证书在 renewal conf 中写 `renew_before_expiry = 15 days`（寿命的 1/3）；感知器按同一窗口判断“到期未续”。
+3. **签发角色多一个 `acm:AddTagsToCertificate`**：端点带 CertificateTags，申请时打标签需要该权限（以官方文档为准）；仍限定本账号本区域的证书。
+4. **卡片里的域名**：`targetModules[].set` 写 `DNS_RECORD_NAME` / `TLS_DOMAIN: '{{ learner.inputs.domain }}'`。这样 DEP-005 ① 在推导时由学员的前置输入满足，
+   `plan --start-of` 不会产生自由文本警告（labs:derive 的 DRV-6 把每条警告都当作规则 ID）。
+5. **svc-tls 的回退变体**：DEP-005 ③ 的两条 need 都属于同一规则 ID，`branches` 无法分别选择（选 cdn 会把 dns 那一步判为“选错分支”而不收敛）。
+   变体的 `targetModules` 另含 `dns`（本地档 external，学员在第 2 步启用），闭包因此只加 cdn，与卡片设计一致。
+6. **托管区域保留**：模块文档要求默认保留（避免重新委派），模板用 `DeletionPolicy: Retain`，hook 记录并在下次复用；`--purge` 尚未传给 hook，
+   先用 `--param PurgeHostedZone=true`。
+7. **健康检查对象**：按模块文档检查 `origin.<域名>`（A → EIP，不参与故障转移），模板同时建 origin 记录，避免健康检查跟着故障转移切走。
+
+### 4. 偏离设计之处
+
+- 卡片 svc-dns 第 3 步的“`LOCAL dns-resolve`（域名）”改为管理员视图的 capability 检查（dns 感知器 `data.resolution.answers` 含 EIP）；svc-tls 直连证书的
+  `tls-handshake` 不带 `servername`。原因：`labs:lint` 校验本机检查参数时把 `{{ … }}` 替换成不带点的样本值，`host` / `servername` 的主机名正则必然失败。
+- svc-dns 的归属证据用本会话 dns 栈（DescribeStacks + ownership），对新建与已有托管区域两种做法都成立；Route 53 记录没有 ARN，不能带 ownership。
+- `scripts/tls/letsencrypt.sh`、`/opt/cloudalbum/scripts/tls/deploy-hook.sh`（模块文档第 1 节）合并进 `infra/modules/tls/host-setup.sh` 的子命令
+  （本组负责的路径）；本地档 letsencrypt 的签发在 hostSetup apply 中按需执行。
+- 报价：`labs/_pricing/dimensions.yaml` 没有 ACM ACME 的计费维度（`tls: []`），svc-tls 的 cost.basis 只写起始状态与工作台，假设中说明。
+
+### 5. 需要集成阶段处理（共享文件）
+
+1. `modules/registry.yaml` tls 的 injects：`cdn.Aliases` 改为 `"${Out.InfoEdgeAliases}"`、`load-balancer.DomainName` 改为 `"${Out.InfoRegionalDomainName}"`。
+   现在的 `${TLS_DOMAIN}` 在没有 edge 栈时也会注入，cdn 模板的 `AliasNeedsCertificate` 规则会让“先 tls（ACME）、后 cdn”的 cdn 部署失败。改后 `npm run gen:registry`、`labs:catalog`。
+2. `experiments/test/manifest.test.ts`：“exist for all 8 MVP modules” 用 `toEqual(MVP)`，第 1 波任何模块加了 `experiments/<id>/experiment.json` 都会失败；
+   建议改为“包含 MVP，且每个目录都在 IMPLEMENTED_MODULES 中”，并把第 1 波模块并入逐模块清单校验（本组另有 `experiments/test/dns-tls.test.ts`）。
+3. `scripts/labs/src/registry.ts` 的 `replaceTemplates`：样本值改成带点的主机名（例如 `x0a1b2c3d4.example.com`），`dns-resolve` / `tls-handshake` 的参数才能写变量。
+4. `scripts/labs/src/derive/index.ts` DRV-6：只比较形如规则 ID 的警告；hook 的 `planHints` 自由文本会被当作“不在 expectedWarnings 中的规则”。
+5. `labs/_catalog/catalog.yaml` 需要 `npm run labs:catalog`（两张卡片从 planned 变为 beta）；`labs/_pricing/dimensions.yaml` 增加 ACM ACME 证书的计费维度。
+   `scripts/labs/test/{derive,lint,build}.test.ts` 写死了“10 张完整卡片”与 catalog 为最新，第 1 波卡片改为可开始后需要同步更新。
+6. `backend/src/container.ts`：tls 感知器的 `data.via` / `data.trusted` 是观测结果，可以在探针后调用 `CapabilityRegistry.setHttps()` 覆盖配置推断的 `https`。
+7. `disable --purge` 传入 `HookArgs`（dns 的托管区域删除现在用 `--param PurgeHostedZone=true`）。
+8. `scripts/module-cli/test/helpers.ts`：两个模板已就位（ALLOW_PENDING_WAVE1_TEMPLATES 由集成阶段统一改）。
+
+### 6. 自测（2026-10-14，Windows 11 / Node 22.14.0；没有调用 AWS）
+
+| 命令 | 结果 |
+|---|---|
+| `cfn-lint --regions ap-northeast-1 us-east-1 -- infra/modules/{dns,tls}.yaml`（1.57.2，D 盘 venv） | 0 发现（dns 的 VpcId 默认空导致的 W1030 以资源级 Metadata 忽略并写明理由） |
+| `npx tsc -p backend/tsconfig.json --noEmit`、`npx tsc -p scripts/module-cli/tsconfig.json --noEmit`、`npx tsc -p experiments/tsconfig.test.json` | 通过 |
+| `npx eslint`（本组文件） | 0 个问题 |
+| `vitest`：detector-dns（11）、detector-tls（13）、module-hooks-dns（12）、module-hooks-tls（8）、dns-tls 实验（10）、templates / templates-platform | 全部通过 |
+| `scripts/module enable|plan dns|tls --dry-run`（无域名） | enable 退出码 2 + 提示；plan / plan --single 打印提示后跳过，退出码 0 |
+| `scripts/module enable dns --domain album.example.com --dry-run`、`enable tls --domain … --dry-run`、`plan --single`、`plan --start-of svc-dns|svc-tls [--variant acme-off] --no-rules` | 通过；tls 回退变体起始状态 = iam + cdn（DEP-005） |
+| `npm run labs:lint` / `labs:derive --card svc-dns,svc-tls`（scripts/module 用源码，`ATL_LABS_PLAN_CMD`） | 两张卡片 0 错误 0 警告（其他实现者进行中的卡片与 `_catalog` 的 C-2 不属于本组） |
+| `bash -n infra/modules/{dns,tls}/host-setup.sh`、`experiments/*/faults/*.sh` | 通过；本机与现有镜像都没有 jq，未在容器内实际运行 hostSetup |
+| `scripts/module disable dns|tls --dry-run`（scratchpad 中的模拟 state.json） | 通过；tls 的验证记录在托管区域中时 disable dns 以 `DNS_IN_USE` 拒绝 |
+| `npm run build` | 通过 |
+| `npm test` | 只有共享测试失败：experiments/test/manifest.test.ts（列表写死 8 个 MVP 模块）、scripts/labs 的 derive / lint / build 测试（写死 10 张完整卡片与 catalog）——第 1 波各模块新增实验目录、卡片改为可开始所致，见第 5 节 |
+| `npm run smoke:l0` / `smoke:selfhost` | 85 通过 0 失败 / 31 通过 0 失败 |

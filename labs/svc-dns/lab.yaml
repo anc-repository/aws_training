@@ -1,55 +1,233 @@
-# labs/svc-dns/lab.yaml —— 目录占位（status: planned）：只有目录元数据，可在目录中显示但不能开始实验；
-# 取值来自 05 §4 与 cards/ 逐卡文档。步骤、手册、检查与小测在后续批次补齐，届时 status 改为 beta 并提升版本。
+# labs/svc-dns/lab.yaml —— Amazon Route 53：域名解析（cards/service-cards-1 §5）
+# 与卡片设计的差异（实现核对，见 implementation-notes wave1-route53-acm）：
+#   - 第 3 步的控制面归属证据用本会话 dns 模块栈（cloudformation:DescribeStacks + ownership），对“新建托管区域”与“使用已有托管区域”
+#     两种做法都成立；记录值另用 route53:ListResourceRecordSets 核对（List 类调用不带 ownership，04 §5.2.4）。
+#   - 已有托管区域 ID 是可选前置输入 hosted-zone，只用于第 2 步的 GetHostedZone 核对（检查级 when）。
+#   - 对比实验 ip-change-drill 不产生按 runId 归属的业务请求，validity 为 functional，用 EIP 已恢复的检查佐证。
 schema: atl.lab/v2
 id: svc-dns
 kind: service
-version: 0.1.0
-status: planned
+version: 1.0.0
+status: beta
 service: Amazon Route 53
 function: 域名解析
 title: Amazon Route 53：域名解析
+subtitle: http://<EIP> → 固定域名
 summary: 让相册用固定域名访问：背后的 IP 变了，域名链接在 TTL 过后自动恢复；顺带认识 Alias、TTL 与健康检查。
+story: |
+  L0 的链接里写的是 http://<EIP>，邮件和分享链接也是 IP。一旦地址变化（换实例、迁移、上 ALB 或 CDN），旧链接全部失效。
+  这张卡片给相册一个固定域名：先亲手“换一次 IP”看旧链接怎么失效，再启用 Route 53，同样的演练里域名链接在 TTL 过后自动恢复。
+objectives:
+  - { text: 区分域名注册与 DNS 托管，完成 NS 委派或使用已有托管区域, domain: resilient, relatesTo: enable-dns }
+  - { text: 用换 IP 演练证明“名字固定、目标可换”, domain: resilient, relatesTo: ip-after }
+  - { text: 说清 A、CNAME 与 Alias 的区别，以及区域顶点为什么只能用 Alias, domain: cost, relatesTo: alias-cname }
+  - { text: 理解 TTL、健康检查与故障转移的时间构成, domain: resilient, relatesTo: failover }
 difficulty: intermediate
 estimatedMinutes: 60
 timeLimitMinutes: 120
-extensions: {maxCount: 2, minutesEach: 30}
-retain: {allowed: true, maxHours: 24}
+extensions: { maxCount: 2, minutesEach: 30 }
+retain: { allowed: true, maxHours: 24, reason: NS 委派可能需要较长时间生效；保留后可在下一张卡片（例如 svc-tls）中继续使用同一个托管区域 }
 regions:
   supported: [ap-northeast-1]
   alsoUses: [global, us-east-1]
 services:
-- {id: route53, name: Amazon Route 53, role: primary, module: dns}
-- {id: iam, role: context, module: iam}
-modules:
-  target: [dns]
-  start: [iam]
-  context: []
-  related: [tls, cdn]
+  - { id: route53, name: Amazon Route 53, role: primary, module: dns }
+  - { id: ec2, name: Amazon EC2（弹性 IP，记录目标）, role: supporting, module: ec2 }
+  - { id: iam, name: AWS IAM（实例角色）, role: context, module: iam }
+  - { id: ssm-session-manager, name: AWS Systems Manager Session Manager（平台管理通道）, role: observed }
+modules: { target: [dns], start: [iam], context: [], related: [tls, cdn, load-balancer] }
 prerequisites:
-  cards:
-  - {id: svc-ec2, kind: soft}
+  cards: [ { id: svc-ec2, kind: soft } ]
   learnerInputs:
-  - {id: domain}
+    - { id: domain }
+    - { id: hosted-zone, required: false }
+  knowledge: [域名、记录与 TTL 的基本概念, 在注册商处修改 NS 的方法]
+
 startProfile:
   provisions:
-  - item: iam
-    kind: module
-    basis: credential
-    set: {IAM_CREDENTIALS: role}
-    reason: 平台约定除 svc-ec2、svc-iam 外起始状态都带实例角色（C3）
-  - {item: preview-direct-https, kind: platform, reason: 预览使用方案 B 的 Let's Encrypt IP 证书（03 §6.2）}
-  platform:
-    preview: {directHttps: 'on'}
+    - { item: iam, kind: module, basis: credential, set: { IAM_CREDENTIALS: role },
+        reason: 平台约定除 svc-ec2、svc-iam 外起始状态都带实例角色；记录与健康检查状态的控制面感知因此可用 }
+    - { item: mgmt-channel, kind: platform, reason: 实验机挂只含 AmazonSSMManagedInstanceCore 的 CloudAlbumAppRole，是平台的管理通道，不是应用权限 }
+    - { item: workstation, kind: platform, reason: 每个会话一台工作台，用于运行 scripts/module、AWS CLI 与对比实验 }
+    - { item: check-bundle, kind: platform, reason: 检查包随 CloudAlbum 发布包安装在实验机的 /opt/atl（06 PM-04） }
+    - { item: preview-direct-https, kind: platform, reason: 预览用 Let's Encrypt IP 证书；本卡不涉及 tls 模块，保持开启 }
+  platform: { preview: { directHttps: 'on' } }
+  reason: dns 指向 EIP 时只要求实例关联弹性 IP（L0 已满足），没有其他硬依赖；平台只额外准备实例角色（档位 atl/svc-dns/default）。自有域名是你的前置输入，不在起始状态里
 targetModules:
-- id: dns
-  driver: route53
-  set: {DNS_TARGET_TYPE: eip}
+  - id: dns
+    driver: route53
+    set: { DNS_TARGET_TYPE: eip, DNS_RECORD_NAME: '{{ learner.inputs.domain }}' }
+    wireStep: enable-dns
+    adoptsExisting: false
 expectedWarnings: []
-cost: {tier: low}
-provision: {class: A}
-badge: {title: 固定域名}
+workstation: { required: true, tools: [aws-cli, node, jq], savingsMode: degraded }
+platform:
+  consoleLinks: [ec2.instance, cloudshell.home]
+provision: { class: A, cleanupBudgetMinutes: 30 }
+
+variables:
+  hostedZoneId:
+    label: 托管区域 ID
+    from: derived
+    fillFrom: stack.dns.EnvDnsHostedZoneId
+    pattern: '^Z[A-Z0-9]{4,32}$'
+    example: Z0123456789ABCDEFGHIJ
+    help: 启用 dns 后由 dns 栈输出自动取得（新建或你指定的已有托管区域）
+  recordName:
+    label: 记录名
+    from: derived
+    fillFrom: stack.dns.EnvDnsRecordName
+    pattern: '^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z][a-z0-9-]{0,62}$'
+    example: album.example.com
+
+cost:
+  currency: USD
+  tier: low
+  mainDrivers: [Route 53 托管区域（按月）, Route 53 标准查询, 健康检查（选做，按月）]
+  basis:
+    - { ref: start-profile, note: 实验机 EC2、EBS（根卷与数据卷）、公网 IPv4 }
+    - { ref: workstation, note: 工作台 EC2、EBS、公网 IPv4 }
+    - { key: hosted-zone, pricingKey: route53.hosted-zone, billing: monthly, quantity: 1, source: target, whenRetained: true,
+        note: 使用本账号已有的托管区域时不新增；创建后很快删除的托管区域有不收费的宽限规则，以官方定价为准 }
+    - { key: queries, pricingKey: route53.queries, billing: usage, quantity: 1, unit: Queries, assumedUsagePerHour: 2000, source: target, whenRetained: false }
+  assumptions:
+    - 标准查询按每小时约 2000 次估算（演练脚本每 5 秒查询一次 + 浏览），指向 AWS 资源的 Alias 查询不收费，以官方定价为准
+    - 托管区域按月计费，报价按会话时长折算；域名注册费不在本卡范围内
+    - 换 IP 演练期间（每次约 5 分钟）多一个临时公网 IPv4，演练结束时释放，金额可忽略，未计入
+
+steps:
+  - id: ip-before
+    type: experiment
+    title: before：换一次 IP，看 IP 链接有多脆弱
+    manual: manual/10-ip-before.md
+    experiment: { module: dns, id: ip-change-drill, label: before }
+    panel: terminal-workstation
+    estMinutes: 10
+    checks: [dns-off, exp-ip-before, eip-restored, temp-eip-released]
+
+  - id: domain
+    type: observe
+    title: 准备域名：已有托管区域，或能做 NS 委派
+    manual: manual/20-domain.md
+    panel: terminal-workstation
+    estMinutes: 5
+    checks: [domain-control, existing-zone]
+
+  - id: enable-dns
+    type: script
+    wire: true
+    title: 启用 Route 53 并接入应用（A 记录 → 实验机 EIP）
+    manual: manual/30-enable-dns.md
+    methods: [script]
+    panel: terminal-workstation
+    estMinutes: 15
+    startsBilling: { class: fixed-monthly, pricingKeys: [route53.hosted-zone], note: 托管区域按月计费（使用已有托管区域时不新增） }
+    wait: { typicalMinutes: 5, maxMinutes: 30, text: 新建托管区域时要等注册商 / 父域的 NS 委派生效 }
+    checks: [cap-dns-healthy, dns-module-state, dns-stack, dns-resolves-eip, dns-record]
+
+  - id: ip-after
+    type: experiment
+    title: after：同样的换 IP 演练，域名链接在 TTL 过后自动恢复
+    manual: manual/40-ip-after.md
+    experiment: { module: dns, id: ip-change-drill, label: after }
+    requires: { steps: [enable-dns] }
+    panel: terminal-workstation
+    estMinutes: 15
+    checks: [exp-ip-pair, { ref: eip-restored, as: eip-restored-after }, { ref: temp-eip-released, as: temp-eip-released-after }]
+
+  - id: alias-cname
+    type: cli
+    title: Alias 与 CNAME：区域顶点只能用 Alias
+    manual: manual/50-alias-cname.md
+    requires: { steps: [enable-dns] }
+    panel: terminal-workstation
+    estMinutes: 10
+    checks: [alias-cname-observed]
+
+  - id: failover
+    type: experiment
+    title: （选做）健康检查与故障转移：停掉 Nginx，客户端多久拿到维护页
+    manual: manual/60-failover.md
+    optional: { reason: 不影响完成；需要再部署一次 dns 栈并等待健康检查 }
+    experiment: { module: dns, id: failover-drill, label: after }
+    requires: { steps: [enable-dns] }
+    panel: terminal-workstation
+    estMinutes: 20
+    checks: [ { ref: exp-failover, required: false }, { ref: health-check-failure, required: false }, { ref: failover-timing, required: false } ]
+
+finalChecks:
+  - no-world-ssh
+  - { ref: cap-dns-healthy, as: final-dns-healthy }
+
+experiments:
+  - module: dns
+    id: ip-change-drill
+    labels:
+      - { id: before, role: baseline, requires: { dns: none } }
+      - { id: after, role: treatment, requires: { dns: route53 } }
+    pairs: [[before, after]]
+    required: true
+    runner: workstation
+    validity: functional
+    corroborateWith: [eip-restored]
+  - { module: dns, id: failover-drill, labels: [after], required: false, runner: workstation, validity: functional, corroborateWith: [cap-dns-healthy] }
+  - { module: dns, id: weighted-sample, labels: [after], required: false, runner: workstation, validity: functional, corroborateWith: [cap-dns-healthy] }
+
+quiz: { file: quiz.yaml, draw: 3 }
+badge: { title: 固定域名, icon: assets/badge.svg }
 tracks: [networking, resilient, saa-main]
+
+cleanup:
+  summary: 结束实验后，平台删除 dns 栈中的记录与（选做的）健康检查；本会话新建的托管区域也一并删除（结束对话框中可以勾选保留）。你在注册商或父域添加的 NS 委派平台无权删除，请自己删掉，否则留下悬空委派。
+  autoReclaim: true
+  dataRisk: [没有业务数据；托管区域中只有本卡创建的记录]
+  learnerCreatedHints:
+    - { resourceType: 'AWS::Route53::RecordSet', how: 第 5 步手工建的 Alias 记录请在结束前自己删除（回收器按 CloudTrail 认领，有分钟级延迟） }
+    - { resourceType: 'AWS::EC2::EIP', how: 换 IP 演练中途失败时，到控制台确认实验机仍挂着原 EIP，并释放临时 EIP（未关联的 EIP 也计费） }
+  verify:
+    - dns-stack-gone
+
 saa:
   domains: [resilient, cost]
-tags: [dns, route53]
-certificate: {enabled: false}
+  topics:
+    - { id: alias-vs-cname, title: A、CNAME 与 Alias；区域顶点只能用 Alias, domain: cost, relatesTo: alias-cname }
+    - { id: ttl, title: TTL 与缓存：迁移前先调低 TTL, domain: resilient, relatesTo: ip-after }
+    - { id: routing-policies, title: 简单、加权、故障转移等路由策略, domain: resilient, relatesTo: failover }
+    - { id: health-checks, title: 端点、计算型与基于告警的健康检查；Evaluate Target Health, domain: resilient, relatesTo: failover }
+    - { id: registration-vs-hosting, title: 域名注册与 DNS 托管是两件事；NS 委派, domain: resilient, relatesTo: enable-dns }
+  confusables:
+    - { a: Alias 记录, b: CNAME 记录, rule: Alias 可以用在区域顶点、指向 AWS 资源时查询免费，但不能指向 IP；CNAME 不能用在区域顶点 }
+    - { a: 公有托管区域, b: 私有托管区域, rule: 私有托管区域只在关联的 VPC 内解析，要求 VPC 开启 DNS 支持与 DNS 主机名 }
+
+tags: [dns, route53, alias, ttl, failover]
+
+permissions:
+  learner:
+    - cloudformation:CreateChangeSet
+    - cloudformation:DescribeChangeSet
+    - cloudformation:ExecuteChangeSet
+    - cloudformation:DescribeStacks
+    - cloudformation:DescribeStackEvents
+    - cloudformation:GetTemplateSummary
+    - route53:CreateHostedZone
+    - route53:GetHostedZone
+    - route53:ListHostedZones
+    - route53:ChangeResourceRecordSets
+    - route53:ListResourceRecordSets
+    - route53:GetChange
+    - route53:CreateHealthCheck
+    - route53:GetHealthCheckStatus
+    - route53:ChangeTagsForResource
+    - ec2:AllocateAddress
+    - ec2:AssociateAddress
+    - ec2:ReleaseAddress
+    - ec2:DescribeAddresses
+    - ec2:CreateTags
+    - iam:CreatePolicy
+    - iam:AttachRolePolicy
+    - ssm:SendCommand
+    - ssm:GetCommandInvocation
+  notes: 换 IP 演练在工作台上用学员身份调用 ec2 AllocateAddress / AssociateAddress / ReleaseAddress；平台模式下 scripts/module 给栈打 atl:component=env、atl:session-id、atl:lab-id 标签（C4(d)）
+
+certificate: { enabled: false }
+owners: [cloudalbum-maintainers]

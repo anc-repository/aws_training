@@ -1,0 +1,240 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >-
+  CloudAlbum module "tls" - AWS Certificate Manager. One template, three stacks (registry stacks[]): main = ACM ACME
+  endpoint + pre-approved DNS domain validation + issuer role (certificate on the EC2 Nginx, TLS_ACME=on); edge =
+  integration certificate for CloudFront (us-east-1); regional = integration certificate for ALB / API Gateway.
+  docs/modules/01-edge-network-scaling.md#tls
+
+Metadata:
+  CloudAlbum:
+    module: tls
+    registryVersion: 1
+    # StackRole is passed per stack by scripts/module (module-hooks/tls.ts); the edge stack must run in us-east-1
+    # (registry stacks[].region; CloudFront only uses us-east-1 certificates). Injected parameter: HostedZoneId (dns) -
+    # with it the ACME domain validation CNAME and the DNS validation records of the integration certificates are created
+    # in Route 53 automatically; without it scripts/module prints the records to add in your external DNS.
+    # The EAB (external account binding) is NOT part of the template: CloudFormation does not return its KeyId / MacKey, so
+    # scripts/module creates a 1-day EAB out of band, hands it to certbot once and deletes it (01#tls section 2).
+    # Manual prerequisite: an own domain (ACM cannot issue for IP addresses, amazonaws.com or cloudfront.net names).
+
+Parameters:
+  Env:
+    Type: String
+    Default: lab
+    AllowedPattern: '^[a-z][a-z0-9-]{1,15}$'
+  ModuleVersion:
+    Type: String
+    Default: '1'
+  StackRole:
+    Type: String
+    Default: main
+    AllowedValues: [main, edge, regional]
+  DomainName:
+    Type: String
+    AllowedPattern: '^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z][a-z0-9-]{0,62}$'
+    Description: TLS_DOMAIN, e.g. album.example.com (your own domain)
+  HostedZoneId:
+    Type: String
+    Default: ''
+    AllowedPattern: '^(|Z[A-Z0-9]{4,32})$'
+    Description: Injected by dns (EnvDnsHostedZoneId) or given with --zone-id; '' = validation records in an external DNS
+  AcmeEnabled:
+    Type: String
+    Default: 'on'
+    AllowedValues: ['on', 'off']
+    Description: TLS_ACME (preflight acme-endpoint); off = fallback branch, ACM only as integration certificates
+  AcmeContact:
+    Type: String
+    Default: NOT_REQUIRED
+    AllowedValues: [NOT_REQUIRED, REQUIRED]
+  KeyAlgorithm:
+    Type: String
+    Default: RSA_2048
+    AllowedValues: [RSA_2048, EC_prime256v1]
+    Description: Key algorithm of the integration certificates (edge / regional)
+  IncludeWildcard:
+    Type: String
+    Default: 'false'
+    AllowedValues: ['true', 'false']
+    Description: Integration certificates also cover *.DomainName
+  PermissionsBoundaryArn:
+    Type: String
+    Default: ''
+    Description: Platform mode (06 PM-29) - permissions boundary of the ACME issuer role; '' in standalone mode
+
+Rules:
+  EdgeInUsEast1:
+    RuleCondition: !Equals [!Ref StackRole, edge]
+    Assertions:
+      - Assert: !Equals [!Ref 'AWS::Region', us-east-1]
+        AssertDescription: the edge stack (CloudFront certificate) must be deployed in us-east-1
+
+Conditions:
+  IsMain: !Equals [!Ref StackRole, main]
+  IsEdge: !Equals [!Ref StackRole, edge]
+  IsRegional: !Equals [!Ref StackRole, regional]
+  IsIntegration: !Or [!Condition IsEdge, !Condition IsRegional]
+  AcmeOn: !And [!Condition IsMain, !Equals [!Ref AcmeEnabled, 'on']]
+  HasZone: !Not [!Equals [!Ref HostedZoneId, '']]
+  Wildcard: !Equals [!Ref IncludeWildcard, 'true']
+  HasBoundary: !Not [!Equals [!Ref PermissionsBoundaryArn, '']]
+
+Resources:
+  # ---- main: ACM ACME endpoint (2026-07 capability) ----------------------------------------------------------------
+  # EAB role: the ACME service assumes it to request / revoke certificates for TLS_DOMAIN only. It is never attached to
+  # the application role (the instance needs no ACM write permission). The platform treats certificates issued by this
+  # role as created by the environment (stack member role, docs/platform/04).
+  IssuerRole:
+    Condition: AcmeOn
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub 'cloudalbum-${Env}-acme-issuer'
+      Description: !Sub 'CloudAlbum ${Env} - ACM ACME external account binding role (TLS_DOMAIN ${DomainName} only)'
+      PermissionsBoundary: !If [HasBoundary, !Ref PermissionsBoundaryArn, !Ref 'AWS::NoValue']
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: AcmAcmeService
+            Effect: Allow
+            Principal: { Service: acm-acme.amazonaws.com }
+            Action: [sts:AssumeRole, sts:TagSession]
+            Condition:
+              StringEquals: { 'aws:SourceAccount': !Ref 'AWS::AccountId' }
+          - Sid: AcmAcmeSourceIdentity
+            Effect: Allow
+            Principal: { Service: acm-acme.amazonaws.com }
+            Action: sts:SetSourceIdentity
+            Condition:
+              StringLike: { 'sts:SourceIdentity': 'acm-acme-*' }
+      Policies:
+        - PolicyName: acme-issue
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: RequestOnlyTlsDomain
+                Effect: Allow
+                Action: acm:RequestCertificate
+                Resource: '*'
+                Condition:
+                  'ForAllValues:StringEquals': { 'acm:DomainNames': [!Ref DomainName] }
+              - Sid: RevokeAndTag
+                # RevokeCertificate has no domain condition key; tagging is needed for the endpoint's CertificateTags
+                Effect: Allow
+                Action: [acm:RevokeCertificate, acm:AddTagsToCertificate]
+                Resource: !Sub 'arn:${AWS::Partition}:acm:${AWS::Region}:${AWS::AccountId}:certificate/*'
+      Tags:
+        - { Key: Project, Value: CloudAlbum }
+        - { Key: Env, Value: !Ref Env }
+        - { Key: Module, Value: tls }
+
+  AcmeEndpoint:
+    Condition: AcmeOn
+    Type: AWS::CertificateManager::AcmeEndpoint
+    Properties:
+      AuthorizationBehavior: PRE_APPROVED
+      Contact: !Ref AcmeContact
+      CertificateAuthority:
+        PublicCertificateAuthority:
+          AllowedKeyAlgorithms: [EC_prime256v1, RSA_2048]
+      CertificateTags:   # cost allocation tags of the issued certificates (cost module)
+        - { Key: Project, Value: CloudAlbum }
+        - { Key: Env, Value: !Ref Env }
+        - { Key: Module, Value: tls }
+      Tags:
+        - { Key: Name, Value: !Sub 'cloudalbum-${Env}-tls-acme' }
+        - { Key: Project, Value: CloudAlbum }
+        - { Key: Env, Value: !Ref Env }
+        - { Key: Module, Value: tls }
+
+  # Persistent, pre-approved DNS validation of TLS_DOMAIN (exact domain only). With HostedZoneId ACM creates the CNAME in
+  # Route 53; otherwise scripts/module prints it. Afterwards certbot needs no online challenge (port 80 may stay closed).
+  AcmeDomainValidation:
+    Condition: AcmeOn
+    Type: AWS::CertificateManager::AcmeDomainValidation
+    Properties:
+      AcmeEndpointArn: !GetAtt AcmeEndpoint.AcmeEndpointArn
+      DomainName: !Ref DomainName
+      PrevalidationOptions:
+        DnsPrevalidation:
+          DomainScope: { ExactDomain: ENABLED, Subdomains: DISABLED, Wildcards: DISABLED }
+          HostedZoneId: !If [HasZone, !Ref HostedZoneId, !Ref 'AWS::NoValue']
+      Tags:
+        - { Key: Project, Value: CloudAlbum }
+        - { Key: Env, Value: !Ref Env }
+        - { Key: Module, Value: tls }
+
+  # ---- edge / regional: ACM integration certificate (managed renewal; private key never leaves ACM) -----------------
+  # The stack waits until DNS validation succeeds: with HostedZoneId CloudFormation creates the records, otherwise add the
+  # CNAME shown in the stack events / `aws acm describe-certificate` to your DNS while the deployment is waiting.
+  Certificate:
+    Condition: IsIntegration
+    Type: AWS::CertificateManager::Certificate
+    Properties:
+      DomainName: !Ref DomainName
+      SubjectAlternativeNames: !If [Wildcard, [!Sub '*.${DomainName}'], !Ref 'AWS::NoValue']
+      ValidationMethod: DNS
+      KeyAlgorithm: !Ref KeyAlgorithm
+      DomainValidationOptions: !If
+        - HasZone
+        - - { DomainName: !Ref DomainName, HostedZoneId: !Ref HostedZoneId }
+        - !Ref 'AWS::NoValue'
+      Tags:
+        - { Key: Name, Value: !Sub 'cloudalbum-${Env}-tls-${StackRole}' }
+        - { Key: Project, Value: CloudAlbum }
+        - { Key: Env, Value: !Ref Env }
+        - { Key: Module, Value: tls }
+
+  # One policy per stack (scripts/module attaches every PolicyArn); read-only for the tls detector (deep probe)
+  AppPolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      ManagedPolicyName: !Sub 'cloudalbum-${Env}-tls-${StackRole}'   # attached by scripts/module (D2)
+      Description: !Sub 'Read-only ACM for the tls detector (${StackRole} stack; credentials optional, CRED-004)'
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: DescribeCertificates
+            Effect: Allow
+            Action: acm:DescribeCertificate
+            Resource: !Sub 'arn:${AWS::Partition}:acm:${AWS::Region}:${AWS::AccountId}:certificate/*'
+          - Sid: ListAndSearch
+            Effect: Allow
+            Action: [acm:ListCertificates, acm:SearchCertificates]
+            Resource: '*'
+
+Outputs:
+  ModuleId:
+    Value: tls
+  ModuleVersion:
+    Value: !Ref ModuleVersion
+  PolicyArn:
+    Value: !Ref AppPolicy
+  EnvTlsMode:
+    Value: acm
+  EnvTlsDomain:
+    Value: !Ref DomainName
+  EnvTlsAcme:
+    Value: !Ref AcmeEnabled
+  EnvTlsAcmeDirectoryUrl:
+    Description: ACME directory URL for certbot --server ('' unless the main stack runs with AcmeEnabled=on)
+    Value: !If [AcmeOn, !GetAtt AcmeEndpoint.EndpointUrl, '']
+  EnvAcmCertArnEdge:
+    Description: us-east-1 certificate injected into cdn (AcmeCertificateArn)
+    Value: !If [IsEdge, !Ref Certificate, '']
+  EnvAcmCertArnRegional:
+    Description: regional certificate injected into load-balancer / social-api (CertificateArn)
+    Value: !If [IsRegional, !Ref Certificate, '']
+  InfoAcmeEndpointArn:
+    Value: !If [AcmeOn, !GetAtt AcmeEndpoint.AcmeEndpointArn, '']
+  InfoAcmeDomainValidationArn:
+    Value: !If [AcmeOn, !GetAtt AcmeDomainValidation.Arn, '']
+  InfoAcmeIssuerRoleArn:
+    Value: !If [AcmeOn, !GetAtt IssuerRole.Arn, '']
+  InfoStackRole:
+    Value: !Ref StackRole
+  InfoEdgeAliases:
+    Description: CloudFront alternate domain name, only where the us-east-1 certificate exists (inject source for cdn Aliases)
+    Value: !If [IsEdge, !Ref DomainName, '']
+  InfoRegionalDomainName:
+    Description: ALB / API Gateway custom domain, only where the regional certificate exists
+    Value: !If [IsRegional, !Ref DomainName, '']

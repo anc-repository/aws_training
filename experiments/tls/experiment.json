@@ -1,0 +1,93 @@
+{
+  "$schema": "../_lib/schema/experiment.schema.json",
+  "module": "tls",
+  "title": "tls：有 / 无 ACM（docs/modules/01-edge-network-scaling.md#tls 第 5 节）",
+  "default": "inspect",
+  "experiments": [
+    {
+      "module": "tls",
+      "id": "inspect",
+      "title": "各入口的证书：签发者、SAN、有效期、协议、ALPN、是否受信任",
+      "kind": "before-after",
+      "doc": "docs/modules/01-edge-network-scaling.md#tls",
+      "description": "对直连（EIP:443，SNI=TLS_DOMAIN）、CDN、有效入口 URL 各做一次全新握手（等价于 openssl s_client -servername + openssl x509 -noout -issuer -subject -dates -ext subjectAltName），并读取 X-CloudAlbum-Path 的 tls 段。服务端证据：capabilities.https 与 tls 感知器在实例上对 127.0.0.1:443 的握手结果。",
+      "requires": {
+        "before": { "tls.driver": ["selfsigned", "letsencrypt"] },
+        "after": { "tls.driver": "acm", "tls.status": ["ok", "degraded"] }
+      },
+      "labels": {
+        "before": { "title": "没有 ACM：自签名（或本地档 Let's Encrypt）", "role": "baseline" },
+        "after": { "title": "ACM：ACME → Nginx，或 CloudFront / ALB 上的集成证书", "role": "treatment" }
+      },
+      "scenario": { "tool": "node", "script": "inspect.ts", "vus": 1, "duration": "30s" },
+      "params": {
+        "hosts": { "type": "string", "default": "", "description": "entry=host 列表（direct=<EIP>,cdn=<分配域名>）；缺省取 capabilities" }
+      },
+      "metrics": ["scenario.trustedEntries"],
+      "expect": [
+        { "metric": "scenario.trustedEntries", "direction": "up", "note": "自签名不受信任；ACM（ACME 或集成证书）与 Let's Encrypt 受信任" }
+      ]
+    },
+    {
+      "module": "tls",
+      "id": "handshake",
+      "title": "握手耗时：每次新建连接，TLS 握手（time_appconnect - time_connect）的中位数",
+      "kind": "before-after",
+      "doc": "docs/modules/01-edge-network-scaling.md#tls",
+      "description": "在 4 个区域的 CloudShell 各跑一次（选做）。远端区域经 CloudFront 时在附近边缘完成握手；从东京访问差别不大；ALB 不减少往返次数，但卸载实例 CPU 并集中管理证书。",
+      "requires": {
+        "before": { "tls.driver": ["selfsigned", "letsencrypt"] },
+        "after": { "tls.driver": "acm" }
+      },
+      "scenario": { "tool": "node", "script": "handshake.ts", "vus": 1, "duration": "120s" },
+      "params": {
+        "samples": { "type": "number", "default": 20, "min": 1, "max": 200 },
+        "hosts": { "type": "string", "default": "" }
+      },
+      "metrics": ["scenario.cdnVsDirectHandshakeRatio"],
+      "expect": [
+        { "metric": "scenario.cdnVsDirectHandshakeRatio", "direction": "down-or-flat", "note": "远离东京的区域经 CloudFront 的握手明显更快；东京本地差别不大" }
+      ]
+    },
+    {
+      "module": "tls",
+      "id": "cipher-scan",
+      "title": "协议与加密套件：nmap ssl-enum-ciphers（Nginx 与 CloudFront / ALB）",
+      "kind": "functional",
+      "doc": "docs/modules/01-edge-network-scaling.md#tls",
+      "description": "需要 nmap（sudo dnf install -y nmap）。只扫描自己账号里的资源。",
+      "requires": {
+        "before": { "tls.driver": ["selfsigned", "letsencrypt"] },
+        "after": { "tls.driver": "acm" }
+      },
+      "scenario": { "tool": "node", "script": "cipher-scan.ts", "vus": 1, "duration": "300s" },
+      "params": {
+        "hosts": { "type": "string", "default": "" }
+      },
+      "metrics": []
+    },
+    {
+      "module": "tls",
+      "id": "renew-drill",
+      "title": "续期演练：certbot renew --dry-run + --force-renewal，新证书真的装进 Nginx；集成证书的托管续期状态",
+      "kind": "fault",
+      "doc": "docs/modules/01-edge-network-scaling.md#tls",
+      "description": "第 5 秒经投递通道在实例上执行 faults/renew-drill.sh（tls hostSetup 的 renew-drill --force；ACME 证书每次签发按域名计费一次）。脚本轮询直连入口直到证书序列号变化；集成证书用 aws acm describe-certificate 查看 RenewalEligibility、InUseBy 与验证记录状态。",
+      "requires": {
+        "after": { "tls.driver": "acm", "tls.status": ["ok", "degraded"] }
+      },
+      "scenario": { "tool": "node", "script": "renew-drill.ts", "vus": 1, "duration": "300s" },
+      "params": {
+        "pollSec": { "type": "number", "default": 10, "min": 2, "max": 60 },
+        "hosts": { "type": "string", "default": "" }
+      },
+      "faults": [
+        { "at": "5s", "script": "faults/renew-drill.sh", "description": "certbot renew --dry-run，然后 --force-renewal（hostSetup 负责 reload Nginx）" }
+      ],
+      "metrics": ["scenario.secondsToNewCert"],
+      "expect": [
+        { "metric": "scenario.secondsToNewCert", "direction": "nonzero", "note": "ACME 签发最多约 2 分钟；集成证书由 ACM 托管续期，实例上零运维" }
+      ]
+    }
+  ]
+}

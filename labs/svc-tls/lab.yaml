@@ -1,69 +1,250 @@
-# labs/svc-tls/lab.yaml —— 目录占位（status: planned）：只有目录元数据，可在目录中显示但不能开始实验；
-# 取值来自 05 §4 与 cards/ 逐卡文档。步骤、手册、检查与小测在后续批次补齐，届时 status 改为 beta 并提升版本。
+# labs/svc-tls/lab.yaml —— AWS Certificate Manager：HTTPS 证书（cards/service-cards-1 §6）
+# 与卡片设计的差异（实现核对，见 implementation-notes wave1-route53-acm）：
+#   - 回退变体 acme-off 的 targetModules 另含 dns（本地档 external，学员在第 2 步启用）：DEP-005 ③ 的 “dns | 外部 DNS” 由学员
+#     满足，不进起始状态（04 §3.2.3 规则 6），起始状态的闭包因此只加 cdn。
+#   - 两个变体的目标都写 TLS_DOMAIN = learner.inputs.domain：DEP-005 ① 由学员的前置输入满足（推导时不再报“无法自动满足”）。
+#   - 直连证书用本机 tls-handshake（不带 SNI：Nginx 只有一张证书）；CloudFront / 域名入口由平台发起 http-header 请求。
+#   - ACME 证书的控制面证据：acm:ListCertificates（CertificateKeyPairOrigins=ACME）找出证书，再 acm:DescribeCertificate 带 ownership。
 schema: atl.lab/v2
 id: svc-tls
 kind: service
-version: 0.1.0
-status: planned
+version: 1.0.0
+status: beta
 service: AWS Certificate Manager
 function: HTTPS 证书
 title: AWS Certificate Manager：HTTPS 证书
+subtitle: 自签名 → ACM（ACME → Nginx，或 CloudFront 上的集成证书）
 summary: 从浏览器拦截页到地址栏的锁：用 ACM 的 ACME 端点把受信任证书装到 Nginx，并分清“考试结论”和“2026 新能力”。
+story: |
+  L0 的 443 是 User Data 生成的自签名证书：流量虽然加密，浏览器却显示“不安全”，跨源 fetch 与 Cognito 回调都会失败。
+  这张卡片用 ACM 给你的域名签发受信任证书：ACME 端点可用时证书经 certbot 装进 Nginx（45 天，客户端续期）；
+  不可用时回到考试中的经典形态——证书挂在 CloudFront 上，必须在 us-east-1。
+objectives:
+  - { text: 区分自签名、Let's Encrypt 与 ACM 证书在信任与续期上的差别, domain: secure, relatesTo: before }
+  - { text: 用 ACME 端点 + 预先批准的 DNS 域验证 + EAB 给自管服务器签发证书, domain: secure, relatesTo: enable-tls }
+  - { text: 记住考试结论：ACM 公有证书只挂在集成服务上，CloudFront 的证书在 us-east-1, domain: secure, relatesTo: two-columns }
+  - { text: 理解证书续期由谁负责，以及 HSTS 的风险, domain: secure, relatesTo: after }
 difficulty: intermediate
 estimatedMinutes: 75
 timeLimitMinutes: 120
-extensions: {maxCount: 2, minutesEach: 30}
-retain: {allowed: true, maxHours: 24}
+extensions: { maxCount: 2, minutesEach: 30 }
+retain: { allowed: true, maxHours: 24, reason: 证书与域验证可以在保留的环境中继续使用；ACME 证书每次签发按域名计费，不必重复签发 }
 regions:
   supported: [ap-northeast-1]
   alsoUses: [global, us-east-1]
 services:
-- {id: acm, name: AWS Certificate Manager, role: primary, module: tls}
-- {id: iam, role: context, module: iam}
-modules:
-  target: [tls]
-  start: [iam]
-  context: []
-  related: [dns, cdn]
+  - { id: acm, name: AWS Certificate Manager, role: primary, module: tls }
+  - { id: iam, name: AWS IAM（实例角色与 ACME 签发角色）, role: context, module: iam }
+  - { id: cloudfront, name: Amazon CloudFront（仅回退分支）, role: context, module: cdn, optional: true }
+  - { id: ssm-session-manager, name: AWS Systems Manager Session Manager（平台管理通道）, role: observed }
+modules: { target: [tls], start: [iam], context: [], related: [dns, cdn, load-balancer] }
 prerequisites:
   cards:
-  - {id: svc-dns, kind: soft}
-  - {id: svc-cdn, kind: soft}
+    - { id: svc-dns, kind: soft }
+    - { id: svc-cdn, kind: soft }
   learnerInputs:
-  - {id: domain}
+    - { id: domain }
+    - { id: hosted-zone, required: false }
+  knowledge: [HTTPS 与证书链的基本概念, 在你的 DNS 中添加 A 与 CNAME 记录的方法]
+
 startProfile:
   provisions:
-  - &id001
-    item: iam
-    kind: module
-    basis: credential
-    set: {IAM_CREDENTIALS: role}
-    reason: 平台约定除 svc-ec2、svc-iam 外起始状态都带实例角色（C3）
-  platform:
-    preview: {directHttps: 'off'}
+    - { item: iam, kind: module, basis: credential, set: { IAM_CREDENTIALS: role },
+        reason: 平台约定除 svc-ec2、svc-iam 外起始状态都带实例角色；证书续期状态的控制面感知因此可用 }
+    - { item: mgmt-channel, kind: platform, reason: 实验机挂只含 AmazonSSMManagedInstanceCore 的 CloudAlbumAppRole，是平台的管理通道，不是应用权限 }
+    - { item: workstation, kind: platform, reason: 每个会话一台工作台，用于运行 scripts/module、AWS CLI 与对比实验 }
+    - { item: check-bundle, kind: platform, reason: 检查包随 CloudAlbum 发布包安装在实验机的 /opt/atl（06 PM-04） }
+  platform: { preview: { directHttps: 'off' } }
+  reason: ACME 端点可用时 tls 没有模块依赖，起始状态只有实例角色；本卡要从自签名讲起，所以关闭平台的方案 B 预览（预览在新标签页打开 http://<EIP>）。域名是你的前置输入，不在起始状态里
   variants:
-  - id: acme-off
-    title: ACME 端点不可用时的回退档
-    select: preflight
-    when: preflight.tlsAcme == 'off'
-    provisions:
-    - *id001
-    - item: cdn
-      kind: module
-      basis: closure
-      rule: DEP-005
-      set: {CDN_DIRECT_ACCESS: open}
-    reason: ACME 端点不可用时，证书改为挂在 CloudFront 上的 us-east-1 集成证书
+    - id: acme-off
+      title: ACME 端点不可用：证书挂在 CloudFront 上（考试形态）
+      select: preflight
+      when: "preflight.tlsAcme == 'off'"
+      provisions:
+        - { item: iam, kind: module, basis: credential, set: { IAM_CREDENTIALS: role }, reason: 同默认变体 }
+        - { item: cdn, kind: module, basis: closure, rule: DEP-005, set: {},
+            reason: 'TLS_ACME=off 时 tls 的最小依赖退回“dns 或外部 DNS”与“cdn 或 load-balancer”；选 cdn：不按小时计费，集成证书必须在 us-east-1，正是考点' }
+        - { item: mgmt-channel, kind: platform, reason: 同默认变体 }
+        - { item: workstation, kind: platform, reason: 同默认变体 }
+        - { item: check-bundle, kind: platform, reason: 同默认变体 }
+      targetModules:
+        - { id: dns, driver: external, set: { APP_BASE_URL: 'http://{{ learner.inputs.domain }}' }, wireStep: domain }
+        - { id: tls, driver: acm, set: { TLS_ACME: 'off', TLS_DOMAIN: '{{ learner.inputs.domain }}' }, wireStep: enable-tls }
+      reason: 账号预检发现 ACME 端点不可用时，起始状态再加 cdn（EC2 为源站）；外部 DNS 的本地档由你在第 2 步写入
 targetModules:
-- id: tls
-  driver: acm
-  set: {TLS_ACME: 'on'}
+  - id: tls
+    driver: acm
+    set: { TLS_ACME: 'on', TLS_DOMAIN: '{{ learner.inputs.domain }}' }
+    wireStep: enable-tls
+    adoptsExisting: false
 expectedWarnings: []
-cost: {tier: low}
-provision: {class: A}
-badge: {title: 受信 HTTPS}
+workstation: { required: true, tools: [aws-cli, node, jq], savingsMode: degraded }
+platform:
+  consoleLinks: [ec2.instance, cloudfront.distribution]
+provision: { class: A, cleanupBudgetMinutes: 30 }
+
+variables:
+  acmeDirectoryUrl:
+    label: ACME 目录 URL
+    from: derived
+    fillFrom: envfile.tls.TLS_ACME_DIRECTORY_URL
+    pattern: '^https://[A-Za-z0-9.-]+/[A-Za-z0-9._~/-]*$'
+    example: https://acm-acme-enroll.ap-northeast-1.api.aws/0123456789abcdef/directory
+    help: 启用 tls（ACME 分支）后由 tls 栈输出自动取得；回退分支为空
+
+cost:
+  currency: USD
+  tier: low
+  mainDrivers: [ACME 证书（按证书中的域名，在签发与每次续期时计费）, 回退分支的 CloudFront 按量]
+  basis:
+    - { ref: start-profile, note: 实验机 EC2、EBS（根卷与数据卷）、公网 IPv4；回退变体另有 CloudFront 分配（按量） }
+    - { ref: workstation, note: 工作台 EC2、EBS、公网 IPv4 }
+  assumptions:
+    - ACME 证书按证书中的域名在签发与每次续期时各计一次（第 5 步的续期演练会多签发一次）；用于 CloudFront / ALB 的集成证书免费；以官方定价页为准
+    - 报价中暂无 ACM ACME 的计费维度（labs/_pricing 待补），金额以 ACM 定价页为准
+
+steps:
+  - id: before
+    type: experiment
+    title: before：自签名证书，浏览器拦截
+    manual: manual/10-before.md
+    experiment: { module: tls, id: inspect, label: before }
+    panel: terminal-workstation
+    estMinutes: 10
+    checks: [tls-off, direct-selfsigned, exp-inspect-before]
+
+  - id: domain
+    type: observe
+    title: 准备域名：A 记录指向实验机（回退分支另写外部 DNS 本地档）
+    manual: manual/20-domain.md
+    panel: terminal-workstation
+    estMinutes: 10
+    checks: [domain-a-record, dns-external-env, cap-dns-external]
+
+  - id: which-path
+    type: cli
+    title: 先判断走哪条路：ACME 端点可用吗
+    manual: manual/30-which-path.md
+    panel: terminal-workstation
+    estMinutes: 5
+    checks: [acme-decision]
+
+  - id: enable-tls
+    type: script
+    wire: true
+    title: 启用 tls：ACME 证书装进 Nginx（或集成证书挂到 CloudFront）
+    manual: manual/40-enable-tls.md
+    methods: [script]
+    requires: { steps: [domain] }
+    panel: terminal-workstation
+    estMinutes: 25
+    startsBilling: { class: usage, pricingKeys: [], note: ACME 证书按域名在签发时计费一次（以官方定价为准） }
+    wait: { typicalMinutes: 5, maxMinutes: 30, text: 等待域验证（你添加的 CNAME 生效）与签发 }
+    checks: [cap-tls-healthy, tls-module-state, tls-stack, tls-edge-stack, direct-acme-cert, tls-domain-entry, cdn-alias-entry, acme-cert-listed, acme-cert-issued, edge-cert-issued]
+
+  - id: after
+    type: experiment
+    title: after 与续期：受信任证书，certbot 续期后证书 ARN 不变
+    manual: manual/50-after.md
+    experiment: { module: tls, id: inspect, label: after }
+    requires: { steps: [enable-tls] }
+    panel: terminal-workstation
+    estMinutes: 15
+    checks: [exp-inspect-pair, exp-renew-drill]
+
+  - id: two-columns
+    type: observe
+    title: 两栏对照：考试结论与 2026 新能力
+    manual: manual/60-two-columns.md
+    requires: { steps: [enable-tls] }
+    panel: terminal-workstation
+    estMinutes: 5
+    checks: [exam-vs-new]
+
+  - id: force-https
+    type: script
+    title: （选做）强制 HTTPS 与 HSTS
+    manual: manual/70-force-https.md
+    optional: { reason: 不影响完成；HSTS 会被浏览器记住，结束前必须关闭, when: "session.variant != 'acme-off'" }
+    requires: { steps: [enable-tls] }
+    panel: terminal-workstation
+    estMinutes: 10
+    checks: [ { ref: http-redirects-https, required: false }, { ref: no-dep-015, required: false } ]
+
+finalChecks:
+  - no-world-ssh
+  - { ref: cap-tls-healthy, as: final-tls-healthy }
+
+experiments:
+  - module: tls
+    id: inspect
+    labels:
+      - { id: before, role: baseline, requires: { tls: selfsigned } }
+      - { id: after, role: treatment, requires: { tls: acm } }
+    pairs: [[before, after]]
+    required: true
+    runner: workstation
+    validity: functional
+    corroborateWith: [cap-tls-healthy]
+  - { module: tls, id: renew-drill, labels: [after], required: false, runner: workstation, validity: functional, corroborateWith: [cap-tls-healthy] }
+  - { module: tls, id: handshake, labels: [before, after], required: false, runner: workstation, validity: functional, corroborateWith: [cap-tls-healthy] }
+  - { module: tls, id: cipher-scan, labels: [before, after], required: false, runner: workstation, validity: functional, corroborateWith: [cap-tls-healthy] }
+
+quiz: { file: quiz.yaml, draw: 3 }
+badge: { title: 受信 HTTPS, icon: assets/badge.svg }
 tracks: [networking, saa-main, secure]
+
+cleanup:
+  summary: 结束实验后，平台删除 tls 栈：ACME 端点删除时一并删除 EAB、域验证与已注册的 ACME 账户；回退分支的 us-east-1 集成证书在 CloudFront 解除挂载后删除。过期的 ACME 证书 ACM 会在一年后自动删除。你在自己 DNS 中添加的 A 记录与验证 CNAME 平台无权删除，请自己删掉。
+  autoReclaim: true
+  dataRisk: [没有业务数据；证书私钥只在实验机的数据卷上（ACME 分支），随实验机删除]
+  learnerCreatedHints:
+    - { resourceType: 'AWS::CertificateManager::Certificate', how: 选做：结束前在实验机上执行 certbot revoke 吊销仍有效的 ACME 证书（ACM 的 RevokeCertificate 对它无效） }
+  verify:
+    - tls-stack-gone
+
 saa:
   domains: [secure, performance]
-tags: [tls, acm]
-certificate: {enabled: false}
+  topics:
+    - { id: acm-integrated, title: ACM 公有证书用于集成服务时免费、自动续期，私钥不可导出, domain: secure, relatesTo: two-columns }
+    - { id: cert-region, title: CloudFront（与 Cognito 托管登录页自定义域名）的证书必须在 us-east-1, domain: secure, relatesTo: enable-tls }
+    - { id: dns-validation, title: DNS 验证与邮件验证；验证记录必须保留才能续期, domain: secure, relatesTo: enable-tls }
+    - { id: hsts, title: HSTS 与 80→443 跳转的风险, domain: secure, relatesTo: force-https }
+    - { id: edge-tls, title: 在边缘终止 TLS 降低远端用户的握手延迟, domain: performance, relatesTo: after }
+  confusables:
+    - { a: ACM 集成证书, b: ACM ACME 证书, rule: 集成证书挂在 CloudFront / ALB / API Gateway 上、由 ACM 托管续期；ACME 证书装在自管服务器上、由客户端续期，反过来不能挂到集成服务上 }
+    - { a: 导入的第三方证书, b: ACM 签发的证书, rule: 导入的证书不会自动续期，要自己重新导入；ACM 签发的集成证书自动续期 }
+
+tags: [tls, acm, acme, https, certificate]
+
+permissions:
+  learner:
+    - cloudformation:CreateChangeSet
+    - cloudformation:DescribeChangeSet
+    - cloudformation:ExecuteChangeSet
+    - cloudformation:DescribeStacks
+    - cloudformation:DescribeStackEvents
+    - cloudformation:GetTemplateSummary
+    - acm:ListAcmeEndpoints
+    - acm:DescribeAcmeDomainValidation
+    - acm:CreateAcmeExternalAccountBinding
+    - acm:GetAcmeExternalAccountBindingCredentials
+    - acm:DeleteAcmeExternalAccountBinding
+    - acm:SearchCertificates
+    - acm:ListCertificates
+    - acm:DescribeCertificate
+    - acm:RequestCertificate
+    - iam:CreateRole
+    - iam:PutRolePolicy
+    - iam:PassRole
+    - iam:CreatePolicy
+    - iam:AttachRolePolicy
+    - ssm:SendCommand
+    - ssm:GetCommandInvocation
+    - ssm:PutParameter
+    - ssm:DeleteParameter
+  notes: EAB 由 scripts/module 用学员身份带外创建（1 天有效），交给实验机上的 certbot 后立即删除；SSM 投递时经 /cloudalbum/<env>/handoff/ 下的 SecureString 参数交接
+
+certificate: { enabled: false }
+owners: [cloudalbum-maintainers]

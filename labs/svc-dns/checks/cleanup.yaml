@@ -1,0 +1,20 @@
+# 回收后的验证（04 §3.2.12）：只允许 aws-readonly + expectError，结果写进报告的“清理”一节
+checks:
+  - id: dns-stack-gone
+    title: 本会话的 dns 栈已删除
+    type: aws-readonly
+    service: cloudformation
+    action: DescribeStacks
+    region: app
+    params: { StackName: 'cloudalbum-{{ session.env }}-dns' }
+    expectError: ValidationError
+    required: false
+    explain: 回收完成后按栈名查询，期望返回“栈不存在”（ValidationError）。
+    reproduce: { run: 'aws cloudformation describe-stacks --stack-name cloudalbum-{{ session.env }}-dns', runsOn: workstation }
+    manualFallback:
+      where: { breadcrumb: [CloudFormation, 栈], region: app }
+      observed:
+        question: '列表中还能找到 cloudalbum-{{ session.env }}-dns 吗？'
+        options:
+          - { value: gone, label: 找不到, expected: true }
+          - { value: present, label: 还在, fixHint: 回收需要一点时间；托管区域按保留选择处理 }

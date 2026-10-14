@@ -1,0 +1,286 @@
+# 接入：capability、实例上的模块状态、本会话 tls 栈（ownership）、证书本身；ACME 分支与回退分支用 when 区分（session.variant）
+checks:
+  - id: acme-decision
+    title: 记录 preflight acme-endpoint 的结论
+    type: manual
+    spec:
+      confirm: 我执行了 scripts/module enable tls --domain … --dry-run，并读了 preflight acme-endpoint 那一行
+      observed:
+        question: 计划里的 TLS_ACME 是什么？
+        options:
+          - { value: 'on', label: 'on：ACME 端点可用，证书装进 Nginx', expected: true }
+          - { value: 'off', label: 'off：回退分支，证书只挂在 CloudFront / ALB 上', expected: true }
+    explain: 平台在开始前已按账号预检选好变体，手册只显示对应的一条分支；这里只是让你亲眼看到判断依据。
+
+  - id: cap-tls-healthy
+    title: capabilities 中 tls 的驱动为 acm，且状态正常
+    type: capability
+    module: tls
+    drift: { policy: must-hold, monitor: true }
+    assert:
+      - { path: $.driver, op: eq, value: acm, label: 驱动 }
+      - { path: $, op: healthy, label: 状态正常（只允许本卡声明的预期警告） }
+    explain: tls 感知器在实验机上对各入口握手：ACME 分支要求直连证书由 Amazon 签发且覆盖你的域名；回退分支直连保持自签名是预期。
+    reproduce: { run: 'curl -s http://127.0.0.1/api/capabilities | jq ".modules.tls | {driver, status, detail}"', runsOn: lab }
+    pitfalls: [symlink-not-switched]
+
+  - id: tls-module-state
+    title: 实验机上 tls 由 scripts/module 启用
+    type: local
+    on: lab
+    checkId: module-state
+    args: { module: tls }
+    drift: { policy: must-hold }
+    assert:
+      - { path: $.modules.tls.enabled, op: eq, value: true, label: 已启用 }
+      - { path: $.modules.tls.driver, op: eq, value: acm, label: 驱动 }
+    explain: tls 是纯基础设施型模块，接入证据是模块状态加上控制面证据（04 §3.5 第 3 条）。
+    reproduce: { run: 'sudo cloudalbum module-state --module tls --json', runsOn: lab }
+
+  - id: tls-stack
+    title: ACME 分支：本会话创建的 tls 栈（ACME 端点、域验证、签发角色）已就绪
+    type: aws-readonly
+    service: cloudformation
+    action: DescribeStacks
+    region: app
+    when: "session.variant != 'acme-off'"
+    params: { StackName: 'cloudalbum-{{ session.env }}-tls' }
+    ownership:
+      resource: '{{$.Stacks[0].StackId}}'
+      resourceId: 'cloudalbum-{{ session.env }}-tls'
+      createEvents: [CreateStack]
+      mode: session
+      createdAfter: session.readyAt
+      maxWaitMinutes: 20
+    drift: { policy: must-hold, monitor: true }
+    assert:
+      - { path: '$.Stacks[0].StackStatus', op: in, value: [CREATE_COMPLETE, UPDATE_COMPLETE], label: 栈状态 }
+      - path: '$.Stacks[0].Outputs'
+        where: { OutputKey: EnvTlsAcme }
+        op: some
+        label: TLS_ACME=on
+        value:
+          - { path: $.OutputValue, op: eq, value: 'on' }
+      - path: '$.Stacks[0].Outputs'
+        where: { OutputKey: EnvTlsDomain }
+        op: some
+        label: 证书域名
+        value:
+          - { path: $.OutputValue, op: eq, value: '{{ learner.inputs.domain }}' }
+    explain: 栈是你在本会话中用 scripts/module 创建的；它的 ACME 端点只允许签发角色为 TLS_DOMAIN 申请证书。
+    reproduce: { run: 'aws cloudformation describe-stacks --stack-name cloudalbum-{{ session.env }}-tls --query "Stacks[0].[StackStatus,Outputs]"', runsOn: workstation }
+    manualFallback:
+      where: { breadcrumb: [CloudFormation, 栈, 'cloudalbum-{{ session.env }}-tls', 输出], region: app }
+      observed:
+        question: 输出 EnvTlsAcme 与 EnvTlsDomain 的值是什么？
+        options:
+          - { value: ok, label: 'on 与 {{ learner.inputs.domain }}', expected: true }
+          - { value: other, label: 其他 / 没有这个栈, fixHint: '执行 scripts/module enable tls --domain {{ learner.inputs.domain }}' }
+
+  - id: tls-edge-stack
+    title: 回退分支：本会话创建的 tls-edge 栈（us-east-1 集成证书）已就绪
+    type: aws-readonly
+    service: cloudformation
+    action: DescribeStacks
+    region: us-east-1
+    when: "session.variant == 'acme-off'"
+    params: { StackName: 'cloudalbum-{{ session.env }}-tls-edge' }
+    ownership:
+      resource: '{{$.Stacks[0].StackId}}'
+      resourceId: 'cloudalbum-{{ session.env }}-tls-edge'
+      createEvents: [CreateStack]
+      mode: session
+      createdAfter: session.readyAt
+      maxWaitMinutes: 20
+    drift: { policy: must-hold, monitor: true }
+    assert:
+      - { path: '$.Stacks[0].StackStatus', op: in, value: [CREATE_COMPLETE, UPDATE_COMPLETE], label: 栈状态 }
+      - path: '$.Stacks[0].Outputs'
+        where: { OutputKey: EnvAcmCertArnEdge }
+        op: some
+        label: us-east-1 的证书 ARN
+        value:
+          - { path: $.OutputValue, op: startsWith, value: 'arn:aws:acm:us-east-1:' }
+    explain: CloudFront 只能使用 us-east-1 的 ACM 证书，所以 tls 的 edge 栈部署在 us-east-1；在 ap-northeast-1 申请的证书在 CloudFront 中选不到。
+    reproduce: { run: 'aws cloudformation describe-stacks --region us-east-1 --stack-name cloudalbum-{{ session.env }}-tls-edge --query "Stacks[0].[StackStatus,Outputs]"', runsOn: workstation }
+    manualFallback:
+      where: { breadcrumb: [CloudFormation, 栈, 'cloudalbum-{{ session.env }}-tls-edge'], region: us-east-1 }
+      observed:
+        question: 这个栈在哪个区域、状态是什么？
+        options:
+          - { value: ok, label: 美国东部（弗吉尼亚北部），CREATE_COMPLETE 或 UPDATE_COMPLETE, expected: true }
+          - { value: waiting, label: CREATE_IN_PROGRESS, fixHint: 证书在等待 DNS 验证：把验证 CNAME 添加到你的 DNS }
+
+  - id: direct-acme-cert
+    title: ACME 分支：实验机 443 上的证书由 Amazon 签发，覆盖你的域名
+    type: local
+    on: lab
+    checkId: tls-handshake
+    args: { target: self }
+    when: "session.variant != 'acme-off'"
+    drift: { policy: must-hold, monitor: true }
+    assert:
+      - { path: $.issuer, op: icontains, value: amazon, label: 签发者 }
+      - { path: $.subjectAltNames, op: contains, value: '{{ learner.inputs.domain }}', label: SAN 含你的域名 }
+    explain: 服务端证据：在实验机本机握手 127.0.0.1:443，读出 Nginx 真正在用的证书（Nginx 只有一张证书，不需要 SNI）。
+    reproduce: { run: 'openssl s_client -connect 127.0.0.1:443 </dev/null 2>/dev/null | openssl x509 -noout -issuer -ext subjectAltName -dates', runsOn: lab }
+    pitfalls: [symlink-not-switched]
+
+  - id: tls-domain-entry
+    title: ACME 分支：平台经 https://<你的域名> 访问，证书受信任，路径头 tls=acm@nginx:acme
+    type: http-header
+    from: platform
+    target: tls-domain
+    path: /api/health/live
+    method: GET
+    when: "session.variant != 'acme-off'"
+    dependsOn: [tls-stack]
+    drift: { policy: must-hold }
+    assert:
+      - { path: $.status, op: eq, value: 200, label: 状态码 }
+      - { path: $.pathSegments.tls, op: eq, value: 'acm@nginx:acme', label: 路径头 tls 段 }
+    explain: 平台自己解析你的域名，解析结果必须落在本环境的入口集合中（实验机 EIP），并自动核对证书 SAN 包含该域名（04 §5.2.3）。
+    reproduce: { run: 'curl -sv https://{{ learner.inputs.domain }}/api/health/live 2>&1 | grep -E "issuer:|subject:|x-cloudalbum-path"', runsOn: workstation }
+
+  - id: cdn-alias-entry
+    title: 回退分支：平台经分配的备用域名访问，证书 SAN 含你的域名
+    type: http-header
+    from: platform
+    target: cdn-alias
+    path: /api/health/live
+    method: GET
+    when: "session.variant == 'acme-off'"
+    dependsOn: [tls-edge-stack]
+    drift: { policy: must-hold }
+    assert:
+      - { path: $.status, op: eq, value: 200, label: 状态码 }
+      - { path: $.pathSegments.entry, op: startsWith, value: cloudfront, label: 入口链 }
+    corroborate:
+      - id: alias-san
+        via: builtin
+        name: tls-san
+        args: { expect: '{{ learner.inputs.domain }}', san: '{{$.tls.subjectAltNames}}' }
+    explain: 目标域名取自本会话分配的 Aliases（GetDistribution，带 ownership），证书 SAN 必须包含你的域名。
+    reproduce: { run: 'curl -sv https://{{ learner.inputs.domain }}/api/health/live 2>&1 | grep -E "subjectAltName|x-cloudalbum-path"', runsOn: workstation }
+
+  - id: acme-cert-listed
+    title: ACME 分支：ACM 中有本域名的 ACME 证书（ListCertificates 默认不列出它们）
+    type: aws-readonly
+    service: acm
+    action: ListCertificates
+    region: app
+    when: "session.variant != 'acme-off'"
+    params: { CertificateKeyPairOrigins: [ACME], CertificateStatuses: [ISSUED], MaxItems: 50 }
+    dependsOn: [tls-stack]
+    drift: { policy: once }
+    assert:
+      - { path: $.CertificateSummaryList, where: { DomainName: '{{ learner.inputs.domain }}' }, op: len_gte, value: 1, label: ACME 证书 }
+    explain: ACME 证书出现在 ACM 证书清单中（CertificateKeyPairOrigin=ACME），但 ListCertificates 默认不列出，要加 ACME 过滤条件。
+    reproduce: { run: 'aws acm list-certificates --certificate-key-pair-origins ACME --query "CertificateSummaryList[].[DomainName,CertificateArn]"', runsOn: workstation }
+    manualFallback:
+      where: { breadcrumb: [Certificate Manager, 列出证书], region: app }
+      observed:
+        question: 用“密钥对来源：ACME”筛选后，能看到 {{ learner.inputs.domain }} 的证书吗？
+        options:
+          - { value: yes, label: 能，状态为已颁发, expected: true }
+          - { value: no, label: 看不到, fixHint: 不加 ACME 筛选时列表默认不显示 ACME 证书 }
+
+  - id: acme-cert-issued
+    title: ACME 分支：这张证书由本环境的签发角色申请，状态为已颁发
+    type: aws-readonly
+    service: acm
+    action: DescribeCertificate
+    region: app
+    when: "session.variant != 'acme-off'"
+    params: { CertificateArn: '{{$check.acme-cert-listed.CertificateSummaryList[0].CertificateArn}}' }
+    dependsOn: [acme-cert-listed]
+    ownership:
+      resource: '{{$.Certificate.CertificateArn}}'
+      createEvents: [RequestCertificate]
+      mode: session
+      createdAfter: session.readyAt
+      maxWaitMinutes: 20
+    drift: { policy: once }
+    assert:
+      - { path: $.Certificate.Status, op: eq, value: ISSUED, label: 状态 }
+      - { path: $.Certificate.DomainName, op: eq, value: '{{ learner.inputs.domain }}', label: 域名 }
+      - { path: $.Certificate.CertificateKeyPairOrigin, op: eq, value: ACME, label: 密钥对来源 }
+    explain: 证书由本环境 tls 栈中的签发角色 cloudalbum-<env>-acme-issuer 的会话申请（04 §5.2.4 第 2 条：本环境栈成员角色即创建证据）。
+    reproduce: { run: 'aws acm describe-certificate --certificate-arn <ARN> --query "Certificate.[Status,DomainName,CertificateKeyPairOrigin,NotAfter]"', runsOn: workstation }
+    manualFallback:
+      where: { breadcrumb: [Certificate Manager, 列出证书], region: app }
+      observed:
+        question: 这张 ACME 证书的状态与有效期大约是多久？
+        options:
+          - { value: ok, label: 已颁发，约 45 天, expected: true }
+          - { value: other, label: 其他 }
+
+  - id: edge-cert-issued
+    title: 回退分支：us-east-1 的集成证书已颁发，并被 CloudFront 使用
+    type: aws-readonly
+    service: acm
+    action: DescribeCertificate
+    region: us-east-1
+    when: "session.variant == 'acme-off'"
+    params: { CertificateArn: '{{ envfile.tls.ACM_CERT_ARN_EDGE }}' }
+    dependsOn: [tls-edge-stack]
+    ownership:
+      resource: '{{$.Certificate.CertificateArn}}'
+      createEvents: [RequestCertificate]
+      mode: session
+      createdAfter: session.readyAt
+      maxWaitMinutes: 20
+    drift: { policy: must-hold }
+    assert:
+      - { path: $.Certificate.Status, op: eq, value: ISSUED, label: 状态 }
+      - { path: $.Certificate.InUseBy, op: len_gte, value: 1, label: 被 CloudFront 使用 }
+    explain: 集成证书由 tls-edge 栈申请（DNS 验证），挂到本会话分配的 Aliases 上；ACM 只对正在使用的证书执行托管续期。
+    reproduce: { run: 'aws acm describe-certificate --region us-east-1 --certificate-arn <ACM_CERT_ARN_EDGE> --query "Certificate.[Status,InUseBy,RenewalEligibility]"', runsOn: workstation }
+    manualFallback:
+      where: { breadcrumb: [Certificate Manager, 列出证书], region: us-east-1 }
+      observed:
+        question: 证书的“正在使用”一栏是什么？
+        options:
+          - { value: yes, label: 是（关联了 CloudFront 分配）, expected: true }
+          - { value: no, label: 否, fixHint: tls 启用后 scripts/module 会把证书注入 cdn；必要时重新执行 scripts/module enable cdn }
+
+  - id: exam-vs-new
+    title: 两道判断：ACME 证书能否挂到 CloudFront；考试口径下 ACM 证书能否装到 EC2
+    type: manual
+    spec:
+      confirm: 我在 ACM 控制台用 ACME 过滤条件找到了证书，并看了它的来源与续期方式
+      observed:
+        question: 按 SAA 考试的常见口径，ACM 签发的公有证书能否直接装到 EC2 的 Nginx 上？
+        options:
+          - { value: no, label: 不能：要在 EC2 终止 TLS，答案是前面加 ALB / CloudFront 或导入第三方证书, expected: true }
+          - { value: yes, label: 能, fixHint: 2026 年的 ACME 端点是新能力，答题仍以“ACM 证书只挂在集成服务上”为准 }
+    explain: 原生手动确认（04 §5.2.6）：分清考试结论与 2026 新能力。
+
+  - id: http-redirects-https
+    title: （选做）直连的 http:// 被 301 到 https://
+    type: http-header
+    from: platform
+    target: public-ip
+    path: /
+    method: GET
+    required: false
+    drift: { policy: once }
+    assert:
+      - { path: $.status, op: eq, value: 301, label: 状态码 }
+      - { path: $.headers.location, op: startsWith, value: 'https://', label: 跳转目标 }
+    explain: 跳转只针对直连入口（ec2 的 $ca_https_redirect：回环地址与 ACME HTTP-01 不跳转，CloudFront / ALB 后面不会循环）。
+    reproduce: { run: 'curl -sI http://{{ target.publicIp }}/ | grep -iE "^(HTTP|location)"', runsOn: workstation }
+
+  - id: no-dep-015
+    title: （选做）开启 TLS_FORCE_HTTPS 后 tls 仍然正常（没有 DEP-015）
+    type: capability
+    module: tls
+    required: false
+    drift: { policy: once }
+    assert:
+      - { path: $, op: healthy, label: 状态正常 }
+    explain: DEP-015：自签名 + HSTS 会把用户锁在站外，所以只有直连用受信任证书时才能开启。
+
+pitfalls:
+  - { id: symlink-not-switched, title: Nginx 仍在用旧证书, match: [ { checkId: direct-acme-cert, result: fail }, { checkId: cap-tls-healthy, result: fail } ],
+      cause: 证书已签发，但 /etc/cloudalbum/tls/server.* 符号链接没有切换，或 Nginx 没有 reload, fix: 在实验机上执行 sudo /usr/local/lib/cloudalbum/run-hostsetup.sh tls apply }

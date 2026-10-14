@@ -1,0 +1,64 @@
+# 小测（atl.quiz/v1，04 §3.2.11）：答案只保存在平台端；成绩只记录在徽章上，不影响完成
+schema: atl.quiz/v1
+version: 1.0.0
+questions:
+  - id: tls-cloudfront-region
+    domain: secure
+    type: single
+    kind: concept
+    services: [acm, cloudfront]
+    stem: 给 CloudFront 分配绑定自定义域名所需的 ACM 证书，应在哪个区域申请？
+    options:
+      - { id: a, text: us-east-1 }
+      - { id: b, text: 源站所在区域 }
+      - { id: c, text: 任意区域，CloudFront 会自动复制 }
+      - { id: d, text: 与 Route 53 托管区域相同的区域 }
+    answer: [a]
+    explain: CloudFront（以及 Cognito 托管登录页的自定义域名）只使用 us-east-1 的 ACM 证书；ALB 与区域型 API Gateway 使用资源所在区域的证书。
+    relatesTo: enable-tls
+    difficulty: 1
+  - id: tls-ec2-exam
+    domain: secure
+    type: single
+    kind: scenario
+    services: [acm, elb]
+    stem: 按 SAA 考试的常见口径，公司希望用 ACM 签发的公有证书为运行在 EC2 上的网站提供 HTTPS，并由 ACM 自动续期。应该怎么做？
+    options:
+      - { id: a, text: 在实例前放一个 ALB，把 ACM 证书挂在 HTTPS 监听器上 }
+      - { id: b, text: 从 ACM 导出普通公有证书装到 Nginx }
+      - { id: c, text: 把证书文件放进 S3 由实例下载 }
+      - { id: d, text: 用 ACM Private CA 签发公有证书 }
+    answer: [a]
+    explain: ACM 集成证书的私钥不可导出，只能挂在 CloudFront、ALB、API Gateway 等集成服务上，由 ACM 托管续期。2026 年起的 ACME 端点能把证书装到自管服务器，但续期由客户端负责，不是“ACM 自动续期”；答题仍以考试结论为准。
+    relatesTo: two-columns
+    difficulty: 2
+  - id: tls-renewal-prereq
+    domain: secure
+    type: multi
+    kind: concept
+    services: [acm]
+    stem: ACM 集成证书能够自动续期的前提包括哪两项？
+    options:
+      - { id: a, text: DNS 验证记录仍然存在 }
+      - { id: b, text: 证书正在被集成服务使用 }
+      - { id: c, text: 证书私钥已经导出备份 }
+      - { id: d, text: 实例上运行着 certbot 定时器 }
+    answer: [a, b]
+    explain: DNS 验证的证书要靠保留的验证 CNAME 自动完成续期验证；ACM 只对正在使用的证书执行托管续期（以官方文档为准）；集成证书的私钥不可导出，certbot 只用于 ACME 或 Let's Encrypt 证书。
+    relatesTo: after
+    difficulty: 2
+  - id: tls-hsts
+    domain: secure
+    type: single
+    kind: scenario
+    services: [acm]
+    stem: 团队给只用自签名证书的测试站点开启了 HSTS（max-age 一年）。最可能的后果是？
+    options:
+      - { id: a, text: 浏览器在一年内拒绝访问该站点，用户无法点击“继续访问” }
+      - { id: b, text: 证书自动变为受信任 }
+      - { id: c, text: 浏览器改为用 HTTP 访问 }
+      - { id: d, text: 没有影响 }
+    answer: [a]
+    explain: HSTS 要求浏览器只用有效证书的 HTTPS 访问，并记住 max-age 秒；自签名 + HSTS 会把用户锁在站外。max-age 要从小值开始，关闭 TLS 前先关闭 HSTS。
+    relatesTo: force-https
+    difficulty: 1

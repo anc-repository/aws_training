@@ -1,0 +1,25 @@
+# 对比实验结果（04 §5.2.5）：experiments/tls/experiment.json 的 inspect、renew-drill
+checks:
+  - id: exp-inspect-before
+    title: inspect 的 before（自签名）有一条有效结果
+    type: experiment
+    module: tls
+    experiment: inspect
+    label: before
+    accept: [valid]
+
+  - id: exp-inspect-pair
+    title: inspect 的 before 与 after 都有效且可比
+    type: experiment
+    module: tls
+    experiment: inspect
+    pair: [before, after]
+    accept: [valid]
+
+  - id: exp-renew-drill
+    title: renew-drill 有一条有效结果（ACME 分支）
+    type: experiment
+    module: tls
+    experiment: renew-drill
+    label: after
+    when: "session.variant != 'acme-off'"

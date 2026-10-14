@@ -1,0 +1,433 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >-
+  CloudAlbum module "dns" - Amazon Route 53 public hosted zone (new or existing) and the app record that points to the
+  EIP (A record) or to an ALB / CloudFront distribution (Alias), with optional health check, failover and weighted
+  records. docs/modules/01-edge-network-scaling.md#dns
+
+Metadata:
+  CloudAlbum:
+    module: dns
+    registryVersion: 1
+    # Injected parameters: TargetDnsName (cdn when DNS_TARGET_TYPE=cloudfront; load-balancer when alb), TargetHostedZoneId
+    # (load-balancer; CloudFront uses the fixed zone Z2FDTNDATAQYW2), VpcId (network; base context otherwise).
+    # scripts/module (module-hooks/dns.ts) passes DomainName (--domain), ExistingHostedZoneId (--zone-id), TargetType
+    # (--target or automatic), TargetIp (the EIP), AppScheme (https only when a trusted certificate covers the domain).
+    # Manual prerequisite: an own domain. A new hosted zone needs an NS delegation at the registrar / parent zone.
+
+Parameters:
+  Env:
+    Type: String
+    Default: lab
+    AllowedPattern: '^[a-z][a-z0-9-]{1,15}$'
+  ModuleVersion:
+    Type: String
+    Default: '1'
+  DomainName:
+    Type: String
+    AllowedPattern: '^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z][a-z0-9-]{0,62}$'
+    Description: Record name of the app, e.g. album.example.com (lower case; your own domain)
+  ZoneName:
+    Type: String
+    Default: ''
+    Description: Name of a NEW hosted zone ('' = DomainName, i.e. host only the subdomain and delegate it from the parent)
+  ExistingHostedZoneId:
+    Type: String
+    Default: ''
+    AllowedPattern: '^(|Z[A-Z0-9]{4,32})$'
+    Description: Existing public hosted zone (scripts/module enable dns --zone-id); '' creates a new zone
+  TargetType:
+    Type: String
+    Default: eip
+    AllowedValues: [eip, alb, cloudfront]
+  TargetIp:
+    Type: String
+    Default: ''
+    AllowedPattern: '^(|([0-9]{1,3}\.){3}[0-9]{1,3})$'
+    Description: Elastic IP of the instance (TargetType=eip; also the primary of failover / weighted)
+  TargetDnsName:
+    Type: String
+    Default: ''
+    Description: Injected by cdn (distribution domain) or load-balancer (ALB DNS name)
+  TargetHostedZoneId:
+    Type: String
+    Default: ''
+    Description: Injected by load-balancer (ALB CanonicalHostedZoneID); CloudFront uses Z2FDTNDATAQYW2
+  Ttl:
+    Type: Number
+    Default: 60
+    MinValue: 0
+    MaxValue: 172800
+  RoutingPolicy:
+    Type: String
+    Default: simple
+    AllowedValues: [simple, failover, weighted]
+  EnableHealthCheck:
+    Type: String
+    Default: 'false'
+    AllowedValues: ['true', 'false']
+  HealthCheckPath:
+    Type: String
+    Default: /api/health/ready?scope=instance
+    AllowedPattern: '^/[A-Za-z0-9._~!$&()*+,;=:@%/?-]{0,254}$'
+  HealthCheckIngress:
+    Type: String
+    Default: none
+    AllowedValues: [none, prefix-list]
+    Description: prefix-list = own security group that opens 80 to the Route 53 health checkers (origin locked down)
+  HealthCheckPrefixListId:
+    Type: String
+    Default: ''
+    AllowedPattern: '^(|pl-[0-9a-f]+)$'
+    Description: com.amazonaws.<region>.route53-healthchecks (looked up by scripts/module)
+  VpcId:
+    Type: String
+    Default: ''
+    Description: VPC of the instance (only the health-checker security group lives in it; injected by network)
+  WeightedSecondaryIp:
+    Type: String
+    Default: ''
+    AllowedPattern: '^(|([0-9]{1,3}\.){3}[0-9]{1,3})$'
+    Description: weighted + TargetType=eip - second A record value (for example a temporary EIP)
+  PrimaryWeight:
+    Type: Number
+    Default: 90
+    MinValue: 0
+    MaxValue: 255
+  SecondaryWeight:
+    Type: Number
+    Default: 10
+    MinValue: 0
+    MaxValue: 255
+  OriginRecord:
+    Type: String
+    Default: 'false'
+    AllowedValues: ['true', 'false']
+    Description: also create origin.<DomainName> A -> TargetIp (CloudFront origin name, origin certificate; always with the health check)
+  AppScheme:
+    Type: String
+    Default: http
+    AllowedValues: [http, https]
+    Description: https only when a trusted certificate covers DomainName (decided by scripts/module)
+
+Rules:
+  EipNeedsIp:
+    RuleCondition: !Equals [!Ref TargetType, eip]
+    Assertions:
+      - Assert: !Not [!Equals [!Ref TargetIp, '']]
+        AssertDescription: TargetType=eip requires TargetIp (the Elastic IP of the instance)
+  AliasNeedsTarget:
+    RuleCondition: !Not [!Equals [!Ref TargetType, eip]]
+    Assertions:
+      - Assert: !Not [!Equals [!Ref TargetDnsName, '']]
+        AssertDescription: TargetType=alb|cloudfront requires TargetDnsName (injected by load-balancer / cdn)
+  AlbNeedsZone:
+    RuleCondition: !Equals [!Ref TargetType, alb]
+    Assertions:
+      - Assert: !Not [!Equals [!Ref TargetHostedZoneId, '']]
+        AssertDescription: TargetType=alb requires TargetHostedZoneId (ALB CanonicalHostedZoneID)
+  FailoverNeedsEipAndHealthCheck:
+    RuleCondition: !Equals [!Ref RoutingPolicy, failover]
+    Assertions:
+      - Assert: !And [!Equals [!Ref TargetType, eip], !Equals [!Ref EnableHealthCheck, 'true']]
+        AssertDescription: RoutingPolicy=failover needs TargetType=eip and EnableHealthCheck=true (PRIMARY = EIP + health check)
+  WeightedNeedsTwoTargets:
+    RuleCondition: !Equals [!Ref RoutingPolicy, weighted]
+    Assertions:
+      - Assert: !Not [!Equals [!Ref TargetIp, '']]
+        AssertDescription: RoutingPolicy=weighted needs TargetIp (the EIP is the primary)
+      - Assert: !Or [!Not [!Equals [!Ref TargetType, eip]], !Not [!Equals [!Ref WeightedSecondaryIp, '']]]
+        AssertDescription: RoutingPolicy=weighted needs a second target (TargetType=alb|cloudfront, or WeightedSecondaryIp)
+  PrefixListNeedsVpc:
+    RuleCondition: !Equals [!Ref HealthCheckIngress, prefix-list]
+    Assertions:
+      - Assert: !And [!Not [!Equals [!Ref VpcId, '']], !Not [!Equals [!Ref HealthCheckPrefixListId, '']]]
+        AssertDescription: HealthCheckIngress=prefix-list needs VpcId and HealthCheckPrefixListId
+
+Conditions:
+  CreateZone: !Equals [!Ref ExistingHostedZoneId, '']
+  HasZoneName: !Not [!Equals [!Ref ZoneName, '']]
+  IsEip: !Equals [!Ref TargetType, eip]
+  IsAlb: !Equals [!Ref TargetType, alb]
+  IsSimple: !Equals [!Ref RoutingPolicy, simple]
+  IsFailover: !Equals [!Ref RoutingPolicy, failover]
+  IsWeighted: !Equals [!Ref RoutingPolicy, weighted]
+  SimpleEip: !And [!Condition IsSimple, !Condition IsEip]
+  SimpleAlias: !And [!Condition IsSimple, !Not [!Condition IsEip]]
+  WeightedIp: !And [!Condition IsWeighted, !Condition IsEip]
+  WeightedAlias: !And [!Condition IsWeighted, !Not [!Condition IsEip]]
+  HasHealthCheck: !And [!Equals [!Ref EnableHealthCheck, 'true'], !Condition IsEip]
+  WeightedWithHealthCheck: !And [!Condition IsWeighted, !Condition HasHealthCheck]
+  # the health check probes origin.<DomainName>, so it always gets the origin record
+  HasOriginRecord: !And [!Or [!Equals [!Ref OriginRecord, 'true'], !Condition HasHealthCheck], !Not [!Equals [!Ref TargetIp, '']]]
+  HasHealthCheckSg: !Equals [!Ref HealthCheckIngress, prefix-list]
+
+Mappings:
+  # S3 website endpoints for the failover SECONDARY (bucket name = record name, HTTP only). Values per the S3 endpoint table
+  # of the official documentation; the project runs in ap-northeast-1.
+  S3Website:
+    ap-northeast-1: { Endpoint: s3-website-ap-northeast-1.amazonaws.com, ZoneId: Z2M4EHUR26P7ZW }
+    us-east-1: { Endpoint: s3-website-us-east-1.amazonaws.com, ZoneId: Z3AQBSTGFYJSTF }
+  Fixed:
+    CloudFront: { HostedZoneId: Z2FDTNDATAQYW2 }
+
+Resources:
+  # Kept on stack deletion (01#dns section 8: re-creating a zone changes its NS and needs a new delegation);
+  # `scripts/module disable dns --param PurgeHostedZone=true` deletes it, the reaper deletes it in platform mode.
+  HostedZone:
+    Condition: CreateZone
+    Type: AWS::Route53::HostedZone
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      Name: !If [HasZoneName, !Ref ZoneName, !Ref DomainName]
+      HostedZoneConfig:
+        Comment: !Sub 'cloudalbum-${Env}-dns (CloudAlbum dns module)'
+      HostedZoneTags:
+        - { Key: Project, Value: CloudAlbum }
+        - { Key: Env, Value: !Ref Env }
+        - { Key: Module, Value: dns }
+        - { Key: Name, Value: !Sub 'cloudalbum-${Env}-dns' }
+
+  # ---- simple ------------------------------------------------------------------------------------------------------
+  SimpleEipRecord:
+    Condition: SimpleEip
+    Type: AWS::Route53::RecordSet
+    Properties:
+      HostedZoneId: !If [CreateZone, !Ref HostedZone, !Ref ExistingHostedZoneId]
+      Name: !Ref DomainName
+      Type: A
+      TTL: !Ref Ttl
+      ResourceRecords: [!Ref TargetIp]
+
+  SimpleAliasA:
+    Condition: SimpleAlias
+    Type: AWS::Route53::RecordSet
+    Properties:
+      HostedZoneId: !If [CreateZone, !Ref HostedZone, !Ref ExistingHostedZoneId]
+      Name: !Ref DomainName
+      Type: A
+      AliasTarget:
+        DNSName: !If [IsAlb, !Sub 'dualstack.${TargetDnsName}', !Ref TargetDnsName]
+        HostedZoneId: !If [IsAlb, !Ref TargetHostedZoneId, !FindInMap [Fixed, CloudFront, HostedZoneId]]
+        EvaluateTargetHealth: !If [IsAlb, true, false]
+
+  SimpleAliasAAAA:
+    Condition: SimpleAlias
+    Type: AWS::Route53::RecordSet
+    Properties:
+      HostedZoneId: !If [CreateZone, !Ref HostedZone, !Ref ExistingHostedZoneId]
+      Name: !Ref DomainName
+      Type: AAAA
+      AliasTarget:
+        DNSName: !If [IsAlb, !Sub 'dualstack.${TargetDnsName}', !Ref TargetDnsName]
+        HostedZoneId: !If [IsAlb, !Ref TargetHostedZoneId, !FindInMap [Fixed, CloudFront, HostedZoneId]]
+        EvaluateTargetHealth: !If [IsAlb, true, false]
+
+  # ---- health check (metrics and alarms in us-east-1); checks origin.<DomainName> (A -> EIP, never failed over) -----
+  HealthCheck:
+    Condition: HasHealthCheck
+    Type: AWS::Route53::HealthCheck
+    Properties:
+      HealthCheckConfig:
+        Type: HTTP
+        FullyQualifiedDomainName: !Sub 'origin.${DomainName}'
+        Port: 80
+        ResourcePath: !Ref HealthCheckPath
+        RequestInterval: 30
+        FailureThreshold: 3
+      HealthCheckTags:
+        - { Key: Name, Value: !Sub 'cloudalbum-${Env}-dns' }
+        - { Key: Project, Value: CloudAlbum }
+        - { Key: Env, Value: !Ref Env }
+        - { Key: Module, Value: dns }
+
+  HealthCheckSecurityGroup:
+    Condition: HasHealthCheckSg
+    Type: AWS::EC2::SecurityGroup
+    Metadata:
+      cfn-lint: { config: { ignore_checks: [W1030] } }   # VpcId defaults to '' but the PrefixListNeedsVpc rule requires it here
+    Properties:
+      GroupDescription: !Sub 'cloudalbum-${Env}-dns-healthcheck-sg (80 only from the Route 53 health checkers)'
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          SourcePrefixListId: !Ref HealthCheckPrefixListId
+          Description: Route 53 health checkers (managed prefix list)
+      Tags:
+        - { Key: Name, Value: !Sub 'cloudalbum-${Env}-dns-healthcheck-sg' }
+        - { Key: Project, Value: CloudAlbum }
+        - { Key: Module, Value: dns }
+
+  # ---- failover: PRIMARY = EIP + health check, SECONDARY = S3 website maintenance page -----------------------------
+  FailoverPrimary:
+    Condition: IsFailover
+    Type: AWS::Route53::RecordSet
+    Properties:
+      HostedZoneId: !If [CreateZone, !Ref HostedZone, !Ref ExistingHostedZoneId]
+      Name: !Ref DomainName
+      Type: A
+      TTL: !Ref Ttl
+      ResourceRecords: [!Ref TargetIp]
+      SetIdentifier: primary
+      Failover: PRIMARY
+      HealthCheckId: !If [HasHealthCheck, !Ref HealthCheck, !Ref 'AWS::NoValue']
+
+  # The bucket name must equal the record name (S3 website endpoints answer by Host). scripts/module uploads
+  # maintenance.html after the deployment and empties the bucket before the stack is deleted.
+  MaintenanceBucket:
+    Condition: IsFailover
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Ref DomainName
+      WebsiteConfiguration:
+        IndexDocument: maintenance.html
+        ErrorDocument: maintenance.html
+      OwnershipControls:
+        Rules:
+          - ObjectOwnership: BucketOwnerEnforced
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        IgnorePublicAcls: true
+        BlockPublicPolicy: false
+        RestrictPublicBuckets: false
+      Tags:
+        - { Key: Name, Value: !Sub 'cloudalbum-${Env}-dns-maintenance' }
+        - { Key: Project, Value: CloudAlbum }
+        - { Key: Module, Value: dns }
+
+  MaintenanceBucketPolicy:
+    Condition: IsFailover
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref MaintenanceBucket
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: PublicReadMaintenancePage
+            Effect: Allow
+            Principal: '*'
+            Action: s3:GetObject
+            Resource: !Sub '${MaintenanceBucket.Arn}/maintenance.html'
+
+  FailoverSecondary:
+    Condition: IsFailover
+    Type: AWS::Route53::RecordSet
+    DependsOn: MaintenanceBucketPolicy
+    Properties:
+      HostedZoneId: !If [CreateZone, !Ref HostedZone, !Ref ExistingHostedZoneId]
+      Name: !Ref DomainName
+      Type: A
+      SetIdentifier: secondary
+      Failover: SECONDARY
+      AliasTarget:
+        DNSName: !FindInMap [S3Website, !Ref 'AWS::Region', Endpoint]
+        HostedZoneId: !FindInMap [S3Website, !Ref 'AWS::Region', ZoneId]
+        EvaluateTargetHealth: false
+
+  # ---- weighted: EIP (primary weight) + ALB / CloudFront Alias or a second IP (secondary weight) --------------------
+  WeightedPrimary:
+    Condition: IsWeighted
+    Type: AWS::Route53::RecordSet
+    Properties:
+      HostedZoneId: !If [CreateZone, !Ref HostedZone, !Ref ExistingHostedZoneId]
+      Name: !Ref DomainName
+      Type: A
+      TTL: !Ref Ttl
+      ResourceRecords: [!Ref TargetIp]
+      SetIdentifier: eip
+      Weight: !Ref PrimaryWeight
+      HealthCheckId: !If [WeightedWithHealthCheck, !Ref HealthCheck, !Ref 'AWS::NoValue']
+
+  WeightedSecondaryIpRecord:
+    Condition: WeightedIp
+    Type: AWS::Route53::RecordSet
+    Properties:
+      HostedZoneId: !If [CreateZone, !Ref HostedZone, !Ref ExistingHostedZoneId]
+      Name: !Ref DomainName
+      Type: A
+      TTL: !Ref Ttl
+      ResourceRecords: [!Ref WeightedSecondaryIp]
+      SetIdentifier: secondary-ip
+      Weight: !Ref SecondaryWeight
+
+  WeightedSecondaryAlias:
+    Condition: WeightedAlias
+    Type: AWS::Route53::RecordSet
+    Properties:
+      HostedZoneId: !If [CreateZone, !Ref HostedZone, !Ref ExistingHostedZoneId]
+      Name: !Ref DomainName
+      Type: A
+      SetIdentifier: secondary-alias
+      Weight: !Ref SecondaryWeight
+      AliasTarget:
+        DNSName: !If [IsAlb, !Sub 'dualstack.${TargetDnsName}', !Ref TargetDnsName]
+        HostedZoneId: !If [IsAlb, !Ref TargetHostedZoneId, !FindInMap [Fixed, CloudFront, HostedZoneId]]
+        EvaluateTargetHealth: !If [IsAlb, true, false]
+
+  # ---- optional origin name ------------------------------------------------------------------------------------------
+  OriginRecordSet:
+    Condition: HasOriginRecord
+    Type: AWS::Route53::RecordSet
+    Properties:
+      HostedZoneId: !If [CreateZone, !Ref HostedZone, !Ref ExistingHostedZoneId]
+      Name: !Sub 'origin.${DomainName}'
+      Type: A
+      TTL: !Ref Ttl
+      ResourceRecords: [!Ref TargetIp]
+
+  AppPolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      ManagedPolicyName: !Sub 'cloudalbum-${Env}-dns'   # attached by scripts/module (D2)
+      Description: Read-only Route 53 for the dns detector (deep probe) and /lab (credentials optional, CRED-004)
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: HostedZoneRead
+            Effect: Allow
+            Action: [route53:GetHostedZone, route53:ListResourceRecordSets]
+            Resource: !Sub
+              - 'arn:${AWS::Partition}:route53:::hostedzone/${ZoneId}'
+              - ZoneId: !If [CreateZone, !Ref HostedZone, !Ref ExistingHostedZoneId]
+          - Sid: HealthCheckRead
+            Effect: Allow
+            Action: [route53:GetHealthCheckStatus]
+            Resource: !Sub 'arn:${AWS::Partition}:route53:::healthcheck/*'
+
+Outputs:
+  ModuleId:
+    Value: dns
+  ModuleVersion:
+    Value: !Ref ModuleVersion
+  PolicyArn:
+    Value: !Ref AppPolicy
+  EnvAppBaseUrl:
+    Description: Effective entry URL (01 convention 5); only dns owns APP_BASE_URL
+    Value: !Sub '${AppScheme}://${DomainName}'
+  EnvDnsHostedZoneId:
+    Value: !If [CreateZone, !Ref HostedZone, !Ref ExistingHostedZoneId]
+  EnvDnsRecordName:
+    Value: !Ref DomainName
+  EnvDnsTargetType:
+    Value: !Ref TargetType
+  EnvDnsTtl:
+    Value: !Ref Ttl
+  EnvDnsRoutingPolicy:
+    Value: !Ref RoutingPolicy
+  EnvDnsHealthCheckId:
+    Value: !If [HasHealthCheck, !Ref HealthCheck, '']
+  EnvDnsTargetIp:
+    Description: Value of the A record when the target is the EIP (the detector compares the answer with it and IMDS)
+    Value: !Ref TargetIp
+  InfoNameServers:
+    Description: NS of a NEW hosted zone (add them as NS delegation at your registrar / parent zone); '' for an existing zone
+    Value: !If [CreateZone, !Join [',', !GetAtt HostedZone.NameServers], '']
+  InfoHealthCheckSecurityGroupId:
+    Description: Appended to the base stack ExtraSecurityGroupIds (baseParams); '' = no extra group
+    Value: !If [HasHealthCheckSg, !Ref HealthCheckSecurityGroup, '']
+  InfoMaintenanceBucket:
+    Value: !If [IsFailover, !Ref MaintenanceBucket, '']
+  InfoHostedZoneCreated:
+    Value: !If [CreateZone, 'true', 'false']

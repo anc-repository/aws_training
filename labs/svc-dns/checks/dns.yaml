@@ -1,0 +1,200 @@
+# 域名准备与接入：capability、实例上的模块状态、本会话 dns 栈（ownership）、服务端解析、托管区域中的记录
+checks:
+  - id: domain-control
+    title: 确认你能管理这个域名的 DNS
+    type: manual
+    spec:
+      confirm: 我已有 {{ learner.inputs.domain }}（或其父域）的 Route 53 公有托管区域，或者能在注册商 / 父域为它添加 NS 委派
+      observed:
+        question: 你准备用哪种方式让 {{ learner.inputs.domain }} 生效？
+        options:
+          - { value: existing-zone, label: 本账号已有托管区域（推荐，不需要等待委派）, expected: true }
+          - { value: delegate, label: 新建托管区域，再到注册商 / 父域添加 NS 委派, expected: true }
+          - { value: none, label: 两者都做不到, fixHint: 没有自有域名时本卡无法完成；可以先做 svc-cdn（分配默认域名提供受信 HTTPS） }
+    explain: 域名注册与 DNS 托管是两件事：平台只能在你的账号里建托管区域，委派要在注册商那边完成（04 §3.2.3 规则 6：人工前置）。
+
+  - id: existing-zone
+    title: 你填写的已有托管区域包含这个域名
+    type: aws-readonly
+    service: route53
+    action: GetHostedZone
+    region: global
+    when: "learner.inputs.hosted-zone != ''"
+    params: { Id: '{{ learner.inputs.hosted-zone }}' }
+    drift: { policy: once }
+    assert:
+      - { path: $.HostedZone.Config.PrivateZone, op: eq, value: false, label: 公有托管区域 }
+      - { path: $.HostedZone.Name, op: endsWith, value: '.', label: 区域名 }
+    explain: 学员已有的资源，不做 ownership；只确认它是公有托管区域，域名是否在其中由 scripts/module enable dns --zone-id 再核对一次。
+    reproduce: { run: 'aws route53 get-hosted-zone --id {{ learner.inputs.hosted-zone }} --query "HostedZone.[Name,Config.PrivateZone]"', runsOn: workstation }
+    manualFallback:
+      where: { breadcrumb: [Route 53, 托管区域], region: global }
+      observed:
+        question: 这个托管区域的“类型”是什么？
+        options:
+          - { value: public, label: 公有托管区域, expected: true }
+          - { value: private, label: 私有托管区域, fixHint: 私有托管区域只在关联的 VPC 内解析，公网解析不到它 }
+
+  - id: cap-dns-healthy
+    title: capabilities 中 dns 的驱动为 route53，且状态正常
+    type: capability
+    module: dns
+    drift: { policy: must-hold, monitor: true }
+    assert:
+      - { path: $.driver, op: eq, value: route53, label: 驱动 }
+      - { path: $, op: healthy, label: 状态正常（只允许本卡声明的预期警告） }
+    explain: dns 感知器在实例上用 VPC 的解析器解析域名，并与实例当前的弹性 IP 比较；委派尚未生效时名称无法解析，状态先是降级。
+    reproduce: { run: 'curl -s http://127.0.0.1/api/capabilities | jq ".modules.dns | {driver, status, detail}"', runsOn: lab }
+    pitfalls: [delegation-pending]
+
+  - id: dns-module-state
+    title: 实验机上 dns 由 scripts/module 启用
+    type: local
+    on: lab
+    checkId: module-state
+    args: { module: dns }
+    drift: { policy: must-hold }
+    assert:
+      - { path: $.modules.dns.enabled, op: eq, value: true, label: 已启用 }
+      - { path: $.modules.dns.driver, op: eq, value: route53, label: 驱动 }
+    explain: modules.state.json 由 scripts/module 在投递配置时写入（06 PM-15）；dns 是纯基础设施型模块，接入证据是模块状态加上控制面证据（04 §3.5 第 3 条）。
+    reproduce: { run: 'sudo cloudalbum module-state --module dns --json', runsOn: lab }
+
+  - id: dns-stack
+    title: 本会话创建的 dns 栈已就绪，记录名是你的域名
+    type: aws-readonly
+    service: cloudformation
+    action: DescribeStacks
+    region: app
+    params: { StackName: 'cloudalbum-{{ session.env }}-dns' }
+    ownership:
+      resource: '{{$.Stacks[0].StackId}}'
+      resourceId: 'cloudalbum-{{ session.env }}-dns'
+      createEvents: [CreateStack]
+      mode: session
+      createdAfter: session.readyAt
+      maxWaitMinutes: 20
+    drift: { policy: must-hold, monitor: true }
+    assert:
+      - { path: '$.Stacks[0].StackStatus', op: in, value: [CREATE_COMPLETE, UPDATE_COMPLETE], label: 栈状态 }
+      - path: '$.Stacks[0].Outputs'
+        where: { OutputKey: EnvDnsRecordName }
+        op: some
+        label: 记录名
+        value:
+          - { path: $.OutputValue, op: eq, value: '{{ learner.inputs.domain }}' }
+      - path: '$.Stacks[0].Outputs'
+        where: { OutputKey: EnvDnsTargetType }
+        op: some
+        label: 记录目标类型
+        value:
+          - { path: $.OutputValue, op: eq, value: eip }
+    explain: 栈是你在本会话中用 scripts/module 创建的（CloudFormation 的创建记录）；新建托管区域与使用已有托管区域两种做法都由这个栈管理记录。
+    reproduce: { run: 'aws cloudformation describe-stacks --stack-name cloudalbum-{{ session.env }}-dns --query "Stacks[0].[StackStatus,Outputs]"', runsOn: workstation }
+    pitfalls: [not-mine]
+    manualFallback:
+      where: { breadcrumb: [CloudFormation, 栈, 'cloudalbum-{{ session.env }}-dns', 输出], region: app }
+      observed:
+        question: 输出 EnvDnsRecordName 的值是什么？
+        options:
+          - { value: ok, label: '{{ learner.inputs.domain }}', expected: true }
+          - { value: other, label: 其他 / 没有这个栈, fixHint: '执行 scripts/module enable dns --domain {{ learner.inputs.domain }}' }
+
+  - id: dns-resolves-eip
+    title: 实验机上的 dns 感知器解析你的域名，结果是实验机的弹性 IP
+    type: capability
+    module: dns
+    view: admin
+    dependsOn: [dns-stack]
+    wait: { typicalMinutes: 2, maxMinutes: 30 }
+    drift: { policy: must-hold, monitor: true }
+    assert:
+      - { path: $.data.recordName, op: eq, value: '{{ learner.inputs.domain }}', label: 记录名 }
+      - { path: $.data.resolution.answers, op: contains, value: '{{ target.publicIp }}', label: 解析结果包含实验机 EIP }
+    explain: 感知器用实验机所在 VPC 的解析器查询（服务端视角，不是你的浏览器）；新建托管区域时，在注册商 / 父域的 NS 委派生效之前名称无法解析。
+    reproduce: { run: 'dig +short {{ learner.inputs.domain }}', runsOn: lab }
+    pitfalls: [delegation-pending]
+
+  - id: dns-record
+    title: 托管区域中有 TTL 60 的 A 记录指向实验机 EIP
+    type: aws-readonly
+    service: route53
+    action: ListResourceRecordSets
+    region: global
+    params: { HostedZoneId: '{{ var.hostedZoneId }}', StartRecordName: '{{ learner.inputs.domain }}', StartRecordType: A, MaxItems: '1' }
+    dependsOn: [dns-stack]
+    drift: { policy: must-hold }
+    assert:
+      - path: $.ResourceRecordSets
+        where: { Type: A }
+        op: some
+        label: A 记录 → EIP，TTL 60
+        value:
+          - { path: '$.ResourceRecords[0].Value', op: eq, value: '{{ target.publicIp }}' }
+          - { path: $.TTL, op: eq, value: 60 }
+    explain: 托管区域 ID 取自本会话 dns 栈的输出；EIP 不能作为 Alias 目标，只能用普通 A 记录。
+    reproduce: { run: 'aws route53 list-resource-record-sets --hosted-zone-id {{ var.hostedZoneId }} --query "ResourceRecordSets[?Type==\`A\`]"', runsOn: workstation }
+    manualFallback:
+      where: { breadcrumb: [Route 53, 托管区域, '{{ var.hostedZoneId }}'], region: global }
+      observed:
+        question: '{{ learner.inputs.domain }} 的 A 记录的值与 TTL 是什么？'
+        options:
+          - { value: ok, label: '{{ target.publicIp }}，TTL 60', expected: true }
+          - { value: other, label: 其他, fixHint: 不要在控制台修改栈管理的记录；重新执行 scripts/module enable dns }
+
+  - id: alias-cname-observed
+    title: 记录区域顶点 CNAME 被拒绝的报错与 Alias 的解析结果
+    type: manual
+    spec:
+      confirm: 我建了 www.<域名> → Alias 到 <域名>，并尝试为区域顶点建 CNAME
+      observed:
+        question: 为区域顶点建 CNAME 时发生了什么？
+        options:
+          - { value: rejected, label: Route 53 拒绝了（区域顶点不能是 CNAME）, expected: true }
+          - { value: accepted, label: 创建成功了, fixHint: 检查记录名是否真的是区域顶点（与托管区域同名），而不是子域 }
+      input:
+        label: dig www.<域名> 的结果（Alias 直接返回的 A 记录）
+        pattern: '^[0-9.\s,]{7,200}$'
+    explain: 原生手动确认：Route 53 的拒绝报错只能由你在控制台或 CLI 中观察（04 §5.2.6）。
+
+  - id: health-check-failure
+    title: 故障转移演练期间健康检查变为不健康
+    type: aws-readonly
+    service: route53
+    action: GetHealthCheckStatus
+    region: global
+    params: { HealthCheckId: "{{ envfile.dns.DNS_HEALTH_CHECK_ID }}" }
+    required: false
+    drift: { policy: once }
+    assert:
+      - path: $.HealthCheckObservations
+        op: some
+        label: 有检查器报告 Failure
+        value:
+          - { path: $.StatusReport.Status, op: startsWith, value: Failure }
+    explain: 只在演练期间（Nginx 已停止）检测；健康检查的指标与告警在 us-east-1。
+    reproduce: { run: 'aws route53 get-health-check-status --health-check-id <DNS_HEALTH_CHECK_ID> --query "HealthCheckObservations[].StatusReport.Status"', runsOn: workstation }
+    manualFallback:
+      where: { breadcrumb: [Route 53, 运行状况检查], region: global }
+      observed:
+        question: 演练期间这个健康检查的状态是什么？
+        options:
+          - { value: unhealthy, label: 运行状况不佳, expected: true }
+          - { value: healthy, label: 运行状况良好, fixHint: 连续 3 次失败（约 90 秒）后才会变为不健康 }
+
+  - id: failover-timing
+    title: 记录健康检查变为不健康的时间
+    type: manual
+    required: false
+    spec:
+      confirm: 我在演练中记录了“健康检查不健康”“拿到备用记录”“访问维护页成功”三个时刻
+      input:
+        label: 从停止 Nginx 到访问维护页成功的秒数
+        pattern: '^[0-9]{1,4}$'
+    explain: 时间大致等于“检查间隔 × 失败阈值 + TTL + 解析器与客户端缓存”。
+
+pitfalls:
+  - { id: delegation-pending, title: NS 委派尚未生效, match: [ { checkId: dns-resolves-eip, result: fail }, { checkId: cap-dns-healthy, result: fail } ],
+      cause: 新建托管区域后，注册商 / 父域的 NS 委派还没有生效（或没有添加），公网解析不到记录, fix: '把 scripts/module 打印的 4 个 NS 添加为委派；用 dig NS {{ learner.inputs.domain }} @8.8.8.8 确认' }
+  - { id: not-mine, title: 栈不属于本会话, match: [ { checkId: dns-stack, errorCode: OWNERSHIP_MISMATCH } ],
+      cause: 检测到的 dns 栈不是本次实验创建的, fix: '在本次实验中执行 scripts/module enable dns --domain {{ learner.inputs.domain }}' }

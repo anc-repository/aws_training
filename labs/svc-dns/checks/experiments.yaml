@@ -1,0 +1,25 @@
+# 对比实验结果（04 §5.2.5）：experiments/dns/experiment.json 的 ip-change-drill、failover-drill
+checks:
+  - id: exp-ip-before
+    title: ip-change-drill 的 before（没有 Route 53）有一条有效结果
+    type: experiment
+    module: dns
+    experiment: ip-change-drill
+    label: before
+    accept: [valid]
+
+  - id: exp-ip-pair
+    title: ip-change-drill 的 before 与 after 都有效且可比
+    type: experiment
+    module: dns
+    experiment: ip-change-drill
+    pair: [before, after]
+    accept: [valid]
+
+  - id: exp-failover
+    title: failover-drill 有一条有效结果
+    type: experiment
+    module: dns
+    experiment: failover-drill
+    label: after
+    required: false

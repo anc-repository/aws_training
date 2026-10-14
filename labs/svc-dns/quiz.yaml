@@ -1,0 +1,64 @@
+# 小测（atl.quiz/v1，04 §3.2.11）：答案只保存在平台端；成绩只记录在徽章上，不影响完成
+schema: atl.quiz/v1
+version: 1.0.0
+questions:
+  - id: dns-apex-alb
+    domain: resilient
+    type: single
+    kind: scenario
+    services: [route53]
+    stem: 需要让根域名 example.com 指向一个 Application Load Balancer。应使用哪种记录？
+    options:
+      - { id: a, text: Alias 记录 }
+      - { id: b, text: CNAME 记录 }
+      - { id: c, text: 写入 ALB 当前 IP 的 A 记录 }
+      - { id: d, text: MX 记录 }
+    answer: [a]
+    explain: 区域顶点不能建 CNAME；ALB 的 IP 会变化，不能写死；Alias 可以指向 ALB，并可开启 Evaluate Target Health。
+    relatesTo: alias-cname
+    difficulty: 1
+  - id: dns-failover-s3
+    domain: resilient
+    type: single
+    kind: scenario
+    services: [route53, s3]
+    stem: 主站点故障时，希望用户自动看到托管在 S3 上的静态维护页。应使用哪种做法？
+    options:
+      - { id: a, text: 故障转移路由策略，主记录关联健康检查 }
+      - { id: b, text: 加权路由 }
+      - { id: c, text: 地理位置路由 }
+      - { id: d, text: 在简单路由记录中写多个值 }
+    answer: [a]
+    explain: PRIMARY 关联健康检查，不健康时返回 SECONDARY；作为备用目标的 S3 网站端点要求桶名与记录名相同，且只支持 HTTP。
+    relatesTo: failover
+    difficulty: 1
+  - id: dns-alias-facts
+    domain: cost
+    type: multi
+    kind: concept
+    services: [route53]
+    stem: 关于 Route 53 的 Alias 记录，下列哪两项说法正确？
+    options:
+      - { id: a, text: 可以用于区域顶点（根域名） }
+      - { id: b, text: 指向 CloudFront、ALB 等 AWS 资源时查询不收费 }
+      - { id: c, text: 可以指向任意 IP 地址 }
+      - { id: d, text: 可以指向一个弹性 IP }
+    answer: [a, b]
+    explain: Alias 只能指向 AWS 资源或同一托管区域中的记录，不能指向 IP 或弹性 IP；指向弹性 IP 只能用普通 A 记录。
+    relatesTo: alias-cname
+    difficulty: 1
+  - id: dns-migrate-ttl
+    domain: resilient
+    type: single
+    kind: scenario
+    services: [route53]
+    stem: 计划下周把网站从一台 EC2 迁移到 ALB 后面，希望切换时用户感受到的中断尽量短。应提前做什么？
+    options:
+      - { id: a, text: 提前把相关记录的 TTL 调低，并等旧 TTL 过期 }
+      - { id: b, text: 删除托管区域后重建 }
+      - { id: c, text: 把记录改成 CNAME }
+      - { id: d, text: 在注册商处更换 NS }
+    answer: [a]
+    explain: 解析器按 TTL 缓存答案；迁移前调低 TTL、等旧值过期，切换后缓存很快失效。重建托管区域会得到新的 NS，反而需要重新委派。
+    relatesTo: ip-after
+    difficulty: 1

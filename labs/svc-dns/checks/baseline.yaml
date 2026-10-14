@@ -1,0 +1,64 @@
+# 起始状态（before）与换 IP 演练的收尾：before 断言一律 drift once（C3、04 §3.5 第 9 条）
+checks:
+  - id: dns-off
+    title: 起始状态：dns 未启用，入口是 http://<EIP>
+    type: capability
+    module: dns
+    drift: { policy: once }
+    assert:
+      - { path: $.driver, op: eq, value: none, label: 驱动 }
+      - { path: $.status, op: eq, value: 'off', label: 状态 }
+    explain: 启用 dns 之前，应用的有效入口 URL 是基础配置里的 http://<EIP>，邮件与分享链接写的也是它。
+    reproduce: { run: 'curl -s http://127.0.0.1/api/capabilities | jq "{entry: .app.entry, dns: .modules.dns | {driver, status}}"', runsOn: lab }
+
+  - id: eip-restored
+    title: 演练结束后，实验机挂的仍是原来的弹性 IP
+    type: aws-readonly
+    service: ec2
+    action: DescribeAddresses
+    region: app
+    params:
+      Filters:
+        - { Name: instance-id, Values: ['{{ target.instanceId }}'] }
+    drift: { policy: once }
+    assert:
+      - { path: $.Addresses, op: len_eq, value: 1, label: 实验机上的弹性 IP 数 }
+      - { path: '$.Addresses[0].PublicIp', op: eq, value: '{{ target.publicIp }}', label: 原来的弹性 IP }
+    explain: 演练脚本在结束时把原 EIP 关联回实验机；没有恢复时，基础栈记录的 EIP 关联与实际不一致，平台从外部发起的检查也会失败。
+    reproduce: { run: 'aws ec2 describe-addresses --filters Name=instance-id,Values={{ target.instanceId }} --query "Addresses[].PublicIp"', runsOn: workstation }
+    pitfalls: [drill-not-restored]
+    manualFallback:
+      where: { breadcrumb: [EC2, 弹性 IP], region: app }
+      observed:
+        question: 关联到实验机（{{ target.instanceId }}）的弹性 IP 是哪一个？
+        options:
+          - { value: ok, label: '{{ target.publicIp }}', expected: true }
+          - { value: other, label: 另一个地址, fixHint: '执行 bash experiments/dns/faults/reassociate-eip.sh restore --env {{ session.env }}' }
+
+  - id: temp-eip-released
+    title: 演练用的临时弹性 IP 已释放
+    type: aws-readonly
+    service: ec2
+    action: DescribeAddresses
+    region: app
+    params:
+      Filters:
+        - { Name: 'tag:Purpose', Values: [dns-ip-change-drill] }
+        - { Name: 'tag:Env', Values: ['{{ session.env }}'] }
+    drift: { policy: once }
+    assert:
+      - { path: $.Addresses, op: len_eq, value: 0, label: 未释放的临时 EIP }
+    explain: 未关联的弹性 IP 也按小时计费；演练脚本在结束时释放它。
+    reproduce: { run: 'aws ec2 describe-addresses --filters Name=tag:Purpose,Values=dns-ip-change-drill --query "Addresses[].[PublicIp,AllocationId]"', runsOn: workstation }
+    pitfalls: [drill-not-restored]
+    manualFallback:
+      where: { breadcrumb: [EC2, 弹性 IP], region: app }
+      observed:
+        question: 列表中还有标签 Purpose=dns-ip-change-drill 的地址吗？
+        options:
+          - { value: none, label: 没有, expected: true }
+          - { value: some, label: 有, fixHint: 选中它，先“取消关联”，再“释放弹性 IP 地址” }
+
+pitfalls:
+  - { id: drill-not-restored, title: 演练没有恢复, match: [ { checkId: eip-restored, result: fail }, { checkId: temp-eip-released, result: fail } ],
+      cause: 演练中途被中断（Ctrl+C、会话断开），restore 没有执行, fix: '执行 bash experiments/dns/faults/reassociate-eip.sh restore --env {{ session.env }}' }

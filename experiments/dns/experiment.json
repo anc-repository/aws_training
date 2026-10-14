@@ -1,0 +1,86 @@
+{
+  "$schema": "../_lib/schema/experiment.schema.json",
+  "module": "dns",
+  "title": "dns：有 / 无 Route 53（docs/modules/01-edge-network-scaling.md#dns 第 5 节）",
+  "default": "ip-change-drill",
+  "experiments": [
+    {
+      "module": "dns",
+      "id": "ip-change-drill",
+      "title": "换 IP 演练：实例换了 IP 之后，旧 IP 链接与域名链接各自怎样",
+      "kind": "before-after",
+      "doc": "docs/modules/01-edge-network-scaling.md#dns",
+      "description": "第 0 秒在运行器所在机器（CloudShell / 工作台，部署者身份）执行 faults/reassociate-eip.sh swap：分配临时 EIP 并关联到实例；after 另把 Route 53 记录 UPSERT 到新 IP。每 intervalSec 秒探测旧 IP 链接、向公共解析器查询记录、访问域名链接；结束时 restore 关联回原 EIP、改回记录并释放临时 EIP。服务端证据：经域名请求 /api/lab/echo 时服务端看到的 Host 与 dns 感知器的解析结果。cdn 以 EC2 公网 DNS 名为源站时演练会让回源失败：先把源站改为 origin.<域名> 或暂时禁用 cdn。",
+      "requires": {
+        "before": { "dns.driver": ["none", "external"] },
+        "after": { "dns.driver": "route53", "dns.status": ["ok", "degraded"] }
+      },
+      "labels": {
+        "before": { "title": "没有 Route 53：IP / EC2 主机名（或外部 A 记录）", "role": "baseline" },
+        "after": { "title": "有 Route 53：演练时 UPSERT 记录", "role": "treatment" }
+      },
+      "scenario": { "tool": "node", "script": "ip-change-drill.ts", "vus": 1, "duration": "300s" },
+      "params": {
+        "intervalSec": { "type": "number", "default": 5, "min": 1, "max": 60, "description": "探测间隔（秒）" },
+        "domain": { "type": "string", "default": "", "description": "域名（缺省取 capabilities 的 dns.data.recordName）" },
+        "ip": { "type": "string", "default": "", "description": "演练前的 EIP（缺省取 capabilities 的 ec2.data.publicIpv4）" },
+        "resolver": { "type": "string", "default": "8.8.8.8", "description": "公共解析器（逗号分隔）" },
+        "env": { "type": "string", "default": "lab", "description": "CloudAlbum 环境名（栈 cloudalbum-<env>-ec2 / -dns）" }
+      },
+      "faults": [
+        { "at": "start", "script": "faults/reassociate-eip.sh", "args": ["swap", "--env", "{env}"], "onlyFor": ["before"], "via": "local", "description": "关联临时 EIP（模拟实例被替换）" },
+        { "at": "start", "script": "faults/reassociate-eip.sh", "args": ["swap", "--upsert", "--env", "{env}"], "onlyFor": ["after"], "via": "local", "description": "关联临时 EIP，并把 Route 53 记录 UPSERT 到新 IP" },
+        { "at": "end", "script": "faults/reassociate-eip.sh", "args": ["restore", "--env", "{env}"], "via": "local", "description": "关联回原 EIP、改回记录、释放临时 EIP（必须执行）" }
+      ],
+      "metrics": ["scenario.oldLinkFailures", "scenario.domainFailures", "scenario.resolverSwitchSec", "scenario.domainRecoverySec"],
+      "expect": [
+        { "metric": "scenario.domainFailures", "direction": "down", "note": "基线下链接绑定 IP，IP 一变就一直失败；有 Route 53 时域名链接在 TTL 量级的时间内恢复" }
+      ]
+    },
+    {
+      "module": "dns",
+      "id": "failover-drill",
+      "title": "故障转移演练：停掉 Nginx 后，客户端多久拿到备用记录（维护页）",
+      "kind": "fault",
+      "doc": "docs/modules/01-edge-network-scaling.md#dns",
+      "description": "需要 DNS_ROUTING_POLICY=failover（scripts/module enable dns --param RoutingPolicy=failover，自动开启健康检查）。第 10 秒经投递通道在实例上执行 faults/stop-nginx.sh，结束时 faults/start-nginx.sh。记录三个时刻：健康检查变为不健康（需要 AWS CLI 与凭证，us-east-1）、客户端拿到备用记录、访问成功（S3 维护页）。",
+      "requires": {
+        "after": { "dns.driver": "route53", "dns.status": ["ok", "degraded"] }
+      },
+      "scenario": { "tool": "node", "script": "failover-drill.ts", "vus": 1, "duration": "600s" },
+      "params": {
+        "intervalSec": { "type": "number", "default": 5, "min": 1, "max": 60 },
+        "domain": { "type": "string", "default": "" },
+        "ip": { "type": "string", "default": "" },
+        "resolver": { "type": "string", "default": "8.8.8.8" },
+        "healthCheckId": { "type": "string", "default": "", "description": "缺省取 capabilities 的 dns.data.healthCheckId" }
+      },
+      "faults": [
+        { "at": "10s", "script": "faults/stop-nginx.sh", "description": "停止实例上的 Nginx（origin.<域名> 的健康检查开始失败）" },
+        { "at": "end", "script": "faults/start-nginx.sh", "description": "恢复 Nginx" }
+      ],
+      "metrics": ["scenario.failoverSec"],
+      "expect": [
+        { "metric": "scenario.failoverSec", "direction": "nonzero", "note": "约等于 检查间隔 × 失败阈值 + TTL + 解析器与客户端缓存：数十秒到数分钟，不是瞬间" }
+      ]
+    },
+    {
+      "module": "dns",
+      "id": "weighted-sample",
+      "title": "加权路由：向权威名称服务器查询 200 次，统计两个目标的实际比例",
+      "kind": "functional",
+      "doc": "docs/modules/01-edge-network-scaling.md#dns",
+      "description": "需要 DNS_ROUTING_POLICY=weighted（--param RoutingPolicy=weighted，第二个目标是 ALB / CloudFront 的 Alias 或 --param WeightedSecondaryIp=）。权威名称服务器的比例接近 90/10；公共解析器因为缓存会偏离。",
+      "requires": {
+        "after": { "dns.driver": "route53" }
+      },
+      "scenario": { "tool": "node", "script": "weighted-sample.ts", "vus": 1, "duration": "120s" },
+      "params": {
+        "queries": { "type": "number", "default": 200, "min": 10, "max": 2000 },
+        "domain": { "type": "string", "default": "" },
+        "nameserver": { "type": "string", "default": "", "description": "权威名称服务器的 IP（缺省按 NS 记录查找）" }
+      },
+      "metrics": ["scenario.queries"]
+    }
+  ]
+}

@@ -1,0 +1,34 @@
+# 域名准备：A 记录（人工前置）与回退分支的外部 DNS 本地档
+checks:
+  - id: domain-a-record
+    title: 你的域名已有 A 记录指向实验机
+    type: manual
+    spec:
+      confirm: 我已在自己的 DNS 中为 {{ learner.inputs.domain }} 添加 A 记录 → {{ target.publicIp }}（回退分支在第 4 步改为 CNAME 到分配）
+      input:
+        label: dig +short {{ learner.inputs.domain }} @8.8.8.8 的输出
+        pattern: '^[0-9.\s]{7,200}$'
+    explain: ACM 不能为 IP 或 amazonaws.com 名称签发证书，浏览器也要靠这条记录找到实验机；域名是你的前置输入（04 §3.2.3 规则 6）。
+
+  - id: dns-external-env
+    title: 回退分支：dns 本地档写的是外部 DNS
+    type: local
+    on: lab
+    checkId: env-key
+    args: { module: dns, key: DNS_PROVIDER }
+    when: "session.variant == 'acme-off'"
+    drift: { policy: must-hold }
+    assert:
+      - { path: $.value, op: eq, value: external, label: DNS_PROVIDER }
+    explain: DEP-005 ③：TLS_ACME=off 时 tls 需要 dns 或外部 DNS；缺少它第 4 步重启时会以退出码 78 拒绝启动。
+    reproduce: { run: 'sudo grep -E "^(DNS_PROVIDER|APP_BASE_URL)=" /etc/cloudalbum/modules.d/dns.env', runsOn: lab }
+
+  - id: cap-dns-external
+    title: 回退分支：capabilities 中 dns 为本地档 external
+    type: capability
+    module: dns
+    when: "session.variant == 'acme-off'"
+    drift: { policy: must-hold }
+    assert:
+      - { path: $.driver, op: eq, value: external, label: 驱动 }
+    explain: 外部 DNS 是本地档：不部署 AWS 资源，不写 MODULE_DNS=on；APP_BASE_URL 改为你的域名。
