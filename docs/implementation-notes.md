@@ -2983,3 +2983,55 @@ svc-notification / svc-email。全程没有调用真实 AWS API、没有部署�
 | `cfn-lint infra/modules/monitoring.yaml infra/modules/cost.yaml`（1.57.2） | 0 个发现 |
 | `scripts/module enable monitoring --with-deps --dry-run`、`enable cost --dry-run`、`disable … --dry-run`、`plan <id> --single --dry-run`、`plan --start-of svc-monitoring`/`svc-cost` | 全部退出码 0（monitoring 不带 `--with-deps` 时按设计以 CRED-001 退出码 2 拒绝） |
 | `npm run labs:lint` / `labs:derive` | 全仓库只剩 `_catalog` 的 C-2；svc-cost 通过，svc-monitoring 只有 DRV-10 摘要差异警告（第 4 节） |
+
+## wave1-waf
+
+第 1 波 waf（AWS WAF）模块：BlocklistPort 的 `aws` 驱动、感知器、CLOUDFRONT 范围的 Web ACL 模板、scripts/module hook、对比实验与卡片 svc-waf。
+全程没有调用真实 AWS、没有部署（aws-sdk-client-mock、内存 IP 集合替身、`--dry-run`、cfn-lint 1.57.2）。
+
+### 1. 实现的内容
+
+| 范围 | 文件 | 内容 |
+|---|---|---|
+| 感知器 | `backend/src/modules/detectors/waf.ts` | 被动：经 CloudFront/ALB 入口的请求中 entry 含 `waf>` 的比例（只信任回环地址传来的 `X-CloudAlbum-Entry`），`viaEdge≥20` 且被检查数为 0 → degraded（未关联）。主动（有凭证，缓存 55 秒）：`wafv2:GetWebACL`（托管规则组动作 vs `WAF_RULE_ACTION`）、关联（CLOUDFRONT：`cloudfront:ListDistributionsByWebACLId`；REGIONAL：`wafv2:ListResourcesForWebACL`）；深度：`GetIPSet`（与 denylist 一致）+ CloudWatch 按规则计数。NotFound/未关联/AccessDenied → error；瞬时失败经 `withAwsRetry`（单次 900ms×2）→ degraded+transient。DEP-018 不在探针里判定（它是带规则 ID 的 warn 级运行期规则）。 |
+| 适配器 | `backend/src/adapters/waf/{aws,ipset}.ts` | `AwsBlocklist`：add/remove 先写本地 denylist（nginx 驱动），再把“未过期的 IPv4 条目”整体同步到 IP 集合（`GetIPSet` 取 LockToken → `UpdateIPSet`，乐观锁重试；CLOUDFRONT 范围在 us-east-1）。非权威端口：同步失败只 degraded、本地照常生效，状态写 `security/waf-sync.json`。worker `init()` 启动每分钟同步循环（经 LockPort 只在一台上执行）。IPv6 条目只在本地 Nginx 生效。`probe()` 合并感知器 detect + nginx 驱动的 denylist 状态 + 同步状态。`ipset.ts` 是纯函数（CIDR 对齐、diff、Web ACL ARN 解析、区域推断）。 |
+| 管理 / lab 路由 | `backend/src/adapters/waf/lab-routes.ts` | `GET/POST/DELETE /api/admin/security/blocklist`（封禁，aws 驱动返回“正在传播”）、`POST /api/lab/waf/sync`、`GET /api/lab/waf/origin?run=&nonce=`（源站 Nginx 日志按 runId / nonce 计数——被 WAF 在边缘拦截的请求不进源站日志，这是服务端证据）。`register()` 顺带把登记表里的 waf 感知器 `attachDetector` 到 aws 驱动。 |
+| 模板 | `infra/modules/waf.yaml`、`infra/modules/waf/host-setup.sh` | 一份模板两个 registry 栈（edge/us-east-1/CLOUDFRONT，regional/REGIONAL）：allow-lab(0)/block-ip-set(1)/rate-login(2,缩小到 POST /api/auth/)/rate-global(3) + 四个 AWS 托管规则组（`OverrideAction` 随 `RuleAction` 在 Count/None 间切；CRS 的 `SizeRestrictions_BODY` 恒为 Count）；默认动作插入 `cloudalbum: inspected`；两个 IP 集合（`cloudalbum-blocklist`、`cloudalbum-lab-allow`）；LoggingConfiguration 屏蔽 authorization/cookie、只留 BLOCK/COUNT；日志组 DeletionPolicy Retain，`CreateLogGroup=false` 时接管；`AppPolicy` 名含 `-${StackRole}` 两栈并存。host-setup 只渲染 `WAF_LAB_ALLOW_CIDR` 的 Nginx `.inc`。cfn-lint 0 发现。 |
+| scripts/module hook | `scripts/module-cli/src/module-hooks/waf.ts` | 参数校验与沿用上次部署值（RuleAction/RateLimit/LoginRateLimit/RateWindowSec/LabAllowCidr，拒绝未替换的 `${atl:}` 占位符）；`stacks()` 按 cdn/load-balancer 选 edge/regional（两者都在时默认只 edge，`--param AlsoRegional=true` 加 regional 且 REGIONAL 用 FORWARDED_IP）；`prepare()` 用 `logs:DescribeLogGroups` 决定是否接管日志组；`afterDeploy()` 读 denylist.conf 首次全量导入 IP 集合（乐观锁重试，失败只告警）；plan 打印 DEP-018 提示（含锁定命令）；disable 提示先解除关联、日志组保留。 |
+| 实验 | `experiments/waf/`（flood、payloads、false-positive、bypass + lib） | 短轮次（rate 封顶 50、duration 封顶 120 且不超过运行器窗口）。攻击流量匿名、只带 `?atlprobe=<nonce>`；服务端证据用 `/api/lab/waf/origin` 的 nonce 计数，不看客户端响应头。刻意不提供绕过 WAF 的旁路头。 |
+| 卡片 | `labs/svc-waf/**` | lab.yaml v2（status planned → beta，1.0.0）、12 步手册、检查（capability / http-header / aws-readonly / experiment / local / manual）、4 题小测、徽章。labs:lint 0 错误 0 警告，labs:derive 0 错误（digest 复现）。 |
+| 测试 | `backend/test/adapters/aws/waf-aws.test.ts`、`backend/test/modules/detector-waf.test.ts`、`backend/test/contract/blocklist.contract.ts`、`scripts/module-cli/test/module-hooks-waf.test.ts`、`experiments/test/waf.test.ts` | 端口契约（nginx 与 aws）+ 驱动细节 + 感知器 + hook + 实验端到端（对 mock 服务器）。 |
+
+### 2. 设计有歧义时的取舍
+
+1. **BlocklistPort 的返回值**：端口契约里 `add/remove` 声明为 `Promise<void>`（总纲 §4.2 照录，不改共享 ports 文件）。aws 驱动另外提供 `block()/unblock()` 返回 `{ effective, synced, detail }`，管理路由据此显示“正在传播到 AWS WAF / reload 后生效”。
+2. **被动比例的归属**：能力注册表对 waf 调用的是适配器 `probe()`；适配器内部自带一个 `WafDetector` 实例，但请求的 `observe()` 发给的是登记表里的那个实例。所以 `lab-routes.register()` 把登记表实例 `attachDetector` 给适配器，api 进程的探针才有被动比例。集成阶段需要把 waf 的 lab-routes 加入 `http/app.ts` 的 `ROUTE_MODULES`（见第 3 节），否则被动比例不可用（控制面的“未关联”判定仍有效，不影响正确性）。
+3. **托管规则组 Block 的证据**：托管规则组 Block 返回 CloudFront 的 403，不带 `X-CloudAlbum-Path`——无法用客户端响应头把它和 Nginx 正则的 403 区分开（R-16）。卡片的 block 检查用服务端证据（源站 Nginx 日志里该 nonce 计数为 0），路径头只作 warn；检查里不再放 `via: self` 的断言（04 的 corroborate 只支持 local/aws-readonly/builtin）。
+4. **锁定源站的命令**：cdn 的 hook 读 `--set CDN_DIRECT_ACCESS` / `--set CDN_ADMIN_CIDR`（ownsEnv 键），不是卡片文档写的 `--param DirectAccess`；卡片按代码写成 `scripts/module enable cdn --set …`。
+5. **切到 Block**：§9.2 没有 `set` 子命令（附录 B-27），实现为以新参数重新 `enable`：`scripts/module enable waf --param RuleAction=block`。
+6. **起始状态**：`plan --start-of svc-waf` 把 cdn 作为 DEP-006 的闭包以默认值启用（`CDN_DIRECT_ACCESS` 默认就是 open），所以卡片的 cdn provision 不写 `set`、不写 `branches`（否则 DRV-1/DRV-8 与 plan 不一致）；“open 让学员看到可绕过”写进 reason。
+7. **IP 集合与 pricing**：`labs/_pricing/dimensions.yaml` 只有 `waf.web-acl`、`waf.requests`、`logs.ingestion`，没有单独的 `waf.rule`；卡片用这三个键，规则费用并进 web-acl 的 note。
+8. **REGIONAL 的速率键**：ALB 在 CloudFront 后面时看到的是 CloudFront 地址，regional 栈的速率规则与 IP 集合用 `FORWARDED_IP`（读 X-Forwarded-For）。
+
+### 3. 需要别人配合的事项（共享文件，集成阶段处理）
+
+- **`backend/src/http/app.ts`**：把 waf 的 lab-routes `register` 加入 `ROUTE_MODULES`（先于 `routes/lab.ts`），端点 `/api/admin/security/blocklist`、`/api/lab/waf/sync`、`/api/lab/waf/origin` 才生效；它同时把登记表的 waf 感知器接到 aws 驱动（见第 2 节第 2 条）。在登记之前，卡片的 `block-not-at-origin` 与选做 `blocklist-synced` 检查会拿不到数据。
+- **`backend/src/worker.ts`**：worker 里启动 waf 的 IP 集合同步循环——`if (c.blocklist.meta.driver === 'aws') (c.blocklist as AwsBlocklist).startSyncLoop()`（或在 `AwsBlocklist.init()` 里已按 role=worker 自启，只需确认 worker 容器给 blocklist 注入了 `lock`）。
+- **`labs/_catalog/catalog.yaml`**：svc-waf 由 planned 变为完整卡片后要 `npm run labs:catalog` 重新生成（C-2/C-4）；这是全仓库共享文件，和其他 wave1 卡片一起在集成阶段统一重算。
+- **`scripts/module-cli/test/helpers.ts` 的 `ALLOW_PENDING_WAVE1_TEMPLATES`**：waf.yaml 已就位；全部 wave1 模板到位后由集成阶段改为 false。
+- **`scripts/labs/test/{lint,derive,build}.test.ts`**：仍假设“10 张完整卡片、46 张占位”，加入 svc-waf（及其他 wave1 卡片）后这些数量断言需要更新（与 wave1-sns-ses 第 6 节同一处）。
+
+### 4. 自测（2026-10-14，Windows 11 / Node 22.14.0）
+
+| 命令 | 结果 |
+|---|---|
+| `tsc --noEmit`（backend / module-cli / experiments）；本模块文件的 `eslint` | 通过；0 个问题 |
+| `npx vitest run`（backend：waf-aws、detector-waf、blocklist 契约） | waf-aws 20、detector-waf 12 个测试通过（含 nginx + aws 两个契约） |
+| `npx vitest run`（capabilities、rules、integration-drivers 回归） | 146 个测试通过 |
+| `npx vitest run`（module-cli：module-hooks-waf、templates、templates-platform） | module-hooks-waf 14、templates/templates-platform 93 个测试通过 |
+| `npx vitest run test/waf.test.ts`（experiments） | 7 个测试通过（清单 + lib + 4 个场景对 mock 服务器） |
+| `cfn-lint infra/modules/waf.yaml`（1.57.2，--regions us-east-1 ap-northeast-1） | 0 个发现 |
+| `scripts/module enable waf --with-deps --dry-run`、`disable waf --dry-run`、`plan waf --single --dry-run`、`plan --start-of svc-waf` | 全部退出码 0（enable 先建 cdn 再 waf-edge[us-east-1]、注入 WebAclArn、首次导入 denylist；disable 先解除关联再删栈、保留日志组） |
+| `npm run build` | 通过（gen:registry up to date） |
+| `npm run labs:lint` / `labs:derive --card svc-waf` | svc-waf 0 错误 0 警告 / derive 0 错误（digest 复现）。全仓库剩余问题来自 `_catalog` 与其他 wave1 进行中卡片 |
+| `npm run smoke:l0` / `smoke:selfhost` | 85 通过 0 失败 / 31 通过 0 失败 |

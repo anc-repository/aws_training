@@ -1,0 +1,17 @@
+# 选做：封禁 IP 同步到 IP 集合（管理端点证据；wafv2:GetIPSet 不在 aws-readonly 白名单，所以用本地 / 管理端点）
+checks:
+  - id: blocklist-synced
+    title: （选做）管理后台封禁的 IP 已同步到 us-east-1 的 IP 集合
+    type: local
+    on: lab
+    checkId: http-probe
+    required: false
+    args:
+      target: self
+      path: /api/admin/security/blocklist
+      method: GET
+    drift: { policy: once }
+    assert:
+      - { path: '$.responses[0].json.driver', op: eq, value: aws, label: BlocklistPort 驱动为 aws }
+      - { path: '$.responses[0].json.lastSync.ok', op: eq, value: true, label: 最近一次同步成功 }
+    explain: 管理端点返回 BlocklistPort 的驱动与最近一次 IP 集合同步状态；封禁按钮先写本地 denylist，再同步到 cloudalbum-blocklist（起始状态带 iam，同步可用）。本地探测经回环地址，只验证应用逻辑。

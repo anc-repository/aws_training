@@ -1,0 +1,145 @@
+# 接入与关联：capability、经分配的入口链带 WAF、Web ACL 的归属与托管规则组动作、源站锁定、Block 在边缘的服务端证据
+checks:
+  - id: cap-waf-wired
+    title: capabilities 中 waf 的驱动为 aws（此刻因 DEP-018 为 degraded，属卡片级预期警告）
+    type: capability
+    module: waf
+    drift: { policy: once }
+    assert:
+      - { path: $.driver, op: eq, value: aws, label: 驱动 }
+      - { path: $, op: healthy, label: 状态正常（本卡 expectedWarnings 含 DEP-018；源站尚未锁定，degraded 属预期） }
+    explain: 第 3 步刚启用、源站仍为 open 时，感知器与规则引擎会因 DEP-018 把 waf 标为 degraded（带规则 ID），这在本卡属于预期警告；第 4 步锁定后必须变为 ok。
+    reproduce: { run: 'curl -s http://127.0.0.1/api/capabilities | jq ".modules.waf | {driver, status, detail}"', runsOn: lab }
+
+  - id: entry-waf
+    title: 经本会话分配请求 /api/health/live，入口链含 waf（源站收到 x-amzn-waf-cloudalbum）
+    type: http-header
+    from: platform
+    target: cdn
+    path: /api/health/live
+    method: GET
+    dependsOn: [webacl-count]
+    drift: { policy: must-hold }
+    assert:
+      - { path: $.status, op: eq, value: 200, label: 状态码 }
+      - { path: $.pathSegments.entry, op: startsWith, value: cloudfront, label: 入口以 cloudfront 开头 }
+      - { path: $.pathSegments.entry, op: contains, value: waf, label: 入口链含 waf }
+    explain: Web ACL 默认动作给放行的请求插入 x-amzn-waf-cloudalbum，Nginx 据此在入口链里写上 waf（cloudfront>waf>nginx）。
+    reproduce: { run: 'curl -sI "https://{{ var.cdnDomain }}/api/health/live" | grep -i "^x-cloudalbum-path:"', runsOn: workstation }
+
+  - id: webacl-count
+    title: 本会话的 Web ACL 已创建（us-east-1），托管规则组为 Count
+    type: aws-readonly
+    service: wafv2
+    action: GetWebACL
+    region: us-east-1
+    params: { Name: '{{ var.webAclName }}', Scope: CLOUDFRONT, Id: '{{ var.webAclId }}' }
+    ownership:
+      resource: '{{ var.webAclArn }}'
+      resourceId: '{{ var.webAclId }}'
+      createEvents: [CreateWebACL]
+      mode: session
+      createdAfter: session.readyAt
+      maxWaitMinutes: 20
+    wait: { typicalMinutes: 6, maxMinutes: 20 }
+    drift: { policy: once }
+    assert:
+      - { path: $.WebACL.Name, op: eq, value: '{{ var.webAclName }}', label: 名称 }
+      - path: $.WebACL.Rules
+        where: { Name: aws-crs }
+        op: len_eq
+        value: 1
+        label: 含 AWS 托管 CRS 规则
+      - path: '$.WebACL.Rules[?(@.Name==''aws-crs'')].OverrideAction.Count'
+        op: exists
+        label: CRS 的 OverrideAction 为 Count（先观察）
+    evidence:
+      keep: ['$.WebACL.Id', '$.WebACL.Name', '$.WebACL.ARN']
+    explain: 先确认 Web ACL 是本会话创建的（本环境的 waf 栈），再核对托管规则组此刻是 Count（第 6 步改为 Block）。
+    reproduce: { run: 'aws wafv2 get-web-acl --region us-east-1 --scope CLOUDFRONT --name {{ var.webAclName }} --id {{ var.webAclId }} --query "WebACL.Rules[?Name==''aws-crs''].OverrideAction"', runsOn: workstation }
+    pitfalls: [acl-not-mine, acl-wrong-region]
+    manualFallback:
+      where: { breadcrumb: [WAF, Web ACLs, 'Global (CloudFront)', '{{ var.webAclName }}', Rules], region: us-east-1 }
+      observed:
+        question: AWSManagedRulesCommonRuleSet 这条规则的 Action 显示为？
+        options:
+          - { value: count, label: Count（仅计数）, expected: true }
+          - { value: block, label: 使用规则组自带动作（Block）, fixHint: 第 3 步应先用 Count 观察；若已是 Block 说明你跳到了第 6 步 }
+
+  - id: cap-waf-locked
+    title: 锁定源站后 waf 为 ok（DEP-018 消失）
+    type: capability
+    module: waf
+    expectedWarnings: []
+    drift: { policy: must-hold, monitor: true }
+    assert:
+      - { path: $.driver, op: eq, value: aws, label: 驱动 }
+      - { path: $, op: healthy, label: 状态正常（检查级 expectedWarnings 为空，必须是 ok） }
+    explain: CDN_DIRECT_ACCESS 收紧为 admin-ip 后，攻击者无法直连源站绕过 WAF，DEP-018 消失，waf 必须是 ok。
+    reproduce: { run: 'curl -s http://127.0.0.1/api/capabilities | jq ".modules.waf.status"', runsOn: lab }
+
+  - id: webacl-block
+    title: 切换为 Block 后，托管规则组的 OverrideAction 为 None（规则组自带动作生效）
+    type: aws-readonly
+    service: wafv2
+    action: GetWebACL
+    region: us-east-1
+    params: { Name: '{{ var.webAclName }}', Scope: CLOUDFRONT, Id: '{{ var.webAclId }}' }
+    ownership: { resource: '{{ var.webAclArn }}', resourceId: '{{ var.webAclId }}', mode: session, createdAfter: session.readyAt }
+    drift: { policy: must-hold }
+    assert:
+      - path: '$.WebACL.Rules[?(@.Name==''aws-crs'')].OverrideAction.None'
+        op: exists
+        label: CRS 的 OverrideAction 为 None（Block 生效）
+    explain: OverrideAction=None 表示托管规则组用自己的动作（Block）；Count 时只计数。
+    reproduce: { run: 'aws wafv2 get-web-acl --region us-east-1 --scope CLOUDFRONT --name {{ var.webAclName }} --id {{ var.webAclId }} --query "WebACL.Rules[?Name==''aws-crs''].OverrideAction"', runsOn: workstation }
+    manualFallback:
+      where: { breadcrumb: [WAF, Web ACLs, 'Global (CloudFront)', '{{ var.webAclName }}', Rules, AWSManagedRulesCommonRuleSet], region: us-east-1 }
+      observed:
+        question: AWSManagedRulesCommonRuleSet 这条规则的 Action 现在显示为？
+        options:
+          - { value: block, label: 使用规则组自带动作（Block）, expected: true }
+          - { value: count, label: Count（仅计数）, fixHint: 重新执行 scripts/module enable waf --param RuleAction=block }
+
+  - id: block-not-at-origin
+    title: 被 Block 的请求根本没有到达源站（服务端证据，而非只看响应头）
+    type: http-header
+    from: platform
+    target: cdn
+    path: "/api/public/now?q=1'%20UnIoN%20SeLeCt%201&atlprobe={{ sample.nonce }}"
+    method: GET
+    dependsOn: [webacl-block]
+    drift: { policy: must-hold }
+    assert:
+      - { path: $.status, op: eq, value: 403, label: 被 WAF 拦截（CloudFront 的 403） }
+    corroborate:
+      - id: origin-clean
+        via: local
+        checkId: nginx-log-summary
+        args: { window: 10m, nonce: '{{ sample.nonce }}' }
+        assert:
+          - { path: $.nonce.count, op: eq, value: 0, label: 源站收到带本次 nonce 的请求数为 0 }
+    explain: 托管规则组 Block 时返回 CloudFront 的 403 页，不带 X-CloudAlbum-Path——无法用客户端响应头把它和 Nginx 正则的 403 区分开。真正的证据是源站 Nginx 日志里这条 nonce 的计数为 0：请求在边缘就被拦下，没有到达 EC2。
+    reproduce: { run: 'curl -s -o /dev/null -w "%{http_code}\n" "https://{{ var.cdnDomain }}/api/public/now?q=1%27%20UnIoN%20SeLeCt%201"', runsOn: workstation }
+    pitfalls: [block-reached-origin]
+
+  - id: false-positive-rule
+    title: 找出会误杀上传的规则以及本模块的处理方式
+    type: manual
+    spec:
+      where: { breadcrumb: [WAF, Web ACLs, 'Global (CloudFront)', '{{ var.webAclName }}', Rules, AWSManagedRulesCommonRuleSet], region: us-east-1 }
+      observed:
+        question: 哪条规则会拦掉大请求体（照片上传），本模块对它做了什么？
+        options:
+          - { value: size-count, label: SizeRestrictions_BODY —— 本模块用 RuleActionOverrides 把它改为 Count, expected: true }
+          - { value: sqli, label: SQLi 规则 —— 改为 Count, fixHint: 误杀大请求体的是 CRS 的 SizeRestrictions_BODY（8 KB），不是 SQLi }
+          - { value: none, label: 没有规则会误杀上传, fixHint: 不覆盖时 storage=local 的上传会被 SizeRestrictions_BODY 拦掉 }
+    explain: 原生手动确认（04 §5.2.6）：模板把 SizeRestrictions_BODY 覆盖为 Count，否则经 CloudFront 的照片上传会被 8 KB 请求体限制拦掉。
+
+pitfalls:
+  - { id: acl-not-mine, title: Web ACL 不属于本会话, match: [ { checkId: webacl-count, errorCode: OWNERSHIP_MISMATCH } ],
+      cause: 检测到的 Web ACL 不是本次实验创建的, fix: 在本次实验中重新执行 scripts/module enable waf }
+  - { id: acl-wrong-region, title: 在错误的区域找 Web ACL, match: [ { checkId: webacl-count, result: fail } ],
+      cause: CLOUDFRONT 范围的 Web ACL 只在 us-east-1 可见, fix: aws CLI 与控制台都切到 us-east-1 }
+  - { id: block-reached-origin, title: 请求到达了源站, match: [ { checkId: block-not-at-origin, assertionLabel: 源站收到带本次 nonce 的请求数为 0 } ],
+      cause: 该载荷没有被任何规则拦截（回源到了 8080），或 WAF 未关联, fix: 确认 webacl-block 通过、分配已重新部署；必要时换一条 payloads 中稳定命中的载荷 }

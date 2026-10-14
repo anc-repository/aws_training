@@ -1,0 +1,19 @@
+# 起始状态（before）断言：一律 drift once（C3、04 §3.5 第 9 条）
+checks:
+  - id: waf-nginx-baseline
+    title: 起始状态：WAF 是 EC2 上的 Nginx（WAF_MODE=nginx）
+    type: capability
+    module: waf
+    drift: { policy: once }
+    assert:
+      - { path: $.driver, op: eq, value: nginx, label: 驱动 }
+    explain: 启用 AWS WAF 之前，限速与特征拦截都由实例上的 Nginx 完成，每个恶意请求都已经到达 EC2。
+
+  - id: cdn-open-baseline
+    title: 起始状态：cdn 已启用但直连未锁定（CDN_DIRECT_ACCESS=open）
+    type: capability
+    module: cdn
+    drift: { policy: once }
+    assert:
+      - { path: $.driver, op: eq, value: cloudfront, label: cdn 驱动 }
+    explain: 起始状态把 cdn 的直连入口开着，这样你能在第 2、3 步亲眼看到“可以绕过 WAF”，第 4 步再收紧。

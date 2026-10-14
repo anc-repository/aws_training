@@ -1,0 +1,110 @@
+{
+  "$schema": "../_lib/schema/experiment.schema.json",
+  "module": "waf",
+  "title": "waf：Nginx limit_req vs AWS WAF（docs/modules/01-edge-network-scaling.md#waf 第 5 节）",
+  "default": "flood",
+  "experiments": [
+    {
+      "module": "waf",
+      "id": "flood",
+      "title": "限速：从单个来源以略高于阈值的速率请求，比较拦截位置与源站负载",
+      "kind": "runtime-ab",
+      "doc": "docs/modules/01-edge-network-scaling.md#waf",
+      "description": "短轮次（PM-M05）：rate 略高于速率规则阈值，duration 以秒计，不做洪泛式压测。target=direct 打 EC2 的 Nginx（limit_req），target=edge 打 CloudFront（AWS WAF），both 同时打两条路径。逐秒记录状态码；服务端证据用 /api/lab/waf/origin 的 nonce 计数（被 AWS WAF 在边缘拦截的请求不进源站日志）。前提：cdn 或 load-balancer 已启用，CDN_DIRECT_ACCESS=admin-ip 且包含实验机 IP 使两条路径都可达，WAF_LAB_ALLOW_CIDR 为空。",
+      "requires": {
+        "before": { "waf.driver": "nginx" },
+        "after": { "waf.driver": "aws", "waf.status": ["ok", "degraded"] }
+      },
+      "labels": {
+        "before": { "title": "Nginx limit_req（实例上）", "role": "baseline" },
+        "after": { "title": "AWS WAF（CloudFront 边缘）", "role": "treatment" }
+      },
+      "scenario": { "tool": "node", "script": "flood.ts", "vus": 1, "duration": "40s" },
+      "params": {
+        "target": { "type": "string", "default": "both", "enum": ["both", "direct", "edge"], "description": "打哪条入口" },
+        "rate": { "type": "number", "default": 8, "min": 1, "max": 50, "description": "每条路径每秒请求数（略高于阈值即可，封顶 50）" },
+        "duration": { "type": "number", "default": 30, "min": 5, "max": 120, "description": "持续秒数（短轮次）" },
+        "method": { "type": "string", "default": "POST", "enum": ["POST", "GET"], "description": "POST /api/auth/login 触发 rate-login；GET 触发 rate-global" },
+        "path": { "type": "string", "default": "/api/auth/login", "description": "被打的路径" },
+        "direct": { "type": "string", "default": "", "description": "直连入口基址（缺省取 capabilities）" },
+        "edge": { "type": "string", "default": "", "description": "CloudFront 入口基址（缺省取 capabilities）" }
+      },
+      "metrics": ["scenario.direct.blockRatio", "scenario.edge.blockRatio", "scenario.edge.firstBlockMs", "scenario.origin.nonceCount"],
+      "expect": [
+        { "metric": "scenario.edge.firstBlockMs", "direction": "nonzero", "note": "AWS WAF 的速率规则按窗口聚合、有检测延迟，通常在数十秒后才开始拦截；Nginx 几乎立即" }
+      ]
+    },
+    {
+      "module": "waf",
+      "id": "payloads",
+      "title": "攻击载荷识别：SQL 注入及编码变体、目录穿越、XSS、Log4Shell 探针、扫描器 UA 的状态码对照",
+      "kind": "functional",
+      "doc": "docs/modules/01-edge-network-scaling.md#waf",
+      "description": "每条路径发送一组公开的 WAF 测试载荷，生成“直连 Nginx vs 经 AWS WAF”的状态码对照表：Nginx 的几条正则容易被二次编码 / 大小写 / 注释变体绕过，AWS 托管规则组识别更强。只针对自己账号里的资源，遵守 AWS 的渗透测试政策（手册注明）。",
+      "requires": {
+        "before": { "waf.driver": "nginx" },
+        "after": { "waf.driver": "aws", "waf.status": ["ok", "degraded"] }
+      },
+      "labels": {
+        "before": { "title": "Nginx 正则", "role": "baseline" },
+        "after": { "title": "AWS 托管规则组", "role": "treatment" }
+      },
+      "scenario": { "tool": "node", "script": "payloads.ts", "vus": 1, "duration": "30s" },
+      "params": {
+        "target": { "type": "string", "default": "both", "enum": ["both", "direct", "edge"] },
+        "direct": { "type": "string", "default": "" },
+        "edge": { "type": "string", "default": "" }
+      },
+      "metrics": ["scenario.direct.blocked", "scenario.edge.blocked"],
+      "expect": [
+        { "metric": "scenario.edge.blocked", "direction": "up-or-flat", "note": "AWS 托管规则组拦住的载荷不少于 Nginx 正则，尤其是编码变体" }
+      ]
+    },
+    {
+      "module": "waf",
+      "id": "false-positive",
+      "title": "误杀：大请求体与含 SQL 关键字的正常文本在 count / block 两种模式下的结果",
+      "kind": "functional",
+      "doc": "docs/modules/01-edge-network-scaling.md#waf",
+      "description": "以管理员身份经 CloudFront 入口发两个合法但“可疑”的请求：一个大请求体（CRS 的 SizeRestrictions_BODY 已覆盖为 Count，应放行）、一条含 SELECT 等 SQL 关键字的正常文本（block 模式下可能被 SQLi 规则误杀）。在 WAF_RULE_ACTION=count 与 block 下各跑一次对比（卡片第 5、6 步）。",
+      "requires": {
+        "after": { "waf.driver": "aws", "waf.status": ["ok", "degraded"] }
+      },
+      "labels": {
+        "after": { "title": "误杀观察", "role": "single" }
+      },
+      "scenario": { "tool": "node", "script": "false-positive.ts", "vus": 1, "duration": "20s" },
+      "params": {
+        "bodyKb": { "type": "number", "default": 20, "min": 9, "max": 64, "description": "大请求体大小（KB；> 8 KB 以触发 SizeRestrictions_BODY）" },
+        "direct": { "type": "string", "default": "" },
+        "edge": { "type": "string", "default": "" }
+      },
+      "metrics": ["scenario.largeBody.blocked", "scenario.sqlKeywordText.blocked"]
+    },
+    {
+      "module": "waf",
+      "id": "bypass",
+      "title": "源站锁定：直接请求 EC2 的 80 / 8080，验证能否绕过 CloudFront 上的 WAF",
+      "kind": "functional",
+      "doc": "docs/modules/01-edge-network-scaling.md#waf",
+      "description": "不发攻击载荷，各发一个探测请求：80（直连）、8080 不带密钥头、8080 带错误密钥头。源站未锁定时 80 可直达（可绕过 WAF，DEP-018）；锁定后 80 被拒 / 超时、8080 因 X-Origin-Verify 不匹配返回 403。只请求自己账号里的实例。",
+      "requires": {
+        "before": { "waf.driver": "nginx" },
+        "after": { "waf.driver": "aws", "waf.status": ["ok", "degraded"] }
+      },
+      "labels": {
+        "before": { "title": "启用 WAF 前（源站未锁定）", "role": "baseline" },
+        "after": { "title": "锁定后", "role": "treatment" }
+      },
+      "scenario": { "tool": "node", "script": "bypass.ts", "vus": 1, "duration": "20s" },
+      "params": {
+        "host": { "type": "string", "default": "", "description": "源站公网主机（缺省取 capabilities 的直连地址）" },
+        "direct": { "type": "string", "default": "" }
+      },
+      "metrics": ["scenario.originLocked"],
+      "expect": [
+        { "metric": "scenario.originLocked", "direction": "nonzero", "note": "after（锁定后）originLocked 为 true；before 为 false" }
+      ]
+    }
+  ]
+}

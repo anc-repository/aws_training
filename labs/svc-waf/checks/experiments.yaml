@@ -1,0 +1,56 @@
+checks:
+  - id: exp-flood-before
+    title: flood 的 before（Nginx limit_req）有一条有效结果
+    type: experiment
+    module: waf
+    experiment: flood
+    label: before
+    accept: [valid]
+
+  - id: exp-flood-pair
+    title: flood 的 before 与 after 都有效且可比
+    type: experiment
+    module: waf
+    experiment: flood
+    pair: [before, after]
+    accept: [valid]
+
+  - id: exp-payloads-before
+    title: payloads 的 before（Nginx 正则：编码变体有漏网）有一条有效结果
+    type: experiment
+    module: waf
+    experiment: payloads
+    label: before
+    accept: [valid]
+
+  - id: exp-payloads-pair
+    title: payloads 的 before 与 after 都有效且可比（AWS 托管规则组识别更强）
+    type: experiment
+    module: waf
+    experiment: payloads
+    pair: [before, after]
+    accept: [valid]
+
+  - id: exp-bypass-before
+    title: bypass 的 before（源站未锁定，直连可达）有一条有效结果
+    type: experiment
+    module: waf
+    experiment: bypass
+    label: before
+    accept: [valid]
+
+  - id: exp-bypass-pair
+    title: bypass 的 before 与 after 成对（锁定后直连不可达）
+    type: experiment
+    module: waf
+    experiment: bypass
+    pair: [before, after]
+    accept: [valid]
+
+  - id: exp-false-positive-after
+    title: false-positive（Count 下大请求体放行）有一条有效结果
+    type: experiment
+    module: waf
+    experiment: false-positive
+    label: after
+    accept: [valid]
