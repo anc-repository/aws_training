@@ -13,6 +13,7 @@
  * Ctrl+C 结束全部子进程；DynamoDB Local 容器保留（npm run platform:db:down 删除）。
  */
 import { spawn, spawnSync } from 'node:child_process';
+import fs from 'node:fs';
 import path from 'node:path';
 import process from 'node:process';
 import { fileURLToPath } from 'node:url';
@@ -111,6 +112,24 @@ function createTables() {
   if (r.status !== 0) throw new Error('create-tables failed');
 }
 
+/**
+ * ATL_DEV_RUNNER_MODE=local-l0 runs the real health gate (atl-checks engine) against the local CloudAlbum, which needs the
+ * built check bundle and ATL_DEV_CHECK_RUNNER (smoke:platform and e2e:platform set them; without them every start ends in
+ * HEALTH_FAILED after the 3-minute gate timeout). Build the bundle when missing and pass both variables unless already set.
+ */
+function checkRunnerEnv() {
+  if (process.env.ATL_DEV_RUNNER_MODE !== 'local-l0' || process.env.ATL_DEV_CHECK_RUNNER) return {};
+  const dist = path.join(REPO, 'platform', 'checks', 'dist');
+  const runner = path.join(dist, 'atl', 'bin', 'atl-check.mjs');
+  if (!fs.existsSync(runner) || !fs.existsSync(path.join(dist, 'bundle.json'))) {
+    log('building the check bundle for the local-l0 health gate (node platform/checks/build.mjs)');
+    const r = spawnSync(process.execPath, [path.join(REPO, 'platform', 'checks', 'build.mjs')], { cwd: REPO, stdio: 'inherit' });
+    if (r.status !== 0) throw new Error('node platform/checks/build.mjs failed');
+  }
+  const { bundleDigest } = JSON.parse(fs.readFileSync(path.join(dist, 'bundle.json'), 'utf8'));
+  return { ATL_DEV_CHECK_RUNNER: runner, ...(process.env.ATL_CHECK_BUNDLE_DIGEST ? {} : { ATL_CHECK_BUNDLE_DIGEST: bundleDigest }) };
+}
+
 async function main() {
   const webOnly = flag('--web-only');
   const apiOnly = flag('--api-only');
@@ -122,7 +141,7 @@ async function main() {
     log(`starting the API dev server on ${apiUrl}`);
     // certificates, share links and the console Issuer point at the page the browser uses (the Vite origin)
     const platformUrl = apiOnly ? {} : { ATL_DEV_PLATFORM_URL: process.env.ATL_DEV_PLATFORM_URL ?? `http://127.0.0.1:${webPort}` };
-    const api = start('dev-server', args, { env: { ATL_DEV_MODE: '1', ATL_DEV_DDB_ENDPOINT: ddbEndpoint, ...platformUrl } });
+    const api = start('dev-server', args, { env: { ATL_DEV_MODE: '1', ATL_DEV_DDB_ENDPOINT: ddbEndpoint, ...platformUrl, ...checkRunnerEnv() } });
     if (!(await waitFor(`${apiUrl}/api/v1/public/health`, api, 180_000))) throw new Error(`the API dev server did not become ready on ${apiUrl}`);
     log(`API ready: ${apiUrl}/api/v1 (Authorization: Bearer dev.learner.u1)`);
   }
