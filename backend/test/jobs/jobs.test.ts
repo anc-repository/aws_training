@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { makeTestImage } from '@cloudalbum/image-core';
 import { asLocalMultipart } from '../../src/adapters/storage/local.js';
 import { Readable } from 'node:stream';
@@ -134,5 +134,27 @@ describe('日报的日期换算（services/report.ts）', () => {
     const csv = toCsv(stats);
     expect(csv.split('\n')[0]).toBe('metric,value');
     expect(csv).toContain('active_users,');
+  });
+
+  it('东京 00:00～09:00 刚上传的照片计入时区内的“今天”：取日要用 zonedDate，不能用 UTC 日期', async () => {
+    // 固定时钟 2026-10-14 00:03 JST（= 2026-10-13T15:03Z）：UTC 日期还是前一天，media-flow 的日报用例曾在这个时段失败
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-10-13T15:03:00.000Z'));
+    try {
+      const tz = c.config.scheduler.SCHEDULER_TIMEZONE;
+      const day = zonedDate(new Date(), tz);
+      const utcDay = new Date().toISOString().slice(0, 10);
+      expect([tz, day, utcDay]).toEqual(['Asia/Tokyo', '2026-10-14', '2026-10-13']);
+      const deps = { cfg: c.config, db: c.db };
+      const before = { zoned: (await computeDailyStats(deps, day)).uploads, utc: (await computeDailyStats(deps, utcDay)).uploads };
+      const owner = await seedUser(c.db);
+      const id = randomUUID();
+      await insertPhoto(c.db, { id, ownerId: owner, albumId: null, rawKey: `raw/${owner}/${id}.jpg`, filename: 'n.jpg', contentType: 'image/jpeg', sizeBytes: null, visibility: 'private' });
+      expect((await getPhoto(c.db, id))!.createdAt).toBe('2026-10-13T15:03:00.000Z');
+      expect((await computeDailyStats(deps, day)).uploads).toBe(before.zoned + 1);
+      expect((await computeDailyStats(deps, utcDay)).uploads).toBe(before.utc);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
