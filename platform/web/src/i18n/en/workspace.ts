@@ -404,10 +404,10 @@ export default {
     errRate: 'Too many requests. Try again shortly.', // 操作太频繁，请稍后重试。
     errOther: 'Could not get a console sign-in ({title}).', // 没能取得控制台登录（{title}）。
     errNetwork: 'Could not get a console sign-in. Check your network and retry.', // 没能取得控制台登录，请检查网络后重试。
-    cleanupFailedOnly: 'Only console links for the items on the manual cleanup list are offered (no new federated sign-in is issued)', // 只提供待人工处理清单中各项的控制台深链（不签发新的联合登录）
+    cleanupFailedOnly: 'Only console links for the items on the manual-handling list are offered (no new federated sign-in is issued)', // 只提供待人工处理清单中各项的控制台深链（不签发新的联合登录）
     revoked: 'The lab has ended and console access was revoked', // 实验已结束，控制台访问已收回
     permissionsRevoked: 'Permissions in console windows that are already open have been revoked.', // 已打开的控制台窗口中的权限已被收回。
-    viewManual: 'View manual cleanup list', // 查看待人工处理清单
+    viewManual: 'View manual-handling list', // 查看待人工处理清单
     title: 'AWS console (opens in a new tab; AWS does not allow embedding)', // AWS 控制台（新标签页打开，AWS 不允许嵌入）
     identity: 'Identity', // 身份
     identityValue: 'ATLLearnerRole · session name atl-{sid}-console', // ATLLearnerRole · 会话名 atl-{sid}-console
@@ -820,7 +820,7 @@ export default {
     },
     workflow: {
       title: 'Platform orchestration error', // 平台编排出错
-      description: 'The platform orchestration failed and a manual cleanup list was created; the platform retries reclaiming automatically.', // 平台编排出错，已生成待人工处理清单；平台会自动重试回收。
+      description: 'The platform orchestration failed and a manual-handling list was created; the platform retries reclaiming automatically.', // 平台编排出错，已生成待人工处理清单；平台会自动重试回收。
     },
     fallback: {
       title: 'Start failed', // 启动失败

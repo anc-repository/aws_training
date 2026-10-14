@@ -77,7 +77,7 @@ checks:
       en: "No ownership check: the sender identity is a prerequisite resource that may be kept across sessions, so when it is reused this session did not create it; email-wired and email-path-seen prove that it is wired in."
     reproduce: { run: 'aws sesv2 get-email-identity --email-identity "{{ learner.inputs.ses-identity }}" --query "{verified:VerifiedForSendingStatus,status:VerificationStatus}"', runsOn: workstation }
     manualFallback:
-      where: { breadcrumb: [Amazon SES, 配置, 身份, '{{ learner.inputs.ses-identity }}'], region: app }
+      where: { breadcrumb: [Amazon SES, { zh-CN: 配置, ja: 設定, en: Configuration }, { zh-CN: 身份, ja: ID, en: Identities }, '{{ learner.inputs.ses-identity }}'], region: app }
       observed:
         question:
           zh-CN: 身份状态是什么？
@@ -116,7 +116,7 @@ checks:
       en: "New accounts are usually false (sandbox): they can only send to verified addresses and the SES mailbox simulator. This card does not request production access."
     reproduce: { run: 'aws sesv2 get-account --query "{production:ProductionAccessEnabled,quota:SendQuota}"', runsOn: workstation }
     manualFallback:
-      where: { breadcrumb: [Amazon SES, 账户控制面板], region: app }
+      where: { breadcrumb: [Amazon SES, { zh-CN: 账户控制面板, ja: アカウントダッシュボード, en: Account dashboard }], region: app }
       observed:
         question:
           zh-CN: 账户控制面板显示的是？
@@ -148,7 +148,7 @@ checks:
       en: Feedback messages the worker cannot parse go to the DLQ after 5 receives; 0 means every delivery, bounce and complaint event made it back to outbox_emails.
     reproduce: { run: 'aws sqs get-queue-attributes --queue-url "{{ var.feedbackDlqUrl }}" --attribute-names ApproximateNumberOfMessages', runsOn: workstation }
     manualFallback:
-      where: { breadcrumb: [SQS, 队列, 'cloudalbum-{{ session.env }}-email-feedback-dlq'], region: app }
+      where: { breadcrumb: [SQS, { zh-CN: 队列, ja: キュー, en: Queues }, 'cloudalbum-{{ session.env }}-email-feedback-dlq'], region: app }
       observed:
         question:
           zh-CN: 反馈 DLQ 的“可用消息”数是多少？
@@ -256,7 +256,7 @@ checks:
       en: Until the 3 DKIM CNAMEs take effect the status is PENDING; how long that takes depends on DNS propagation.
     reproduce: { run: 'aws sesv2 get-email-identity --email-identity "{{ learner.inputs.domain }}" --query DkimAttributes', runsOn: workstation }
     manualFallback:
-      where: { breadcrumb: [Amazon SES, 配置, 身份, '{{ learner.inputs.domain }}', 身份验证], region: app }
+      where: { breadcrumb: [Amazon SES, { zh-CN: 配置, ja: 設定, en: Configuration }, { zh-CN: 身份, ja: ID, en: Identities }, '{{ learner.inputs.domain }}', { zh-CN: 身份验证, ja: 認証, en: Authentication }], region: app }
       observed:
         question:
           zh-CN: DKIM 配置的状态是？
@@ -289,7 +289,7 @@ checks:
     required: false
     reproduce: { run: 'aws sqs get-queue-url --queue-name cloudalbum-{{ session.env }}-email-feedback', runsOn: workstation }
     manualFallback:
-      where: { breadcrumb: [SQS, 队列], region: app }
+      where: { breadcrumb: [SQS, { zh-CN: 队列, ja: キュー, en: Queues }], region: app }
       observed:
         question:
           zh-CN: 列表中还能找到 cloudalbum-{{ session.env }}-email-feedback 吗？

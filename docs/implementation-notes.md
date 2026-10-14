@@ -3669,3 +3669,63 @@ storage、tls、waf）与 3 张 sc 卡片（edge-protection、event-fanout、sta
 `labs:build --out <临时目录>`（483 个文件）、`npx vitest run --project atl-labs-tools`（30 / 30）、api dev-server / infra package /
 web 目录、简介、小测、i18n 相关测试（10 个文件 154 通过）、`npm run build -w @atl/web`、`npm run lint`。`npm run i18n:check` 只报
 `frame.ws.*` 4 个界面键未译（不属于本组；本组没有界面词典键）。
+
+## i18n-integration
+
+多语言与视觉化（I1～I7）的集成与自测：合并 prep-i18n、prep-visual、web-catalog、web-workspace、web-results、content-a、content-b 的提交，
+处理各自列出的“需要配合”事项，扩展 `npm run e2e:platform`，生成日语截图。规格写在 docs/platform/09-i18n-and-visual.md 的“集成（G1～G7）”；
+08-ui-design.md 顶部已有指向 09 的说明（prep-i18n 加的），保持不变。
+
+处理的“需要配合”事项：
+
+| 来源 | 事项 | 处理 |
+|---|---|---|
+| web-catalog / web-results / content-b | `frame.ws.*` 4 键未译，`i18n:check` 失败 | 译完；`npm run i18n:check`（不带参数）通过 |
+| 全部 | 术语表新增项 | 并入 `platform/web/src/i18n/glossary.md`（两节，约 60 词）；冲突项按画面上已有的写法统一（见下） |
+| web-catalog | `visual.metric.cost` ja 与术语表不一致 | 改为「コスト区分」（`charts.test.tsx` 同步） |
+| web-catalog / web-workspace | 待人工处理清单两种译名 | 统一为画面标题「要対応リスト / manual-handling list」，改 workspace 词典 3 处 |
+| web-workspace / web-results | 交叉校验两种 ja 译名 | 统一为「照合」（`ui`、experiments 已用），改 workspace 词典 3 处 |
+| content-a / content-b | 「アプリプレビュー」与界面标签不一致 | ja 手册 4 处改为「アプリのプレビュー」 |
+| content-a / content-b | taxonomy 的服务名、机能、类别等未译（`_catalog` 0%） | 翻译 165 个字段；机能与类别逐字采用 `visual.fn.*` / `visual.group.*`；`gen-glyph-registry.mjs` 改为接受本地化对象（只取 zh-CN，生成结果不变） |
+| content-a / content-b | 共享检查 no-world-ssh 未译 | 翻译 9 个字段 |
+| content-a / content-b | `where.breadcrumb[]`、`input.label` 不是文本字段 | 改 check schema（`manualSpec.where.breadcrumb.items`、`input.label` 用 `l10n()`），74 个中文段与 6 个标签译成 ja / en；`labs:schema` 重新生成 |
+| content-b | 目录索引中每条路径 `fallback: ["/i18n"]` | 确认是构建的问题：索引的 `tracks` 与 `tracks/<id>.json` 是同一批对象，先挂 `i18n` 再比较。改为先比较全部再挂（`build.ts`），测试补断言 |
+| prep-visual | `gen:glyphs`、CI `--check` | 根与 `@atl/web` 加 `gen:glyphs`，根加 `glyphs:check`；`--check` 进根的 `build` 与 `@atl/web` 的 `build` |
+| prep-visual | 根部包 `VisualI18nProvider` | `LocaleRoot` 包一层 `lang={locale}` |
+| prep-i18n / web-results | 服务器端报告 / 分享 HTML 是中文 | `html.ts` 三语化（见下），新增 `platform/api/test/report-html-i18n.test.ts` |
+| web-workspace | 共用 `ui/` 组件仍是中文 | web-results 已译 `ui` 命名空间；e2e 的残留文字扫描在工作台没有发现中文界面文字 |
+| web-catalog | `CostTierMark` 在 en 下显示“低” | `ui` 命名空间译完后已是 Low；e2e en 截图确认 |
+| web-catalog | 开发用户 `web-catalog-check`（正在运行的 5174/8787 环境中）用完了当日小测次数 | 不处理（开发数据，次日恢复；没有碰 5174 / 8787） |
+
+集成时自己发现并修正的：
+
+- **API 的预览入口名**：`PreviewFrame` 优先用服务器返回的 zh-CN `label`，日语界面显示“直连 EC2”。改为先用词典（`workspace.preview.entry.*`）。
+- **浏览器标签页标题**一直是 zh-CN（`index.html` 的 `<title>`，运行时没有更新）：`runtime.ts` 切换语言时写 `document.title = msg.app.fullName`；
+  `index.html` 的 `lang` 改为 ja、`<noscript>` 三语。
+- **400px 横向滚动**（只在 ja / en）：简介页“出题范围”的 `.chips .tag` 不换行，日语 / 英语的考点文字较长。允许换行（`catalog.css`）。
+- **`App.test.tsx`** 在全量并行时偶发 1 秒超时（prep-visual 也遇到过）：工作台是懒加载的，`findByRole` 等待改为 5 秒。
+
+有歧义时的取舍（都取最简单的做法）：
+
+| 问题 | 决定 |
+|---|---|
+| 服务器端 HTML 是改用 `render-share.mjs` 还是自己三语化 | 自己三语化：`render-share.mjs` 是 web 的构建产物，API 包不该依赖它；做法与它相同（一份文档三块、默认 ja、`#en` / `#zh-CN` 的 `:target` 切换、无脚本），`lang` 选项可只出一种语言。报告里记录的值（标题、检查名、原因）照原样 |
+| 控制台面包屑里的服务名、资源名、模板（`EC2`、`{{ var.distributionId }}`）也要包成本地化对象吗 | 不包：新增“与语言无关的纯字符串”规则——不含中文、日文字符的纯字符串各语言原样显示，不算回退，覆盖率计为已译（`isNeutralText()`；`@atl/shared` 的 `resolveLocalized` 的 `isTextPointer` 回调多传一个值参数，向后兼容）。现有内容里这样的字段只有面包屑（翻译前覆盖率已是 100%，说明其他文本字段都已是对象） |
+| 面包屑各段译成什么 | 该语言 AWS 控制台的用词（安全组 → セキュリティグループ / Security groups）；CloudAlbum 的「管理后台」按手册的写法译成 管理画面 / Admin console |
+| 卡片简介“预期警告”仍回退 | 文字来自 CloudAlbum 后端的规则消息（`backend/src/rules/rules.ts`），属于本轮不做的 CloudAlbum 应用；保留回退与“未翻訳”标记，e2e 正好用它检查标记 |
+| e2e 的语言阶段放在哪里 | 主流程结束后单独一个阶段（新的浏览器上下文、浏览器语言 zh-CN、没有保存过选择），主流程仍按 zh-CN 断言不变；运行中的工作台的日语检查与截图放在工作台阶段（第二个上下文，与 4b 相同） |
+| ja / en 主要画面放在哪个服务器上检查 | `vite preview` 的生产构建（带 CloudFront 的 CSP）：开发服务器每个画面几百个模块请求，连续切换几十个画面时 Windows 报 `net::ERR_NO_BUFFER_SPACE`；生产构建请求少，还顺便检查了两种语言下的 CSP |
+| `net::ERR_NO_BUFFER_SPACE` 算不算控制台错误 | 不算：这是测试机网络栈的资源错误（WSAENOBUFS），与平台无关；单独列在 `results.json` 的 `environmentNetworkErrors` 并打印，其他错误照旧失败 |
+| “未翻訳”标记的检查用哪张卡 | 动态选：第一个 `i18n.fallback` 非空的可开始卡片的简介页；全部译完时在网络层去掉一张卡片的日语标题再检查（`page.route`） |
+| 残留的中文界面文字怎么查 | e2e 在 ja / en 的 1280px 画面上把含简体专用字的文字记到日志（不判失败：证书标题、报告记录值等本来就是 zh-CN 数据）；集成时据此修了预览入口名 |
+| 截图放哪里、截哪些 | `.atl-dev/screens-ja/`（`--ja-shots`，默认在仓库下）：目录网格、服务地图（视口）、卡片简介（整页）、运行中的工作台（视口）、报告（整页）、证书验证（整页，签发后、吊销前） |
+| e2e 是否重建 `dist/content` | 默认重建（与 SPA 一样），`--no-build` 时复用；旧的产物没有 `ja/`、`en/` |
+
+自测（2026-10-14）：`npm run build`、`npm run lint`（0 问题）、`npm test`（229 个文件 / 2809 个用例通过，18 个跳过）、`npm run i18n:check`
+（不带参数：ja / en 各 3564 / 3564）、`npm run labs:lint`（56 张，0 错误 0 警告）、`npm run labs:i18n`（4680 个文本字段与 231 个手册，ja / en 均 100%）、
+`npm run labs:catalog -- --check`、`labs:build --out <临时目录>`（483 个文件；用同一份代码构建 HEAD 的 labs/，根目录 zh-CN 产物逐字节相同，
+只有 manifest 的 contentDigest 与 ja / en 文件的哈希不同，所以卡片版本与 CHANGELOG 不变）、`npm run glyphs:check`、`npm run smoke:platform`
+（120 / 120）、`npm run e2e:platform`（75 / 75，其中语言相关 24 项：阶段 11 的 21 项、运行中工作台的日语、验证页 ?lang=ja、zh-CN 画面无控制台错误；截图 `.atl-dev/screens-ja/01-catalog-grid.png` … `06-verify.png`）。
+e2e 中途两次出现测试机的 `net::ERR_NO_BUFFER_SPACE`（开发服务器 + HMR 的连接数多），见上表的取舍；最后一次运行没有出现。
+没有运行 `npm install`；5174 / 8787 的开发服务器没有停止也没有占用（自测都在 e2e 自己分配的端口上；中途为排查 400px 问题用
+`e2e:platform --serve-only` 起过一次独立的栈，查完后结束进程并删掉了它的两张表）。

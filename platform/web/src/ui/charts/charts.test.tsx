@@ -47,7 +47,7 @@ describe('<MetricIcon>', () => {
     const { container } = inLang('ja', <MetricStrip difficulty="intermediate" minutes={60} cost="medium" provision="C" />);
     const items = [...container.querySelectorAll('.mi')];
     expect(items.map((m) => m.getAttribute('data-metric'))).toEqual(['difficulty', 'duration', 'cost', 'provision']);
-    expect(items.map(spokenText)).toEqual(['難易度：中級', '所要時間の目安：60 分', '費用ランク：中', '環境準備：遅め']);
+    expect(items.map(spokenText)).toEqual(['難易度：中級', '所要時間の目安：60 分', 'コスト区分：中', '環境準備：遅め']);
     expect(container.querySelectorAll('.mi-ico rect.on')).toHaveLength(3);
     expect(container.querySelectorAll('.mi-cost .on')).toHaveLength(2);
   });

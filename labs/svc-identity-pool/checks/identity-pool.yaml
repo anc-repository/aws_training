@@ -133,7 +133,7 @@ checks:
       en: Guest identities would let anyone obtain credentials; the identity provider's ClientId comes in through auth's injects (ImportValue is not used).
     reproduce: { run: 'aws cognito-identity describe-identity-pool --identity-pool-id "{{ var.identityPoolId }}" --query "{guests:AllowUnauthenticatedIdentities,providers:CognitoIdentityProviders}"', runsOn: workstation }
     manualFallback:
-      where: { breadcrumb: [Amazon Cognito, 身份池, 'cloudalbum_{{ session.env }}_uploads', 用户访问权限], region: app }
+      where: { breadcrumb: [Amazon Cognito, { zh-CN: 身份池, ja: ID プール, en: Identity pools }, 'cloudalbum_{{ session.env }}_uploads', { zh-CN: 用户访问权限, ja: ユーザーアクセス, en: User access }], region: app }
       observed:
         question:
           zh-CN: “访客访问”是什么状态？
@@ -172,7 +172,7 @@ checks:
       en: identity-pool-no-guests has already confirmed ownership of the identity pool; the role mapping is an IdentityPoolRoleAttachment resource.
     reproduce: { run: 'aws cognito-identity get-identity-pool-roles --identity-pool-id "{{ var.identityPoolId }}"', runsOn: workstation }
     manualFallback:
-      where: { breadcrumb: [Amazon Cognito, 身份池, 'cloudalbum_{{ session.env }}_uploads', 用户访问权限], region: app }
+      where: { breadcrumb: [Amazon Cognito, { zh-CN: 身份池, ja: ID プール, en: Identity pools }, 'cloudalbum_{{ session.env }}_uploads', { zh-CN: 用户访问权限, ja: ユーザーアクセス, en: User access }], region: app }
       observed:
         question:
           zh-CN: “已经过身份验证的角色”是哪一个？
@@ -219,7 +219,7 @@ checks:
       en: Without an aud condition, any identity pool (including ones in other people's accounts) might assume this role. IAM returns policy documents URL-encoded, so colons may show up as %3A.
     reproduce: { run: 'aws iam get-role --role-name "{{ var.uploaderRoleName }}" --query Role.AssumeRolePolicyDocument', runsOn: workstation }
     manualFallback:
-      where: { breadcrumb: [IAM, 角色, '{{ var.uploaderRoleName }}', 信任关系], region: global }
+      where: { breadcrumb: [IAM, { zh-CN: 角色, ja: ロール, en: Roles }, '{{ var.uploaderRoleName }}', { zh-CN: 信任关系, ja: 信頼関係, en: Trust relationships }], region: global }
       observed:
         question:
           zh-CN: 信任策略的 Condition 里有哪些条件键？
@@ -249,7 +249,7 @@ checks:
       en: "Read the Uploader role's permissions: it can only write to private/${cognito-identity.amazonaws.com:sub}/"
     type: manual
     spec:
-      where: { breadcrumb: [IAM, 角色, '{{ var.uploaderRoleName }}', 权限, staging-own-prefix], region: global }
+      where: { breadcrumb: [IAM, { zh-CN: 角色, ja: ロール, en: Roles }, '{{ var.uploaderRoleName }}', { zh-CN: 权限, ja: アクセス許可, en: Permissions }, staging-own-prefix], region: global }
       observed:
         question:
           zh-CN: s3:PutObject 的资源是哪一种？
@@ -304,7 +304,7 @@ checks:
       en: If the browser cannot read each part's ETag it cannot complete the merge; without DELETE, cancelling an upload fails.
     reproduce: { run: 'aws s3api get-bucket-cors --bucket "{{ var.stagingBucket }}"', runsOn: workstation }
     manualFallback:
-      where: { breadcrumb: [Amazon S3, 存储桶, '{{ var.stagingBucket }}', 权限, 跨源资源共享 (CORS)], region: app }
+      where: { breadcrumb: [Amazon S3, { zh-CN: 存储桶, ja: バケット, en: Buckets }, '{{ var.stagingBucket }}', { zh-CN: 权限, ja: アクセス許可, en: Permissions }, { zh-CN: 跨源资源共享 (CORS), ja: Cross-Origin Resource Sharing (CORS), en: Cross-origin resource sharing (CORS) }], region: app }
       observed:
         question:
           zh-CN: ExposeHeaders 里有什么？
@@ -392,7 +392,7 @@ checks:
     required: false
     reproduce: { run: 'aws cognito-identity describe-identity-pool --identity-pool-id "{{ var.identityPoolId }}"', runsOn: workstation }
     manualFallback:
-      where: { breadcrumb: [Amazon Cognito, 身份池], region: app }
+      where: { breadcrumb: [Amazon Cognito, { zh-CN: 身份池, ja: ID プール, en: Identity pools }], region: app }
       observed:
         question:
           zh-CN: 列表中还能找到 cloudalbum_{{ session.env }}_uploads 吗？

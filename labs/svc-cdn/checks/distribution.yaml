@@ -118,7 +118,7 @@ checks:
     reproduce: { run: 'aws cloudfront get-distribution --id {{ var.distributionId }} --query "Distribution.[Status,DomainName]"', runsOn: workstation }
     pitfalls: [ip-origin, still-deploying, not-mine]
     manualFallback:
-      where: { breadcrumb: [CloudFront, 分配, '{{ var.distributionId }}'], region: global }
+      where: { breadcrumb: [CloudFront, { zh-CN: 分配, ja: ディストリビューション, en: Distributions }, '{{ var.distributionId }}'], region: global }
       observed:
         question:
           zh-CN: “上次修改”一栏显示什么？
@@ -156,7 +156,7 @@ checks:
       en: The distribution was created by this session (distribution-deployed has confirmed ownership), so its invalidations can only come from this session.
     reproduce: { run: 'aws cloudfront list-invalidations --distribution-id {{ var.distributionId }} --query "InvalidationList.Items[].[Id,Status,CreateTime]"', runsOn: workstation }
     manualFallback:
-      where: { breadcrumb: [CloudFront, 分配, '{{ var.distributionId }}', 失效], region: global }
+      where: { breadcrumb: [CloudFront, { zh-CN: 分配, ja: ディストリビューション, en: Distributions }, '{{ var.distributionId }}', { zh-CN: 失效, ja: 無効化, en: Invalidations }], region: global }
       observed:
         question:
           zh-CN: 失效列表中最近一条的状态是什么？

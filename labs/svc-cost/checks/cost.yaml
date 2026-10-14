@@ -57,7 +57,7 @@ checks:
               zh-CN: 经 scripts/module 启用的按小时计费模块启用即出现在清单里
               ja: scripts/module で有効にした時間課金のモジュールは、有効化した瞬間に一覧に現れます
               en: Hourly-billed modules enabled through scripts/module show up in the list as soon as they are enabled
-      input: { label: 再写一类你认为它看不到的费用, pattern: '^.{2,60}$' }
+      input: { label: { zh-CN: 再写一类你认为它看不到的费用, ja: 見えないと思う費用の種類をもう 1 つ書いてください, en: Name one more kind of cost you think it cannot see }, pattern: '^.{2,60}$' }
 
   - id: cost-present
     title:
@@ -138,7 +138,7 @@ checks:
     reproduce: { run: 'aws ce list-cost-allocation-tags --tag-keys Project --region us-east-1', runsOn: workstation }
     pitfalls: [tag-not-active]
     manualFallback:
-      where: { breadcrumb: [Billing and Cost Management, 成本分配标签, 用户定义的成本分配标签], region: global }
+      where: { breadcrumb: [Billing and Cost Management, { zh-CN: 成本分配标签, ja: コスト配分タグ, en: Cost allocation tags }, { zh-CN: 用户定义的成本分配标签, ja: ユーザー定義のコスト配分タグ, en: User-defined cost allocation tags }], region: global }
       observed:
         question:
           zh-CN: Project 标签的状态是什么？
@@ -235,7 +235,7 @@ checks:
       en: The budgets are members of the cost module stack (created by CloudFormation), so stack membership confirms ownership; Budgets is a global service and is read through us-east-1.
     reproduce: { run: 'aws budgets describe-budgets --account-id {{ session.accountId }} --query "Budgets[].[BudgetName,TimeUnit,BudgetLimit.Amount]"', runsOn: workstation }
     manualFallback:
-      where: { breadcrumb: [Billing and Cost Management, 预算], region: global }
+      where: { breadcrumb: [Billing and Cost Management, { zh-CN: 预算, ja: 予算, en: Budgets }], region: global }
       observed:
         question:
           zh-CN: 能看到 cloudalbum-{{ session.env }}-project-monthly 与 cloudalbum-{{ session.env }}-account-monthly 两个月度预算吗？
@@ -278,7 +278,7 @@ checks:
     reproduce: { run: 'aws sns list-subscriptions-by-topic --topic-arn "{{ var.costTopicArn }}" --query "Subscriptions[].[Protocol,SubscriptionArn]"', runsOn: workstation }
     pitfalls: [cost-subscription-pending]
     manualFallback:
-      where: { breadcrumb: [SNS, 主题, 'cloudalbum-{{ session.env }}-cost', 订阅], region: app }
+      where: { breadcrumb: [SNS, { zh-CN: 主题, ja: トピック, en: Topics }, 'cloudalbum-{{ session.env }}-cost', { zh-CN: 订阅, ja: サブスクリプション, en: Subscriptions }], region: app }
       observed:
         question:
           zh-CN: 邮件订阅的状态是什么？
@@ -346,7 +346,7 @@ checks:
               zh-CN: 本地清单默认不显示金额，只有你注明出处抄录的单价才参与估算
               ja: ローカルの一覧は既定では金額を表示しません。あなたが出典を明記して書き写した単価だけが見積もりに使われます
               en: By default the local list shows no amounts; only prices you copied with a stated source count toward the estimate
-      input: { label: 两侧的数值（例如“本地 3 项按小时资源；项目预算实际 0.00”）, pattern: '^.{4,120}$' }
+      input: { label: { zh-CN: 两侧的数值（例如“本地 3 项按小时资源；项目预算实际 0.00”）, ja: 両側の数値（例：「ローカルの時間課金リソース 3 件、プロジェクト予算の実績 0.00」）, en: "The numbers on both sides (for example \"3 local hourly resources; project budget actual 0.00\")" }, pattern: '^.{4,120}$' }
 
   # ---- 预算动作（选做）
   - id: budget-action-canary
@@ -370,7 +370,7 @@ checks:
       en: The budget belongs to this session's cost stack (budgets-exist has confirmed ownership); the action only attaches AWSDenyAll to a canary role that no component uses, and never targets the app role or the lab instance.
     reproduce: { run: 'aws budgets describe-budget-actions-for-budget --account-id {{ session.accountId }} --budget-name cloudalbum-{{ session.env }}-project-monthly', runsOn: workstation }
     manualFallback:
-      where: { breadcrumb: [Billing and Cost Management, 预算, 'cloudalbum-{{ session.env }}-project-monthly', 操作], region: global }
+      where: { breadcrumb: [Billing and Cost Management, { zh-CN: 预算, ja: 予算, en: Budgets }, 'cloudalbum-{{ session.env }}-project-monthly', { zh-CN: 操作, ja: アクション, en: Actions }], region: global }
       observed:
         question:
           zh-CN: 预算动作的类型与目标是什么？
@@ -408,7 +408,7 @@ checks:
     required: false
     reproduce: { run: 'aws cloudformation describe-stacks --stack-name cloudalbum-{{ session.env }}-cost', runsOn: workstation }
     manualFallback:
-      where: { breadcrumb: [CloudFormation, 堆栈], region: app }
+      where: { breadcrumb: [CloudFormation, { zh-CN: 堆栈, ja: スタック, en: Stacks }], region: app }
       observed:
         question:
           zh-CN: 列表中还能找到 cloudalbum-{{ session.env }}-cost 吗？

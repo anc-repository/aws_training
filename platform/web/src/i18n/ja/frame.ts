@@ -63,10 +63,10 @@ export default {
   about: ' · 約 {n} 分 ·', //  · 约 {n} 分钟 ·
   otherParams: '…（ほかのパラメータは UsePreviousValue=true）', // …（其余参数 UsePreviousValue=true）
   ws: {
-    catalog: '', // ‹ 目录
-    title: '', // 工作台
-    notFoundTitle: '', // 没有找到这个实验会话
-    notFound: '', // 它可能已被删除，或者地址有误。可以在“我的实验”中查看全部会话。
+    catalog: '‹ カード一覧', // ‹ 目录
+    title: 'ワークベンチ', // 工作台
+    notFoundTitle: 'このセッションは見つかりません', // 没有找到这个实验会话
+    notFound: '削除されたか、URL が間違っている可能性があります。すべてのセッションは「実験履歴」で確認できます。', // 它可能已被删除，或者地址有误。可以在“我的实验”中查看全部会话。
   },
   manualPage: {
     severity: {

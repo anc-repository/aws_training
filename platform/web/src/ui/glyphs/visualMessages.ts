@@ -198,7 +198,7 @@ const ja: VisualDict = {
   'visual.metric.difficulty.intermediate': '中級',
   'visual.metric.difficulty.advanced': '上級',
   'visual.metric.duration': '所要時間の目安',
-  'visual.metric.cost': '費用ランク',
+  'visual.metric.cost': 'コスト区分',
   'visual.metric.cost.low': '低',
   'visual.metric.cost.medium': '中',
   'visual.metric.cost.high': '高',

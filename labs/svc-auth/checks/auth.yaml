@@ -79,7 +79,7 @@ checks:
       en: The platform first confirms that this session's auth module stack created the User Pool. Deletion protection prevents the whole user directory from being deleted by mistake; the reclaimer turns it off before deleting.
     reproduce: { run: 'aws cognito-idp describe-user-pool --user-pool-id "{{ var.userPoolId }}" --query "UserPool.{Protection:DeletionProtection,Username:UsernameAttributes,MinLength:Policies.PasswordPolicy.MinimumLength}"', runsOn: workstation }
     manualFallback:
-      where: { breadcrumb: [Amazon Cognito, 用户池, 'cloudalbum-{{ session.env }}-users', 设置], region: app }
+      where: { breadcrumb: [Amazon Cognito, { zh-CN: 用户池, ja: ユーザープール, en: User pools }, 'cloudalbum-{{ session.env }}-users', { zh-CN: 设置, ja: 設定, en: Settings }], region: app }
       observed:
         question:
           zh-CN: 用户池的“删除保护”显示什么？
@@ -127,7 +127,7 @@ checks:
       en: "The client ID and the User Pool come from the outputs of the same module stack (user-pool has confirmed ownership). Writable attributes are the app's responsibility: opening up custom:plan would let users upgrade their own plan."
     reproduce: { run: 'aws cognito-idp describe-user-pool-client --user-pool-id "{{ var.userPoolId }}" --client-id "{{ var.clientId }}" --query "UserPoolClient.{Write:WriteAttributes,Flows:ExplicitAuthFlows,Access:AccessTokenValidity,Revocation:EnableTokenRevocation}"', runsOn: workstation }
     manualFallback:
-      where: { breadcrumb: [Amazon Cognito, 用户池, 'cloudalbum-{{ session.env }}-users', 应用程序客户端, cloudalbum-spa, 属性读写权限], region: app }
+      where: { breadcrumb: [Amazon Cognito, { zh-CN: 用户池, ja: ユーザープール, en: User pools }, 'cloudalbum-{{ session.env }}-users', { zh-CN: 应用程序客户端, ja: アプリケーションクライアント, en: App clients }, cloudalbum-spa, { zh-CN: 属性读写权限, ja: 属性の読み取りおよび書き込み許可, en: Attribute read and write permissions }], region: app }
       observed:
         question:
           zh-CN: “写入”一栏勾选了哪些属性？
@@ -290,7 +290,7 @@ checks:
     required: false
     reproduce: { run: 'aws cognito-idp describe-user-pool --user-pool-id "{{ var.userPoolId }}"', runsOn: workstation }
     manualFallback:
-      where: { breadcrumb: [Amazon Cognito, 用户池], region: app }
+      where: { breadcrumb: [Amazon Cognito, { zh-CN: 用户池, ja: ユーザープール, en: User pools }], region: app }
       observed:
         question:
           zh-CN: 列表中还能找到 cloudalbum-{{ session.env }}-users 吗？

@@ -65,7 +65,7 @@ checks:
     reproduce: { run: 'aws ec2 describe-security-group-rules --filters Name=group-id,Values={{ target.sgId }} --query "SecurityGroupRules[?IsEgress==\`false\`].[FromPort,ToPort,CidrIpv4,CidrIpv6,PrefixListId]" --output table', runsOn: workstation }
     pitfalls: [direct-still-open]
     manualFallback:
-      where: { breadcrumb: [EC2, 安全组, '{{ target.sgId }}', 入站规则], region: app }
+      where: { breadcrumb: [EC2, { zh-CN: 安全组, ja: セキュリティグループ, en: Security groups }, '{{ target.sgId }}', { zh-CN: 入站规则, ja: インバウンドルール, en: Inbound rules }], region: app }
       observed:
         question:
           zh-CN: 端口 80 与 443 的入站规则，来源是什么？
@@ -134,7 +134,7 @@ checks:
       en: "This session's cdn stack created the origin security group, which has a single inbound rule: 8080 from com.amazonaws.global.cloudfront.origin-facing. The prefix list only says \"from some CloudFront\", so Nginx also checks X-Origin-Verify, which only this distribution knows (the next check)."
     reproduce: { run: 'aws ec2 describe-security-group-rules --filters Name=group-id,Values={{ var.originSgId }} --query "SecurityGroupRules[?IsEgress==\`false\`].[FromPort,PrefixListId,CidrIpv4]" --output table', runsOn: workstation }
     manualFallback:
-      where: { breadcrumb: [EC2, 安全组, '{{ var.originSgId }}', 入站规则], region: app }
+      where: { breadcrumb: [EC2, { zh-CN: 安全组, ja: セキュリティグループ, en: Security groups }, '{{ var.originSgId }}', { zh-CN: 入站规则, ja: インバウンドルール, en: Inbound rules }], region: app }
       observed:
         question:
           zh-CN: 端口 8080 的入站规则来源是什么？

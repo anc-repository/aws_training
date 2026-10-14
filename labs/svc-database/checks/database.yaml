@@ -87,7 +87,7 @@ checks:
     reproduce: { run: 'aws rds describe-db-instances --db-instance-identifier "{{ var.dbInstanceId }}" --query "DBInstances[0].[DBInstanceStatus,MultiAZ,StorageEncrypted,PubliclyAccessible]"', runsOn: workstation }
     pitfalls: [deletion-protection]
     manualFallback:
-      where: { breadcrumb: [RDS, 数据库, '{{ var.dbInstanceId }}', 配置], region: app }
+      where: { breadcrumb: [RDS, { zh-CN: 数据库, ja: データベース, en: Databases }, '{{ var.dbInstanceId }}', { zh-CN: 配置, ja: 設定, en: Configuration }], region: app }
       observed:
         question:
           zh-CN: 实例的“多可用区”与“加密”分别显示什么？
@@ -145,7 +145,7 @@ checks:
       en: sg-db is the instance's first VPC security group (db-instance has confirmed ownership of the instance); only network interfaces carrying the lab instance's security group can reach 5432.
     reproduce: { run: 'aws ec2 describe-security-group-rules --filters Name=group-id,Values=<sg-db 的 ID> --query "SecurityGroupRules[?IsEgress==\`false\`].[FromPort,ReferencedGroupInfo.GroupId,CidrIpv4]" --output table', runsOn: workstation }
     manualFallback:
-      where: { breadcrumb: [RDS, 数据库, '{{ var.dbInstanceId }}', 连接和安全性, VPC 安全组], region: app }
+      where: { breadcrumb: [RDS, { zh-CN: 数据库, ja: データベース, en: Databases }, '{{ var.dbInstanceId }}', { zh-CN: 连接和安全性, ja: 接続とセキュリティ, en: "Connectivity & security" }, { zh-CN: VPC 安全组, ja: VPC セキュリティグループ, en: VPC security groups }], region: app }
       observed:
         question:
           zh-CN: 安全组中 5432 端口入站规则的“源”是什么？
@@ -192,7 +192,7 @@ checks:
       en: This check is evaluated only once; its evidence keeps the primary's AZ before failover for the comparison in step 7.
     reproduce: { run: 'aws rds describe-db-instances --db-instance-identifier "{{ var.dbInstanceId }}" --query "DBInstances[0].[AvailabilityZone,SecondaryAvailabilityZone,BackupRetentionPeriod,LatestRestorableTime]"', runsOn: workstation }
     manualFallback:
-      where: { breadcrumb: [RDS, 数据库, '{{ var.dbInstanceId }}', 维护和备份], region: app }
+      where: { breadcrumb: [RDS, { zh-CN: 数据库, ja: データベース, en: Databases }, '{{ var.dbInstanceId }}', { zh-CN: 维护和备份, ja: メンテナンスとバックアップ, en: "Maintenance & backups" }], region: app }
       observed:
         question:
           zh-CN: “自动备份”与“最近的还原时间”分别显示什么？
@@ -252,7 +252,7 @@ checks:
     reproduce: { run: 'aws rds describe-db-instances --db-instance-identifier "{{ var.dbInstanceId }}" --query "DBInstances[0].[AvailabilityZone,SecondaryAvailabilityZone,DBInstanceStatus]"', runsOn: workstation }
     pitfalls: [failover-not-run]
     manualFallback:
-      where: { breadcrumb: [RDS, 数据库, '{{ var.dbInstanceId }}', 连接和安全性], region: app }
+      where: { breadcrumb: [RDS, { zh-CN: 数据库, ja: データベース, en: Databases }, '{{ var.dbInstanceId }}', { zh-CN: 连接和安全性, ja: 接続とセキュリティ, en: "Connectivity & security" }], region: app }
       observed:
         question:
           zh-CN: 现在的主库可用区与第 4 步记录的相比如何？
@@ -296,7 +296,7 @@ checks:
       en: Point-in-time recovery always creates a new instance (you must specify the subnet group and security group); ownership is based on this session's creation event in CloudTrail.
     reproduce: { run: 'aws rds describe-db-instances --db-instance-identifier cloudalbum-{{ session.env }}-pitr --query "DBInstances[0].DBInstanceStatus"', runsOn: workstation }
     manualFallback:
-      where: { breadcrumb: [RDS, 数据库, 'cloudalbum-{{ session.env }}-pitr'], region: app }
+      where: { breadcrumb: [RDS, { zh-CN: 数据库, ja: データベース, en: Databases }, 'cloudalbum-{{ session.env }}-pitr'], region: app }
       observed:
         question:
           zh-CN: 恢复出的实例状态是什么？
@@ -321,7 +321,7 @@ checks:
     required: false
     reproduce: { run: 'aws rds describe-db-instances --db-instance-identifier cloudalbum-{{ session.env }}-database', runsOn: workstation }
     manualFallback:
-      where: { breadcrumb: [RDS, 数据库], region: app }
+      where: { breadcrumb: [RDS, { zh-CN: 数据库, ja: データベース, en: Databases }], region: app }
       observed:
         question:
           zh-CN: 列表中还能找到 cloudalbum-{{ session.env }}-database 吗？
@@ -345,7 +345,7 @@ checks:
     required: false
     reproduce: { run: 'aws rds describe-db-instances --db-instance-identifier cloudalbum-{{ session.env }}-pitr', runsOn: workstation }
     manualFallback:
-      where: { breadcrumb: [RDS, 数据库], region: app }
+      where: { breadcrumb: [RDS, { zh-CN: 数据库, ja: データベース, en: Databases }], region: app }
       observed:
         question:
           zh-CN: 列表中还能找到 cloudalbum-{{ session.env }}-pitr 吗？

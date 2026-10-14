@@ -23,7 +23,7 @@ checks:
       en: Reads the lab instance's metadata options, attached volumes and instance profile; the platform created the lab instance when the session started (session-or-start).
     reproduce: { run: 'aws ec2 describe-instances --instance-ids {{ target.instanceId }} --query "Reservations[0].Instances[0].{Metadata:MetadataOptions,Volumes:BlockDeviceMappings[].DeviceName,Profile:IamInstanceProfile.Arn}"', runsOn: workstation }
     manualFallback:
-      where: { breadcrumb: [EC2, 实例, '{{ target.instanceId }}', 安全], region: app }
+      where: { breadcrumb: [EC2, { zh-CN: 实例, ja: インスタンス, en: Instances }, '{{ target.instanceId }}', { zh-CN: 安全, ja: セキュリティ, en: Security }], region: app }
       observed:
         question:
           zh-CN: 实例元数据服务的“IMDSv2”一项显示什么？
@@ -87,7 +87,7 @@ checks:
       en: The root volume is deleted when the instance terminates; the data volume is a separate EBS volume whose lifecycle is independent of the instance, so you can detach it and attach it to a new instance, snapshot it or grow it on its own.
     reproduce: { run: 'aws ec2 describe-volumes --filters Name=attachment.instance-id,Values={{ target.instanceId }} --query "Volumes[].{Id:VolumeId,Size:Size,Encrypted:Encrypted,DeleteOnTermination:Attachments[0].DeleteOnTermination,Tags:Tags}"', runsOn: workstation }
     manualFallback:
-      where: { breadcrumb: [EC2, 实例, '{{ target.instanceId }}', 存储], region: app }
+      where: { breadcrumb: [EC2, { zh-CN: 实例, ja: インスタンス, en: Instances }, '{{ target.instanceId }}', { zh-CN: 存储, ja: ストレージ, en: Storage }], region: app }
       observed:
         question:
           zh-CN: 两块卷中，哪一块的“终止时删除”为“否”？
@@ -347,7 +347,7 @@ checks:
       en: Events are looked up by resource name (the lab instance's instance ID); the lab instance was created when this session started, so these events can only come from this session. The CloudTrail event history lags by a few minutes to over ten minutes.
     reproduce: { run: 'aws cloudtrail lookup-events --lookup-attributes AttributeKey=ResourceName,AttributeValue={{ target.instanceId }} --max-results 20 --query "Events[].[EventTime,EventName,Username]" --output table', runsOn: workstation }
     manualFallback:
-      where: { breadcrumb: [CloudTrail, 事件历史], region: app }
+      where: { breadcrumb: [CloudTrail, { zh-CN: 事件历史, ja: イベント履歴, en: Event history }], region: app }
       observed:
         question:
           zh-CN: 按“资源名称 = {{ target.instanceId }}”筛选，能看到 StopInstances 与 StartInstances 吗？
@@ -386,7 +386,7 @@ checks:
       en: Without an EIP, the auto-assigned public IPv4 usually changes after a stop and start; an EIP keeps the address the same (it is also billed by the hour).
     reproduce: { run: 'aws ec2 describe-addresses --filters Name=public-ip,Values={{ target.publicIp }} --query "Addresses[].[PublicIp,InstanceId]"', runsOn: workstation }
     manualFallback:
-      where: { breadcrumb: [EC2, 弹性 IP], region: app }
+      where: { breadcrumb: [EC2, { zh-CN: 弹性 IP, ja: Elastic IP, en: Elastic IPs }], region: app }
       observed:
         question:
           zh-CN: 弹性 IP {{ target.publicIp }} 关联的实例 ID 是否就是实验机？

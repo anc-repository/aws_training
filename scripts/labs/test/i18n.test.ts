@@ -7,7 +7,7 @@ import path from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { buildContent } from '../src/build.js';
 import { loadContent } from '../src/content.js';
-import { diffPointers, isTextPointer, localizeDoc, manualLanguageOf, textPatterns } from '../src/l10n.js';
+import { diffPointers, isNeutralText, isTextPointer, localizeDoc, manualLanguageOf, textFields, textPatterns } from '../src/l10n.js';
 import { lintTranslations, translationCoverage } from '../src/lint/i18n.js';
 import { lintLabs } from '../src/lint/index.js';
 import { labsPaths, REPO_ROOT } from '../src/paths.js';
@@ -30,15 +30,18 @@ function editYaml(file: string, mutate: (doc: Doc) => void): void {
 
 const TITLE = { ja: 'Amazon CloudFront：コンテンツ配信とエッジキャッシュ', en: 'Amazon CloudFront: content delivery and edge caching' };
 
+/** A document with every localized object replaced by its zh-CN source text. */
+function stripLocalized(v: unknown): unknown {
+  if (Array.isArray(v)) return v.map(stripLocalized);
+  if (!v || typeof v !== 'object') return v;
+  const keys = Object.keys(v);
+  if (keys.includes('zh-CN') && keys.every((k) => ['zh-CN', 'ja', 'en'].includes(k))) return (v as Doc)['zh-CN'];
+  return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, stripLocalized(x)]));
+}
+
 /** The repository's svc-cdn is translated; the tests below start from its zh-CN source and add their own translations. */
 function sourceOnly(card: string): void {
-  const strip = (v: unknown): unknown => {
-    if (Array.isArray(v)) return v.map(strip);
-    if (!v || typeof v !== 'object') return v;
-    const keys = Object.keys(v);
-    if (keys.includes('zh-CN') && keys.every((k) => ['zh-CN', 'ja', 'en'].includes(k))) return (v as Doc)['zh-CN'];
-    return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, strip(x)]));
-  };
+  const strip = stripLocalized;
   const files = ['lab.yaml', 'quiz.yaml', ...fs.readdirSync(path.join(card, 'checks')).map((f) => path.join('checks', f))];
   for (const f of files) editYaml(path.join(card, f), (doc) => Object.assign(doc, strip(doc)));
   for (const lang of ['ja', 'en']) fs.rmSync(path.join(card, 'manual', lang), { recursive: true, force: true });
@@ -50,6 +53,8 @@ beforeAll(async () => {
   fs.cpSync(path.join(REPO_ROOT, 'labs'), copy, { recursive: true });
   const card = path.join(copy, 'svc-cdn');
   sourceOnly(card);
+  // the repository's taxonomy is translated too; the index assertions below expect its fallbacks
+  editYaml(path.join(copy, '_catalog', 'taxonomy.yaml'), (doc) => Object.assign(doc, stripLocalized(doc)));
   editYaml(path.join(card, 'lab.yaml'), (lab) => {
     lab.title = { 'zh-CN': lab.title, ...TITLE };
     lab.steps[0].title = { 'zh-CN': lab.steps[0].title, en: 'Where we start' };
@@ -88,6 +93,15 @@ describe('text fields from the schemas', () => {
     expect(localizeDoc(doc, 'lab', { lang: 'en' })).toEqual({ title: 'Title', summary: '摘要', id: 'svc-x' });
     const marked = localizeDoc(doc, 'lab', { lang: 'ja', mark: true });
     expect(diffPointers(localizeDoc(doc, 'lab', { lang: 'ja' }), marked)).toEqual(['/title', '/summary']);
+    // language-neutral plain strings (names, ids, templates) are no fallback; Chinese text is
+    const crumbs = { checks: [{ manualFallback: { where: { breadcrumb: ['EC2', { 'zh-CN': '安全组', ja: 'セキュリティグループ' }, '{{ target.sgId }}', '入站规则'] } } }] };
+    expect(isTextPointer('check', '/checks/0/manualFallback/where/breadcrumb/1')).toBe(true);
+    const ja = localizeDoc(crumbs, 'check', { lang: 'ja' });
+    expect(diffPointers(ja, localizeDoc(crumbs, 'check', { lang: 'ja', mark: true }))).toEqual(['/checks/0/manualFallback/where/breadcrumb/3']);
+    expect(ja.checks[0]!.manualFallback.where.breadcrumb).toEqual(['EC2', 'セキュリティグループ', '{{ target.sgId }}', '入站规则']);
+    expect(isNeutralText('cloudalbum-{{ session.env }}-cache')).toBe(true);
+    expect(isNeutralText('入站规则')).toBe(false);
+    expect(isNeutralText('ルール')).toBe(false);
     expect(manualLanguageOf('manual/ja/10-x.md')).toEqual({ lang: 'ja', file: 'manual/10-x.md' });
     expect(manualLanguageOf('manual/10-x.md')).toEqual({ lang: 'zh-CN', file: 'manual/10-x.md' });
     expect(manualLanguageOf('manual/zh-CN/10-x.md')).toEqual({ lang: 'zh-CN', file: 'manual/10-x.md' });
@@ -143,7 +157,18 @@ describe('labs:lint with translations', () => {
 
   it('counts the translated fields and manuals', () => {
     const row = translationCoverage(loadContent(labsPaths(copy))).find((r) => r.card === 'svc-cdn')!;
-    expect(row.translated).toMatchObject({ ja: 2, en: 2 });
+    // language-neutral plain strings (names, ids, templates such as `CloudFront`, `{{ var.distributionId }}`) count as translated
+    const card = path.join(copy, 'svc-cdn');
+    const files: [string, 'lab' | 'quiz' | 'check'][] = [
+      ['lab.yaml', 'lab'],
+      ['quiz.yaml', 'quiz'],
+      ...fs.readdirSync(path.join(card, 'checks')).map((f): [string, 'check'] => [path.join('checks', f), 'check']),
+    ];
+    const neutral = files
+      .flatMap(([f, schema]) => textFields(parseYamlText(fs.readFileSync(path.join(card, f), 'utf8'), f), schema))
+      .filter((f) => f.texts['zh-CN'] !== undefined && f.texts.ja === f.texts['zh-CN'] && isNeutralText(f.texts['zh-CN'])).length;
+    expect(neutral).toBeGreaterThan(0);
+    expect(row.translated).toMatchObject({ ja: 2 + neutral, en: 2 + neutral });
     expect(row.manualsTranslated).toMatchObject({ ja: 1, en: 0 });
     expect(row.fields).toBeGreaterThan(50);
   });
@@ -181,6 +206,8 @@ describe('labs:build per language', () => {
     expect(card.i18n.fallback).not.toContain('/title');
     expect(card.i18n.fallback).toContain('/summary');
     expect(index.tracks.every((t: { i18n?: { lang: string } }) => t.i18n?.lang === 'ja')).toBe(true);
+    // translated learning paths have no fallback in the index either (not even their own `/i18n`)
+    expect(index.tracks.filter((t: { i18n: { fallback: string[] } }) => t.i18n.fallback.length > 0).map((t: { id: string }) => t.id)).toEqual([]);
     expect(index.i18n.fallback.some((p: string) => p.startsWith('/taxonomy/'))).toBe(true);
     const intro = readJson('ja/catalog/cards/svc-cdn.json');
     expect(intro.i18n.fallback).toContain('/overview');

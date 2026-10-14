@@ -178,7 +178,7 @@ details.more .more-body{display:grid; gap:6px}
 .dom-mark svg{fill:none; stroke:currentColor; stroke-width:1.5; stroke-linecap:round; stroke-linejoin:round}
 .chips .dom-mark{width:18px; height:18px; border:0; margin-right:2px; vertical-align:-4px}
 .chips{list-style:none; margin:0; padding:0; display:flex; flex-wrap:wrap; gap:6px}
-.chips .tag{display:inline-flex; align-items:center; gap:2px}
+.chips .tag{display:inline-flex; align-items:center; gap:2px; white-space:normal; max-width:100%; min-width:0; overflow-wrap:anywhere} /* long ja / en topics wrap at 400px */
 .vs-list{list-style:none; margin:0; padding:0; display:grid; gap:10px}
 .vs-pair{margin:0; display:grid; grid-template-columns:minmax(0,1fr) auto minmax(0,1fr); gap:8px; align-items:stretch}
 .vs-side{display:grid; justify-items:center; align-content:start; gap:4px; padding:10px 8px; border:1px solid var(--border); border-radius:6px; background:var(--surface); text-align:center; min-width:0}

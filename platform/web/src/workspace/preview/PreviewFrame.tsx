@@ -45,8 +45,9 @@ export const REASON_TEXT: Record<string, { readonly text: string; readonly hint?
 const ENTRY_TEXT: Readonly<Record<string, string>> = WP.entry;
 const PREVIEW_STATES = ['READY', 'RUNNING', 'EXPIRING', 'KEPT'];
 
+/** Entry names come from the dictionary (current language); the API's `label` is its zh-CN default, kept for unknown ids. */
 export function entryLabel(t: PreviewTarget): string {
-  return `${t.label ?? ENTRY_TEXT[t.id] ?? t.id} · ${redact(t.url)}`;
+  return `${ENTRY_TEXT[t.id] ?? t.label ?? t.id} · ${redact(t.url)}`;
 }
 
 function joinPath(base: string, path: string): string {
@@ -149,7 +150,7 @@ export function PreviewFrame({ active, narrow }: { active: boolean; narrow: bool
             <iframe
               key={`${t.id}-${nonce}`}
               src={url}
-              title={tr(WP.frameTitle, { entry: t.label ?? ENTRY_TEXT[t.id] ?? t.id })}
+              title={tr(WP.frameTitle, { entry: ENTRY_TEXT[t.id] ?? t.label ?? t.id })}
               sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox allow-downloads"
               allow="clipboard-write"
               referrerPolicy="no-referrer"

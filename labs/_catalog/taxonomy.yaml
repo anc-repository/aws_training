@@ -8,83 +8,450 @@ schema: atl.taxonomy/v1
 version: 1.0.0
 
 categories:
-  - { id: base, label: 基础（EC2）, token: --cat-base, symbol: square }
-  - { id: A, label: 入口、网络与扩展, token: --cat-a, symbol: triangle }
-  - { id: B, label: 身份与安全, token: --cat-b, symbol: diamond }
-  - { id: C, label: 数据与存储, token: --cat-c, symbol: circle }
-  - { id: D, label: 计算、异步与通知, token: --cat-d, symbol: hexagon }
-  - { id: E, label: 运维与监控, token: --cat-e, symbol: plus }
-  - { id: F, label: 治理、成本与交付, token: --cat-f, symbol: bars }
+  - id: base
+    label: { zh-CN: 基础（EC2）, ja: 基盤（EC2）, en: Base (EC2) }
+    token: --cat-base
+    symbol: square
+  - id: A
+    label: { zh-CN: 入口、网络与扩展, ja: 入口・ネットワーク・スケーリング, en: "Entry, networking, and scaling" }
+    token: --cat-a
+    symbol: triangle
+  - id: B
+    label: { zh-CN: 身份与安全, ja: ID とセキュリティ, en: Identity and security }
+    token: --cat-b
+    symbol: diamond
+  - id: C
+    label: { zh-CN: 数据与存储, ja: データとストレージ, en: Data and storage }
+    token: --cat-c
+    symbol: circle
+  - id: D
+    label: { zh-CN: 计算、异步与通知, ja: コンピューティング・非同期・通知, en: "Compute, async, and notifications" }
+    token: --cat-d
+    symbol: hexagon
+  - id: E
+    label: { zh-CN: 运维与监控, ja: 運用と監視, en: Operations and monitoring }
+    token: --cat-e
+    symbol: plus
+  - id: F
+    label: { zh-CN: 治理、成本与交付, ja: ガバナンス・コスト・デリバリー, en: "Governance, cost, and delivery" }
+    token: --cat-f
+    symbol: bars
 
 services:
   # 基础
-  - { id: ec2, abbr: EC2, name: Amazon EC2, short: EC2, function: 运行整个应用, category: base, module: ec2, iamPrefix: ec2 }
+  - id: ec2
+    abbr: EC2
+    name: { zh-CN: Amazon EC2, ja: Amazon EC2, en: Amazon EC2 }
+    short: { zh-CN: EC2, ja: EC2, en: EC2 }
+    function: { zh-CN: 运行整个应用, ja: アプリ全体を実行, en: Runs the whole app }
+    category: base
+    module: ec2
+    iamPrefix: ec2
   # A 入口、网络与扩展
-  - { id: vpc, abbr: VPC, name: Amazon VPC, short: VPC, function: 网络隔离, category: A, module: network, iamPrefix: ec2 }
-  - { id: cloudfront, abbr: CF, name: Amazon CloudFront, short: CloudFront, function: 内容分发与边缘缓存, category: A, module: cdn, iamPrefix: cloudfront }
-  - { id: route53, abbr: R53, name: Amazon Route 53, short: Route 53, function: 域名解析, category: A, module: dns, iamPrefix: route53 }
-  - { id: acm, abbr: ACM, name: AWS Certificate Manager, short: ACM, function: HTTPS 证书, category: A, module: tls, iamPrefix: acm }
-  - { id: waf, abbr: WAF, name: AWS WAF, short: WAF, function: Web 应用防护, category: A, module: waf, iamPrefix: wafv2, consoleHome: wafv2.webAcls }
-  - { id: elb, abbr: ALB, name: Elastic Load Balancing, short: ALB, function: 负载均衡（ALB）, category: A, module: load-balancer, iamPrefix: elasticloadbalancing, consoleHome: ec2.loadBalancers }
-  - { id: autoscaling, abbr: ASG, name: Amazon EC2 Auto Scaling, short: Auto Scaling, function: 弹性伸缩, category: A, module: autoscaling, iamPrefix: autoscaling }
+  - id: vpc
+    abbr: VPC
+    name: { zh-CN: Amazon VPC, ja: Amazon VPC, en: Amazon VPC }
+    short: { zh-CN: VPC, ja: VPC, en: VPC }
+    function: { zh-CN: 网络隔离, ja: ネットワーク分離, en: Network isolation }
+    category: A
+    module: network
+    iamPrefix: ec2
+  - id: cloudfront
+    abbr: CF
+    name: { zh-CN: Amazon CloudFront, ja: Amazon CloudFront, en: Amazon CloudFront }
+    short: { zh-CN: CloudFront, ja: CloudFront, en: CloudFront }
+    function: { zh-CN: 内容分发与边缘缓存, ja: コンテンツ配信とエッジキャッシュ, en: Content delivery and edge caching }
+    category: A
+    module: cdn
+    iamPrefix: cloudfront
+  - id: route53
+    abbr: R53
+    name: { zh-CN: Amazon Route 53, ja: Amazon Route 53, en: Amazon Route 53 }
+    short: { zh-CN: Route 53, ja: Route 53, en: Route 53 }
+    function: { zh-CN: 域名解析, ja: ドメイン名の解決, en: Domain name resolution }
+    category: A
+    module: dns
+    iamPrefix: route53
+  - id: acm
+    abbr: ACM
+    name: { zh-CN: AWS Certificate Manager, ja: AWS Certificate Manager, en: AWS Certificate Manager }
+    short: { zh-CN: ACM, ja: ACM, en: ACM }
+    function: { zh-CN: HTTPS 证书, ja: HTTPS 証明書, en: HTTPS certificates }
+    category: A
+    module: tls
+    iamPrefix: acm
+  - id: waf
+    abbr: WAF
+    name: { zh-CN: AWS WAF, ja: AWS WAF, en: AWS WAF }
+    short: { zh-CN: WAF, ja: WAF, en: WAF }
+    function: { zh-CN: Web 应用防护, ja: Web アプリケーションの保護, en: Web application protection }
+    category: A
+    module: waf
+    iamPrefix: wafv2
+    consoleHome: wafv2.webAcls
+  - id: elb
+    abbr: ALB
+    name: { zh-CN: Elastic Load Balancing, ja: Elastic Load Balancing, en: Elastic Load Balancing }
+    short: { zh-CN: ALB, ja: ALB, en: ALB }
+    function: { zh-CN: 负载均衡（ALB）, ja: 負荷分散（ALB）, en: Load balancing (ALB) }
+    category: A
+    module: load-balancer
+    iamPrefix: elasticloadbalancing
+    consoleHome: ec2.loadBalancers
+  - id: autoscaling
+    abbr: ASG
+    name: { zh-CN: Amazon EC2 Auto Scaling, ja: Amazon EC2 Auto Scaling, en: Amazon EC2 Auto Scaling }
+    short: { zh-CN: Auto Scaling, ja: Auto Scaling, en: Auto Scaling }
+    function: { zh-CN: 弹性伸缩, ja: 自動スケーリング, en: Automatic scaling }
+    category: A
+    module: autoscaling
+    iamPrefix: autoscaling
   # B 身份与安全
-  - { id: iam, abbr: IAM, name: AWS IAM, short: IAM, function: 服务器访问 AWS 的凭证, category: B, module: iam, iamPrefix: iam }
-  - { id: cognito-user-pool, abbr: CUP, name: Amazon Cognito User Pool, short: User Pool, function: 用户注册登录, category: B, module: auth, iamPrefix: cognito-idp }
-  - { id: cognito-identity-pool, abbr: CIP, name: Amazon Cognito Identity Pool, short: Identity Pool, function: 终端用户直传 S3, category: B, module: identity-pool, iamPrefix: cognito-identity }
-  - { id: secretsmanager, abbr: SEC, name: AWS Secrets Manager, short: Secrets Manager, function: 密码与密钥管理, category: B, module: secrets, iamPrefix: secretsmanager }
-  - { id: ssm-parameter-store, abbr: PS, name: AWS Systems Manager Parameter Store, short: Parameter Store, function: 运行时配置, category: B, module: config, iamPrefix: ssm }
-  - { id: kms, abbr: KMS, name: AWS KMS, short: KMS, function: 数据加密密钥, category: B, module: kms, iamPrefix: kms }
+  - id: iam
+    abbr: IAM
+    name: { zh-CN: AWS IAM, ja: AWS IAM, en: AWS IAM }
+    short: { zh-CN: IAM, ja: IAM, en: IAM }
+    function: { zh-CN: 服务器访问 AWS 的凭证, ja: サーバーが AWS にアクセスする認証情報, en: Server credentials for AWS }
+    category: B
+    module: iam
+    iamPrefix: iam
+  - id: cognito-user-pool
+    abbr: CUP
+    name: { zh-CN: Amazon Cognito User Pool, ja: Amazon Cognito User Pool, en: Amazon Cognito User Pool }
+    short: { zh-CN: User Pool, ja: User Pool, en: User Pool }
+    function: { zh-CN: 用户注册登录, ja: ユーザー登録とサインイン, en: User sign-up and sign-in }
+    category: B
+    module: auth
+    iamPrefix: cognito-idp
+  - id: cognito-identity-pool
+    abbr: CIP
+    name: { zh-CN: Amazon Cognito Identity Pool, ja: Amazon Cognito Identity Pool, en: Amazon Cognito Identity Pool }
+    short: { zh-CN: Identity Pool, ja: Identity Pool, en: Identity Pool }
+    function: { zh-CN: 终端用户直传 S3, ja: エンドユーザーから S3 へ直接アップロード, en: Direct uploads from users to S3 }
+    category: B
+    module: identity-pool
+    iamPrefix: cognito-identity
+  - id: secretsmanager
+    abbr: SEC
+    name: { zh-CN: AWS Secrets Manager, ja: AWS Secrets Manager, en: AWS Secrets Manager }
+    short: { zh-CN: Secrets Manager, ja: Secrets Manager, en: Secrets Manager }
+    function: { zh-CN: 密码与密钥管理, ja: パスワードとシークレットの管理, en: Password and secret management }
+    category: B
+    module: secrets
+    iamPrefix: secretsmanager
+  - id: ssm-parameter-store
+    abbr: PS
+    name: { zh-CN: AWS Systems Manager Parameter Store, ja: AWS Systems Manager Parameter Store, en: AWS Systems Manager Parameter Store }
+    short: { zh-CN: Parameter Store, ja: Parameter Store, en: Parameter Store }
+    function: { zh-CN: 运行时配置, ja: 実行時の設定, en: Runtime configuration }
+    category: B
+    module: config
+    iamPrefix: ssm
+  - id: kms
+    abbr: KMS
+    name: { zh-CN: AWS KMS, ja: AWS KMS, en: AWS KMS }
+    short: { zh-CN: KMS, ja: KMS, en: KMS }
+    function: { zh-CN: 数据加密密钥, ja: データ暗号化キー, en: Data encryption keys }
+    category: B
+    module: kms
+    iamPrefix: kms
   # C 数据与存储
-  - { id: s3, abbr: S3, name: Amazon S3, short: S3, function: 照片对象存储, category: C, module: storage, iamPrefix: s3 }
-  - { id: efs, abbr: EFS, name: Amazon EFS, short: EFS, function: 多实例共享文件系统, category: C, module: shared-fs, iamPrefix: elasticfilesystem }
-  - { id: rds, abbr: RDS, name: Amazon RDS for PostgreSQL, short: RDS, function: 托管关系数据库, category: C, module: database, iamPrefix: rds }
-  - { id: elasticache, abbr: ELC, name: Amazon ElastiCache, short: ElastiCache, function: 共享缓存, category: C, module: cache, iamPrefix: elasticache }
-  - { id: dynamodb, abbr: DDB, name: Amazon DynamoDB, short: DynamoDB, function: 点赞、评论与分享链接, category: C, module: social-store, iamPrefix: dynamodb }
-  - { id: backup, abbr: BAK, name: AWS Backup, short: Backup, function: 盘外备份与恢复演练, category: C, module: backup, iamPrefix: backup }
-  - { id: firehose, abbr: FH, name: Amazon Data Firehose, short: Firehose, function: 点击流采集与投递, category: C, module: analytics, iamPrefix: firehose }
+  - id: s3
+    abbr: S3
+    name: { zh-CN: Amazon S3, ja: Amazon S3, en: Amazon S3 }
+    short: { zh-CN: S3, ja: S3, en: S3 }
+    function: { zh-CN: 照片对象存储, ja: 写真のオブジェクトストレージ, en: Photo object storage }
+    category: C
+    module: storage
+    iamPrefix: s3
+  - id: efs
+    abbr: EFS
+    name: { zh-CN: Amazon EFS, ja: Amazon EFS, en: Amazon EFS }
+    short: { zh-CN: EFS, ja: EFS, en: EFS }
+    function: { zh-CN: 多实例共享文件系统, ja: 複数インスタンスで共有するファイルシステム, en: Shared file system across instances }
+    category: C
+    module: shared-fs
+    iamPrefix: elasticfilesystem
+  - id: rds
+    abbr: RDS
+    name: { zh-CN: Amazon RDS for PostgreSQL, ja: Amazon RDS for PostgreSQL, en: Amazon RDS for PostgreSQL }
+    short: { zh-CN: RDS, ja: RDS, en: RDS }
+    function: { zh-CN: 托管关系数据库, ja: マネージドなリレーショナルデータベース, en: Managed relational database }
+    category: C
+    module: database
+    iamPrefix: rds
+  - id: elasticache
+    abbr: ELC
+    name: { zh-CN: Amazon ElastiCache, ja: Amazon ElastiCache, en: Amazon ElastiCache }
+    short: { zh-CN: ElastiCache, ja: ElastiCache, en: ElastiCache }
+    function: { zh-CN: 共享缓存, ja: 共有キャッシュ, en: Shared cache }
+    category: C
+    module: cache
+    iamPrefix: elasticache
+  - id: dynamodb
+    abbr: DDB
+    name: { zh-CN: Amazon DynamoDB, ja: Amazon DynamoDB, en: Amazon DynamoDB }
+    short: { zh-CN: DynamoDB, ja: DynamoDB, en: DynamoDB }
+    function: { zh-CN: 点赞、评论与分享链接, ja: いいね・コメント・共有リンク, en: "Likes, comments, and share links" }
+    category: C
+    module: social-store
+    iamPrefix: dynamodb
+  - id: backup
+    abbr: BAK
+    name: { zh-CN: AWS Backup, ja: AWS Backup, en: AWS Backup }
+    short: { zh-CN: Backup, ja: Backup, en: Backup }
+    function: { zh-CN: 盘外备份与恢复演练, ja: ディスク外へのバックアップと復元演習, en: Off-volume backups and restore drills }
+    category: C
+    module: backup
+    iamPrefix: backup
+  - id: firehose
+    abbr: FH
+    name: { zh-CN: Amazon Data Firehose, ja: Amazon Data Firehose, en: Amazon Data Firehose }
+    short: { zh-CN: Firehose, ja: Firehose, en: Firehose }
+    function: { zh-CN: 点击流采集与投递, ja: クリックストリームの収集と配信, en: Clickstream collection and delivery }
+    category: C
+    module: analytics
+    iamPrefix: firehose
   # D 计算、异步与通知
-  - { id: lambda, abbr: λ, name: AWS Lambda, short: Lambda, function: 缩略图生成, category: D, module: image-processing, iamPrefix: lambda }
-  - { id: sqs, abbr: SQS, name: Amazon SQS, short: SQS, function: 异步任务队列与死信队列, category: D, module: queue, iamPrefix: sqs }
-  - { id: sns, abbr: SNS, name: Amazon SNS, short: SNS, function: 通知扇出与订阅过滤, category: D, module: notification, iamPrefix: sns }
-  - { id: ses, abbr: SES, name: Amazon SES, short: SES, function: 真实发信与退信回流, category: D, module: email, iamPrefix: ses }
-  - { id: scheduler, abbr: SCH, name: Amazon EventBridge Scheduler, short: Scheduler, function: 不漏跑的定时任务, category: D, module: scheduler, iamPrefix: scheduler }
-  - { id: rekognition, abbr: REK, name: Amazon Rekognition, short: Rekognition, function: 图片识别与审核, category: D, module: tagging, iamPrefix: rekognition }
-  - { id: apigateway, abbr: APIG, name: Amazon API Gateway, short: API Gateway, function: 社交 API 托管入口, category: D, module: social-api, iamPrefix: apigateway }
+  - id: lambda
+    abbr: λ
+    name: { zh-CN: AWS Lambda, ja: AWS Lambda, en: AWS Lambda }
+    short: { zh-CN: Lambda, ja: Lambda, en: Lambda }
+    function: { zh-CN: 缩略图生成, ja: サムネイル生成, en: Thumbnail generation }
+    category: D
+    module: image-processing
+    iamPrefix: lambda
+  - id: sqs
+    abbr: SQS
+    name: { zh-CN: Amazon SQS, ja: Amazon SQS, en: Amazon SQS }
+    short: { zh-CN: SQS, ja: SQS, en: SQS }
+    function: { zh-CN: 异步任务队列与死信队列, ja: 非同期ジョブキューとデッドレターキュー, en: Async job queue and dead-letter queue }
+    category: D
+    module: queue
+    iamPrefix: sqs
+  - id: sns
+    abbr: SNS
+    name: { zh-CN: Amazon SNS, ja: Amazon SNS, en: Amazon SNS }
+    short: { zh-CN: SNS, ja: SNS, en: SNS }
+    function: { zh-CN: 通知扇出与订阅过滤, ja: 通知のファンアウトとサブスクリプションフィルター, en: Notification fan-out and subscription filters }
+    category: D
+    module: notification
+    iamPrefix: sns
+  - id: ses
+    abbr: SES
+    name: { zh-CN: Amazon SES, ja: Amazon SES, en: Amazon SES }
+    short: { zh-CN: SES, ja: SES, en: SES }
+    function: { zh-CN: 真实发信与退信回流, ja: 実際のメール送信とバウンス処理, en: Real email delivery and bounce handling }
+    category: D
+    module: email
+    iamPrefix: ses
+  - id: scheduler
+    abbr: SCH
+    name: { zh-CN: Amazon EventBridge Scheduler, ja: Amazon EventBridge Scheduler, en: Amazon EventBridge Scheduler }
+    short: { zh-CN: Scheduler, ja: Scheduler, en: Scheduler }
+    function: { zh-CN: 不漏跑的定时任务, ja: 取りこぼしのない定期実行, en: Scheduled jobs that never miss a run }
+    category: D
+    module: scheduler
+    iamPrefix: scheduler
+  - id: rekognition
+    abbr: REK
+    name: { zh-CN: Amazon Rekognition, ja: Amazon Rekognition, en: Amazon Rekognition }
+    short: { zh-CN: Rekognition, ja: Rekognition, en: Rekognition }
+    function: { zh-CN: 图片识别与审核, ja: 画像認識とモデレーション, en: Image recognition and moderation }
+    category: D
+    module: tagging
+    iamPrefix: rekognition
+  - id: apigateway
+    abbr: APIG
+    name: { zh-CN: Amazon API Gateway, ja: Amazon API Gateway, en: Amazon API Gateway }
+    short: { zh-CN: API Gateway, ja: API Gateway, en: API Gateway }
+    function: { zh-CN: 社交 API 托管入口, ja: ソーシャル API のマネージド入口, en: Managed entry point for the social API }
+    category: D
+    module: social-api
+    iamPrefix: apigateway
   # E 运维与监控
-  - { id: ssm-session-manager, abbr: SSM, name: AWS Systems Manager Session Manager, short: Session Manager, function: 运维登录, category: E, module: shell-access, iamPrefix: ssm, consoleHome: ssm.sessions }
-  - { id: cloudwatch-logs, abbr: CWL, name: Amazon CloudWatch Logs, short: CloudWatch Logs, function: 集中日志, category: E, module: logging, iamPrefix: logs }
-  - { id: cloudwatch, abbr: CW, name: Amazon CloudWatch, short: CloudWatch, function: 指标、告警与仪表板, category: E, module: monitoring, iamPrefix: cloudwatch }
-  - { id: xray, abbr: XR, name: AWS X-Ray, short: X-Ray, function: 分布式链路追踪, category: E, module: tracing, iamPrefix: xray }
-  - { id: cloudtrail, abbr: CT, name: AWS CloudTrail, short: CloudTrail, function: AWS API 操作审计, category: E, module: audit, iamPrefix: cloudtrail, consoleHome: cloudtrail.events }
-  - { id: guardduty, abbr: GD, name: Amazon GuardDuty, short: GuardDuty, function: 威胁检测, category: E, module: threat-detection, iamPrefix: guardduty }
+  - id: ssm-session-manager
+    abbr: SSM
+    name: { zh-CN: AWS Systems Manager Session Manager, ja: AWS Systems Manager Session Manager, en: AWS Systems Manager Session Manager }
+    short: { zh-CN: Session Manager, ja: Session Manager, en: Session Manager }
+    function: { zh-CN: 运维登录, ja: 運用ログイン, en: Operator shell access }
+    category: E
+    module: shell-access
+    iamPrefix: ssm
+    consoleHome: ssm.sessions
+  - id: cloudwatch-logs
+    abbr: CWL
+    name: { zh-CN: Amazon CloudWatch Logs, ja: Amazon CloudWatch Logs, en: Amazon CloudWatch Logs }
+    short: { zh-CN: CloudWatch Logs, ja: CloudWatch Logs, en: CloudWatch Logs }
+    function: { zh-CN: 集中日志, ja: ログの集約, en: Centralized logs }
+    category: E
+    module: logging
+    iamPrefix: logs
+  - id: cloudwatch
+    abbr: CW
+    name: { zh-CN: Amazon CloudWatch, ja: Amazon CloudWatch, en: Amazon CloudWatch }
+    short: { zh-CN: CloudWatch, ja: CloudWatch, en: CloudWatch }
+    function: { zh-CN: 指标、告警与仪表板, ja: メトリクス・アラーム・ダッシュボード, en: "Metrics, alarms, and dashboards" }
+    category: E
+    module: monitoring
+    iamPrefix: cloudwatch
+  - id: xray
+    abbr: XR
+    name: { zh-CN: AWS X-Ray, ja: AWS X-Ray, en: AWS X-Ray }
+    short: { zh-CN: X-Ray, ja: X-Ray, en: X-Ray }
+    function: { zh-CN: 分布式链路追踪, ja: 分散トレーシング, en: Distributed tracing }
+    category: E
+    module: tracing
+    iamPrefix: xray
+  - id: cloudtrail
+    abbr: CT
+    name: { zh-CN: AWS CloudTrail, ja: AWS CloudTrail, en: AWS CloudTrail }
+    short: { zh-CN: CloudTrail, ja: CloudTrail, en: CloudTrail }
+    function: { zh-CN: AWS API 操作审计, ja: AWS API 操作の監査, en: AWS API activity auditing }
+    category: E
+    module: audit
+    iamPrefix: cloudtrail
+    consoleHome: cloudtrail.events
+  - id: guardduty
+    abbr: GD
+    name: { zh-CN: Amazon GuardDuty, ja: Amazon GuardDuty, en: Amazon GuardDuty }
+    short: { zh-CN: GuardDuty, ja: GuardDuty, en: GuardDuty }
+    function: { zh-CN: 威胁检测, ja: 脅威検出, en: Threat detection }
+    category: E
+    module: threat-detection
+    iamPrefix: guardduty
   # F 治理、成本与交付
-  - { id: config, abbr: CFG, name: AWS Config, short: Config, function: 配置合规与漂移检测, category: F, module: compliance, iamPrefix: config }
-  - { id: inspector, abbr: INS, name: Amazon Inspector, short: Inspector, function: 漏洞扫描, category: F, module: vuln-scan, iamPrefix: inspector2 }
-  - { id: budgets, abbr: BUD, name: AWS Budgets, short: Budgets, function: 费用护栏与告警, category: F, module: cost, iamPrefix: budgets, consoleHome: budgets.home }
-  - { id: rds-proxy, abbr: RDSP, name: Amazon RDS Proxy, short: RDS Proxy, function: 数据库连接池, category: F, module: db-proxy, iamPrefix: rds }
-  - { id: stepfunctions, abbr: SFN, name: AWS Step Functions, short: Step Functions, function: 照片处理流程编排, category: F, module: workflow, iamPrefix: states }
-  - { id: imagebuilder, abbr: IMB, name: EC2 Image Builder, short: Image Builder, function: 黄金 AMI 构建, category: F, module: ami, iamPrefix: imagebuilder }
+  - id: config
+    abbr: CFG
+    name: { zh-CN: AWS Config, ja: AWS Config, en: AWS Config }
+    short: { zh-CN: Config, ja: Config, en: Config }
+    function: { zh-CN: 配置合规与漂移检测, ja: 設定のコンプライアンスとドリフト検出, en: Configuration compliance and drift detection }
+    category: F
+    module: compliance
+    iamPrefix: config
+  - id: inspector
+    abbr: INS
+    name: { zh-CN: Amazon Inspector, ja: Amazon Inspector, en: Amazon Inspector }
+    short: { zh-CN: Inspector, ja: Inspector, en: Inspector }
+    function: { zh-CN: 漏洞扫描, ja: 脆弱性スキャン, en: Vulnerability scanning }
+    category: F
+    module: vuln-scan
+    iamPrefix: inspector2
+  - id: budgets
+    abbr: BUD
+    name: { zh-CN: AWS Budgets, ja: AWS Budgets, en: AWS Budgets }
+    short: { zh-CN: Budgets, ja: Budgets, en: Budgets }
+    function: { zh-CN: 费用护栏与告警, ja: コストのガードレールとアラート, en: Cost guardrails and alerts }
+    category: F
+    module: cost
+    iamPrefix: budgets
+    consoleHome: budgets.home
+  - id: rds-proxy
+    abbr: RDSP
+    name: { zh-CN: Amazon RDS Proxy, ja: Amazon RDS Proxy, en: Amazon RDS Proxy }
+    short: { zh-CN: RDS Proxy, ja: RDS Proxy, en: RDS Proxy }
+    function: { zh-CN: 数据库连接池, ja: データベース接続プール, en: Database connection pooling }
+    category: F
+    module: db-proxy
+    iamPrefix: rds
+  - id: stepfunctions
+    abbr: SFN
+    name: { zh-CN: AWS Step Functions, ja: AWS Step Functions, en: AWS Step Functions }
+    short: { zh-CN: Step Functions, ja: Step Functions, en: Step Functions }
+    function: { zh-CN: 照片处理流程编排, ja: 写真処理ワークフローのオーケストレーション, en: Photo-processing workflow orchestration }
+    category: F
+    module: workflow
+    iamPrefix: states
+  - id: imagebuilder
+    abbr: IMB
+    name: { zh-CN: EC2 Image Builder, ja: EC2 Image Builder, en: EC2 Image Builder }
+    short: { zh-CN: Image Builder, ja: Image Builder, en: Image Builder }
+    function: { zh-CN: 黄金 AMI 构建, ja: ゴールデン AMI の構築, en: Golden AMI builds }
+    category: F
+    module: ami
+    iamPrefix: imagebuilder
   # 附属服务（不单独计算掌握度）
-  - { id: ebs, abbr: EBS, name: Amazon EBS, short: EBS, featureOf: ec2, iamPrefix: ec2 }
-  - { id: nat-gateway, abbr: NAT, name: NAT Gateway, short: NAT, featureOf: vpc, iamPrefix: ec2 }
-  - { id: vpc-endpoint, abbr: VPCE, name: VPC Endpoint, short: VPC 终端节点, featureOf: vpc, iamPrefix: ec2 }
-  - { id: eventbridge, abbr: EB, name: Amazon EventBridge, short: EventBridge, iamPrefix: events }
-  - { id: athena, abbr: ATH, name: Amazon Athena, short: Athena, featureOf: firehose, iamPrefix: athena }
-  - { id: glue, abbr: GLU, name: AWS Glue, short: Glue, featureOf: firehose, iamPrefix: glue }
-  - { id: cost-explorer, abbr: CE, name: AWS Cost Explorer, short: Cost Explorer, featureOf: budgets, iamPrefix: ce }
-  - { id: shield, abbr: SHD, name: AWS Shield, short: Shield, featureOf: waf, iamPrefix: shield }
-  - { id: sts, abbr: STS, name: AWS STS, short: STS, featureOf: iam, iamPrefix: sts }
+  - id: ebs
+    abbr: EBS
+    name: { zh-CN: Amazon EBS, ja: Amazon EBS, en: Amazon EBS }
+    short: { zh-CN: EBS, ja: EBS, en: EBS }
+    featureOf: ec2
+    iamPrefix: ec2
+  - id: nat-gateway
+    abbr: NAT
+    name: { zh-CN: NAT Gateway, ja: NAT Gateway, en: NAT Gateway }
+    short: { zh-CN: NAT, ja: NAT, en: NAT }
+    featureOf: vpc
+    iamPrefix: ec2
+  - id: vpc-endpoint
+    abbr: VPCE
+    name: { zh-CN: VPC Endpoint, ja: VPC Endpoint, en: VPC Endpoint }
+    short: { zh-CN: VPC 终端节点, ja: VPC エンドポイント, en: VPC endpoint }
+    featureOf: vpc
+    iamPrefix: ec2
+  - id: eventbridge
+    abbr: EB
+    name: { zh-CN: Amazon EventBridge, ja: Amazon EventBridge, en: Amazon EventBridge }
+    short: { zh-CN: EventBridge, ja: EventBridge, en: EventBridge }
+    iamPrefix: events
+  - id: athena
+    abbr: ATH
+    name: { zh-CN: Amazon Athena, ja: Amazon Athena, en: Amazon Athena }
+    short: { zh-CN: Athena, ja: Athena, en: Athena }
+    featureOf: firehose
+    iamPrefix: athena
+  - id: glue
+    abbr: GLU
+    name: { zh-CN: AWS Glue, ja: AWS Glue, en: AWS Glue }
+    short: { zh-CN: Glue, ja: Glue, en: Glue }
+    featureOf: firehose
+    iamPrefix: glue
+  - id: cost-explorer
+    abbr: CE
+    name: { zh-CN: AWS Cost Explorer, ja: AWS Cost Explorer, en: AWS Cost Explorer }
+    short: { zh-CN: Cost Explorer, ja: Cost Explorer, en: Cost Explorer }
+    featureOf: budgets
+    iamPrefix: ce
+  - id: shield
+    abbr: SHD
+    name: { zh-CN: AWS Shield, ja: AWS Shield, en: AWS Shield }
+    short: { zh-CN: Shield, ja: Shield, en: Shield }
+    featureOf: waf
+    iamPrefix: shield
+  - id: sts
+    abbr: STS
+    name: { zh-CN: AWS STS, ja: AWS STS, en: AWS STS }
+    short: { zh-CN: STS, ja: STS, en: STS }
+    featureOf: iam
+    iamPrefix: sts
 
 domains:
-  - { id: secure, label: 设计安全的架构, weight: 30, track: secure }
-  - { id: resilient, label: 设计弹性的架构, weight: 26, track: resilient }
-  - { id: performance, label: 设计高性能的架构, weight: 24, track: performant }
-  - { id: cost, label: 设计成本优化的架构, weight: 20, track: cost-optimized }
+  - id: secure
+    label: { zh-CN: 设计安全的架构, ja: セキュアなアーキテクチャの設計, en: Design Secure Architectures }
+    weight: 30
+    track: secure
+  - id: resilient
+    label: { zh-CN: 设计弹性的架构, ja: 回復性の高いアーキテクチャの設計, en: Design Resilient Architectures }
+    weight: 26
+    track: resilient
+  - id: performance
+    label: { zh-CN: 设计高性能的架构, ja: 高パフォーマンスなアーキテクチャの設計, en: Design High-Performing Architectures }
+    weight: 24
+    track: performant
+  - id: cost
+    label: { zh-CN: 设计成本优化的架构, ja: コストを最適化したアーキテクチャの設計, en: Design Cost-Optimized Architectures }
+    weight: 20
+    track: cost-optimized
 
 durationBuckets:
-  - { id: short, label: 1 小时以内, maxMinutes: 60 }
-  - { id: medium, label: 1～2 小时, maxMinutes: 120 }
-  - { id: long, label: 2 小时以上 }
+  - id: short
+    label: { zh-CN: 1 小时以内, ja: 1 時間以内, en: Up to 1 hour }
+    maxMinutes: 60
+  - id: medium
+    label: { zh-CN: 1～2 小时, ja: 1～2 時間, en: 1–2 hours }
+    maxMinutes: 120
+  - id: long
+    label: { zh-CN: 2 小时以上, ja: 2 時間以上, en: Over 2 hours }
 
 # 05 §3.3：只看计费结构，不看单价。weights 的键是 pricingKey 前缀（最长匹配），缺省权重 1；按月折算的小额固定项取 0。
 costTier:
@@ -97,7 +464,10 @@ costTier:
     dynamodb.provisioned: 0
     cognito.: 0
   accountScopedKeys: [guardduty., config., inspector.]
-  labels: { low: $ 低, medium: $$ 中, high: $$$ 高 }
+  labels:
+    low: { zh-CN: $ 低, ja: "$ 低", en: "$ Low" }
+    medium: { zh-CN: $$ 中, ja: "$$ 中", en: "$$ Medium" }
+    high: { zh-CN: $$$ 高, ja: "$$$ 高", en: "$$$ High" }
 
 # 05 §3.4、02 §11.1：起始状态中模块栈的部署速度（卡内创建的慢资源不影响部署等级）
 provisionSpeed:
@@ -148,12 +518,22 @@ provisionClassRules:
   replacement: [load-balancer, autoscaling, network]
 
 provisionClasses:
-  - { id: A, label: 环境准备较快, hint: 只有 L0 与快速创建的模块（IAM、S3、SQS 等） }
-  - { id: B, label: 环境准备中等, hint: 含 CloudFront 分配、ALB、Cognito 用户池或实例替换中的一两项 }
-  - { id: C, label: 环境准备较慢, hint: 含 RDS 或 ElastiCache 之一 }
-  - { id: D, label: 环境准备很慢, hint: RDS / ElastiCache 再叠加 ALB、另一个数据库或实例替换 }
+  - id: A
+    label: { zh-CN: 环境准备较快, ja: 環境準備が速い, en: Fast setup }
+    hint: { zh-CN: 只有 L0 与快速创建的模块（IAM、S3、SQS 等）, ja: L0 と、すぐに作成できるモジュール（IAM、S3、SQS など）だけ, en: "Only L0 and quick-to-create modules (IAM, S3, SQS, and so on)" }
+  - id: B
+    label: { zh-CN: 环境准备中等, ja: 環境準備は普通, en: Moderate setup }
+    hint: { zh-CN: 含 CloudFront 分配、ALB、Cognito 用户池或实例替换中的一两项, ja: CloudFront ディストリビューション、ALB、Cognito ユーザープール、インスタンスの置き換えのうち 1～2 項目を含む, en: "Includes one or two of a CloudFront distribution, an ALB, a Cognito user pool, or an instance replacement" }
+  - id: C
+    label: { zh-CN: 环境准备较慢, ja: 環境準備が遅め, en: Slow setup }
+    hint: { zh-CN: 含 RDS 或 ElastiCache 之一, ja: RDS または ElastiCache のどちらかを含む, en: Includes RDS or ElastiCache }
+  - id: D
+    label: { zh-CN: 环境准备很慢, ja: 環境準備がかなり遅い, en: Very slow setup }
+    hint: { zh-CN: RDS / ElastiCache 再叠加 ALB、另一个数据库或实例替换, ja: RDS / ElastiCache に加えて、ALB、別のデータベース、またはインスタンスの置き換えを含む, en: "RDS / ElastiCache plus an ALB, another database, or an instance replacement" }
 
 # 06 的种子登记表（PM-43）：provisions 中 kind: seed 的 id
 seeds:
-  - { id: cognito-test-users, title: 已验证邮箱、密码已知的测试账号 }
-  - { id: gps-sample-photos, title: 带 GPS 信息的示例照片 }
+  - id: cognito-test-users
+    title: { zh-CN: 已验证邮箱、密码已知的测试账号, ja: メールアドレス確認済みで、パスワードが分かっているテスト用アカウント, en: Test accounts with a verified email address and a known password }
+  - id: gps-sample-photos
+    title: { zh-CN: 带 GPS 信息的示例照片, ja: GPS 情報付きのサンプル写真, en: Sample photos with GPS data }

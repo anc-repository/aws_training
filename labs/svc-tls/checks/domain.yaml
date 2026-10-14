@@ -12,7 +12,10 @@ checks:
         ja: 自分の DNS で {{ learner.inputs.domain }} の A レコード → {{ target.publicIp }} を追加しました（フォールバックの分岐ではステップ 4 でディストリビューションへの CNAME に変更します）
         en: I added an A record {{ learner.inputs.domain }} → {{ target.publicIp }} in my own DNS (the fallback branch changes it to a CNAME to the distribution in step 4)
       input:
-        label: dig +short {{ learner.inputs.domain }} @8.8.8.8 的输出
+        label:
+          zh-CN: dig +short {{ learner.inputs.domain }} @8.8.8.8 的输出
+          ja: "dig +short {{ learner.inputs.domain }} @8.8.8.8 の出力"
+          en: "Output of dig +short {{ learner.inputs.domain }} @8.8.8.8"
         pattern: '^[0-9.\s]{7,200}$'
     explain:
       zh-CN: ACM 不能为 IP 或 amazonaws.com 名称签发证书，浏览器也要靠这条记录找到实验机；域名是你的前置输入（04 §3.2.3 规则 6）。

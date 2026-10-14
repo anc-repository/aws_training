@@ -102,7 +102,7 @@ checks:
       en: This session's image-processing module stack created the function; scripts/module packages the deployment package and uploads it to the toolchain bucket.
     reproduce: { run: 'aws lambda get-function-configuration --function-name "{{ var.functionName }}" --query "{Runtime:Runtime,Arch:Architectures,State:State,Memory:MemorySize}"', runsOn: workstation }
     manualFallback:
-      where: { breadcrumb: [Lambda, 函数, '{{ var.functionName }}', 配置, 常规配置], region: app }
+      where: { breadcrumb: [Lambda, { zh-CN: 函数, ja: 関数, en: Functions }, '{{ var.functionName }}', { zh-CN: 配置, ja: 設定, en: Configuration }, { zh-CN: 常规配置, ja: 一般設定, en: General configuration }], region: app }
       observed:
         question:
           zh-CN: 函数的运行时与架构是什么？
@@ -142,7 +142,7 @@ checks:
       en: "EventBridge invokes Lambda asynchronously: when the function errors, Lambda retries on its own (0–2 times), and once retries are used up or the event expires, it goes to the on-failure destination."
     reproduce: { run: 'aws lambda get-function-event-invoke-config --function-name "{{ var.functionName }}"', runsOn: workstation }
     manualFallback:
-      where: { breadcrumb: [Lambda, 函数, '{{ var.functionName }}', 配置, 异步调用], region: app }
+      where: { breadcrumb: [Lambda, { zh-CN: 函数, ja: 関数, en: Functions }, '{{ var.functionName }}', { zh-CN: 配置, ja: 設定, en: Configuration }, { zh-CN: 异步调用, ja: 非同期呼び出し, en: Asynchronous invocation }], region: app }
       observed:
         question:
           zh-CN: “重试次数”与“失败时的目标”分别是什么？
@@ -187,7 +187,7 @@ checks:
       en: The rule name and function name come from the outputs of the same module stack (lambda-config has confirmed that the stack belongs to this session).
     reproduce: { run: 'aws events describe-rule --name "{{ var.ruleName }}" --query "{State:State,Pattern:EventPattern}"', runsOn: workstation }
     manualFallback:
-      where: { breadcrumb: [Amazon EventBridge, 规则, '{{ var.ruleName }}'], region: app }
+      where: { breadcrumb: [Amazon EventBridge, { zh-CN: 规则, ja: ルール, en: Rules }, '{{ var.ruleName }}'], region: app }
       observed:
         question:
           zh-CN: 规则的状态是什么？
@@ -235,7 +235,7 @@ checks:
       en: The DLQ on the rule target handles "EventBridge cannot deliver to Lambda"; the function's on-failure destination handles "Lambda execution failed". Both kinds of failure land in the same failure queue, where the app reconciles them.
     reproduce: { run: 'aws events list-targets-by-rule --rule "{{ var.ruleName }}"', runsOn: workstation }
     manualFallback:
-      where: { breadcrumb: [Amazon EventBridge, 规则, '{{ var.ruleName }}', 目标], region: app }
+      where: { breadcrumb: [Amazon EventBridge, { zh-CN: 规则, ja: ルール, en: Rules }, '{{ var.ruleName }}', { zh-CN: 目标, ja: ターゲット, en: Targets }], region: app }
       observed:
         question:
           zh-CN: 目标是哪个资源？是否配置了死信队列？
@@ -310,7 +310,7 @@ checks:
     reproduce: { run: 'aws lambda get-function-configuration --function-name "{{ var.functionName }}" --query "Environment.Variables.FAULT_RATE"', runsOn: workstation }
     pitfalls: [fault-rate-left]
     manualFallback:
-      where: { breadcrumb: [Lambda, 函数, '{{ var.functionName }}', 配置, 环境变量], region: app }
+      where: { breadcrumb: [Lambda, { zh-CN: 函数, ja: 関数, en: Functions }, '{{ var.functionName }}', { zh-CN: 配置, ja: 設定, en: Configuration }, { zh-CN: 环境变量, ja: 環境変数, en: Environment variables }], region: app }
       observed:
         question:
           zh-CN: 环境变量里有 FAULT_RATE 吗？
@@ -374,7 +374,7 @@ checks:
     reproduce: { run: 'aws lambda get-function-concurrency --function-name "{{ var.functionName }}"', runsOn: workstation }
     pitfalls: [throttle-left-on]
     manualFallback:
-      where: { breadcrumb: [Lambda, 函数, '{{ var.functionName }}', 配置, 并发和递归检测], region: app }
+      where: { breadcrumb: [Lambda, { zh-CN: 函数, ja: 関数, en: Functions }, '{{ var.functionName }}', { zh-CN: 配置, ja: 設定, en: Configuration }, { zh-CN: 并发和递归检测, ja: 同時実行と再帰検出, en: Concurrency and recursion detection }], region: app }
       observed:
         question:
           zh-CN: “预留并发”显示什么？
@@ -442,7 +442,7 @@ checks:
     required: false
     reproduce: { run: 'aws lambda get-function-configuration --function-name cloudalbum-{{ session.env }}-image-processing-thumbnail', runsOn: workstation }
     manualFallback:
-      where: { breadcrumb: [Lambda, 函数], region: app }
+      where: { breadcrumb: [Lambda, { zh-CN: 函数, ja: 関数, en: Functions }], region: app }
       observed:
         question:
           zh-CN: 列表中还能找到 cloudalbum-{{ session.env }}-image-processing-thumbnail 吗？

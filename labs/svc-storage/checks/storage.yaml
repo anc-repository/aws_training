@@ -181,7 +181,7 @@ checks:
       - { path: $.PublicAccessBlockConfiguration.RestrictPublicBuckets, op: eq, value: true }
     reproduce: { run: 'aws s3api get-public-access-block --bucket {{ var.rawBucket }}', runsOn: workstation }
     manualFallback:
-      where: { breadcrumb: [S3, '{{ var.rawBucket }}', 权限, 阻止公有访问], region: app }
+      where: { breadcrumb: [S3, '{{ var.rawBucket }}', { zh-CN: 权限, ja: アクセス許可, en: Permissions }, { zh-CN: 阻止公有访问, ja: パブリックアクセスをブロック, en: Block public access }], region: app }
       observed:
         question:
           zh-CN: “阻止所有公有访问”显示什么？
@@ -226,7 +226,7 @@ checks:
           en: Versioning
     reproduce: { run: 'aws s3api get-bucket-versioning --bucket {{ var.rawBucket }}', runsOn: workstation }
     manualFallback:
-      where: { breadcrumb: [S3, '{{ var.rawBucket }}', 属性, 存储桶版本控制], region: app }
+      where: { breadcrumb: [S3, '{{ var.rawBucket }}', { zh-CN: 属性, ja: プロパティ, en: Properties }, { zh-CN: 存储桶版本控制, ja: バケットのバージョニング, en: Bucket Versioning }], region: app }
       observed:
         question:
           zh-CN: “存储桶版本控制”显示什么？
@@ -267,7 +267,7 @@ checks:
           en: Default encryption algorithm
     reproduce: { run: 'aws s3api get-bucket-encryption --bucket {{ var.rawBucket }}', runsOn: workstation }
     manualFallback:
-      where: { breadcrumb: [S3, '{{ var.rawBucket }}', 属性, 默认加密], region: app }
+      where: { breadcrumb: [S3, '{{ var.rawBucket }}', { zh-CN: 属性, ja: プロパティ, en: Properties }, { zh-CN: 默认加密, ja: デフォルトの暗号化, en: Default encryption }], region: app }
       observed:
         question:
           zh-CN: “加密类型”显示什么？
@@ -325,7 +325,7 @@ checks:
           en: No SNS target
     reproduce: { run: 'aws s3api get-bucket-notification-configuration --bucket {{ var.rawBucket }}', runsOn: workstation }
     manualFallback:
-      where: { breadcrumb: [S3, '{{ var.rawBucket }}', 属性, 事件通知], region: app }
+      where: { breadcrumb: [S3, '{{ var.rawBucket }}', { zh-CN: 属性, ja: プロパティ, en: Properties }, { zh-CN: 事件通知, ja: イベント通知, en: Event notifications }], region: app }
       observed:
         question:
           zh-CN: “Amazon EventBridge”一栏显示什么？
@@ -444,7 +444,7 @@ checks:
     required: false
     reproduce: { run: 'aws s3api get-bucket-location --bucket {{ var.rawBucket }}', runsOn: workstation }
     manualFallback:
-      where: { breadcrumb: [S3, 存储桶], region: app }
+      where: { breadcrumb: [S3, { zh-CN: 存储桶, ja: バケット, en: Buckets }], region: app }
       observed:
         question:
           zh-CN: 列表中还能找到原图桶吗？

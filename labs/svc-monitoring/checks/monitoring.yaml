@@ -258,7 +258,7 @@ checks:
       en: "Server-side evidence: the namespace CloudAlbum/App contains the metrics the app batch-sends with PutMetricData every 60 seconds (new metrics take a minute or two to be listed). Metrics in a namespace are not \"resources\" and have no ownership; in this account only this session's lab instance writes to this namespace."
     reproduce: { run: 'aws cloudwatch list-metrics --namespace CloudAlbum/App --query "Metrics[].MetricName" --output text', runsOn: workstation }
     manualFallback:
-      where: { breadcrumb: [CloudWatch, 指标, 所有指标, 自定义命名空间, CloudAlbum/App], region: app }
+      where: { breadcrumb: [CloudWatch, { zh-CN: 指标, ja: メトリクス, en: Metrics }, { zh-CN: 所有指标, ja: すべてのメトリクス, en: All metrics }, { zh-CN: 自定义命名空间, ja: カスタム名前空間, en: Custom namespaces }, CloudAlbum/App], region: app }
       observed:
         question:
           zh-CN: CloudAlbum/App 下能看到 AppHeartbeat 与 Requests 吗？
@@ -329,7 +329,7 @@ checks:
     reproduce: { run: 'aws cloudwatch describe-alarms --alarm-names cloudalbum-{{ session.env }}-app-heartbeat --query "MetricAlarms[0].[StateValue,TreatMissingData,AlarmActions]"', runsOn: workstation }
     pitfalls: [missing-not-breaching]
     manualFallback:
-      where: { breadcrumb: [CloudWatch, 告警, 'cloudalbum-{{ session.env }}-app-heartbeat', 详细信息], region: app }
+      where: { breadcrumb: [CloudWatch, { zh-CN: 告警, ja: アラーム, en: Alarms }, 'cloudalbum-{{ session.env }}-app-heartbeat', { zh-CN: 详细信息, ja: 詳細, en: Details }], region: app }
       observed:
         question:
           zh-CN: “缺失数据处理”一栏显示什么？
@@ -384,7 +384,7 @@ checks:
     reproduce: { run: 'aws sns list-subscriptions-by-topic --topic-arn "{{ var.alarmTopicArn }}" --query "Subscriptions[].[Protocol,SubscriptionArn]"', runsOn: workstation }
     pitfalls: [subscription-pending]
     manualFallback:
-      where: { breadcrumb: [SNS, 主题, 'cloudalbum-{{ session.env }}-ops-alarms', 订阅], region: app }
+      where: { breadcrumb: [SNS, { zh-CN: 主题, ja: トピック, en: Topics }, 'cloudalbum-{{ session.env }}-ops-alarms', { zh-CN: 订阅, ja: サブスクリプション, en: Subscriptions }], region: app }
       observed:
         question:
           zh-CN: 邮件订阅的状态是什么？
@@ -456,7 +456,7 @@ checks:
               zh-CN: 站内信来自本地评估器——停服务时它也停了，不可能发出；刷新页面再看
               ja: サイト内メッセージはローカル評価器からのものです。サービスを止めている間は評価器も止まっているので、送られるはずがありません。ページを再読み込みして確認してください
               en: In-app messages come from the local evaluator, which stops with the services, so it cannot have sent one; reload the page and look again
-      input: { label: 邮件到达时间（本地时间，例如 14:32）, pattern: '^[0-2]?[0-9]:[0-5][0-9]$' }
+      input: { label: { zh-CN: 邮件到达时间（本地时间，例如 14:32）, ja: "メールが届いた時刻（現地時刻。例：14:32）", en: "Time the email arrived (local time, for example 14:32)" }, pattern: '^[0-2]?[0-9]:[0-5][0-9]$' }
 
   # ---- Agent 指标（内存可见性）
   - id: cwagent-mem-metric
@@ -488,7 +488,7 @@ checks:
       en: EC2 itself only has metrics visible from the virtualization layer (CPU, network, disk I/O, status checks); memory utilization must be sent by an agent inside the OS.
     reproduce: { run: 'aws cloudwatch list-metrics --namespace CWAgent --metric-name mem_used_percent --dimensions Name=InstanceId,Value={{ target.instanceId }}', runsOn: workstation }
     manualFallback:
-      where: { breadcrumb: [CloudWatch, 指标, 所有指标, CWAgent, InstanceId], region: app }
+      where: { breadcrumb: [CloudWatch, { zh-CN: 指标, ja: メトリクス, en: Metrics }, { zh-CN: 所有指标, ja: すべてのメトリクス, en: All metrics }, CWAgent, InstanceId], region: app }
       observed:
         question:
           zh-CN: 能找到实验机实例 ID 下的 mem_used_percent 吗？
@@ -526,7 +526,7 @@ checks:
     required: false
     reproduce: { run: 'aws cloudformation describe-stacks --stack-name cloudalbum-{{ session.env }}-monitoring', runsOn: workstation }
     manualFallback:
-      where: { breadcrumb: [CloudFormation, 堆栈], region: app }
+      where: { breadcrumb: [CloudFormation, { zh-CN: 堆栈, ja: スタック, en: Stacks }], region: app }
       observed:
         question:
           zh-CN: 列表中还能找到 cloudalbum-{{ session.env }}-monitoring 吗？

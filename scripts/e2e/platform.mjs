@@ -17,7 +17,10 @@
  *   --keep        keep the tables, the data directory and the local L0 directories (default: removed after a green run)
  *   --serve-only  start everything and print the URLs; Ctrl+C stops (for exploring the UI by hand)
  *   --headed      show the browser window
- *   --no-build    reuse platform/web/dist and public-pages/dist (default: rebuilt from the current sources)
+ *   --no-build    reuse dist/content, platform/web/dist and public-pages/dist (default: rebuilt from the current sources)
+ *
+ * Languages (09-i18n-and-visual.md): the flow runs in zh-CN; phase 11 checks ja (default) / en / zh-CN and writes Japanese
+ * screenshots of the main screens to .atl-dev/screens-ja/.
  *
  * Output: .atl-dev/e2e/run-<t>/ (dev-server.log, vite.log, screenshots/, results.json) and .atl-dev/e2e/last.json.
  */
@@ -143,7 +146,8 @@ function prebuild() {
   const bundle = JSON.parse(fs.readFileSync(path.join(REPO, 'platform', 'checks', 'dist', 'bundle.json'), 'utf8'));
   const contentRoot = path.join(REPO, 'dist', 'content');
   const hasContent = fs.existsSync(contentRoot) && fs.readdirSync(contentRoot).some((d) => fs.existsSync(path.join(contentRoot, d, 'manifest.json')));
-  if (!hasContent) {
+  // rebuilt from labs/ unless --no-build (the language checks need the current ja / en content, 09 §2.4)
+  if (!hasContent || !flag('--no-build')) {
     log('labs:build (dist/content) …');
     const b = run(process.execPath, [TSX, path.join(REPO, 'scripts', 'labs', 'src', 'cli.ts'), 'build']);
     if (b.status !== 0) throw new Error(`labs:build failed:\n${b.out.slice(-2000)}`);
@@ -218,7 +222,7 @@ async function main() {
     return 0;
   }
   const py = process.platform === 'win32' ? 'python' : 'python3';
-  const args = [path.join(REPO, 'scripts', 'e2e', 'platform_e2e.py'), '--web', webUrl, '--api', apiUrl, '--csp-web', cspUrl, '--out', RUN_DIR];
+  const args = [path.join(REPO, 'scripts', 'e2e', 'platform_e2e.py'), '--web', webUrl, '--api', apiUrl, '--csp-web', cspUrl, '--out', RUN_DIR, '--ja-shots', path.join(REPO, '.atl-dev', 'screens-ja')];
   if (flag('--headed')) args.push('--headed');
   const only = opt('--only', '');
   if (only) args.push('--only', only);

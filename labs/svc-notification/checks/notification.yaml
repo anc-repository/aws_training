@@ -115,7 +115,7 @@ checks:
       en: CloudFormation confirms the inbox queue's sqs subscription automatically; the operations mailbox subscription needs you to click the confirmation link, and until then this item is waiting.
     reproduce: { run: 'aws sns get-topic-attributes --topic-arn "{{ var.topicArn }}" --query "Attributes.[SubscriptionsConfirmed,SubscriptionsPending]"', runsOn: workstation }
     manualFallback:
-      where: { breadcrumb: [SNS, 主题, 'cloudalbum-{{ session.env }}-notification-events', 订阅], region: app }
+      where: { breadcrumb: [SNS, { zh-CN: 主题, ja: トピック, en: Topics }, 'cloudalbum-{{ session.env }}-notification-events', { zh-CN: 订阅, ja: サブスクリプション, en: Subscriptions }], region: app }
       observed:
         question:
           zh-CN: 订阅列表中“已确认”的订阅有几个？
@@ -192,7 +192,7 @@ checks:
       en: Only sns.amazonaws.com with this topic as the source ARN can write to the queue, which stops other topics or accounts from impersonating it (the confused deputy problem).
     reproduce: { run: 'aws sqs get-queue-attributes --queue-url "{{ var.inboxUrl }}" --attribute-names Policy --query Attributes.Policy --output text | jq .', runsOn: workstation }
     manualFallback:
-      where: { breadcrumb: [SQS, 队列, 'cloudalbum-{{ session.env }}-notification-inbox', 访问策略], region: app }
+      where: { breadcrumb: [SQS, { zh-CN: 队列, ja: キュー, en: Queues }, 'cloudalbum-{{ session.env }}-notification-inbox', { zh-CN: 访问策略, ja: アクセスポリシー, en: Access policy }], region: app }
       observed:
         question:
           zh-CN: 访问策略的 Condition 里限定了什么？
@@ -242,7 +242,7 @@ checks:
       en: topic-subscriptions has already confirmed the topic's ownership; pending subscriptions show as PendingConfirmation in the list and are counted too.
     reproduce: { run: 'aws sns list-subscriptions-by-topic --topic-arn "{{ var.topicArn }}" --query "Subscriptions[].[Protocol,Endpoint,SubscriptionArn]" --output table', runsOn: workstation }
     manualFallback:
-      where: { breadcrumb: [SNS, 主题, 'cloudalbum-{{ session.env }}-notification-events', 订阅], region: app }
+      where: { breadcrumb: [SNS, { zh-CN: 主题, ja: トピック, en: Topics }, 'cloudalbum-{{ session.env }}-notification-events', { zh-CN: 订阅, ja: サブスクリプション, en: Subscriptions }], region: app }
       observed:
         question:
           zh-CN: 订阅列表一共有几项？
@@ -272,7 +272,7 @@ checks:
       en: Understand the filter policy of the +u1 subscription
     type: manual
     spec:
-      where: { breadcrumb: [SNS, 订阅, '<+u1 的订阅>', 订阅筛选策略], region: app }
+      where: { breadcrumb: [SNS, { zh-CN: 订阅, ja: サブスクリプション, en: Subscriptions }, { zh-CN: '<+u1 的订阅>', ja: "<+u1 のサブスクリプション>", en: "<the +u1 subscription>" }, { zh-CN: 订阅筛选策略, ja: サブスクリプションフィルターポリシー, en: Subscription filter policy }], region: app }
       observed:
         question:
           zh-CN: +u1 订阅的筛选策略是哪一种？（种子用户已被设为管理员）
@@ -345,7 +345,7 @@ checks:
       en: Events for u1 do not match the u2 and u3 subscriptions, so SNS records them as FilteredOut; SNS metrics lag by minutes, so this is a waiting check.
     reproduce: { run: 'aws cloudwatch get-metric-statistics --namespace AWS/SNS --metric-name NumberOfNotificationsFilteredOut --dimensions Name=TopicName,Value=cloudalbum-{{ session.env }}-notification-events --start-time "{{ session.readyAt }}" --end-time "$(date -u +%FT%TZ)" --period 300 --statistics Sum', runsOn: workstation }
     manualFallback:
-      where: { breadcrumb: [CloudWatch, 指标, SNS, 'TopicName = cloudalbum-{{ session.env }}-notification-events', NumberOfNotificationsFilteredOut], region: app }
+      where: { breadcrumb: [CloudWatch, { zh-CN: 指标, ja: メトリクス, en: Metrics }, SNS, 'TopicName = cloudalbum-{{ session.env }}-notification-events', NumberOfNotificationsFilteredOut], region: app }
       observed:
         question:
           zh-CN: 最近 15 分钟的 NumberOfNotificationsFilteredOut 有数据点吗？
@@ -397,7 +397,7 @@ checks:
       en: Only meaningful while the worker is stopped; once the worker starts, the backlog is consumed and the number returns to 0.
     reproduce: { run: 'aws sqs get-queue-attributes --queue-url "{{ var.inboxUrl }}" --attribute-names ApproximateNumberOfMessages', runsOn: workstation }
     manualFallback:
-      where: { breadcrumb: [SQS, 队列, 'cloudalbum-{{ session.env }}-notification-inbox'], region: app }
+      where: { breadcrumb: [SQS, { zh-CN: 队列, ja: キュー, en: Queues }, 'cloudalbum-{{ session.env }}-notification-inbox'], region: app }
       observed:
         question:
           zh-CN: worker 停止期间“可用消息”数是多少？
@@ -464,7 +464,7 @@ checks:
     required: false
     reproduce: { run: 'aws sns get-topic-attributes --topic-arn "{{ var.topicArn }}"', runsOn: workstation }
     manualFallback:
-      where: { breadcrumb: [SNS, 主题], region: app }
+      where: { breadcrumb: [SNS, { zh-CN: 主题, ja: トピック, en: Topics }], region: app }
       observed:
         question:
           zh-CN: 列表中还能找到 cloudalbum-{{ session.env }}-notification-events 吗？

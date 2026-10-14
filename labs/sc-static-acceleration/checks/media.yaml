@@ -117,7 +117,7 @@ checks:
       en: "This session created the distribution (distribution-deployed has confirmed ownership). The origin must be an S3 REST endpoint: website endpoints only support HTTP and cannot be combined with OAC."
     reproduce: { run: 'aws cloudfront get-distribution-config --id {{ var.distributionId }} --query "DistributionConfig.{Behaviors:CacheBehaviors.Items[].[PathPattern,TargetOriginId],Origins:Origins.Items[].[Id,DomainName,OriginAccessControlId]}"', runsOn: workstation }
     manualFallback:
-      where: { breadcrumb: [CloudFront, 分配, '{{ var.distributionId }}', 行为], region: global }
+      where: { breadcrumb: [CloudFront, { zh-CN: 分配, ja: ディストリビューション, en: Distributions }, '{{ var.distributionId }}', { zh-CN: 行为, ja: ビヘイビア, en: Behaviors }], region: global }
       observed:
         question:
           zh-CN: “/media/*”行为的源是什么？
@@ -188,7 +188,7 @@ checks:
       en: The start state's storage stack created the media bucket; enabling cdn injects the distribution ARN into the storage stack, generating this statement that only allows reading variants/*, so raw/ and reports/ are never exposed through the CDN.
     reproduce: { run: 'aws s3api get-bucket-policy --bucket {{ var.mediaBucket }} --query Policy --output text | jq .', runsOn: workstation }
     manualFallback:
-      where: { breadcrumb: [S3, 存储桶, '{{ var.mediaBucket }}', 权限, 存储桶策略], region: app }
+      where: { breadcrumb: [S3, { zh-CN: 存储桶, ja: バケット, en: Buckets }, '{{ var.mediaBucket }}', { zh-CN: 权限, ja: アクセス許可, en: Permissions }, { zh-CN: 存储桶策略, ja: バケットポリシー, en: Bucket policy }], region: app }
       observed:
         question:
           zh-CN: 允许 CloudFront 读取的语句，Resource 与 Condition 分别是什么？
@@ -238,7 +238,7 @@ checks:
       en: A statement that only allows a specific service principal with a specific SourceArn does not count as public; any allow with Principal * makes IsPublic true.
     reproduce: { run: 'aws s3api get-bucket-policy-status --bucket {{ var.mediaBucket }}', runsOn: workstation }
     manualFallback:
-      where: { breadcrumb: [S3, 存储桶], region: app }
+      where: { breadcrumb: [S3, { zh-CN: 存储桶, ja: バケット, en: Buckets }], region: app }
       observed:
         question:
           zh-CN: 媒体桶的“访问”一栏显示什么？
@@ -308,7 +308,7 @@ checks:
       en: OAC lets CloudFront read the private bucket with a service identity, so all four BPA settings can stay on.
     reproduce: { run: 'aws s3api get-public-access-block --bucket {{ var.mediaBucket }}', runsOn: workstation }
     manualFallback:
-      where: { breadcrumb: [S3, 存储桶, '{{ var.mediaBucket }}', 权限, 阻止公有访问], region: app }
+      where: { breadcrumb: [S3, { zh-CN: 存储桶, ja: バケット, en: Buckets }, '{{ var.mediaBucket }}', { zh-CN: 权限, ja: アクセス許可, en: Permissions }, { zh-CN: 阻止公有访问, ja: パブリックアクセスをブロック, en: Block public access }], region: app }
       observed:
         question:
           zh-CN: “阻止所有公开访问”是否为“开启”？

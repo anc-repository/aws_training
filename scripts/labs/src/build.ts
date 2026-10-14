@@ -235,8 +235,11 @@ function renderLanguage(base: RenderInput, lang: ContentLang): Map<string, Buffe
   const real = renderDocs({ ...base, set });
   const marked = renderDocs({ ...base, set: loadContent(base.set.paths, { lang, mark: true }), mark: (t) => (t ? `${FALLBACK_MARK}${t}` : t) });
   const out = new Map<string, Buffer>();
+  // compare every document before any `i18n` is attached: the index's `tracks` are the same objects as `tracks/<id>.json`,
+  // so attaching first made each track of the index differ by its own `/i18n` (reported as a fallback)
+  const fallbacks = new Map([...real].map(([rel, doc]) => [rel, diffPointers(doc, marked.get(rel))]));
   for (const [rel, doc] of real) {
-    const fallback = diffPointers(doc, marked.get(rel));
+    const fallback = fallbacks.get(rel) ?? [];
     const i18n = (list: string[]) => ({ lang, fallback: list });
     if (rel === 'catalog/index.json') {
       const byCard = splitFallback(fallback, 'cards');

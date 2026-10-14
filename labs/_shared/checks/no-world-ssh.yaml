@@ -2,7 +2,10 @@
 # 旧名 lab-no-world-ssh、lab2-no-world-ssh 作为别名，labs:lint 给出警告。
 checks:
   - id: no-world-ssh
-    title: 实验机安全组没有对全网开放 22 端口
+    title:
+      zh-CN: 实验机安全组没有对全网开放 22 端口
+      ja: ラボ用インスタンスのセキュリティグループがポート 22 をインターネット全体に開放していない
+      en: The lab instance security group does not open port 22 to the whole internet
     type: aws-readonly
     service: ec2
     action: DescribeSecurityGroupRules
@@ -17,23 +20,34 @@ checks:
         where: { IsEgress: false, FromPort: 22, CidrIpv4: 0.0.0.0/0 }
         op: len_eq
         value: 0
-        label: 22 端口对 0.0.0.0/0 开放的入站规则
+        label: { zh-CN: 22 端口对 0.0.0.0/0 开放的入站规则, ja: ポート 22 を 0.0.0.0/0 に開放するインバウンドルール, en: Inbound rules opening port 22 to 0.0.0.0/0 }
       - path: $.SecurityGroupRules
         where: { IsEgress: false, FromPort: 22, CidrIpv6: '::/0' }
         op: len_eq
         value: 0
-        label: 22 端口对 ::/0 开放的入站规则
+        label: { zh-CN: '22 端口对 ::/0 开放的入站规则', ja: 'ポート 22 を ::/0 に開放するインバウンドルール', en: 'Inbound rules opening port 22 to ::/0' }
       - path: $.SecurityGroupRules
         where: { IsEgress: false, IpProtocol: '-1', CidrIpv4: 0.0.0.0/0 }
         op: len_eq
         value: 0
-        label: 对 0.0.0.0/0 放行全部流量的入站规则
-    explain: 安全底线：运维登录走工作台或 Session Manager，实验机的 22 端口不能对全网开放（端口范围跨过 22 的规则请在控制台自查）。
+        label: { zh-CN: 对 0.0.0.0/0 放行全部流量的入站规则, ja: 0.0.0.0/0 からのすべてのトラフィックを許可するインバウンドルール, en: Inbound rules allowing all traffic from 0.0.0.0/0 }
+    explain:
+      zh-CN: 安全底线：运维登录走工作台或 Session Manager，实验机的 22 端口不能对全网开放（端口范围跨过 22 的规则请在控制台自查）。
+      ja: セキュリティの最低ラインです。運用ログインはワークベンチか Session Manager を使い、ラボ用インスタンスのポート 22 をインターネット全体に開放してはいけません（22 を含むポート範囲のルールはコンソールで確認してください）。
+      en: 'Security baseline: operator access goes through the workbench or Session Manager, so port 22 on the lab instance must never be open to the whole internet (check rules whose port range includes 22 in the console yourself).'
     reproduce: { run: 'aws ec2 describe-security-group-rules --filters Name=group-id,Values={{ target.sgId }} --query "SecurityGroupRules[?IsEgress==\`false\`].[IpProtocol,FromPort,ToPort,CidrIpv4,CidrIpv6]" --output table', runsOn: workstation }
     manualFallback:
-      where: { breadcrumb: [EC2, 安全组, '{{ target.sgId }}', 入站规则], region: app }
+      where: { breadcrumb: [EC2, { zh-CN: 安全组, ja: セキュリティグループ, en: Security groups }, '{{ target.sgId }}', { zh-CN: 入站规则, ja: インバウンドルール, en: Inbound rules }], region: app }
       observed:
-        question: 入站规则里是否有“端口 22（或全部流量）、来源 0.0.0.0/0 或 ::/0”的条目？
+        question:
+          zh-CN: 入站规则里是否有“端口 22（或全部流量）、来源 0.0.0.0/0 或 ::/0”的条目？
+          ja: インバウンドルールに「ポート 22（またはすべてのトラフィック）、ソース 0.0.0.0/0 または ::/0」のエントリはありますか？
+          en: Is there an inbound rule for "port 22 (or all traffic) from 0.0.0.0/0 or ::/0"?
         options:
-          - { value: none, label: 没有, expected: true }
-          - { value: present, label: 有, fixHint: 删除这条规则；运维登录请使用工作台终端或 Session Manager }
+          - { value: none, label: { zh-CN: 没有, ja: ない, en: None }, expected: true }
+          - value: present
+            label: { zh-CN: 有, ja: ある, en: There is one }
+            fixHint:
+              zh-CN: 删除这条规则；运维登录请使用工作台终端或 Session Manager
+              ja: このルールを削除してください。運用ログインにはワークベンチのターミナルか Session Manager を使います
+              en: Delete this rule. For operator access, use the workbench terminal or Session Manager

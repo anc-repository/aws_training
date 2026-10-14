@@ -62,6 +62,77 @@
 | 只读 | 読み取り専用 | read-only |
 | 未翻译 | 未翻訳 | Not translated |
 
+## 平台（集成时补充，2026-10-14）
+
+各实现者在翻译中新增的译名（docs/implementation-notes.md 各 `## i18n-*` 小节），集成时统一。同一中文词有两种含义时分行写明。
+
+| zh-CN | ja | en |
+| --- | --- | --- |
+| 待人工处理清单 | 要対応リスト | manual-handling list（画面标题 Manual-handling list） |
+| 待人工处理 / 需人工处理（状态） | 要対応 | Needs you |
+| 我已处理，重新核对 | 対応済み、再確認 | Handled, recheck |
+| 交叉校验（对比实验的上传结果） | 照合 | cross-check |
+| 对账 / 核对（报告、证书） | 照合 | reconcile / check |
+| 降级（检查改为手动判定） | 格下げ | degraded |
+| 降级（服务、应用的健康状态） | 低下 | Degraded |
+| 释放（环境） | 解放 | release |
+| 释放未完成 | 解放未完了 | Cleanup incomplete |
+| 复扫 | 再スキャン | rescan |
+| 吊销（证书） | 失効 | revoke / revoked |
+| 撤回（徽章） | 取り消し | withdrawn |
+| 已核验 | 検証済み | verified |
+| 证据 / 可信度 | 証拠 / 信頼度 | evidence / confidence |
+| 打码 | マスク | mask |
+| 分享链接 | 共有リンク | share link |
+| 体检（平台体检） | 点検 | health check |
+| 预期中断 | 想定内の中断 | expected outage |
+| 预期警告 | 想定内の警告 | expected warning |
+| 管理通道（平台管理通道） | 管理チャネル（プラットフォームの管理チャネル） | management channel (platform management channel) |
+| 运行器 | ランナー | runner |
+| 平台动作 | プラットフォーム操作 | platform action |
+| 佐证 | 裏付け | corroboration |
+| 归属（资源归属确认） | 所有の確認 | ownership |
+| 漂移 | ドリフト | drift |
+| 前导键 | プレフィックスキー | leader key |
+| 费用计 | 費用メーター | cost meter |
+| 变体 | バリアント | variant |
+| 起始档位 | 開始構成 | start profile |
+| 本地档（本地实现） | ローカル階層 | local tier |
+| 驱动 | ドライバー | driver |
+| 接入应用 | アプリへの組み込み | wire into the app |
+| 工作台终端 / 实验机终端 | ワークベンチのターミナル / ラボ用インスタンスのターミナル | Workbench terminal / Lab terminal（正文可写 lab instance terminal） |
+| 应用预览 | アプリのプレビュー | App preview |
+| 架构 / 架构图 | 構成 / 構成図 | Architecture |
+| 开始时 / 完成后 | 開始時 / 完了後 | At start / When done |
+| 有 vs 没有 | ある場合 vs ない場合 | With vs without |
+| 整体对比 | 全体の比較 | Overall comparison |
+| 详细（折叠） | 詳しく | Details |
+| 费用档位（视觉组件 `visual.metric.cost`） | コスト区分 | Cost tier |
+| 专项（学习路径标题） | …パス | … path |
+
+## 卡片内容中的 AWS 与应用用语
+
+| zh-CN | ja | en |
+| --- | --- | --- |
+| 入口链 / 路径段 / 路径头 | 入口チェーン / 経路セグメント / 経路ヘッダー | entry chain / path segment / path header |
+| 探针 / 探测端点 | プローブ / プローブ用エンドポイント | probe / probe endpoint |
+| 感知器 | 検知処理 | sensor |
+| 源站 / 回源 / 锁定源站 | オリジン / オリジンへのリクエスト / オリジンのロック | origin / origin request / origin lock-down |
+| 分配（CloudFront） | ディストリビューション | distribution |
+| 失效（CloudFront） | 無効化 | invalidation |
+| 托管区域 | ホストゾーン | hosted zone |
+| 暂存桶 | ステージングバケット | staging bucket |
+| 原图 / 原图桶 / 展示桶 | 元画像 / 元画像バケット / 表示用バケット | original image / original-image bucket / display bucket |
+| 前缀令牌 | プレフィックストークン | prefix token |
+| 预留并发 / 预置并发 | 予約済み同時実行 / プロビジョニングされた同時実行 | reserved / provisioned concurrency |
+| 死信队列 / 重驱动 | デッドレターキュー / 再処理（リドライブ） | dead-letter queue / redrive |
+| 发件身份 / 配置集 / 沙盒 | 送信元 ID / 設定セット / サンドボックス | sender identity / configuration set / sandbox |
+| 订阅过滤策略 | サブスクリプションフィルターポリシー | subscription filter policy |
+| 撞库 | クレデンシャルスタッフィング | credential stuffing |
+| 管理员 IP | 管理者 IP | admin IP |
+
+CloudAlbum 应用（`frontend/`）本轮不本地化：手册引用应用界面上的中文时保留原文，括号里附译文（「覆盖同名缩略图」（同名サムネイルの上書き））。
+
 ## 卡片内容（00-overview.md 的标题）
 
 lint C-12 与卡片介绍页按这些标题找到概览的各节，翻译后的 `manual/<lang>/00-overview.md` 必须用下面的写法（labs:lint I5）。

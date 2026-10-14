@@ -83,6 +83,16 @@ export function isTextPointer(name: SchemaName, pointer: string): boolean {
   return textPatterns(name).some((p) => p.length === segs.length && p.every((s, i) => s === '*' || s === segs[i]));
 }
 
+/**
+ * A plain string without Chinese or Japanese characters (a service or resource name, an id, a `{{ … }}` template, a
+ * command) reads the same in every language (I3): it needs no localized object, is not a fallback and counts as
+ * translated. Text with Han or kana characters is zh-CN source text.
+ */
+export function isNeutralText(s: string): boolean {
+  // kana, CJK ideographs (extension A and the unified block), compatibility ideographs, half-width katakana
+  return !/[\u3040-\u30ff\u3400-\u9fff\uf900-\ufaff\uff66-\uff9f]/.test(s);
+}
+
 export interface LocalizeOptions {
   lang: ContentLang;
   /** prefix fallback values with FALLBACK_MARK */
@@ -95,7 +105,7 @@ export interface LocalizeOptions {
 export function localizeDoc<T>(doc: T, schema: SchemaName, opts: LocalizeOptions): T {
   if (doc === undefined || doc === null) return doc;
   return resolveLocalized(doc, opts.lang, {
-    isTextPointer: (p) => isTextPointer(schema, p),
+    isTextPointer: (p, v) => isTextPointer(schema, p) && !isNeutralText(v),
     ...(opts.onFallback ? { onFallback: (p: string) => opts.onFallback!(p) } : {}),
     ...(opts.mark ? { mark: (t: string) => `${FALLBACK_MARK}${t}` } : {}),
   });
@@ -122,8 +132,10 @@ export function textFields(doc: unknown, schema: SchemaName): { pointer: string;
   const walk = (v: unknown, ptr: string) => {
     if (isLocalizedObject(v) || (typeof v === 'string' && isTextPointer(schema, ptr))) {
       const texts: Partial<Record<ContentLang, string>> = {};
-      if (typeof v === 'string') texts['zh-CN'] = v;
-      else for (const l of CONTENT_LANGS) if (typeof v[l] === 'string' && v[l] !== '') texts[l] = v[l];
+      if (typeof v === 'string') {
+        texts['zh-CN'] = v;
+        if (isNeutralText(v)) for (const l of CONTENT_LANGS) texts[l] = v;
+      } else for (const l of CONTENT_LANGS) if (typeof v[l] === 'string' && v[l] !== '') texts[l] = v[l];
       out.push({ pointer: ptr, texts });
       return;
     }

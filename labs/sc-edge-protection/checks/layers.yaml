@@ -7,7 +7,7 @@ checks:
       en: Which DDoS protections are already on automatically in this scenario, and which need a paid subscription
     type: manual
     spec:
-      where: { breadcrumb: [AWS WAF & Shield, Shield, 概览], region: global }
+      where: { breadcrumb: [AWS WAF & Shield, Shield, { zh-CN: 概览, ja: 概要, en: Overview }], region: global }
       observed:
         question:
           zh-CN: 完成本卡后，这个分配受到哪些 DDoS 防护？

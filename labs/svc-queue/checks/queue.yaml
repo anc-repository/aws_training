@@ -145,7 +145,7 @@ checks:
       en: First confirm that this session's queue module stack created the queue, then check the redrive policy, long polling and encryption.
     reproduce: { run: 'aws sqs get-queue-attributes --queue-url "{{ var.queueUrl }}" --attribute-names All --query "Attributes.[RedrivePolicy,ReceiveMessageWaitTimeSeconds,SqsManagedSseEnabled]"', runsOn: workstation }
     manualFallback:
-      where: { breadcrumb: [SQS, 队列, 'cloudalbum-{{ session.env }}-queue-jobs', 死信队列], region: app }
+      where: { breadcrumb: [SQS, { zh-CN: 队列, ja: キュー, en: Queues }, 'cloudalbum-{{ session.env }}-queue-jobs', { zh-CN: 死信队列, ja: デッドレターキュー, en: Dead-letter queue }], region: app }
       observed:
         question:
           zh-CN: “最大接收数”显示多少？
@@ -206,7 +206,7 @@ checks:
     reproduce: { run: 'aws sqs get-queue-attributes --queue-url "{{ var.dlqUrl }}" --attribute-names ApproximateNumberOfMessages', runsOn: workstation }
     pitfalls: [poison-too-early]
     manualFallback:
-      where: { breadcrumb: [SQS, 队列, 'cloudalbum-{{ session.env }}-queue-jobs-dlq'], region: app }
+      where: { breadcrumb: [SQS, { zh-CN: 队列, ja: キュー, en: Queues }, 'cloudalbum-{{ session.env }}-queue-jobs-dlq'], region: app }
       observed:
         question:
           zh-CN: 死信队列的“可用消息”数是多少？
@@ -255,7 +255,7 @@ checks:
       en: This session's queue module stack created the dead-letter queue (dlq-has-message has confirmed ownership), so its move tasks can only come from this session.
     reproduce: { run: 'aws sqs list-message-move-tasks --source-arn "{{ var.dlqArn }}"', runsOn: workstation }
     manualFallback:
-      where: { breadcrumb: [SQS, 队列, 'cloudalbum-{{ session.env }}-queue-jobs-dlq', 开始 DLQ 重驱动], region: app }
+      where: { breadcrumb: [SQS, { zh-CN: 队列, ja: キュー, en: Queues }, 'cloudalbum-{{ session.env }}-queue-jobs-dlq', { zh-CN: 开始 DLQ 重驱动, ja: DLQ 再処理の開始, en: Start DLQ redrive }], region: app }
       observed:
         question:
           zh-CN: 重驱动任务的状态是什么？
@@ -331,7 +331,7 @@ checks:
     required: false
     reproduce: { run: 'aws sqs get-queue-url --queue-name cloudalbum-{{ session.env }}-queue-jobs', runsOn: workstation }
     manualFallback:
-      where: { breadcrumb: [SQS, 队列], region: app }
+      where: { breadcrumb: [SQS, { zh-CN: 队列, ja: キュー, en: Queues }], region: app }
       observed:
         question:
           zh-CN: 列表中还能找到 cloudalbum-{{ session.env }}-queue-jobs 吗？

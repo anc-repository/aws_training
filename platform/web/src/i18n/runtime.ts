@@ -90,6 +90,8 @@ function apply(loc: Locale): void {
   lastMissing = materialize(loc);
   setTextLocale(loc);
   applyHtmlLang(loc);
+  // the document title (browser tab) follows the language too; pages without React (P09-V) set their own afterwards
+  if (typeof document !== 'undefined') document.title = msg.app.fullName;
   warnMissing(loc, lastMissing);
 }
 

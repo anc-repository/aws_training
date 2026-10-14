@@ -18,7 +18,7 @@ checks:
       en: After reclaiming, the platform looks up the stack name and expects "stack does not exist" (ValidationError).
     reproduce: { run: 'aws cloudformation describe-stacks --stack-name cloudalbum-{{ session.env }}-dns', runsOn: workstation }
     manualFallback:
-      where: { breadcrumb: [CloudFormation, 栈], region: app }
+      where: { breadcrumb: [CloudFormation, { zh-CN: 栈, ja: スタック, en: Stacks }], region: app }
       observed:
         question:
           zh-CN: '列表中还能找到 cloudalbum-{{ session.env }}-dns 吗？'

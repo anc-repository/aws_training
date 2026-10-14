@@ -95,7 +95,8 @@ describe('App routing and global frame', () => {
   it('`/` redirects to the workspace of the running session; the workspace has no global bar and sends a heartbeat', async () => {
     const { loc, f } = setup('/');
     await waitFor(() => expect(loc()).toBe('/workspace/s1'));
-    expect(await screen.findByRole('heading', { level: 1, name: /^工作台/ })).toBeTruthy();
+    // the workspace chunk loads lazily: allow for a busy machine (the full suite runs ~230 files in parallel)
+    expect(await screen.findByRole('heading', { level: 1, name: /^工作台/ }, { timeout: 5000 })).toBeTruthy();
     // 工作台没有全局顶栏（主导航）；它自己的会话栏（header.wsbar）是本画面的 banner
     expect(screen.queryByRole('navigation', { name: '主导航' })).toBeNull();
     expect(screen.getByRole('banner').classList.contains('wsbar')).toBe(true);

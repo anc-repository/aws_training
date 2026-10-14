@@ -79,7 +79,7 @@ checks:
       en: The configuration set's event destination sends delivery, bounce and complaint events to this module's SNS topic, the feedback queue subscribes to the topic, and the worker long-polls it — the lab instance only opens outbound connections and needs no inbound port at all; while the worker is down, events stay in the queue.
     reproduce: { run: 'aws sns list-subscriptions-by-topic --topic-arn "{{ var.emailEventsTopicArn }}" --query "Subscriptions[].[Protocol,Endpoint]" --output table', runsOn: workstation }
     manualFallback:
-      where: { breadcrumb: [SNS, 主题, 'cloudalbum-{{ session.env }}-email-events', 订阅], region: app }
+      where: { breadcrumb: [SNS, { zh-CN: 主题, ja: トピック, en: Topics }, 'cloudalbum-{{ session.env }}-email-events', { zh-CN: 订阅, ja: サブスクリプション, en: Subscriptions }], region: app }
       observed:
         question:
           zh-CN: 这个主题的订阅是什么协议、指向哪里？
@@ -121,7 +121,7 @@ checks:
     type: manual
     required: false
     spec:
-      where: { breadcrumb: [CloudAlbum, 管理后台, 邮件 outbox] }
+      where: { breadcrumb: [CloudAlbum, { zh-CN: 管理后台, ja: 管理画面, en: Admin console }, { zh-CN: 邮件 outbox, ja: メール outbox, en: Email outbox }] }
       observed:
         question:
           zh-CN: 用 bounce@simulator.amazonses.com 注册的那封验证邮件，在 /admin/outbox 中最后显示什么状态？

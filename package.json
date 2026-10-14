@@ -27,7 +27,7 @@
   "scripts": {
     "gen:registry": "tsx scripts/registry/build.ts",
     "registry:check": "tsx scripts/registry/check.ts",
-    "build": "npm run gen:registry && tsc -b && tsc -p frontend/tsconfig.json --noEmit && tsc -p scripts/registry/tsconfig.json && tsc -p platform/infra/tsconfig.json && tsc -p platform/web/tsconfig.json --noEmit && tsc -p platform/web/tsconfig.node.json --noEmit",
+    "build": "npm run gen:registry && node platform/web/scripts/gen-glyph-registry.mjs --check && tsc -b && tsc -p frontend/tsconfig.json --noEmit && tsc -p scripts/registry/tsconfig.json && tsc -p platform/infra/tsconfig.json && tsc -p platform/web/tsconfig.json --noEmit && tsc -p platform/web/tsconfig.node.json --noEmit",
     "build:frontend": "npm run build --workspace @cloudalbum/frontend",
     "build:web": "npm run build --workspace @atl/web",
     "build:web:public": "npm run build:public --workspace @atl/web",
@@ -70,6 +70,8 @@
     "labs:policy": "tsx scripts/labs/src/cli.ts policy",
     "labs:i18n": "tsx scripts/labs/src/cli.ts i18n",
     "i18n:check": "tsx platform/web/src/i18n/tools/check.mjs",
+    "gen:glyphs": "node platform/web/scripts/gen-glyph-registry.mjs",
+    "glyphs:check": "node platform/web/scripts/gen-glyph-registry.mjs --check",
     "i18n:sync": "tsx platform/web/src/i18n/tools/sync.mjs"
   },
   "devDependencies": {

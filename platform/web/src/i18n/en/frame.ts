@@ -63,10 +63,10 @@ export default {
   about: ' · about {n} min ·', //  · 约 {n} 分钟 ·
   otherParams: '… (other parameters: UsePreviousValue=true)', // …（其余参数 UsePreviousValue=true）
   ws: {
-    catalog: '', // ‹ 目录
-    title: '', // 工作台
-    notFoundTitle: '', // 没有找到这个实验会话
-    notFound: '', // 它可能已被删除，或者地址有误。可以在“我的实验”中查看全部会话。
+    catalog: '‹ Catalog', // ‹ 目录
+    title: 'Workbench', // 工作台
+    notFoundTitle: 'Lab session not found', // 没有找到这个实验会话
+    notFound: 'It may have been deleted, or the address is wrong. All your sessions are listed in My labs.', // 它可能已被删除，或者地址有误。可以在“我的实验”中查看全部会话。
   },
   manualPage: {
     severity: {

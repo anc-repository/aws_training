@@ -65,8 +65,11 @@ export interface ResolveOptions {
    * not text (ids, enums, commands, …); by default only localized objects are reported.
    */
   onFallback?: (pointer: string, r: Resolved) => void;
-  /** Also report plain strings at these pointers as fallbacks (text fields that were not localized). */
-  isTextPointer?: (pointer: string) => boolean;
+  /**
+   * Also report plain strings at these pointers as fallbacks (text fields that were not localized). The value is passed
+   * too, so a caller can treat language-neutral strings (names, ids, templates) as no fallback.
+   */
+  isTextPointer?: (pointer: string, value: string) => boolean;
   /** Replaces every fallback value (e.g. labs:build marks them to find where they end up in the output). */
   mark?: (text: string, pointer: string) => string;
 }
@@ -88,7 +91,7 @@ export function resolveLocalized<T>(doc: T, lang: ContentLang, opts: ResolveOpti
       return opts.mark ? opts.mark(r.text, ptr) : r.text;
     }
     if (typeof v === 'string') {
-      if (lang === SOURCE_LANG || !opts.isTextPointer?.(ptr)) return v;
+      if (lang === SOURCE_LANG || !opts.isTextPointer?.(ptr, v)) return v;
       opts.onFallback?.(ptr, { text: v, lang: SOURCE_LANG, fallback: true });
       return opts.mark ? opts.mark(v, ptr) : v;
     }

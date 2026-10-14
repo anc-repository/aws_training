@@ -27,7 +27,8 @@ const manualSpec = {
   type: 'object',
   additionalProperties: false,
   properties: {
-    where: { type: 'object' },
+    // console location shown in the manual-confirmation dialog: the segments are the console's own words per language
+    where: { type: 'object', properties: { breadcrumb: { type: 'array', items: l10n({ type: 'string', maxLength: 80 }) } } },
     confirm: l10n({ type: 'string', maxLength: 300 }),
     observed: {
       type: 'object',
@@ -52,7 +53,7 @@ const manualSpec = {
         },
       },
     },
-    input: { type: 'object' },
+    input: { type: 'object', properties: { label: l10n({ type: 'string', maxLength: 120 }) } },
     evidence: {
       type: 'object',
       additionalProperties: false,

@@ -129,7 +129,7 @@ checks:
       en: This session's iam module stack created the read-only policy (ownership is based on stack membership); every time a module is enabled, scripts/module attaches that module's own customer managed policy as well.
     reproduce: { run: 'aws iam list-attached-role-policies --role-name CloudAlbumAppRole --query "AttachedPolicies[].PolicyName"', runsOn: workstation }
     manualFallback:
-      where: { breadcrumb: [IAM, 角色, CloudAlbumAppRole, 权限], region: global }
+      where: { breadcrumb: [IAM, { zh-CN: 角色, ja: ロール, en: Roles }, CloudAlbumAppRole, { zh-CN: 权限, ja: アクセス許可, en: Permissions }], region: global }
       observed:
         question:
           zh-CN: 权限策略列表中有哪些策略？

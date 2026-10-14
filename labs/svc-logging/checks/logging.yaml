@@ -183,7 +183,7 @@ checks:
     reproduce: { run: 'aws logs describe-log-streams --log-group-name /cloudalbum/{{ session.env }}/nginx --log-stream-name-prefix {{ target.instanceId }}/', runsOn: workstation }
     pitfalls: [shipper-backlog]
     manualFallback:
-      where: { breadcrumb: [CloudWatch, 日志组, '/cloudalbum/{{ session.env }}/nginx', 日志流], region: app }
+      where: { breadcrumb: [CloudWatch, { zh-CN: 日志组, ja: ロググループ, en: Log groups }, '/cloudalbum/{{ session.env }}/nginx', { zh-CN: 日志流, ja: ログストリーム, en: Log streams }], region: app }
       observed:
         question:
           zh-CN: 日志流列表里有以实验机实例 ID 开头、以 /access 结尾的日志流吗？
@@ -241,7 +241,7 @@ checks:
       en: Log groups never expire by default, so storage charges only grow; this module sets the retention with the stack parameter RetentionInDays, and the log groups are DeletionPolicy Retain data resources.
     reproduce: { run: 'aws logs describe-log-groups --log-group-name-prefix /cloudalbum/{{ session.env }}/ --query "logGroups[].[logGroupName,retentionInDays]" --output table', runsOn: workstation }
     manualFallback:
-      where: { breadcrumb: [CloudWatch, 日志组], region: app }
+      where: { breadcrumb: [CloudWatch, { zh-CN: 日志组, ja: ロググループ, en: Log groups }], region: app }
       observed:
         question:
           zh-CN: '/cloudalbum/{{ session.env }}/app 与 /nginx 的“保留”列显示什么？'
@@ -300,7 +300,7 @@ checks:
       en: Metric filters match at ingestion and only apply to logs after they are created, never retroactively. The Nginx log group also has Nginx5xx (status ≥ 500).
     reproduce: { run: 'aws logs describe-metric-filters --log-group-name /cloudalbum/{{ session.env }}/app --query "metricFilters[].[filterName,filterPattern]" --output table', runsOn: workstation }
     manualFallback:
-      where: { breadcrumb: [CloudWatch, 日志组, '/cloudalbum/{{ session.env }}/app', 指标筛选条件], region: app }
+      where: { breadcrumb: [CloudWatch, { zh-CN: 日志组, ja: ロググループ, en: Log groups }, '/cloudalbum/{{ session.env }}/app', { zh-CN: 指标筛选条件, ja: メトリクスフィルター, en: Metric filters }], region: app }
       observed:
         question:
           zh-CN: 有名为 cloudalbum-{{ session.env }}-app-errors 的指标筛选条件吗？它写入哪个命名空间？
@@ -354,7 +354,7 @@ checks:
     reproduce: { run: 'aws cloudwatch list-metrics --namespace CloudAlbum/Logs', runsOn: workstation }
     pitfalls: [metric-filter-no-backfill]
     manualFallback:
-      where: { breadcrumb: [CloudWatch, 指标, 所有指标, CloudAlbum/Logs], region: app }
+      where: { breadcrumb: [CloudWatch, { zh-CN: 指标, ja: メトリクス, en: Metrics }, { zh-CN: 所有指标, ja: すべてのメトリクス, en: All metrics }, CloudAlbum/Logs], region: app }
       observed:
         question:
           zh-CN: 命名空间 CloudAlbum/Logs 下能看到 Nginx5xx 吗？
@@ -454,7 +454,7 @@ checks:
     required: false
     reproduce: { run: 'aws cloudformation describe-stacks --stack-name cloudalbum-{{ session.env }}-logging', runsOn: workstation }
     manualFallback:
-      where: { breadcrumb: [CloudFormation, 堆栈], region: app }
+      where: { breadcrumb: [CloudFormation, { zh-CN: 堆栈, ja: スタック, en: Stacks }], region: app }
       observed:
         question:
           zh-CN: 还能找到 cloudalbum-{{ session.env }}-logging 吗？

@@ -103,7 +103,7 @@ checks:
       en: The platform first confirms that this session's cache module stack created the replication group, then checks its status and encryption; with a single node and no replicas there is no automatic failover.
     reproduce: { run: 'aws elasticache describe-replication-groups --replication-group-id "{{ var.replicationGroupId }}" --query "ReplicationGroups[0].[Status,TransitEncryptionEnabled,AtRestEncryptionEnabled,CacheNodeType]"', runsOn: workstation }
     manualFallback:
-      where: { breadcrumb: [ElastiCache, Valkey 缓存, '{{ var.replicationGroupId }}'], region: app }
+      where: { breadcrumb: [ElastiCache, { zh-CN: Valkey 缓存, ja: Valkey キャッシュ, en: Valkey caches }, '{{ var.replicationGroupId }}'], region: app }
       observed:
         question:
           zh-CN: 复制组的状态与“传输中加密”分别是什么？
@@ -144,7 +144,7 @@ checks:
       en: The node ID comes from the replication group's members (cache-replication-group has confirmed ownership); its security group is the sg-cache created by the module stack.
     reproduce: { run: 'aws elasticache describe-cache-clusters --cache-cluster-id "{{ var.replicationGroupId }}-001" --query "CacheClusters[0].SecurityGroups"', runsOn: workstation }
     manualFallback:
-      where: { breadcrumb: [ElastiCache, Valkey 缓存, '{{ var.replicationGroupId }}', 节点], region: app }
+      where: { breadcrumb: [ElastiCache, { zh-CN: Valkey 缓存, ja: Valkey キャッシュ, en: Valkey caches }, '{{ var.replicationGroupId }}', { zh-CN: 节点, ja: ノード, en: Nodes }], region: app }
       observed:
         question:
           zh-CN: 节点的安全组是哪一个？
@@ -193,7 +193,7 @@ checks:
     reproduce: { run: 'aws ec2 describe-security-group-rules --filters Name=group-id,Values=<sg-cache 的 ID> --query "SecurityGroupRules[?IsEgress==\`false\`].[FromPort,ReferencedGroupInfo.GroupId,CidrIpv4]" --output table', runsOn: workstation }
     pitfalls: [sg-not-restored]
     manualFallback:
-      where: { breadcrumb: [EC2, 安全组, 'cloudalbum-{{ session.env }}-cache', 入站规则], region: app }
+      where: { breadcrumb: [EC2, { zh-CN: 安全组, ja: セキュリティグループ, en: Security groups }, 'cloudalbum-{{ session.env }}-cache', { zh-CN: 入站规则, ja: インバウンドルール, en: Inbound rules }], region: app }
       observed:
         question:
           zh-CN: 6379 端口入站规则的“源”是什么？
@@ -273,7 +273,7 @@ checks:
     required: false
     reproduce: { run: 'aws elasticache describe-replication-groups --replication-group-id cloudalbum-{{ session.env }}-cache', runsOn: workstation }
     manualFallback:
-      where: { breadcrumb: [ElastiCache, Valkey 缓存], region: app }
+      where: { breadcrumb: [ElastiCache, { zh-CN: Valkey 缓存, ja: Valkey キャッシュ, en: Valkey caches }], region: app }
       observed:
         question:
           zh-CN: 列表中还能找到 cloudalbum-{{ session.env }}-cache 吗？

@@ -1,7 +1,9 @@
 # 09 · 多语言与视觉化（ATL Web）
 
 > 记录 I1～I7（“文字太多、多用图像；增加日语与英语，默认日语”）在平台网页中的实现方式。
-> 本文件分两部分：“多语言（I1～I5）”（§1 界面、§2 卡片内容、§3 差异与待办；实现者 prep-i18n）与“视觉组件（I6）”（V1～V10；实现者 prep-visual）。
+> 本文件分三部分：“多语言（I1～I5）”（§1 界面、§2 卡片内容、§3 差异与待办；实现者 prep-i18n）、“视觉组件（I6）”（V1～V10；实现者 prep-visual）
+> 与“集成”（G1～G7：各画面的接入、用语统一、端到端检查与截图、下一步；实现者 i18n-integration）。前两部分中写作“待办 / 需要配合”的事项，
+> 已处理的在 G 部分说明，以 G 部分为准。
 
 ---
 
@@ -68,7 +70,8 @@
 - `npm run i18n:sync`：按 zh-CN 命名空间生成 / 更新 ja、en 骨架（新键补空字符串、删掉多余的键、保留已有译文），并重写合并文件。
 - `npm run i18n:check`：ja、en 是否覆盖 zh-CN 的全部键、有无多余键、占位符（`{name}` 与复数变量）是否一致、叶子类型、骨架是否已同步。
   未翻译（空字符串）默认算失败；翻译进行中用 `npm run i18n:check -- --allow-empty`（只计数）。`--json` 输出机器可读结果。
-  2026-10-14：3482 个键，ja / en 各译 15 个（语言名、时长单位、概览标题），结构问题 0。
+  2026-10-14：3482 个键，ja / en 各译 15 个（语言名、时长单位、概览标题），结构问题 0。集成后（G1）：3564 个键，ja / en 全部译完，
+  `npm run i18n:check` 不带参数通过。
 - 类型：`Dict<T>` 要求 ja / en 与 zh-CN 同结构（缺键或多键编译不过，`satisfies`）。
 - 开发模式（`import.meta.env.DEV` 且不是测试）下切换语言时，把走了回退的键汇总成一条控制台警告。
 
@@ -86,16 +89,17 @@
 `i18n/i18n.test.tsx`：默认 ja 与 `localStorage`、`<html lang>`、回退链、词典结构（缺键 / 多键 / 占位符为 0、键数 > 1500）、
 `msg` 原地改写、复数、`rich()` 语序、Intl 格式、`contentUrl`、内容 404 回退、`untranslated()` 指针、切换器选项。
 其余页面测试按 zh-CN 源文案断言：`test/setup.ts` 在每个用例前把语言设为 zh-CN（不写 localStorage）。
-`npm run e2e:platform` 同样显式选 zh-CN（`scripts/e2e/platform_e2e.py` 的 `UI_LOCALE_ZH`，像用户选择那样写入 `atl.locale.v1`）；
-公开页面顶部多了语言选择框，登录步骤的角色选择改为在 `main` 中查找。
+`npm run e2e:platform` 的主流程同样显式选 zh-CN（`scripts/e2e/platform_e2e.py` 的 `UI_LOCALE_ZH`，像用户选择那样写入 `atl.locale.v1`）；
+公开页面顶部多了语言选择框，登录步骤的角色选择改为在 `main` 中查找。日语默认、切换、按语言的内容与验证页由 e2e 的语言阶段检查（G4）。
 
 #### 1.8 不在 SPA 里的页面
 
 - **公开验证页**（`public-pages/verify/`，独立 IIFE 包，不加载 React）：语言取 `?lang=` → 已保存的选择 → ja；静态 HTML 的
   文字带 `data-i18n="<key>"`，脚本换成 `VT.static[key]`；页内有 日本語 / English / 中文 链接（保留 `#jws=` 片段）。
   没有脚本时显示 zh-CN 源文案。
-- **分享副本**（`pages/share/renderShare.ts`，浏览器端生成）：`ShareMeta.lang` 指定语言（默认当前界面语言），HTML 的
-  `lang` 随之。服务器端生成的报告 / 分享 HTML（`platform/api/src/services/reports/html.ts`）本轮未本地化（§3）。
+- **分享副本**（`pages/share/renderShare.ts`，浏览器端生成）：`ShareMeta.lang` 指定语言时只有这一种；省略时一个文档里有 ja / en / zh-CN
+  三块，默认显示日语，`#en` / `#zh-CN`（`:target`）切换。服务器端生成的报告 / 分享 HTML（`platform/api/src/services/reports/html.ts`，
+  atl-certs 发布的 `share/<id>/index.html` 与报告的 HTML 版）在集成时按同样的方式三语化（G2）。
 
 #### 1.9 翻译者须知（I3）
 
@@ -120,6 +124,9 @@ summary: 给 EC2 直出的相册加一层 CloudFront……   # 仍是 zh-CN，ja
 - `lab.yaml` v2 中学员看到的文本字段（04 §3.3 中写成 `anyOf: [ { type: string … }, { $ref: '#/$defs/l10n' } ]` 的字段）、
   检查定义（标题、说明、手动确认的问题与选项、常见问题）、`quiz.yaml`（题干、选项、解析）、学习路径（标题、摘要、阶段、备注、
   证书标题）、`taxonomy.yaml`（类别、服务名、领域、时长档、费用档、部署等级）都可以这样写。zh-CN 必填，ja、en 可选。
+  集成时（G1）加入：检查手动确认部分的控制台位置 `where.breadcrumb[]`（每段一个本地化对象，写该语言控制台的用词）与 `input.label`。
+- 与语言无关的纯字符串（不含中文、日文字符：服务名、资源名、`{{ … }}` 模板、命令）不必写成对象：各语言原样显示，不算回退，
+  覆盖率计为已译（`scripts/labs/src/l10n.ts` 的 `isNeutralText()`；`resolveLocalized` 的 `isTextPointer` 回调多了值参数）。
 - 手册：`manual/*.md`（或 `manual/zh-CN/*.md`）是源语言；译文放 `manual/ja/<同名>.md`、`manual/en/<同名>.md`，front matter
   相同，`{{ … }}`、指令、代码块保持原样。00-overview.md 的标题用用语表中的译名（背景 / 比較実験の予告 / なぜ組み合わせるのか…）。
 - 旧内容不用改：没有本地化对象、没有 `manual/<lang>/` 的卡片照旧通过 lint，ja / en 产物整体回退到 zh-CN 并带标记。
@@ -195,10 +202,10 @@ summary: 给 EC2 直出的相册加一层 CloudFront……   # 仍是 zh-CN，ja
 - **个人资料中的语言只写不读**：I1 要求“有偏好 API 就同步”。服务器上的 `locale` 默认仍是 zh-CN（`users.ts` 的建档默认值、
   `/me` 的回退值不属于本次范围），若回读会把第一次访问的日语改掉，所以 localStorage 是唯一依据，服务器值只供将来的邮件等使用。
 - **界面文案的回退不加标记**（§1.6），只有内容加标记。
-- **译文本身**：ja / en 词典各 3467 个键、内容 4281 个文本字段与 231 个手册文件待翻译（翻译者按 §1.9、§2.1）。
-- **服务器端生成的报告 / 分享 HTML**（`platform/api/src/services/reports/html.ts`）与 API 错误的 `detail` 仍为中文。
-- **CloudAlbum 前端（`frontend/`）** 不在本轮（I5）。
-- **e2e** 显式选择 zh-CN（§1.7）；按 ja / en 的端到端检查需在译文就绪后补充。
+- **译文本身**：已完成（G1）：界面词典 3564 键、内容 4281 个文本字段与 231 个手册文件的 ja / en 均 100%。
+- **服务器端生成的报告 / 分享 HTML**：集成时已三语化（G2）；API 错误的 `detail` 仍为中文，前端按错误码本地化，`detail` 只作补充（I5）。
+- **CloudAlbum 前端（`frontend/`）** 不在本轮（I5），见 G7。
+- **e2e**：主流程仍选 zh-CN（§1.7）；ja / en 的检查是 e2e 的语言阶段（G4）。
 - 按语言生成的 `labs/<id>.json` 中 `checkHashes` 按译后的检查定义计算；执行与校验只用根目录文档，不受影响。
 
 ---
@@ -410,7 +417,102 @@ AWS 服务名与产品短名（CloudFront、RDS Proxy…）、驱动名（`sqlit
 - 展示页地址是 `/src/dev-gallery/` 而不是 `/__dev/gallery`：`/__dev` 在 `vite.config.ts` 中代理给 API；为了不修改 SPA 的路由表与 Vite 配置，
   用独立的开发入口。
 - “40 个模块按 A～F 六组配色”：registry 中 ec2 的组是 `base`，因此实际是 6 个组色 + 中性的 `--cat-base`。
-- 生成脚本没有挂进 `npm run build`（`platform/web/package.json` 不在视觉组件的修改范围内）；一致性由单元测试与 `--check` 保证。
-  建议集成时加 `"gen:glyphs": "node scripts/gen-glyph-registry.mjs"` 并在 CI 跑 `--check`。
-- `visual.fn.*`（40 个机能短句）的 ja / en 是视觉组件内置的译文；卡片元数据的“服务与机能名”翻译（I5）完成后，应以术语表
-  `platform/web/src/i18n/glossary.md` 为准统一，并通过 `translate` 覆盖或直接改内置词典。
+- 生成脚本：集成时已加 `npm run gen:glyphs`（根与 `@atl/web`）与 `npm run glyphs:check`，`--check` 挂进了根的 `npm run build` 与
+  `@atl/web` 的 `build`（G3）。
+- `visual.fn.*`（40 个机能短句）的 ja / en：集成时以它们为准翻译了 `labs/_catalog/taxonomy.yaml` 的 `function`，两处一致（G1）。
+
+---
+
+## 集成（G1～G7）
+
+实现者 i18n-integration。把 prep-i18n、prep-visual 与五个实现者（web-catalog、web-workspace、web-results、content-a、content-b）的
+结果合到一起，处理各自列出的“需要配合”事项，补上端到端检查与日语截图。取舍记录在 `docs/implementation-notes.md` 的 `## i18n-integration`。
+
+### G1 译文与用语
+
+| 范围 | 结果 |
+|---|---|
+| 界面词典 | 3564 键，ja / en 全部译完（集成时补 `frame.ws.*` 4 键）；`npm run i18n:check` 不带参数通过 |
+| 卡片内容 | 56 张卡片、`_tracks`、`_catalog`、`_shared` 共 4680 个文本字段与 231 个手册文件，`npm run labs:i18n` 的 ja / en 均 100% |
+| `_catalog/taxonomy.yaml` | 集成时翻译（165 个字段）：服务机能短句与 `visual.fn.*`、类别与 `visual.group.*` 逐字一致；SAA 领域用官方考纲名；时长档、费用档、部署等级、种子 |
+| `_shared/checks/no-world-ssh.yaml` | 集成时翻译（每张完整卡片都引用它） |
+| 检查的控制台位置与输入框 | schema 把 `where.breadcrumb[]` 的各段与 `input.label` 改为文本字段（04 §3.3），74 个中文段按该语言的 AWS 控制台用词翻译，6 个输入框标签翻译；`labs/_schema/check.schema.json` 重新生成 |
+| 与语言无关的纯字符串 | 不含中文、日文字符的字符串（服务名、资源名、模板）各语言原样显示、不算回退（§2.1） |
+
+用语统一（`platform/web/src/i18n/glossary.md` 新增“平台（集成时补充）”与“卡片内容中的 AWS 与应用用语”两节，合并了各实现者建议的
+约 60 个词）。有冲突的几处按画面上已有的写法定：
+
+| 词 | 决定 | 改动 |
+|---|---|---|
+| 待人工处理清单 | 要対応リスト / manual-handling list（画面标题） | workspace 词典 3 处（原“手動対応リスト / manual cleanup list”） |
+| 交叉校验 | 照合 / cross-check（`ui`、experiments 已用） | workspace 词典 3 处（原“クロスチェック”） |
+| 降级 | 检查改为手动：格下げ / degraded；服务健康状态：低下 / Degraded | 两种含义分行登记，不改译文 |
+| 费用档位 | コスト区分 / Cost tier | `visual.metric.cost` 的 ja（原“費用ランク”） |
+| 应用预览 | アプリのプレビュー / App preview（标签名） | ja 手册 4 处（原“アプリプレビュー”） |
+
+仍按回退链显示 zh-CN 并带“未翻訳”标记的内容：卡片简介页“预期警告”的说明文字（7 张卡片；文字取自 CloudAlbum 后端
+`backend/src/rules/rules.ts` 的规则消息，属于 CloudAlbum 应用，本轮不本地化）。
+
+### G2 其他补齐
+
+- **服务器端的报告 / 分享 HTML**（`platform/api/src/services/reports/html.ts`）：标签三语化；不指定 `lang` 时一个文档里 ja / en / zh-CN
+  三块、默认日语、`#en` / `#zh-CN` 切换（与 `renderShare.ts` 相同的做法，CSP 不允许脚本）；报告里记录的值（卡片 / 步骤 / 检查名）照原样。
+  没有改为调用 `render-share.mjs`：那是 web 的构建产物，API 包不依赖它。
+- **页面标题与无脚本提示**：`document.title` 随语言（`app.fullName`）；`index.html` 的 `lang` 改为 ja，`<noscript>` 三语。
+- **视觉组件的语言**：`LocaleRoot` 在根部包 `VisualI18nProvider lang={locale}`（不再依赖 `<html lang>` 的写入先后）。
+- **预览入口名**：优先用词典（`workspace.preview.entry.*`），API 返回的 zh-CN `label` 只用于未知的入口 id。
+- **400px**：简介页“出题范围”的标签（`.chips .tag`）允许换行，ja / en 的长文案不再撑出横向滚动。
+- **构建**：按语言构建的目录索引中，每条学习路径都带 `fallback: ["/i18n"]`——索引的 `tracks` 与 `tracks/<id>.json` 是同一批对象，
+  先挂上 `i18n` 再比较就多出一项。改为先比较全部文档再挂 `i18n`（`scripts/labs/src/build.ts`），并加了测试。
+- **术语与组件**：`gen-glyph-registry.mjs` 接受本地化的 taxonomy（只取 zh-CN；生成结果不变）。
+
+### G3 构建与检查命令
+
+| 命令 | 作用 |
+|---|---|
+| `npm run gen:glyphs` / `npm run glyphs:check` | 生成 / 比较 `ui/glyphs/registry.generated.ts`；`--check` 也在根的 `npm run build` 与 `@atl/web` 的 `build` 中 |
+| `npm run i18n:check` | 界面词典（不带参数：未译即失败） |
+| `npm run labs:lint`、`npm run labs:i18n` | 内容的翻译规则 I1～I5 与覆盖率 |
+| `npm run e2e:platform` | 默认重建 `dist/content`（`--no-build` 时复用），语言阶段见 G4 |
+
+### G4 端到端检查（`npm run e2e:platform` 阶段 11，`scripts/e2e/platform_e2e.py`）
+
+主流程仍按 zh-CN 源文案断言（§1.7）。语言阶段用新的浏览器上下文（浏览器语言 zh-CN、没有保存过选择）：
+
+1. 第一次访问是日语（`<html lang="ja">`、登录按钮的日语文案、`atl.locale.v1` 为空）。
+2. 顶栏切换到 English、中文：标题、导航、卡片磁贴（内容 `/ja/`、`/en/`）与 `<html lang>` 跟着变，选择写入 localStorage，刷新后保持。
+3. 目录 API：`?lang=` 与 `Accept-Language` 决定内容语言；ja 目录索引中 56 张卡片的元数据没有回退指针；已译的简介页（svc-storage）
+   没有“未翻訳”标记；有回退字段的简介页（第一个 `i18n.fallback` 非空的可开始卡片）标题旁显示“未翻訳”（找不到时在网络层去掉一张卡片的
+   日语标题来检查标记）。
+4. 公开验证页：浏览器 en-US 也默认日语；`?lang=ja` 与 日本語 / English / 中文 链接切换标题、`<html lang>` 与当前链接，验证结果不变。
+5. 14 个主要画面 × ja / en × 400 / 1280px，在带 CloudFront CSP 的生产构建（`vite preview`）上：`<html lang>` 正确、没有横向滚动、没有控制台错误、
+   没有 CSP 违规（zh-CN 由阶段 9 的 16 个画面与阶段 9b 覆盖）。测试机网络栈的 `net::ERR_NO_BUFFER_SPACE` 不算平台错误，单独列出。
+   1280px 时把页面上残留的简体中文文字记到日志里供人工查看（不判失败：卡片数据、证书标题等记录值本来就是 zh-CN）。
+6. 运行中的工作台（P05）在日语下渲染，手册步骤没有“未翻訳”标记。
+
+### G5 日语截图
+
+`npm run e2e:platform` 每次写入 `.atl-dev/screens-ja/`（1280px，亮色）：`01-catalog-grid.png`（目录网格）、`02-service-map.png`（服务地图）、
+`03-card-intro.png`（卡片简介，整页）、`04-workbench.png`（运行中的工作台）、`05-report.png`（报告，整页）、`06-verify.png`（证书验证页，整页）。
+每个画面 ja / en × 400 / 1280px 的整页截图在 `.atl-dev/e2e/run-<t>/screenshots/<lang>-w<宽>-<画面>.png`。
+
+### G6 各画面的接入（I6 c～f）
+
+| 画面 | 做法（详见 implementation-notes 的对应小节） |
+|---|---|
+| c 目录 P02 | 磁贴：服务图标 + 迷你架构图 + 标题 + 一行简介 + `MetricStrip`（难度 / 时长 / 费用 / 部署等级）；服务地图是图标网格，行标签是组符号（i18n-web-catalog） |
+| d 简介 P03 | 首屏“开始时 → 完成后”架构图；“你将学到”是 `ServiceChip` 与学习目标；“有 vs 没有”每个目标模块一组左右并排的图示卡片；步骤概览是步骤类型图标列表；长段落折叠到“詳しく”（i18n-web-catalog） |
+| e 工作台 P04 / P05 / P06 | 准备阶段节点链与构成图；顶栏图标化；手册进度环、步骤类型图标、本步相关服务图标行、预期结果高亮、超过 3 行折叠（i18n-web-workspace） |
+| f 报告与学习 P08 / P07 / P09 / P10 / P11 | 报告首屏图块 + 信赖度条形图 + 构成图 + 步骤圆点条；回收阶段图示与删除进度环；证书印章与完成度环；学习页进度环与条形图；验证页大号结果徽记（i18n-web-results、i18n-web-catalog） |
+| 分享副本 P08-S | 浏览器端渲染器与服务器端 HTML 都是三语一体、默认日语（G2） |
+
+### G7 下一步（本轮未做）
+
+- **CloudAlbum 应用（`frontend/`、`backend/`）的本地化**（I5 明确不在本轮）。之后要同步：手册中引用应用界面文字的“原文（译文）”写法、
+  卡片简介“预期警告”的规则消息（G1）、`/admin` 与 capabilities 的 detail。
+- **签发后的数据**：证书标题在签发时写入 JWS（zh-CN），证书详情与验证页照原样显示；报告 `atl.report/v1` 里的卡片 / 步骤 / 检查名是
+  zh-CN；分享副本打码占位（‹会话› 等）是 zh-CN。要多语言需改签发与报告的数据格式。
+- **场景卡概览中的 `assets/arch-*.svg`**：图片中的文字是 zh-CN（替代文字已翻译）；可改为按语言的图片或换成 `<ArchDiagram>`。
+- **API 错误的 `detail`**：仍是 zh-CN，前端按错误码本地化后只作补充（I5 的既定做法）。
+- **个人资料中的语言**：仍只写不读（§3）。
+- **e2e 主流程**：仍按 zh-CN 源文案断言；ja / en 由语言阶段覆盖。

@@ -226,7 +226,7 @@ checks:
       en: The waf stack's output EnvWafWebAclArn is injected into the cdn stack (WebAclArn) through the registry's injects, which updates and redeploys the distribution. For WAFv2, CloudFront's WebACLId field holds the full ARN.
     reproduce: { run: 'aws cloudfront get-distribution-config --id {{ var.distributionId }} --query DistributionConfig.WebACLId --output text', runsOn: workstation }
     manualFallback:
-      where: { breadcrumb: [CloudFront, 分配, '{{ var.distributionId }}', 安全性], region: global }
+      where: { breadcrumb: [CloudFront, { zh-CN: 分配, ja: ディストリビューション, en: Distributions }, '{{ var.distributionId }}', { zh-CN: 安全性, ja: セキュリティ, en: Security }], region: global }
       observed:
         question:
           zh-CN: 分配的“Web 应用程序防火墙（WAF）”关联的是哪个 Web ACL？

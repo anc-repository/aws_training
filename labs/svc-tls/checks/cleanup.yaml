@@ -18,7 +18,7 @@ checks:
       en: After reclaim finishes, query by stack name and expect "stack does not exist"; the ACME endpoint is deleted with the stack, together with the EAB, domain validation and ACME account.
     reproduce: { run: 'aws cloudformation describe-stacks --stack-name cloudalbum-{{ session.env }}-tls', runsOn: workstation }
     manualFallback:
-      where: { breadcrumb: [CloudFormation, 栈], region: app }
+      where: { breadcrumb: [CloudFormation, { zh-CN: 栈, ja: スタック, en: Stacks }], region: app }
       observed:
         question:
           zh-CN: '列表中还能找到 cloudalbum-{{ session.env }}-tls 吗？'

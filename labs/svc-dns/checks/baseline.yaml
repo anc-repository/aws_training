@@ -40,7 +40,7 @@ checks:
     reproduce: { run: 'aws ec2 describe-addresses --filters Name=instance-id,Values={{ target.instanceId }} --query "Addresses[].PublicIp"', runsOn: workstation }
     pitfalls: [drill-not-restored]
     manualFallback:
-      where: { breadcrumb: [EC2, 弹性 IP], region: app }
+      where: { breadcrumb: [EC2, { zh-CN: 弹性 IP, ja: Elastic IP, en: Elastic IPs }], region: app }
       observed:
         question:
           zh-CN: 关联到实验机（{{ target.instanceId }}）的弹性 IP 是哪一个？
@@ -81,7 +81,7 @@ checks:
     reproduce: { run: 'aws ec2 describe-addresses --filters Name=tag:Purpose,Values=dns-ip-change-drill --query "Addresses[].[PublicIp,AllocationId]"', runsOn: workstation }
     pitfalls: [drill-not-restored]
     manualFallback:
-      where: { breadcrumb: [EC2, 弹性 IP], region: app }
+      where: { breadcrumb: [EC2, { zh-CN: 弹性 IP, ja: Elastic IP, en: Elastic IPs }], region: app }
       observed:
         question:
           zh-CN: 列表中还有标签 Purpose=dns-ip-change-drill 的地址吗？

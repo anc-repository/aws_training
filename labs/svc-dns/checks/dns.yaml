@@ -64,7 +64,7 @@ checks:
       en: This is a resource the learner already owns, so there is no ownership check; the platform only confirms that it is a public hosted zone, and scripts/module enable dns --zone-id checks again that the domain belongs to it.
     reproduce: { run: 'aws route53 get-hosted-zone --id {{ learner.inputs.hosted-zone }} --query "HostedZone.[Name,Config.PrivateZone]"', runsOn: workstation }
     manualFallback:
-      where: { breadcrumb: [Route 53, 托管区域], region: global }
+      where: { breadcrumb: [Route 53, { zh-CN: 托管区域, ja: ホストゾーン, en: Hosted zones }], region: global }
       observed:
         question:
           zh-CN: 这个托管区域的“类型”是什么？
@@ -169,7 +169,7 @@ checks:
     reproduce: { run: 'aws cloudformation describe-stacks --stack-name cloudalbum-{{ session.env }}-dns --query "Stacks[0].[StackStatus,Outputs]"', runsOn: workstation }
     pitfalls: [not-mine]
     manualFallback:
-      where: { breadcrumb: [CloudFormation, 栈, 'cloudalbum-{{ session.env }}-dns', 输出], region: app }
+      where: { breadcrumb: [CloudFormation, { zh-CN: 栈, ja: スタック, en: Stacks }, 'cloudalbum-{{ session.env }}-dns', { zh-CN: 输出, ja: 出力, en: Outputs }], region: app }
       observed:
         question:
           zh-CN: 输出 EnvDnsRecordName 的值是什么？
@@ -237,7 +237,7 @@ checks:
       en: The hosted zone ID comes from the outputs of this session's dns stack; an EIP cannot be an Alias target, so only a plain A record will do.
     reproduce: { run: 'aws route53 list-resource-record-sets --hosted-zone-id {{ var.hostedZoneId }} --query "ResourceRecordSets[?Type==\`A\`]"', runsOn: workstation }
     manualFallback:
-      where: { breadcrumb: [Route 53, 托管区域, '{{ var.hostedZoneId }}'], region: global }
+      where: { breadcrumb: [Route 53, { zh-CN: 托管区域, ja: ホストゾーン, en: Hosted zones }, '{{ var.hostedZoneId }}'], region: global }
       observed:
         question:
           zh-CN: '{{ learner.inputs.domain }} 的 A 记录的值与 TTL 是什么？'
@@ -288,7 +288,10 @@ checks:
               ja: レコード名が本当にゾーンの頂点（ホストゾーンと同じ名前）で、サブドメインではないことを確認してください
               en: Check that the record name really is the zone apex (the same name as the hosted zone) and not a subdomain
       input:
-        label: dig www.<域名> 的结果（Alias 直接返回的 A 记录）
+        label:
+          zh-CN: dig www.<域名> 的结果（Alias 直接返回的 A 记录）
+          ja: "dig www.<ドメイン名> の結果（Alias が直接返す A レコード）"
+          en: "Output of dig www.<domain> (the A records returned directly by the alias)"
         pattern: '^[0-9.\s,]{7,200}$'
     explain:
       zh-CN: 原生手动确认：Route 53 的拒绝报错只能由你在控制台或 CLI 中观察（04 §5.2.6）。
@@ -322,7 +325,7 @@ checks:
       en: Only checked during the drill (while Nginx is stopped); health check metrics and alarms live in us-east-1.
     reproduce: { run: 'aws route53 get-health-check-status --health-check-id <DNS_HEALTH_CHECK_ID> --query "HealthCheckObservations[].StatusReport.Status"', runsOn: workstation }
     manualFallback:
-      where: { breadcrumb: [Route 53, 运行状况检查], region: global }
+      where: { breadcrumb: [Route 53, { zh-CN: 运行状况检查, ja: ヘルスチェック, en: Health checks }], region: global }
       observed:
         question:
           zh-CN: 演练期间这个健康检查的状态是什么？
@@ -353,7 +356,10 @@ checks:
         ja: 訓練中に「ヘルスチェックが異常になった」「セカンダリのレコードを受け取った」「メンテナンスページにアクセスできた」の 3 つの時刻を記録しました
         en: "During the drill I recorded three moments: the health check turned unhealthy, the secondary record was returned, and the maintenance page loaded"
       input:
-        label: 从停止 Nginx 到访问维护页成功的秒数
+        label:
+          zh-CN: 从停止 Nginx 到访问维护页成功的秒数
+          ja: Nginx を止めてからメンテナンスページにアクセスできるまでの秒数
+          en: Seconds from stopping Nginx until the maintenance page loaded
         pattern: '^[0-9]{1,4}$'
     explain:
       zh-CN: 时间大致等于“检查间隔 × 失败阈值 + TTL + 解析器与客户端缓存”。

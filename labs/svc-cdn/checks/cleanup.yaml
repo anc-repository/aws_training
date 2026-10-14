@@ -18,7 +18,7 @@ checks:
       en: After reclaiming, the platform looks up the distribution ID and expects NoSuchDistribution.
     reproduce: { run: 'aws cloudfront get-distribution --id {{ var.distributionId }}', runsOn: workstation }
     manualFallback:
-      where: { breadcrumb: [CloudFront, 分配], region: global }
+      where: { breadcrumb: [CloudFront, { zh-CN: 分配, ja: ディストリビューション, en: Distributions }], region: global }
       observed:
         question:
           zh-CN: 列表中还能找到这个分配吗？

@@ -107,7 +107,7 @@ checks:
       en: "A start-state fact that only needs to hold once: step 3 deletes this rule."
     reproduce: { run: 'aws ec2 describe-security-group-rules --filters Name=group-id,Values={{ target.sgId }} --query "SecurityGroupRules[?IsEgress==\`false\`].[IpProtocol,FromPort,ToPort,CidrIpv4]" --output table', runsOn: workstation }
     manualFallback:
-      where: { breadcrumb: [EC2, 安全组, '{{ target.sgId }}', 入站规则], region: app }
+      where: { breadcrumb: [EC2, { zh-CN: 安全组, ja: セキュリティグループ, en: Security groups }, '{{ target.sgId }}', { zh-CN: 入站规则, ja: インバウンドルール, en: Inbound rules }], region: app }
       observed:
         question:
           zh-CN: 22 端口的入站规则来源是什么？
@@ -227,7 +227,7 @@ checks:
       en: After the SSM channel is verified, scripts/module clears the base stack parameter SshIngressCidr and the template's Condition removes the port 22 rule; a rule with protocol -1 would also open 22.
     reproduce: { run: 'aws ec2 describe-security-group-rules --filters Name=group-id,Values={{ target.sgId }} --query "SecurityGroupRules[?IsEgress==\`false\`].[IpProtocol,FromPort,ToPort,CidrIpv4]" --output table', runsOn: workstation }
     manualFallback:
-      where: { breadcrumb: [EC2, 安全组, '{{ target.sgId }}', 入站规则], region: app }
+      where: { breadcrumb: [EC2, { zh-CN: 安全组, ja: セキュリティグループ, en: Security groups }, '{{ target.sgId }}', { zh-CN: 入站规则, ja: インバウンドルール, en: Inbound rules }], region: app }
       observed:
         question:
           zh-CN: 入站规则里还有端口 22（或“全部流量”）的规则吗？
@@ -286,7 +286,7 @@ checks:
       en: The cloudWatchLogGroupName of the session preferences SSM-SessionManagerRunShell points to this log group, and shell session commands and output are uploaded as they run.
     reproduce: { run: 'aws logs describe-log-groups --log-group-name-prefix /cloudalbum/{{ session.env }}/ssm-sessions', runsOn: workstation }
     manualFallback:
-      where: { breadcrumb: [CloudWatch, 日志组], region: app }
+      where: { breadcrumb: [CloudWatch, { zh-CN: 日志组, ja: ロググループ, en: Log groups }], region: app }
       observed:
         question:
           zh-CN: '/cloudalbum/{{ session.env }}/ssm-sessions 存在吗？保留列显示多少？'
@@ -348,7 +348,7 @@ checks:
     reproduce: { run: 'aws cloudtrail lookup-events --lookup-attributes AttributeKey=EventName,AttributeValue=StartSession --max-results 5', runsOn: workstation }
     pitfalls: [trail-delay]
     manualFallback:
-      where: { breadcrumb: [CloudTrail, 事件历史, StartSession], region: app }
+      where: { breadcrumb: [CloudTrail, { zh-CN: 事件历史, ja: イベント履歴, en: Event history }, StartSession], region: app }
       observed:
         question:
           zh-CN: 事件历史里能找到用户名以 atl-…-ws 开头的 StartSession 事件吗？
@@ -456,7 +456,7 @@ checks:
       en: The log stream name = the session ID, prefixed with the initiator's session name (go by what you observe); port-forwarding sessions do not record content, so only shell sessions have log streams.
     reproduce: { run: 'aws logs describe-log-streams --log-group-name /cloudalbum/{{ session.env }}/ssm-sessions --log-stream-name-prefix atl-{{ session.id }}-ws', runsOn: workstation }
     manualFallback:
-      where: { breadcrumb: [CloudWatch, 日志组, '/cloudalbum/{{ session.env }}/ssm-sessions', 日志流], region: app }
+      where: { breadcrumb: [CloudWatch, { zh-CN: 日志组, ja: ロググループ, en: Log groups }, '/cloudalbum/{{ session.env }}/ssm-sessions', { zh-CN: 日志流, ja: ログストリーム, en: Log streams }], region: app }
       observed:
         question:
           zh-CN: 有以 atl-…-ws 开头的日志流吗？
@@ -494,7 +494,7 @@ checks:
     required: false
     reproduce: { run: 'aws cloudformation describe-stacks --stack-name cloudalbum-{{ session.env }}-shell-access', runsOn: workstation }
     manualFallback:
-      where: { breadcrumb: [CloudFormation, 堆栈], region: app }
+      where: { breadcrumb: [CloudFormation, { zh-CN: 堆栈, ja: スタック, en: Stacks }], region: app }
       observed:
         question:
           zh-CN: 还能找到 cloudalbum-{{ session.env }}-shell-access 吗？

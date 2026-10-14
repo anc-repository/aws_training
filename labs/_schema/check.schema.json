@@ -133,7 +133,23 @@
       "additionalProperties": false,
       "properties": {
         "where": {
-          "type": "object"
+          "type": "object",
+          "properties": {
+            "breadcrumb": {
+              "type": "array",
+              "items": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "maxLength": 80
+                  },
+                  {
+                    "$ref": "#/$defs/l10n"
+                  }
+                ]
+              }
+            }
+          }
         },
         "confirm": {
           "anyOf": [
@@ -209,7 +225,20 @@
           }
         },
         "input": {
-          "type": "object"
+          "type": "object",
+          "properties": {
+            "label": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 120
+                },
+                {
+                  "$ref": "#/$defs/l10n"
+                }
+              ]
+            }
+          }
         },
         "evidence": {
           "type": "object",

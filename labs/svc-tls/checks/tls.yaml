@@ -145,7 +145,7 @@ checks:
       en: You created this stack with scripts/module in this session; its ACME endpoint only lets the issuer role request certificates for TLS_DOMAIN.
     reproduce: { run: 'aws cloudformation describe-stacks --stack-name cloudalbum-{{ session.env }}-tls --query "Stacks[0].[StackStatus,Outputs]"', runsOn: workstation }
     manualFallback:
-      where: { breadcrumb: [CloudFormation, 栈, 'cloudalbum-{{ session.env }}-tls', 输出], region: app }
+      where: { breadcrumb: [CloudFormation, { zh-CN: 栈, ja: スタック, en: Stacks }, 'cloudalbum-{{ session.env }}-tls', { zh-CN: 输出, ja: 出力, en: Outputs }], region: app }
       observed:
         question:
           zh-CN: 输出 EnvTlsAcme 与 EnvTlsDomain 的值是什么？
@@ -210,7 +210,7 @@ checks:
       en: CloudFront can only use ACM certificates in us-east-1, so tls's edge stack is deployed in us-east-1; a certificate requested in ap-northeast-1 cannot be selected in CloudFront.
     reproduce: { run: 'aws cloudformation describe-stacks --region us-east-1 --stack-name cloudalbum-{{ session.env }}-tls-edge --query "Stacks[0].[StackStatus,Outputs]"', runsOn: workstation }
     manualFallback:
-      where: { breadcrumb: [CloudFormation, 栈, 'cloudalbum-{{ session.env }}-tls-edge'], region: us-east-1 }
+      where: { breadcrumb: [CloudFormation, { zh-CN: 栈, ja: スタック, en: Stacks }, 'cloudalbum-{{ session.env }}-tls-edge'], region: us-east-1 }
       observed:
         question:
           zh-CN: 这个栈在哪个区域、状态是什么？
@@ -367,7 +367,7 @@ checks:
       en: ACME certificates appear in ACM's certificate list (CertificateKeyPairOrigin=ACME), but ListCertificates does not list them by default; you need an ACME filter.
     reproduce: { run: 'aws acm list-certificates --certificate-key-pair-origins ACME --query "CertificateSummaryList[].[DomainName,CertificateArn]"', runsOn: workstation }
     manualFallback:
-      where: { breadcrumb: [Certificate Manager, 列出证书], region: app }
+      where: { breadcrumb: [Certificate Manager, { zh-CN: 列出证书, ja: 証明書を一覧表示, en: List certificates }], region: app }
       observed:
         question:
           zh-CN: 用“密钥对来源：ACME”筛选后，能看到 {{ learner.inputs.domain }} 的证书吗？
@@ -437,7 +437,7 @@ checks:
       en: "The certificate was requested by a session of the issuer role cloudalbum-<env>-acme-issuer in this environment's tls stack (04 §5.2.4 item 2: a role that is a member of this environment's stack is the evidence of creation)."
     reproduce: { run: 'aws acm describe-certificate --certificate-arn <ARN> --query "Certificate.[Status,DomainName,CertificateKeyPairOrigin,NotAfter]"', runsOn: workstation }
     manualFallback:
-      where: { breadcrumb: [Certificate Manager, 列出证书], region: app }
+      where: { breadcrumb: [Certificate Manager, { zh-CN: 列出证书, ja: 証明書を一覧表示, en: List certificates }], region: app }
       observed:
         question:
           zh-CN: 这张 ACME 证书的状态与有效期大约是多久？
@@ -496,7 +496,7 @@ checks:
       en: The integrated certificate is requested by the tls-edge stack (DNS validation) and attached to the Aliases of this session's distribution; ACM only runs managed renewal for certificates that are in use.
     reproduce: { run: 'aws acm describe-certificate --region us-east-1 --certificate-arn <ACM_CERT_ARN_EDGE> --query "Certificate.[Status,InUseBy,RenewalEligibility]"', runsOn: workstation }
     manualFallback:
-      where: { breadcrumb: [Certificate Manager, 列出证书], region: us-east-1 }
+      where: { breadcrumb: [Certificate Manager, { zh-CN: 列出证书, ja: 証明書を一覧表示, en: List certificates }], region: us-east-1 }
       observed:
         question:
           zh-CN: 证书的“正在使用”一栏是什么？

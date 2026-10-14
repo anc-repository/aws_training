@@ -6,6 +6,10 @@ fast-forwarding the platform clock, the completion fixture of a learning path an
 
   python scripts/e2e/platform_e2e.py --web http://127.0.0.1:5174 --api http://127.0.0.1:8787 --out <dir> [--headed]
 
+Languages (09-i18n-and-visual.md): the flow runs in zh-CN (its assertions use the source texts); phase 11 checks the
+Japanese default, switching to English / Chinese, content per language with the “未翻訳” marker, the public verify page and
+the main screens in ja / en, and writes Japanese screenshots of the main screens to --ja-shots (.atl-dev/screens-ja/).
+
 Writes <dir>/results.json and <dir>/screenshots/*.png; exit code 0 when every check passed.
 No AWS API is called (the dev server never reaches AWS; this script only talks to 127.0.0.1).
 """
@@ -32,6 +36,8 @@ ap.add_argument('--out', required=True)
 ap.add_argument('--csp-web', default='')
 ap.add_argument('--headed', action='store_true')
 ap.add_argument('--only', default='')
+# Japanese screenshots of the main screens (09-i18n-and-visual.md; default .atl-dev/screens-ja/ of this repository)
+ap.add_argument('--ja-shots', default=os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..', '.atl-dev', 'screens-ja'))
 args = ap.parse_args()
 
 WEB = args.web.rstrip('/')
@@ -40,6 +46,9 @@ OUT = args.out
 SHOTS = os.path.join(OUT, 'screenshots')
 os.makedirs(SHOTS, exist_ok=True)
 CSP_WEB = args.csp_web.rstrip('/')
+JA_SHOTS = os.path.abspath(args.ja_shots) if args.ja_shots else ''
+if JA_SHOTS:
+    os.makedirs(JA_SHOTS, exist_ok=True)
 for host in (WEB, API) + ((CSP_WEB,) if CSP_WEB else ()):
     if not re.match(r'^http://(127\.0\.0\.1|localhost)(:\d+)?$', host):
         sys.exit(f'refusing a non-local URL: {host}')
@@ -86,10 +95,12 @@ def shot(page: Page, name: str, full: bool = False) -> str:
 
 # ------------------------------------------------------------------------------------------------ dev API helpers
 
-def http(method: str, path: str, body: Any = None, token: str | None = LEARNER) -> tuple[int, Any]:
+def http(method: str, path: str, body: Any = None, token: str | None = LEARNER, headers: dict[str, str] | None = None) -> tuple[int, Any]:
     url = f'{API}{path}'
     data = None if body is None else json.dumps(body).encode()
     req = urllib.request.Request(url, data=data, method=method)
+    for k, v in (headers or {}).items():
+        req.add_header(k, v)
     if body is not None:
         req.add_header('content-type', 'application/json')
     if token:
@@ -164,6 +175,32 @@ def attach(page: Page, label: str) -> None:
 
 def no_hscroll(page: Page) -> dict[str, int]:
     return page.evaluate('() => ({ scroll: document.documentElement.scrollWidth, client: document.documentElement.clientWidth, body: document.body.scrollWidth })')
+
+
+OVERFLOWERS = """
+() => {
+  const W = document.documentElement.clientWidth;
+  const out = [];
+  for (const el of document.querySelectorAll('body *')) {
+    const r = el.getBoundingClientRect();
+    if (r.width <= 0 || r.right <= W + 1) continue;
+    let p = el.parentElement, clipped = false;
+    while (p) { const ox = getComputedStyle(p).overflowX; if (ox !== 'visible' && p.getBoundingClientRect().right <= W + 1) { clipped = true; break; } p = p.parentElement; }
+    if (clipped) continue;
+    const cls = typeof el.className === 'string' ? el.className : (el.className && el.className.baseVal) || '';
+    out.push(`${el.tagName.toLowerCase()}.${cls.split(' ').join('.')} right=${Math.round(r.right)} “${(el.textContent || '').trim().slice(0, 40)}”`);
+  }
+  return out.slice(0, 6);
+}
+"""
+
+
+def overflowers(page: Page) -> list[str]:
+    """The outermost elements that stick out of the viewport (diagnostics for a horizontal-scroll failure)."""
+    try:
+        return page.evaluate(OVERFLOWERS)
+    except Exception as e:  # noqa: BLE001
+        return [f'(not inspected: {e})']
 
 
 def dialog(page: Page, title_re: str):
@@ -343,6 +380,7 @@ def phase_workbench(page: Page, sid: str) -> None:
     shot(app, '12b-app-preview')
     app.close()
     phase_csp_live(page.context.browser, sid)
+    phase_ja_live(page.context.browser, sid)
     state['phase'] = '4 workbench'
 
 
@@ -469,6 +507,11 @@ def phase_certificate(page: Page) -> None:
     wait_until('verify result', lambda: res.get_attribute('data-result') not in (None, 'verifying'), 30, 0.5)
     check('public verify page /verify/<certId> (P09-V, WebCrypto + jwks + signed revocation list): valid', res.get_attribute('data-result') == 'valid', res.inner_text()[:200])
     shot(vp, '25-verify-valid', full=True)
+    # ?lang= selects the language of the public page (09 §1.8); the Japanese overview screenshot of P09-V
+    vp.goto(f'{WEB}/verify/{cert_id}?lang=ja')
+    wait_until('verify result (?lang=ja)', lambda: res.get_attribute('data-result') not in (None, 'verifying'), 30, 0.5)
+    check('verify page ?lang=ja: Japanese, same result', vp.evaluate('() => document.documentElement.lang') == 'ja' and res.get_attribute('data-result') == 'valid', vp.locator('#vh').inner_text())
+    ja_shot(vp, '06-verify')
     # revoke in P09-C → the verify page shows “已吊销”
     page.get_by_role('button', name=re.compile('^吊销')).first.click()
     rd = dialog(page, '^吊销证书')
@@ -563,7 +606,7 @@ def phase_screens(page: Page) -> None:
             page.wait_for_timeout(1200)
             m = no_hscroll(page)
             if m['scroll'] > m['client'] + 1:
-                bad.append(f'{name}: scrollWidth {m["scroll"]} > {m["client"]}')
+                bad.append(f'{name}: scrollWidth {m["scroll"]} > {m["client"]} {overflowers(page)}')
             shot(page, f'w{width}-{name}', full=True)
         check(f'{width}px: {len(SCREENS)} screens render without horizontal scrolling', not bad, bad)
     page.set_viewport_size({'width': 1280, 'height': 900})
@@ -690,6 +733,303 @@ def phase_csp(browser: Any) -> None:
     ctx.close()
 
 
+# ------------------------------------------------------------------------------------------------ languages (I1–I6)
+
+# UI texts per language used by the language checks (platform/web/src/i18n/<lang>/*.ts)
+LANG_TEXT: dict[str, dict[str, str]] = {
+    'ja': {'catalog': 'カード一覧', 'learning': '学習状況', 'devSignIn': '開発用 ID でログイン', 'untranslated': '未翻訳', 'verifyTitle': 'ATL 修了証の検証'},
+    'en': {'catalog': 'Card catalog', 'learning': 'My learning', 'devSignIn': 'Sign in as developer', 'untranslated': 'Not translated', 'verifyTitle': 'ATL certificate verification'},
+    'zh-CN': {'catalog': '卡片目录', 'learning': '我的学习', 'devSignIn': '以开发身份登录', 'untranslated': '未翻译', 'verifyTitle': 'ATL 证书验证'},
+}
+KANA = re.compile(r'[぀-ヿ]')
+HAN = re.compile(r'[一-鿿]')
+LOCALE_KEY = 'atl.locale.v1'
+
+# main screens checked in ja and en (zh-CN: phase 9 “screens”)
+I18N_SCREENS = [
+    ('catalog', '/labs?view=grid', '[data-screen=P02]'),
+    ('catalog-map', '/labs?view=map', '[data-screen=P02]'),
+    ('card', '/labs/svc-storage', '[data-screen=P03]'),
+    ('track', '/tracks/quick-compare', '[data-screen=P02-T]'),
+    ('workspace', '/workspace/{sid}', '[data-screen]'),
+    ('sessions', '/sessions', '[data-screen=P11]'),
+    ('reclaim', '/sessions/{sid}/end', '[data-screen=P07]'),
+    ('report', '/sessions/{sid}/report', '[data-screen=P08]'),
+    ('manual', '/resources/manual', '[data-screen=P07-M]'),
+    ('certificates', '/certificates', '[data-screen=P09]'),
+    ('certificate', '/certificates/{certId}', '[data-screen=P09-C]'),
+    ('learning', '/learning', '[data-screen=P10]'),
+    ('settings', '/settings/profile', '[data-screen=P12]'),
+    ('verify', '/verify/{certId}', '#vres'),
+]
+
+
+def html_lang(page: Page) -> str:
+    return page.evaluate('() => document.documentElement.lang')
+
+
+def stored_locale(page: Page) -> Any:
+    return page.evaluate("k => { try { return JSON.parse(localStorage.getItem(k)); } catch (e) { return 'unreadable'; } }", LOCALE_KEY)
+
+
+def ja_shot(page: Page, name: str, full: bool = True) -> None:
+    """A screenshot for .atl-dev/screens-ja/ (Japanese UI, the overview of the main screens)."""
+    if not JA_SHOTS:
+        return
+    try:
+        page.screenshot(path=os.path.join(JA_SHOTS, f'{name}.png'), full_page=full)
+    except Exception as e:  # noqa: BLE001
+        log(f'ja screenshot {name} failed: {e}')
+
+
+# diagnostics only: visible texts with characters used in simplified Chinese but not in Japanese (UI text that was not
+# localized); content quoted from the CloudAlbum app or recorded in a report legitimately stays zh-CN
+SIMPLIFIED_ONLY = '这们个为实验证书设认链务读运发应对开启动闭页还给从让说请吗么样过选择钮错误该仅确输账图标签视频访问显术载编辑预览删练习浏览复杂进态网络录记报价费结专题级别资额册续换签产轮询'
+ZH_LEFTOVERS = """
+(simp) => {
+  const out = new Set();
+  const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+  for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+    const t = n.textContent.trim();
+    const el = n.parentElement;
+    if (!t || !el || el.closest('script,style,noscript,code,pre,.mono,.xterm')) continue;
+    if ([...t].some((c) => simp.includes(c))) out.add(t.slice(0, 60));
+  }
+  return [...out].slice(0, 8);
+}
+"""
+
+
+# Errors of the test machine's network stack, not of the platform: Windows answers WSAENOBUFS (“No buffer space”) under
+# heavy socket churn (Vite dev modules, HMR sockets, the dev server's local CloudAlbum). Listed in results.json, not failed.
+ENV_NET_ERROR = re.compile(r'net::ERR_(NO_BUFFER_SPACE|INSUFFICIENT_RESOURCES)\b')
+
+
+def is_app_error(c: dict[str, Any]) -> bool:
+    return c['type'] in ('error', 'pageerror') and not re.match(r'Failed to load resource: the server responded with a status of', c['text']) and not ENV_NET_ERROR.search(c['text'])
+
+
+def errors_since(mark: int, label: str) -> list[dict[str, Any]]:
+    return [c for c in console_events[mark:] if c['page'] == label and is_app_error(c)]
+
+
+def content_json(lang: str | None, rel: str, accept: str | None = None) -> tuple[dict[str, Any], Any]:
+    """A content document through the catalog API: `?lang=` (or only Accept-Language when `lang` is None)."""
+    q = f'?lang={lang}' if lang else ''
+    code, cat = http('GET', f'/api/v1/catalog{q}', headers={'accept-language': accept} if accept else None)
+    if code != 200:
+        raise Abort(f'GET /api/v1/catalog{q} → {code}')
+    base = cat['indexUrl'].rsplit('catalog/index.json', 1)[0]
+    code, doc = http('GET', f'{base}{rel}', token=None)
+    if code != 200:
+        raise Abort(f'GET {base}{rel} → {code}')
+    return cat, doc
+
+
+def dev_login(page: Page, base: str = '') -> None:
+    """Dev-token login through the form, whatever the UI language (selectors, not texts)."""
+    page.goto(f'{base or WEB}/labs')
+    page.wait_for_url(re.compile(r'/login\?next='))
+    page.locator('[data-dev-login]').wait_for()
+    page.locator('main select').first.select_option('learner')
+    page.locator('input.mono').fill(SUB)
+    page.locator('[data-dev-login] button[type=submit]').click()
+    page.locator('[data-screen=P02]').wait_for(timeout=20_000)
+
+
+def phase_ja_live(browser: Any, sid: str) -> None:
+    """Japanese screenshot of the live workbench (P05) while the session runs (a second browser context, as phase 4b)."""
+    if not JA_SHOTS:
+        return
+    state['phase'] = '4c ja-live'
+    ctx = browser.new_context(viewport={'width': 1280, 'height': 900}, locale='ja-JP', timezone_id='Asia/Tokyo')
+    page = ctx.new_page()
+    attach(page, 'ja-live')
+    try:
+        dev_login(page)
+        page.goto(f'{WEB}/workspace/{sid}?step=orient')
+        page.locator('[data-screen=P05][data-variant=live]').wait_for(timeout=30_000)
+        page.wait_for_timeout(2500)
+        body = page.locator('body').inner_text()
+        check('ja: the live workbench (P05) renders in Japanese (UI and manual)', html_lang(page) == 'ja' and bool(KANA.search(body)) and page.locator('.untranslated').count() == 0, html_lang(page))
+        ja_shot(page, '04-workbench', full=False)
+    except Exception as e:  # noqa: BLE001 — recorded as a failure; the main flow goes on
+        check(f'ja-live: {type(e).__name__}: {str(e).splitlines()[0][:300] if str(e) else ""}', False, traceback.format_exc()[-1500:])
+    finally:
+        ctx.close()
+
+
+def phase_i18n(browser: Any) -> None:
+    """Languages (09-i18n-and-visual.md, I1–I6): Japanese by default whatever the browser says, switching to English and
+    Chinese (kept after a reload), content per language with the “未翻訳” marker where a translation is missing, the
+    public verify page, and the main screens in ja / en at 400 / 1280 px without horizontal scrolling or console errors."""
+    state['phase'] = '11 i18n'
+    # a browser that prefers Chinese and has never chosen a language: the UI must still start in Japanese (I1)
+    # (locale sets navigator.language and the browser's default Accept-Language; the SPA sends its own per request)
+    ctx = browser.new_context(viewport={'width': 1280, 'height': 900}, locale='zh-CN', timezone_id='Asia/Tokyo')
+    ctx.set_default_timeout(20_000)
+    page = ctx.new_page()
+    attach(page, 'i18n')
+    try:
+        # --- I1 default language
+        page.goto(f'{WEB}/labs')
+        page.wait_for_url(re.compile(r'/login\?next='))
+        btn = page.locator('[data-dev-login] button[type=submit]')
+        btn.wait_for()
+        check('first visit (browser language zh-CN, nothing stored): the UI is Japanese', html_lang(page) == 'ja' and btn.inner_text().strip() == LANG_TEXT['ja']['devSignIn'] and stored_locale(page) is None, {'lang': html_lang(page), 'button': btn.inner_text(), 'stored': stored_locale(page)})
+        dev_login(page)
+        main = page.locator('[data-screen=P02]')
+        page.get_by_role('heading', level=1, name=LANG_TEXT['ja']['catalog']).wait_for()
+        page.locator('a[href="/labs/svc-storage"]').first.wait_for(timeout=15_000)
+        ja_cat, ja_index = content_json('ja', 'catalog/index.json')
+        storage = {lang: next(c for c in content_json(lang, 'catalog/index.json')[1]['cards'] if c['id'] == 'svc-storage') for lang in ('ja', 'en', 'zh-CN')}
+        titles = {lang: c['title'] for lang, c in storage.items()}
+        # a service card tile shows the service name and its function (the title is “service：function”)
+        fns = {lang: c.get('function') or c['title'] for lang, c in storage.items()}
+        tile = page.locator('article[data-card="svc-storage"]').first
+        check('ja: catalog heading, navigation and card tiles in Japanese (content /ja/)', fns['ja'] in tile.inner_text() and LANG_TEXT['ja']['learning'] in page.locator('header').first.inner_text() and tile.locator('.untranslated').count() == 0, {'function': fns['ja'], 'tile': tile.inner_text()[:160]})
+        ja_shot(page, '01-catalog-grid', full=False)
+        # --- I1 switching (top bar), kept after a reload
+        for lang in ('en', 'zh-CN'):
+            page.locator('header .lang-switch select').first.select_option(lang)
+            page.get_by_role('heading', level=1, name=LANG_TEXT[lang]['catalog']).wait_for(timeout=15_000)
+            page.locator('a[href="/labs/svc-storage"]').first.wait_for(timeout=15_000)
+            page.wait_for_timeout(800)
+            body = page.locator('article[data-card="svc-storage"]').first.inner_text()
+            ok = html_lang(page) == lang and fns[lang] in body and LANG_TEXT[lang]['learning'] in page.locator('header').first.inner_text() and stored_locale(page) == lang
+            check(f'switch to {lang}: heading, navigation, card tiles and <html lang> follow; the choice is stored', ok, {'lang': html_lang(page), 'stored': stored_locale(page), 'function': fns[lang], 'tile': body[:160]})
+            page.reload()
+            page.get_by_role('heading', level=1, name=LANG_TEXT[lang]['catalog']).wait_for(timeout=20_000)
+            check(f'{lang} is kept after a reload', html_lang(page) == lang, html_lang(page))
+        page.locator('header .lang-switch select').first.select_option('ja')
+        page.get_by_role('heading', level=1, name=LANG_TEXT['ja']['catalog']).wait_for(timeout=15_000)
+        # --- I4 content per language (API) and the untranslated marker
+        _, en_by_header = content_json(None, 'catalog/index.json', accept='en-US,en;q=0.9')
+        _, zh_index = content_json('zh-CN', 'catalog/index.json')
+        en_title = next(c['title'] for c in en_by_header['cards'] if c['id'] == 'svc-storage')
+        check('catalog API: ?lang= and Accept-Language select the content language (ja kana / en ASCII / zh-CN Han)',
+              ja_cat.get('contentLang') == 'ja' and bool(KANA.search(titles['ja'])) and en_title == titles['en'] and not HAN.search(titles['en']) and bool(HAN.search(titles['zh-CN'])) and not KANA.search(titles['zh-CN']) and 'i18n' not in zh_index,
+              {'titles': titles, 'contentLang': ja_cat.get('contentLang')})
+        startable = [c['id'] for c in ja_index['cards'] if c.get('status') != 'planned']
+        meta_missing = [c['id'] for c in ja_index['cards'] if c.get('i18n', {}).get('fallback')]
+        check(f'ja catalog index: metadata of all {len(ja_index["cards"])} cards translated (no fallback pointers)', not meta_missing and not ja_index.get('i18n', {}).get('fallback'), meta_missing[:10])
+        with_fallback = None
+        for cid in startable:
+            intro = content_json('ja', f'catalog/cards/{cid}.json')[1]
+            if intro.get('i18n', {}).get('fallback'):
+                with_fallback = (cid, intro['i18n']['fallback'])
+                break
+        page.goto(f'{WEB}/labs/svc-storage')
+        h1 = page.locator('[data-screen=P03] h1').first
+        h1.wait_for()
+        page.wait_for_timeout(1000)
+        check('ja: translated card intro (svc-storage) has the Japanese title and no “未翻訳” marker', titles['ja'] in h1.inner_text() and page.locator('[data-screen=P03] h1 .untranslated').count() == 0, h1.inner_text()[:160])
+        ja_shot(page, '03-card-intro')
+        if with_fallback:
+            cid, ptrs = with_fallback
+            page.goto(f'{WEB}/labs/{cid}')
+            mark = page.locator('[data-screen=P03] h1 .untranslated')
+            mark.wait_for(timeout=15_000)
+            check(f'ja: content shown from the fallback chain is marked “未翻訳” ({cid}: {", ".join(ptrs[:2])})', mark.inner_text().strip() == LANG_TEXT['ja']['untranslated'], mark.inner_text())
+        else:
+            # every intro is translated: drop the Japanese title of one on the wire, as an untranslated card would arrive
+            zh_title = next(c['title'] for c in zh_index['cards'] if c['id'] == 'svc-storage')
+
+            def strip(route: Any) -> None:
+                r = route.fetch()
+                doc = r.json()
+                doc['title'] = zh_title
+                doc['i18n'] = {'lang': 'ja', 'fallback': ['/title']}
+                route.fulfill(response=r, json=doc)
+
+            page.route('**/ja/catalog/cards/svc-storage.json', strip)
+            page.goto(f'{WEB}/labs/svc-storage')
+            mark = page.locator('[data-screen=P03] h1 .untranslated')
+            mark.wait_for(timeout=15_000)
+            check('ja: a field from the fallback chain is marked “未翻訳” (intro without its Japanese title)', mark.inner_text().strip() == LANG_TEXT['ja']['untranslated'], mark.inner_text())
+            page.unroute('**/ja/catalog/cards/svc-storage.json')
+        page.goto(f'{WEB}/labs?view=map')
+        page.locator('[data-screen=P02]').wait_for()
+        page.wait_for_timeout(1500)
+        ja_shot(page, '02-service-map', full=False)
+        if 'sid' in state:
+            page.goto(f'{WEB}/sessions/{state["sid"]}/report')
+            page.locator('[data-screen=P08]').wait_for(timeout=20_000)
+            page.wait_for_timeout(1500)
+            ja_shot(page, '05-report')
+        # --- the public verify page: ja by default, language links switch
+        if 'certId' in state:
+            vctx = browser.new_context(viewport={'width': 1280, 'height': 900}, locale='en-US', timezone_id='Asia/Tokyo')
+            vp = vctx.new_page()
+            attach(vp, 'i18n')
+            vp.goto(f'{WEB}/verify/{state["certId"]}')
+            res = vp.locator('#vres')
+            wait_until('verify result (ja)', lambda: res.get_attribute('data-result') not in (None, 'verifying'), 30, 0.5)
+            check('verify page: Japanese by default (browser en-US, nothing stored)', vp.locator('#vh').inner_text().strip() == LANG_TEXT['ja']['verifyTitle'] and html_lang(vp) == 'ja', {'h1': vp.locator('#vh').inner_text(), 'lang': html_lang(vp)})
+            for lang in ('en', 'zh-CN'):
+                vp.locator(f'#vlang a[data-lang="{lang}"]').click()
+                vp.wait_for_url(re.compile(rf'lang={re.escape(lang)}'))
+                wait_until(f'verify result ({lang})', lambda: res.get_attribute('data-result') not in (None, 'verifying'), 30, 0.5)
+                cur = vp.locator('#vlang a[aria-current=true]').get_attribute('data-lang')
+                check(f'verify page: the {lang} link switches it (title, <html lang>, current link; same result)', vp.locator('#vh').inner_text().strip() == LANG_TEXT[lang]['verifyTitle'] and html_lang(vp) == lang and cur == lang and res.get_attribute('data-result') == 'revoked', {'h1': vp.locator('#vh').inner_text(), 'lang': html_lang(vp), 'current': cur, 'result': res.get_attribute('data-result')})
+            vctx.close()
+        # --- main screens in ja and en: 400 / 1280 px, no horizontal scrolling, no console errors. On the production build
+        # under the CloudFront CSP when it runs (bundled: a few requests per screen instead of the dev server's hundreds of
+        # modules, and the CSP is checked in both languages too); its origin has its own storage, so sign in there first
+        base = CSP_WEB or WEB
+        if CSP_WEB:
+            page.close()
+            page = ctx.new_page()
+            attach(page, 'i18n')
+            page.add_init_script(CSP_PROBE)
+            dev_login(page, CSP_WEB)
+        build = 'production build, CSP' if CSP_WEB else 'dev server'
+        for lang in ('ja', 'en'):
+            page.evaluate("([k, l]) => localStorage.setItem(k, JSON.stringify(l))", [LOCALE_KEY, lang])
+            mark_at = len(console_events)
+            violations: list[dict[str, Any]] = []
+            for width in (400, 1280):
+                page.set_viewport_size({'width': width, 'height': 900})
+                bad = []
+                seen = 0
+                for name, path, sel in I18N_SCREENS:
+                    if ('{sid}' in path and 'sid' not in state) or ('{certId}' in path and 'certId' not in state):
+                        continue
+                    page.goto(f'{base}{path.format(sid=state.get("sid"), certId=state.get("certId"))}')
+                    try:
+                        page.locator(sel).first.wait_for(timeout=20_000)
+                    except Exception:  # noqa: BLE001
+                        bad.append(f'{name}: {sel} not found')
+                    page.wait_for_timeout(1000)
+                    seen += 1
+                    if html_lang(page) != lang:
+                        bad.append(f'{name}: <html lang> {html_lang(page)}')
+                    m = no_hscroll(page)
+                    if m['scroll'] > m['client'] + 1:
+                        bad.append(f'{name}: scrollWidth {m["scroll"]} > {m["client"]} {overflowers(page)}')
+                    shot(page, f'{lang}-w{width}-{name}', full=True)
+                    if width == 1280:
+                        left = page.evaluate(ZH_LEFTOVERS, SIMPLIFIED_ONLY)
+                        if left:
+                            log(f'{lang} {name}: zh-CN text on the page (review): {left}')
+                    if name != 'verify':  # P09-V has its own CSP (atl-certs), not the SPA's
+                        violations += [{'screen': name, **v} for v in page.evaluate('() => window.__csp || []')]
+                check(f'{lang} {width}px: {seen} main screens in {lang} ({build}), no horizontal scrolling', not bad, bad)
+            errs = errors_since(mark_at, 'i18n')
+            check(f'{lang}: no console errors on the main screens', not errs, errs[:10])
+            if CSP_WEB:
+                check(f'{lang}: no CSP violations on the main screens (style-src / script-src self)', not violations, violations[:10])
+        page.set_viewport_size({'width': 1280, 'height': 900})
+    except Abort as e:
+        check(f'i18n stopped: {e}', False)
+        shot(page, 'fail-i18n', full=True)
+    except Exception as e:  # noqa: BLE001
+        check(f'i18n: {type(e).__name__}: {str(e).splitlines()[0][:300] if str(e) else ""}', False, traceback.format_exc()[-1500:])
+        shot(page, 'fail-i18n', full=True)
+    finally:
+        ctx.close()
+
+
 # The UI defaults to Japanese (09-i18n-and-visual.md §1.1, I1) whatever the browser language; the assertions of this test
 # use the zh-CN source texts, so every context selects zh-CN the way a user would (the stored choice, atl.locale.v1).
 UI_LOCALE_ZH = "try { if (!localStorage.getItem('atl.locale.v1')) localStorage.setItem('atl.locale.v1', JSON.stringify('zh-CN')); } catch (e) {}"
@@ -729,20 +1069,27 @@ def main() -> int:
                 check(f'unexpected error in {name}: {type(e).__name__}: {str(e).splitlines()[0][:300]}', False, traceback.format_exc()[-1500:])
                 shot(page, f'fail-{name}', full=True)
                 break
+        mark_at = len(console_events)
         try:
             phase_screens(page)
         except Exception as e:  # noqa: BLE001
             check(f'screens: {type(e).__name__}: {e}', False)
+        errs = errors_since(mark_at, 'main')
+        check('zh-CN: no console errors on the main screens', not errs, errs[:10])
         try:
             phase_csp(browser)
         except Exception as e:  # noqa: BLE001
             check(f'csp: {type(e).__name__}: {str(e).splitlines()[0][:300]}', False)
+        phase_i18n(browser)
         state['phase'] = '10 console'
         # Chrome logs every failed fetch as a console error (“Failed to load resource … status of N”); those are judged by the
         # response itself: 5xx and 429 always fail, other 4xx only when not listed in EXPECTED_4XX
         http_events = [c for c in console_events if c['type'].startswith('http')]
         unexpected_http = [c for c in http_events if c['type'] >= 'http5' or c['type'] == 'http429' or not any(re.search(rx, c['text']) for st, rx in EXPECTED_4XX if c['type'] == f'http{st}')]
-        other = [c for c in console_events if c['type'] in ('error', 'pageerror') and not re.match(r'Failed to load resource: the server responded with a status of', c['text'])]
+        other = [c for c in console_events if is_app_error(c)]
+        env_errors = [c for c in console_events if c['type'] in ('error', 'pageerror') and ENV_NET_ERROR.search(c['text'])]
+        if env_errors:
+            log(f'{len(env_errors)} network error(s) of the test machine (not counted): {env_errors[:3]}')
         check('no console errors or page errors in the whole run', not other, other[:20])
         check('no unexpected HTTP errors (5xx, 429, unexpected 4xx)', not unexpected_http, unexpected_http[:20])
         browser.close()
@@ -758,6 +1105,7 @@ def main() -> int:
         'failed': len(failed),
         'results': results,
         'console': console_events[-200:],
+        'environmentNetworkErrors': [c for c in console_events if ENV_NET_ERROR.search(c['text'])][:50],
     }
     with open(os.path.join(OUT, 'results.json'), 'w', encoding='utf-8') as f:
         json.dump(summary, f, ensure_ascii=False, indent=2)
