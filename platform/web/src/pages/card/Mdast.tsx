@@ -4,7 +4,7 @@
  * docs.aws.amazon.com / aws.amazon.com（05 §7.2 写作规则），外链新标签页打开并带“（新标签页）”。
  */
 import { Fragment, type ReactNode } from 'react';
-import { zhCN } from '../../i18n/zh-CN';
+import { msg } from '../../i18n';
 import { SECTION_TEXT } from '../labs/strings';
 import type { MdNode } from '../labs/types';
 
@@ -76,7 +76,7 @@ function MdNodeView({ node: n, k }: { node: MdNode; k: string }): ReactNode {
       return h.external ? (
         <a href={h.href} target="_blank" rel="noopener noreferrer">
           {kids(n, k)}
-          <span className="sr">{zhCN.app.newTab}</span> ↗
+          <span className="sr">{msg.app.newTab}</span> ↗
         </a>
       ) : (
         <a href={h.href}>{kids(n, k)}</a>

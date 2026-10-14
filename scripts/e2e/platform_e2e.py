@@ -177,7 +177,7 @@ def phase_login(page: Page) -> None:
     page.goto(f'{WEB}/labs')
     page.wait_for_url(re.compile(r'/login\?next='))
     check('unauthenticated /labs → /login?next=/labs', '/login?next=%2Flabs' in page.url, page.url)
-    page.locator('select').first.select_option('learner')
+    page.locator('main select').first.select_option('learner')
     page.locator('input.mono').fill(SUB)
     shot(page, '01-login')
     page.get_by_role('button', name='以开发身份登录').click()
@@ -624,6 +624,7 @@ def phase_csp_live(browser: Any, sid: str) -> None:
         return
     state['phase'] = '4b csp-live'
     ctx = browser.new_context(viewport={'width': 1280, 'height': 900}, locale='zh-CN', timezone_id='Asia/Tokyo')
+    ctx.add_init_script(UI_LOCALE_ZH)
     ctx.add_init_script(CSP_PROBE)
     page = ctx.new_page()
     attach(page, 'csp-live')
@@ -664,6 +665,7 @@ def phase_csp(browser: Any) -> None:
     if not CSP_WEB:
         return
     ctx = browser.new_context(viewport={'width': 1280, 'height': 900}, locale='zh-CN', timezone_id='Asia/Tokyo')
+    ctx.add_init_script(UI_LOCALE_ZH)
     ctx.add_init_script(CSP_PROBE)
     page = ctx.new_page()
     attach(page, 'csp')
@@ -688,6 +690,10 @@ def phase_csp(browser: Any) -> None:
     ctx.close()
 
 
+# The UI defaults to Japanese (09-i18n-and-visual.md §1.1, I1) whatever the browser language; the assertions of this test
+# use the zh-CN source texts, so every context selects zh-CN the way a user would (the stored choice, atl.locale.v1).
+UI_LOCALE_ZH = "try { if (!localStorage.getItem('atl.locale.v1')) localStorage.setItem('atl.locale.v1', JSON.stringify('zh-CN')); } catch (e) {}"
+
 # ------------------------------------------------------------------------------------------------ main
 
 def main() -> int:
@@ -695,6 +701,7 @@ def main() -> int:
     with sync_playwright() as p:
         browser = p.chromium.launch(channel='chrome', headless=not args.headed)
         ctx = browser.new_context(viewport={'width': 1280, 'height': 900}, locale='zh-CN', timezone_id='Asia/Tokyo')
+        ctx.add_init_script(UI_LOCALE_ZH)
         ctx.set_default_timeout(20_000)
         page = ctx.new_page()
         attach(page, 'main')

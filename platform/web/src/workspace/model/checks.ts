@@ -11,6 +11,7 @@ import type { CheckSource } from '@atl/shared';
 import type { CheckResult, ManualSub, Trust } from '../../ui';
 import { checkLocalId, checkRefRequired, type CheckDecl, type LabDoc, type LabStep } from './lab';
 
+import { msg, t } from '../../i18n';
 export const SOURCE_OF_TYPE: Readonly<Record<CheckDecl['type'], CheckSource>> = {
   local: 'LOCAL',
   'http-header': 'LOCAL',
@@ -134,7 +135,7 @@ export function assertionSummary(item: CheckResultItemView | null): string | nul
   const bad = ks.find((k) => !k.ok);
   const k = bad ?? ks[0];
   if (!k) return null;
-  return bad ? `${k.label} · 期望 ${fmtVal(k.expected)}，实际 ${fmtVal(k.actual)}` : `${k.label}`;
+  return bad ? t(msg.workspace.checkText.expectedActual, { label: k.label, expected: fmtVal(k.expected), actual: fmtVal(k.actual) }) : `${k.label}`;
 }
 
 /** 本步骤的检查行（按步骤声明的顺序）。`inflight`：已请求、结果未到的检查 id（显示“核验中”）。 */
@@ -168,12 +169,13 @@ export function checkRow(id: string, decl: CheckDecl | null, required: boolean, 
   const review = isManual && manual ? (manual.review?.decision === 'approve' ? 'approved' : manual.review?.decision === 'reject' ? 'rejected' : manual.kind === 'degraded' ? 'pending' : null) : null;
   const how: 'auto' | 'manual' = type === 'manual' || isManual ? 'manual' : 'auto';
   let summary: string | null = null;
-  if (isManual && manual?.observed) summary = `你填写：${manual.observed}${manual.result === 'manual_evidence' ? ' · 证据已校验' : ''}`;
+  const C = msg.workspace.checkText;
+  if (isManual && manual?.observed) summary = `${t(C.youEntered, { v: manual.observed })}${manual.result === 'manual_evidence' ? C.evidenceOk : ''}`;
   else if (reason === 'OWNERSHIP_PENDING') {
     const s = newer?.ownership?.retryAfterSeconds;
-    summary = `归属确认中（CloudTrail 通常几分钟，不作保证）${s ? ` · 下次 ${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')} 后` : ''}`;
-  } else if (reason === 'EXPECTED_OUTAGE') summary = '窗口结束后自动重试';
-  else if (result === 'error') summary = '不是你的问题';
+    summary = s ? t(C.ownershipNext, { t: `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}` }) : C.ownership;
+  } else if (reason === 'EXPECTED_OUTAGE') summary = C.outageRetry;
+  else if (result === 'error') summary = C.notYourFault;
   else summary = assertionSummary(newer);
   const canManual = !isManual && ((type === 'manual' && result !== 'pass') || (type === 'aws-readonly' && !!decl?.manualFallback && (result === 'error' || result === 'unavailable' || result === 'needs_manual')));
   return {
@@ -216,7 +218,8 @@ export function runSummaryText(results: readonly Pick<CheckResultItemView, 'resu
   const pass = results.filter((r) => r.result === 'pass').length;
   const fail = results.filter((r) => r.result === 'fail').length;
   const other = results.length - pass - fail;
-  return `本步检测完成：${pass} 项通过${fail ? `，${fail} 项未通过` : ''}${other ? `，${other} 项待定` : ''}`;
+  const C = msg.workspace.checkText;
+  return `${t(C.runDone, { pass })}${fail ? t(C.runFail, { n: fail }) : ''}${other ? t(C.runOther, { n: other }) : ''}`;
 }
 
 /** 漂移提示：“这一步曾于 10:42 通过，现在‘…’未通过。” */

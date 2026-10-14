@@ -9,7 +9,7 @@
 import type { BudgetState, PlatformMode } from '@atl/shared';
 import type { SessionView } from '../../api/types';
 import type { Role } from '../../auth/jwt';
-import { t } from '../../i18n/zh-CN';
+import { msg, t } from '../../i18n';
 import { formatClock } from '../../lib/format';
 import type { CardStatus, CostQuote, LabDetail, QuoteLine, Range, StartReason } from '../labs/types';
 import { SS } from './strings';
@@ -249,7 +249,7 @@ export function quoteRows(q: CostQuote, o: QuoteRowsOptions): QuoteRowView[] {
   rows.push({
     key: 'max',
     label: SS.quote.max,
-    desc: t(SS.quote.maxDesc, { n: o.extensions.count, total: `${(maxMin / 60).toFixed(1).replace(/\.0$/, '')} 小时` }),
+    desc: t(SS.quote.maxDesc, { n: o.extensions.count, total: t(msg.pages.card.hours, { n: (maxMin / 60).toFixed(1).replace(/\.0$/, '') }) }),
     amount: range(q.maxSession, ''),
   });
   return rows;

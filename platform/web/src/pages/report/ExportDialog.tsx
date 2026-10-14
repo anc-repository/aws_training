@@ -11,6 +11,8 @@ import { announce } from '../../lib/announce';
 import { Button, Dialog, Icon, Shape } from '../../ui';
 import { InlineProblem } from '../errors/InlineProblem';
 
+import { msg, t } from '../../i18n';
+import { RP } from './strings';
 interface ExportResult {
   status?: 'ready' | 'rendering';
   retryAfterSeconds?: number;
@@ -35,7 +37,7 @@ export function ExportDialog({ sid, onClose }: { sid: string; onClose: () => voi
     if (timer.current) clearTimeout(timer.current);
   }, []);
   const mixed = acct !== ip;
-  const blockedReason = mixed ? '平台目前只能同时打码或同时不打码账号 ID 与公网 IP' : !acct && !confirmUnmask ? '请先确认导出文件会包含完整的 AWS 账号 ID' : null;
+  const blockedReason = mixed ? RP.export.mixed : !acct && !confirmUnmask ? RP.export.confirmFirst : null;
 
   const request = async () => {
     try {
@@ -44,7 +46,7 @@ export function ExportDialog({ sid, onClose }: { sid: string; onClose: () => voi
       if (d?.status === 'ready' && d.download?.url) {
         setUrl(d.download.url);
         setPhase('ready');
-        announce('导出文件已就绪');
+        announce(RP.export.ready);
         return;
       }
       if (Date.now() - started.current > EXPORT_TIMEOUT_MS) {
@@ -71,68 +73,68 @@ export function ExportDialog({ sid, onClose }: { sid: string; onClose: () => voi
     <Dialog
       open
       onClose={onClose}
-      title="导出报告"
+      title={RP.export.title}
       size="narrow"
       footer={
         <>
           <button type="button" className="btn" onClick={onClose}>
-            {phase === 'ready' ? '关闭' : '取消'}
+            {phase === 'ready' ? RP.export.close : RP.export.cancel}
           </button>
           {phase !== 'ready' ? (
-            <Button variant="primary" busy={phase === 'rendering'} busyText="正在生成…" disabledReason={blockedReason} onClick={start}>
-              导出
+            <Button variant="primary" busy={phase === 'rendering'} busyText={RP.export.rendering} disabledReason={blockedReason} onClick={start}>
+              {RP.export.export}
             </Button>
           ) : null}
         </>
       }
     >
       <fieldset className="stack-4 plain-fieldset">
-        <legend className="flabel">格式</legend>
-        <div className="radio-row" role="radiogroup" aria-label="格式">
+        <legend className="flabel">{RP.export.format}</legend>
+        <div className="radio-row" role="radiogroup" aria-label={RP.export.format}>
           <label>
             <input type="radio" name="ex-format" value="html" checked={format === 'html'} onChange={() => setFormat('html')} />
-            HTML（单文件，可离线打开、可打印为 PDF）
+            {RP.export.html}
           </label>
           <label>
             <input type="radio" name="ex-format" value="json" checked={format === 'json'} onChange={() => setFormat('json')} />
-            JSON（权威格式）
+            {RP.export.json}
           </label>
         </div>
       </fieldset>
       <label className="chk">
         <input type="checkbox" checked={acct} onChange={(e) => setAcct(e.target.checked)} />
-        <span>账号 ID 打码</span>
+        <span>{RP.export.maskAccount}</span>
       </label>
       {!acct ? (
         <label className="chk">
           <input type="checkbox" checked={confirmUnmask} onChange={(e) => setConfirmUnmask(e.target.checked)} />
-          <span>我确认导出文件会包含完整的 AWS 账号 ID</span>
+          <span>{RP.export.confirmUnmask}</span>
         </label>
       ) : null}
       <label className="chk">
         <input type="checkbox" checked={ip} onChange={(e) => setIp(e.target.checked)} />
-        <span>公网 IP 打码</span>
+        <span>{RP.export.maskIp}</span>
       </label>
-      {mixed ? <p className="small st drift">平台目前只能同时打码或同时不打码账号 ID 与公网 IP。</p> : null}
-      <p className="small muted">导出的报告包含手动确认备注与完整检查记录。PDF：在浏览器中打开 HTML 报告后，选择 打印 › 另存为 PDF。</p>
+      {mixed ? <p className="small st drift">{RP.export.mixedNote}</p> : null}
+      <p className="small muted">{RP.export.contents}</p>
       <div className="note">
         <Icon name="shield" />
-        <span>打码导出的文件与证书引用的报告不是同一份字节，不能用于证书核对；核对用的报告 JSON 请在证书详情中下载。</span>
+        <span>{RP.export.notForCert}</span>
       </div>
       {phase === 'rendering' ? (
         <p className="row small" role="status">
-          <Shape name="spin" spin /> 正在生成导出文件（通常几十秒），可以留在这里等待。
+          <Shape name="spin" spin /> {RP.export.generating}
         </p>
       ) : null}
-      {phase === 'timeout' ? <p className="small st drift">导出文件还没有生成完，请稍后再试。</p> : null}
+      {phase === 'timeout' ? <p className="small st drift">{RP.export.timeout}</p> : null}
       {phase === 'ready' && url ? (
         <p className="row" role="status">
           <a className="btn primary" href={url} target="_blank" rel="noopener noreferrer" data-export-link="">
             <Icon name="down" />
-            下载 {format.toUpperCase()}
-            <span className="sr">（新标签页）</span>
+            {t(RP.export.download, { format: format.toUpperCase() })}
+            <span className="sr">{msg.app.newTab}</span>
           </a>
-          <span className="small muted">链接 15 分钟内有效。</span>
+          <span className="small muted">{RP.export.validFor}</span>
         </p>
       ) : null}
       {error ? <InlineProblem error={error} onRetry={start} /> : null}

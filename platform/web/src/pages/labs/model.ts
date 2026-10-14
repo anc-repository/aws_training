@@ -24,7 +24,9 @@ import type {
   TaxonomyService,
   TrackDef,
 } from './types';
-import { t } from '../../i18n/zh-CN';
+import { msg, t } from '../../i18n';
+
+const PL = msg.pages.labs;
 
 // ---------------------------------------------------------------------------------------------------------------
 // 查询串（05 §2.7：kind、svc、dom、primary、d、dur、cost、st、nomanual、view、track、group、sort、q、cell）
@@ -218,7 +220,7 @@ export function categoryLabel(tax: Taxonomy, id: string | null | undefined): str
   if (!id) return '';
   const c = tax.categories.find((x) => x.id === id);
   if (!c) return id;
-  return id === 'base' ? '基础' : `${id} ${c.label}`;
+  return id === 'base' ? PL.base : t(PL.category, { id, label: c.label });
 }
 
 /** 类别 id → CSS 类后缀（cat-base、cat-a…）。 */
@@ -275,7 +277,7 @@ export function estimateText(min: number): string {
 
 /** “1.5 小时”。 */
 export function limitText(min: number): string {
-  return `${(min / 60).toFixed(1).replace(/\.0$/, '')} 小时`;
+  return t(PL.hours, { n: (min / 60).toFixed(1).replace(/\.0$/, '') });
 }
 
 /** 卡片的提示标记（≤ 3 个由调用方截取），按 05 §2.8 的优先级；`limited` 只在灾备区域为空时出现，`new-version` 由进度推导。 */

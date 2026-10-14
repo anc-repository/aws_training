@@ -4,7 +4,7 @@
  */
 import type { ReactNode } from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { zhCN } from '../../i18n/zh-CN';
+import { msg, rich } from '../../i18n';
 import { EmptyState } from '../../ui';
 
 export default function NotFoundPage() {
@@ -13,19 +13,19 @@ export default function NotFoundPage() {
     <div className="stack-16" data-screen="P13-404">
       <EmptyState
         page
-        title={zhCN.p13.notFoundTitle}
+        title={msg.p13.notFoundTitle}
         action={
           <>
             <Link className="btn primary" to="/labs">
-              {zhCN.app.backToCatalog}
+              {msg.app.backToCatalog}
             </Link>
             <Link className="btn" to="/sessions">
-              我的实验
+              {msg.frame.notFound.mySessions}
             </Link>
           </>
         }
       >
-        {zhCN.p13.notFound} 地址 <span className="mono wrap-any">{pathname}</span> 没有对应的画面；链接可能已过期，或输入有误。
+        {rich(msg.frame.notFound.body, { notFound: msg.p13.notFound, path: <span className="mono wrap-any">{pathname}</span> })}
       </EmptyState>
     </div>
   );
@@ -39,7 +39,7 @@ export interface MissingProps {
 }
 
 /** 画面内的 404：对象不存在或不属于本安装（08 P11-D 状态“会话不存在”）。 */
-export function Missing({ title, children, back = { to: '/sessions', label: '回到我的实验' } }: MissingProps) {
+export function Missing({ title, children, back = { to: '/sessions', label: msg.frame.notFound.back } }: MissingProps) {
   return (
     <EmptyState
       page
@@ -50,7 +50,7 @@ export function Missing({ title, children, back = { to: '/sessions', label: '回
         </Link>
       }
     >
-      {children ?? '它可能已被删除，或者不属于这个平台安装。'}
+      {children ?? msg.frame.notFound.missingBody}
     </EmptyState>
   );
 }

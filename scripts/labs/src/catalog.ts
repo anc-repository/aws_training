@@ -17,6 +17,7 @@ import type { PlanEntry } from './derive/plan.js';
 import { variantView } from './derive/reference.js';
 import { loadRegistry, localDriver, registryVersion, toolkitVersion } from './registry.js';
 import { LEGACY_LABS } from './lint/catalog.js';
+import { generatedText, SOURCE_LANG } from './l10n.js';
 
 export interface CatalogCard {
   id: string;
@@ -326,7 +327,7 @@ export function catalogCard(set: ContentSet, card: CardContent, ordered: readonl
     mainDrivers: lab.cost?.mainDrivers ?? [],
     provisionClass: lab.provision?.class ?? 'A',
     startProfiles,
-    variants: startProfiles.map((p) => ({ id: p.variant, title: p.title ?? (p.variant === 'default' ? '默认' : p.variant), select: p.select, provisionClass: p.provisionClass, costTier: p.costTier })),
+    variants: startProfiles.map((p) => ({ id: p.variant, title: p.title ?? (p.variant === 'default' ? generatedText('defaultVariant', set.lang ?? SOURCE_LANG) : p.variant), select: p.select, provisionClass: p.provisionClass, costTier: p.costTier })),
     targets,
     expectedWarnings: lab.expectedWarnings ?? [],
     learnerInputs: (lab.prerequisites?.learnerInputs ?? []).map((i) => ({ id: i.id, required: i.required !== false })),

@@ -17,6 +17,7 @@ import { Icon } from './Icon';
 import { Dialog } from './Overlay';
 import { Shape } from './Shape';
 
+import { msg, t } from '../i18n';
 export type RunsOn = 'workstation' | 'ops' | 'cloudshell' | 'lab' | 'ec2' | 'local' | 'browser';
 export type PasteTarget = 'workstation' | 'lab';
 
@@ -53,15 +54,9 @@ export interface CommandBlockProps {
 
 export const PASTE_LIMIT_BYTES = 16 * 1024;
 
-const RUNS_ON_TEXT: Record<RunsOn, string> = {
-  workstation: '工作台',
-  ops: '工作台',
-  cloudshell: 'CloudShell',
-  lab: '实验机',
-  ec2: '实验机',
-  local: '本机',
-  browser: '浏览器',
-};
+const UC = msg.ui.command;
+
+const RUNS_ON_TEXT: Readonly<Record<RunsOn, string>> = UC.runsOn;
 
 function pasteTargetOf(runsOn: RunsOn): PasteTarget | null {
   if (runsOn === 'workstation' || runsOn === 'ops' || runsOn === 'cloudshell') return 'workstation';
@@ -69,7 +64,7 @@ function pasteTargetOf(runsOn: RunsOn): PasteTarget | null {
   return null;
 }
 
-const TARGET_TEXT: Record<PasteTarget, string> = { workstation: '工作台', lab: '实验机' };
+const TARGET_TEXT: Readonly<Record<PasteTarget, string>> = UC.target;
 
 export function CommandBlock({
   text,
@@ -112,21 +107,21 @@ export function CommandBlock({
     if (await copyText(raw)) {
       setFallback(null);
       setCopied(true);
-      announce('已复制');
+      announce(UC.copied);
       return;
     }
     if (!maskedDiffers && !unresolved.length && selectNodeText(codeRef.current)) {
       setFallback('select');
-      announce('已选中命令，按 Ctrl+C 复制');
+      announce(UC.selected);
     } else {
       setFallback('textarea');
-      announce('请在文本框中按 Ctrl+C 复制');
+      announce(UC.useTextarea);
     }
   };
 
   const onCopyClick = () => {
     if (unresolved.length) {
-      announce(`有 ${unresolved.length} 个变量未填写`);
+      announce(t(UC.unresolved, { n: unresolved.length }));
       onUnresolved?.(unresolved);
       return;
     }
@@ -142,7 +137,7 @@ export function CommandBlock({
   const tooLarge = new TextEncoder().encode(raw).length > PASTE_LIMIT_BYTES;
   const pasteBlock =
     pasteDisabledReason ??
-    (unresolved.length ? `有 ${unresolved.length} 个变量未填写` : hasSecret ? '命令含密钥占位，不能粘贴' : tooLarge ? '命令超过 16KB，只能复制' : null);
+    (unresolved.length ? t(UC.unresolved, { n: unresolved.length }) : hasSecret ? UC.hasSecret : tooLarge ? UC.tooLarge : null);
   const other: PasteTarget | null = target === 'lab' ? 'workstation' : target === 'workstation' ? 'lab' : null;
 
   return (
@@ -157,7 +152,7 @@ export function CommandBlock({
                 {display(p.value)}
               </span>
             ) : (
-              <span key={i} className="unres" title={`未填写：${p.name}`}>
+              <span key={i} className="unres" title={t(UC.unfilled, { name: p.name })}>
                 {p.placeholder}
               </span>
             ),
@@ -166,20 +161,20 @@ export function CommandBlock({
       </pre>
       <div className="cbar">
         <span>
-          运行于：{RUNS_ON_TEXT[runsOn]}
-          {observe ? ' · 观察用，不计入结果' : ''}
-          {maskedDiffers && !unresolved.length ? <span className="faint"> · 显示已打码，复制为完整命令</span> : null}
+          {t(UC.runsOnLabel, { where: RUNS_ON_TEXT[runsOn] })}
+          {observe ? UC.observe : ''}
+          {maskedDiffers && !unresolved.length ? <span className="faint">{UC.masked}</span> : null}
           {danger ? (
             <span className="st fail">
               {' '}
               <Shape name="tri" />
-              <span className="t">会删除或停用资源</span>
+              <span className="t">{UC.danger}</span>
             </span>
           ) : null}
         </span>
         <span className="spacer" />
-        <Button size="sm" icon="copy" onClick={onCopyClick} aria-label={`复制命令：${firstLine}${unresolved.length ? '（有未填写的变量）' : ''}`}>
-          {copied ? '已复制' : unresolved.length ? '复制 (!)' : '复制'}
+        <Button size="sm" icon="copy" onClick={onCopyClick} aria-label={t(unresolved.length ? UC.copyLabelUnresolved : UC.copyLabel, { line: firstLine })}>
+          {copied ? UC.copied : unresolved.length ? UC.copyWarn : UC.copy}
         </Button>
         {target && onPaste ? (
           <span className="row" data-paste="">
@@ -188,7 +183,7 @@ export function CommandBlock({
               icon="paste"
               aria-disabled={pasteBlock ? true : undefined}
               title={pasteBlock ?? undefined}
-              aria-label={`粘贴到${TARGET_TEXT[target]}终端`}
+              aria-label={t(UC.pasteLabel, { target: TARGET_TEXT[target] })}
               onClick={() => {
                 if (pasteBlock) {
                   announce(pasteBlock);
@@ -198,10 +193,10 @@ export function CommandBlock({
                 onPaste(target, {});
               }}
             >
-              粘贴到 {TARGET_TEXT[target]}
+              {t(UC.pasteTo, { target: TARGET_TEXT[target] })}
             </Button>
             {!pasteBlock ? (
-              <Disclosure label={<Icon name="chev" />} ariaLabel="更多粘贴方式" buttonClassName="btn sm icon">
+              <Disclosure label={<Icon name="chev" />} ariaLabel={UC.morePaste} buttonClassName="btn sm icon">
                 {(close) => (
                   <>
                     {other ? (
@@ -213,7 +208,7 @@ export function CommandBlock({
                           onPaste(other, {});
                         }}
                       >
-                        粘贴到 {TARGET_TEXT[other]}
+                        {t(UC.pasteTo, { target: TARGET_TEXT[other] })}
                       </button>
                     ) : null}
                     <button
@@ -224,7 +219,7 @@ export function CommandBlock({
                         onPaste(target, { newTab: true });
                       }}
                     >
-                      在新的终端子标签中粘贴
+                      {UC.pasteNewTab}
                     </button>
                     {allowExecute && !danger ? (
                       <button
@@ -235,7 +230,7 @@ export function CommandBlock({
                           onPaste(target, { execute: true });
                         }}
                       >
-                        粘贴并执行
+                        {UC.pasteExecute}
                       </button>
                     ) : null}
                   </>
@@ -245,21 +240,21 @@ export function CommandBlock({
           </span>
         ) : null}
       </div>
-      {fallback === 'select' ? <div className="cbar">已选中命令，按 Ctrl+C 复制。</div> : null}
+      {fallback === 'select' ? <div className="cbar">{UC.selectedNote}</div> : null}
       {fallback === 'textarea' ? (
-        <textarea ref={fallbackRef} className="fallback" readOnly value={raw} aria-label="命令原文（按 Ctrl+C 复制）" />
+        <textarea ref={fallbackRef} className="fallback" readOnly value={raw} aria-label={UC.rawLabel} />
       ) : null}
       <Dialog
         open={confirm}
         onClose={() => setConfirm(false)}
-        title="复制危险命令"
+        title={UC.dangerTitle}
         size="narrow"
         alert
         initialFocus="[data-cancel]"
         footer={
           <>
             <button type="button" className="btn" data-cancel="" onClick={() => setConfirm(false)}>
-              取消
+              {UC.cancel}
             </button>
             <button
               type="button"
@@ -269,14 +264,14 @@ export function CommandBlock({
                 void doCopy();
               }}
             >
-              我了解，复制
+              {UC.dangerConfirm}
             </button>
           </>
         }
       >
         <div className="note red">
           <Shape name="tri" />
-          <span>这条命令会删除或停用资源，影响无法撤销。确认后才会复制到剪贴板。</span>
+          <span>{UC.dangerNote}</span>
         </div>
         <pre className="mono small">{shown}</pre>
       </Dialog>

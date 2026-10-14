@@ -6,6 +6,7 @@
 import { forwardRef, useId, type ButtonHTMLAttributes, type ReactNode } from 'react';
 import { Icon, type IconName } from './Icon';
 
+import { msg } from '../i18n';
 export type ButtonVariant = 'default' | 'primary' | 'accent' | 'ghost' | 'danger' | 'danger-solid';
 
 export interface ButtonProps extends Omit<ButtonHTMLAttributes<HTMLButtonElement>, 'children'> {
@@ -59,7 +60,7 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button
       }}
     >
       {icon ? <Icon name={icon} /> : null}
-      {busy ? (busyText ?? '正在处理…') : children}
+      {busy ? (busyText ?? msg.ui.button.busy) : children}
     </button>
   );
   if (!disabledReason) return button;

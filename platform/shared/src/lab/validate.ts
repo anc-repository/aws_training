@@ -4,7 +4,7 @@
  */
 import { Ajv2020, type ErrorObject, type ValidateFunction } from 'ajv/dist/2020.js';
 import { LAB_SCHEMA_V2 } from './lab-schema.generated.js';
-import type { LabV2 } from './types.js';
+import type { LabV2Source } from './types.js';
 
 export const LAB_SCHEMA_ID = 'urn:atl:schema:lab:v2';
 export const LAB_SCHEMA_VERSION = 'atl.lab/v2';
@@ -28,11 +28,12 @@ export interface LabSchemaIssue {
   params: Record<string, unknown>;
 }
 
-export type LabValidationResult = { ok: true; lab: LabV2 } | { ok: false; issues: LabSchemaIssue[] };
+/** On success `lab` is the card as written: text fields may still be localized objects (`resolveLocalized`). */
+export type LabValidationResult = { ok: true; lab: LabV2Source } | { ok: false; issues: LabSchemaIssue[] };
 
 export function validateLab(doc: unknown): LabValidationResult {
   const v = validator();
-  if (v(doc)) return { ok: true, lab: doc as LabV2 };
+  if (v(doc)) return { ok: true, lab: doc as LabV2Source };
   return { ok: false, issues: (v.errors ?? []).map(toIssue) };
 }
 

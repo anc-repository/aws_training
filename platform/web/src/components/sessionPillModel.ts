@@ -4,7 +4,7 @@
 import type { SessionView } from '../api/types';
 import { pillTarget } from '../app/sessionRouting';
 import type { Role } from '../auth/jwt';
-import { t, zhCN } from '../i18n/zh-CN';
+import { msg, t } from '../i18n';
 import { formatClock, formatCountdown, formatRemainingSpoken } from '../lib/format';
 import { COST_TIER_META, displayState, SESSION_STATE_META, urgencyOf, type CostTier, type ShapeName } from '../ui';
 
@@ -41,7 +41,7 @@ export function pillModel({ view: v, nowMs, role, costTier }: PillInput): PillMo
   const tierTail = tier ? [tier] : [];
   const remaining = v.deadlineAt ? Date.parse(v.deadlineAt) - nowMs : null;
   const ds = displayState(v.state, remaining);
-  const s = zhCN.session;
+  const s = msg.session;
   switch (ds) {
     case 'REQUESTED':
     case 'PROVISIONING': {
@@ -75,7 +75,7 @@ export function pillModel({ view: v, nowMs, role, costTier }: PillInput): PillMo
         detail: [v.labId],
         clock: remaining !== null ? formatCountdown(remaining) : null,
         tail: tierTail,
-        aria: `${t(s.pillLabel, { labId: v.labId, state: stateText, rest })}${tier ? `，费用档位${COST_TIER_META[costTier!].text}` : ''}`,
+        aria: `${t(s.pillLabel, { labId: v.labId, state: stateText, rest })}${tier ? t(msg.frame.pill.tier, { tier: COST_TIER_META[costTier!].text }) : ''}`,
       };
     }
     case 'OVERDUE':

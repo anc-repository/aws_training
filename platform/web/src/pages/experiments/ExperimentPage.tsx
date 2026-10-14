@@ -10,14 +10,16 @@ import { useLabContent, useSessionView } from '../sessions/data';
 import '../sessions/pages.css';
 import { ExperimentCompare, type CompareSelection } from './ExperimentCompare';
 
+import { rich, t } from '../../i18n';
+import { EX } from './strings';
 export default function ExperimentPage() {
   const { sid = '', module = '', experimentId = '' } = useParams();
   const [search, setSearch] = useSearchParams();
   const { view, status, error, retry } = useSessionView(sid);
   const { lab } = useLabContent(view?.catalogVersion, view?.labId);
-  if (status === 'missing') return <Missing title="没有这个会话" />;
-  if (status === 'error' && !view) return <ErrorPanel error={error ?? { code: 'INTERNAL' }} onRetry={retry} title="对比实验" />;
-  if (!view) return <Skeleton lines={5} block label="正在读取会话" />;
+  if (status === 'missing') return <Missing title={EX.page.noSession} />;
+  if (status === 'error' && !view) return <ErrorPanel error={error ?? { code: 'INTERNAL' }} onRetry={retry} title={EX.page.title} />;
+  if (!view) return <Skeleton lines={5} block label={EX.page.reading} />;
   const decl = lab?.experiments?.find((x) => x.module === module && x.id === experimentId);
   const selection: CompareSelection = { a: search.get('a'), b: search.get('b'), across: search.get('across') === '1' };
   const onSelect = (sel: CompareSelection) => {
@@ -35,23 +37,23 @@ export default function ExperimentPage() {
   return (
     <div className="stack-16" data-screen="P06">
       <div>
-        <nav className="crumbs-row" aria-label="面包屑">
-          <Link to="/sessions">我的实验</Link>
+        <nav className="crumbs-row" aria-label={EX.page.crumbs}>
+          <Link to="/sessions">{EX.page.mySessions}</Link>
           <span aria-hidden="true">›</span>
           <Link className="mono" to={`/sessions/${sid}`}>
             {sid}
           </Link>
           <span aria-hidden="true">›</span>
-          <span>对比实验</span>
+          <span>{EX.page.title}</span>
         </nav>
         <div className="ph">
           <div className="ttl">
             <h1 tabIndex={-1}>
-              {view.labId} › 对比实验 · {module}/{experimentId}
-              {decl?.required ? '（必做）' : decl ? '（选做）' : ''}
+              {t(EX.page.heading, { labId: view.labId, key: `${module}/${experimentId}` })}
+              {decl?.required ? EX.page.required : decl ? EX.page.optional : ''}
             </h1>
             <span className="sub">
-              会话 <span className="mono">{sid}</span> · <SessionStatePill state={view.state} size="sm" />
+              {rich(EX.page.session, { sid: <span className="mono">{sid}</span>, state: <SessionStatePill state={view.state} size="sm" /> })}
             </span>
           </div>
         </div>

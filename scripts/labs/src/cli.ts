@@ -7,17 +7,22 @@
  *   lint     schema + group A / B rules + catalog rules C-1…C-15 + track rules            exit 1 on errors
  *   derive   group C (DRV-1…DRV-11) via scripts/module plan --start-of (reference derivation when unavailable)
  *   build    dist/content/<catalogVersion>/ (catalog index, intros, expanded cards, profiles, manifest)
- *   catalog  write labs/_catalog/catalog.yaml (--check: compare only)
+ *   catalog  write labs/_catalog/catalog.yaml (--check: compare only; --lang ja|en [--out <file>]: print the catalog
+ *            resolved to that language instead)
  *   policy   ATLVerifierRole read-only actions of the content (--out <file>, default: print)
+ *   i18n     translation coverage per card (ja, en; 09 §2.3) and the translation rules I1–I5     exit 1 on errors
  *
  * Options: --labs <dir> (default <repo>/labs), --card <id>[,<id>] (derive), --deriver auto|cli|reference,
  *          --catalog-version <v> and --out <dir> (build), --json (machine-readable issues), --warnings-as-errors
  */
 import fs from 'node:fs';
 import path from 'node:path';
+import { isContentLang } from '@atl/shared';
 import { buildContent } from './build.js';
 import { loadContent, type LintIssue } from './content.js';
 import { deriveAll, type DeriverMode } from './derive/index.js';
+import { CONTENT_LANGS, SOURCE_LANG } from './l10n.js';
+import { lintTranslations, translationCoverage } from './lint/i18n.js';
 import { lintContent, renderCatalogYaml } from './lint/index.js';
 import { labsPaths } from './paths.js';
 import { verifierPolicy } from './policy.js';
@@ -100,6 +105,19 @@ async function main(): Promise<number> {
       return code;
     }
     case 'catalog': {
+      const lang = opt('--lang') ?? SOURCE_LANG;
+      if (!isContentLang(lang)) {
+        console.error(`--lang must be one of ${CONTENT_LANGS.join(', ')}`);
+        return 2;
+      }
+      if (lang !== SOURCE_LANG) {
+        // the committed catalog.yaml is zh-CN (the source); other languages are printed or written to --out only
+        const text = renderCatalogYaml(loadContent(paths, { lang }));
+        const out = opt('--out');
+        if (out) fs.writeFileSync(path.resolve(out), text);
+        else process.stdout.write(text);
+        return 0;
+      }
       const set = loadContent(paths);
       const text = renderCatalogYaml(set);
       if (flag('--check')) {
@@ -128,8 +146,29 @@ async function main(): Promise<number> {
       } else process.stdout.write(text);
       return r.rejected.length ? 1 : 0;
     }
+    case 'i18n': {
+      const set = loadContent(paths);
+      const rows = translationCoverage(set);
+      const issues = lintTranslations(set);
+      if (flag('--json')) {
+        process.stdout.write(`${JSON.stringify({ coverage: rows, issues }, null, 2)}
+`);
+      } else {
+        const pct = (n: number, d: number) => (d ? `${Math.round((n / d) * 100)}%` : '—').padStart(5);
+        console.log(`${'card'.padEnd(28)} ${'fields'.padStart(6)}    ja    en  manuals    ja    en`);
+        for (const r of rows) {
+          console.log(`${r.card.padEnd(28)} ${String(r.fields).padStart(6)} ${pct(r.translated.ja ?? 0, r.fields)} ${pct(r.translated.en ?? 0, r.fields)}  ${String(r.manuals).padStart(7)} ${pct(r.manualsTranslated.ja ?? 0, r.manuals)} ${pct(r.manualsTranslated.en ?? 0, r.manuals)}`);
+        }
+        const sum = (f: (r: (typeof rows)[number]) => number) => rows.reduce((a, r) => a + f(r), 0);
+        const fields = sum((r) => r.fields);
+        const manuals = sum((r) => r.manuals);
+        console.log(`${'total'.padEnd(28)} ${String(fields).padStart(6)} ${pct(sum((r) => r.translated.ja ?? 0), fields)} ${pct(sum((r) => r.translated.en ?? 0), fields)}  ${String(manuals).padStart(7)} ${pct(sum((r) => r.manualsTranslated.ja ?? 0), manuals)} ${pct(sum((r) => r.manualsTranslated.en ?? 0), manuals)}`);
+        for (const i of issues) console.log(`${i.severity === 'error' ? '✗' : '!'} ${i.card} [${i.rule}] ${i.message}`);
+      }
+      return issues.some((i) => i.severity === 'error') ? 1 : 0;
+    }
     default:
-      console.error('usage: atl-labs <schema|lint|derive|build|catalog|policy> [--labs <dir>] [--card <id>] [--deriver auto|cli|reference] [--out <path>] [--catalog-version <v>] [--json] [--check]');
+      console.error('usage: atl-labs <schema|lint|derive|build|catalog|policy|i18n> [--labs <dir>] [--card <id>] [--deriver auto|cli|reference] [--out <path>] [--catalog-version <v>] [--lang <ja|en>] [--json] [--check]');
       return 2;
   }
 }

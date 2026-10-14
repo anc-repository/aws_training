@@ -20,11 +20,10 @@ import { useWorkspace } from '../context';
 import { accruedOf, formatRange, quoteHourly, scaleRange, type QuoteView } from '../model/cost';
 import { endPrimaryLabel, KEEP_REASON_TEXT, keepBlock, keepHourOptions, quoteRemainingMs, type Disposition, type When } from '../model/expiry';
 
-const PREREQ_TEXT: Record<string, string> = {
-  'route53-hosted-zone': 'Route 53 托管区域',
-  'ses-identity': 'SES 发件身份',
-  'acm-certificate': 'ACM 证书',
-};
+import { t } from '../../i18n';
+import { W } from '../strings';
+const WE = W.end;
+const PREREQ_TEXT: Readonly<Record<string, string>> = WE.prereq;
 
 export function EndDialog({ initialWhen = 'now', onClose }: { initialWhen?: When; onClose: () => void }) {
   const ws = useWorkspace();
@@ -69,7 +68,7 @@ export function EndDialog({ initialWhen = 'now', onClose }: { initialWhen?: When
         setQuote(r.data);
         op.current = api.operation('endSession');
       })
-      .catch((e) => alive && setQuoteErr(isApiError(e) ? (e.code === 'KEEP_NOT_ALLOWED' ? KEEP_REASON_TEXT['not-allowed'] : (e.detail ?? e.title)) : '没能计算保留费用'));
+      .catch((e) => alive && setQuoteErr(isApiError(e) ? (e.code === 'KEEP_NOT_ALLOWED' ? KEEP_REASON_TEXT['not-allowed'] : (e.detail ?? e.title)) : WE.quoteFailed));
     return () => {
       alive = false;
     };
@@ -90,7 +89,7 @@ export function EndDialog({ initialWhen = 'now', onClose }: { initialWhen?: When
 
   const submit = async () => {
     if (!ws.allowed.includes('end')) {
-      setError('当前状态不能结束实验。');
+      setError(WE.notAllowed);
       return;
     }
     setBusy(true);
@@ -109,26 +108,26 @@ export function EndDialog({ initialWhen = 'now', onClose }: { initialWhen?: When
       if (r.data?.sessionId) sync.applyView(r.data);
       else void sync.refreshView(ws.sid);
       if (when === 'now') {
-        announce('正在结束实验');
+        announce(WE.ending);
         onClose();
         navigate(`/sessions/${ws.sid}/end`);
       } else {
-        announce(disposition === 'keep' ? `到期后保留 ${hours} 小时` : '到期时释放资源');
+        announce(disposition === 'keep' ? t(WE.keepAfter, { n: hours }) : WE.releaseAtExpiry);
         onClose();
       }
     } catch (e) {
       const code = isApiError(e) ? e.code : null;
       if (code === 'QUOTE_EXPIRED' || code === 'QUOTE_MISMATCH') {
-        setError('费用报价已失效，已重新计算，请重新确认。');
+        setError(WE.quoteExpired);
         setAckKeep(false);
         setQn((n) => n + 1);
       } else if (code === 'KEEP_NOT_ALLOWED' || code === 'BUDGET_BLOCKED' || code === 'PLATFORM_UNINSTALLING') {
         setError(`${code === 'KEEP_NOT_ALLOWED' ? KEEP_REASON_TEXT['not-allowed'] : code === 'BUDGET_BLOCKED' ? KEEP_REASON_TEXT.budget : KEEP_REASON_TEXT.uninstalling}`);
         setDisposition('destroy');
       } else if (code === 'PRECONDITION_FAILED' || code === 'INVALID_STATE' || code === 'SESSION_EXPIRING_OR_ENDED') {
-        setError('会话状态刚刚变化，已刷新。');
+        setError(WE.stateChanged);
         void sync.refreshView(ws.sid);
-      } else setError(isApiError(e) ? (e.detail ?? e.title) : '没有完成，可以重试（重试不会重复结束）。');
+      } else setError(isApiError(e) ? (e.detail ?? e.title) : WE.retryable);
     } finally {
       setBusy(false);
     }
@@ -138,80 +137,80 @@ export function EndDialog({ initialWhen = 'now', onClose }: { initialWhen?: When
     <Dialog
       open
       onClose={onClose}
-      title="结束实验"
+      title={WE.title}
       dismissible={!busy}
       initialFocus="[data-cancel]"
       footer={
         <>
           <button type="button" className="btn" data-cancel="" onClick={onClose} disabled={busy}>
-            取消
+            {WE.cancel}
           </button>
-          <Button variant={disposition === 'keep' ? 'primary' : 'danger'} onClick={() => void submit()} disabled={!canSubmit} busy={busy} busyText="正在提交…" data-end-submit="">
+          <Button variant={disposition === 'keep' ? 'primary' : 'danger'} onClick={() => void submit()} disabled={!canSubmit} busy={busy} busyText={WE.submitting} data-end-submit="">
             {primary}
           </Button>
         </>
       }
     >
       <div className="stack enddlg" data-end-dialog="">
-        <p className="small">结束后：平台收回终端与控制台访问 → 生成报告 → 删除工作台 →（释放或保留环境）。</p>
+        <p className="small">{WE.flow}</p>
         <p className="small">
-          尝试状态：{ATTEMPT_STATUS_META[attempt]?.text ?? '进行中'}
-          {attempt === 'active' ? '（未提交）。结束时平台会自动做一次最终复核，忘记提交也不吃亏。' : '。'}
+          {t(WE.attempt, { state: ATTEMPT_STATUS_META[attempt]?.text ?? WE.active })}
+          {attempt === 'active' ? WE.notSubmitted : WE.period}
         </p>
         <fieldset className="stack-8">
-          <legend>环境</legend>
+          <legend>{WE.environment}</legend>
           <label className="row optrow">
             <input type="radio" name={`${ids}-d`} checked={disposition === 'destroy'} onChange={() => setDisposition('destroy')} />
-            <b>释放全部资源（推荐）</b>
+            <b>{WE.releaseAll}</b>
           </label>
           <p className="small muted indent">
-            费用：释放后不再新增计费；回收完成前（通常几分钟，CloudFront、RDS 等更久）已创建的资源仍按实际时长计费。本次会话已产生 {accrued ? formatRange(accrued, currency) : '（估算未提供）'}（估算 · Price List · 以账单为准）。
+            {t(WE.releaseCost, { accrued: accrued ? formatRange(accrued, currency) : WE.noEstimate })}
           </p>
           <div className="row optrow">
             <label className="row">
               <input type="radio" name={`${ids}-d`} checked={disposition === 'keep'} disabled={!!keepReason} onChange={() => setDisposition('keep')} aria-describedby={keepReason ? `${ids}-kr` : undefined} />
-              <b>保留环境</b>
+              <b>{WE.keep}</b>
             </label>
-            <select className="input" aria-label="保留时长" value={hours} disabled={!!keepReason || disposition !== 'keep'} onChange={(e) => setHours(Number(e.target.value))}>
+            <select className="input" aria-label={WE.keepHours} value={hours} disabled={!!keepReason || disposition !== 'keep'} onChange={(e) => setHours(Number(e.target.value))}>
               {opts.map((h) => (
                 <option key={h} value={h}>
-                  {h} 小时
+                  {t(WE.hours, { n: h })}
                 </option>
               ))}
             </select>
-            <span className="small muted">（本卡片上限 {opts[opts.length - 1]} 小时）</span>
+            <span className="small muted">{t(WE.cardMax, { n: opts[opts.length - 1] })}</span>
           </div>
           <span id={`${ids}-kr`} className={keepReason ? 'small st fail indent' : 'sr'}>
-            {keepReason ? KEEP_REASON_TEXT[keepReason] : '可以保留'}
+            {keepReason ? KEEP_REASON_TEXT[keepReason] : WE.canKeep}
           </span>
           {disposition === 'keep' && !keepReason ? (
             <div className="stack-4 indent" data-keep-quote="">
               {quoteErr ? (
                 <span className="small st fail">{quoteErr}</span>
               ) : !quote ? (
-                <Skeleton lines={1} label="正在计算保留费用…" />
+                <Skeleton lines={1} label={WE.computing} />
               ) : (
                 <>
                   <span className="small">
                     {hourly
-                      ? `保留期间持续计费（估算）：${formatRange(hourly, quote.currency ?? 'USD')}/小时 × ${hours} ≈ ${formatRange(scaleRange(hourly, hours), quote.currency ?? 'USD').replace(/^≈ /, '')}`
-                      : '保留期间持续计费：每小时单价暂不可得，无法估算保留的费用。'}
+                      ? t(WE.keepCost, { hourly: formatRange(hourly, quote.currency ?? 'USD'), n: hours, total: formatRange(scaleRange(hourly, hours), quote.currency ?? 'USD').replace(/^≈ /, '') })
+                      : WE.keepCostUnknown}
                   </span>
                   <span className="small muted">
-                    取价时间 {quote.priceAsOf ? formatDate(quote.priceAsOf, ws.now()) : '未提供'} · 以 AWS 官方定价与账单为准
-                    {qLeft !== null ? (qExpired ? ' · 报价已失效' : ` · 报价 ${formatCountdown(qLeft)} 后失效`) : ''}
+                    {t(WE.priceAsOf, { t: quote.priceAsOf ? formatDate(quote.priceAsOf, ws.now()) : WE.notProvided })}
+                    {qLeft !== null ? (qExpired ? WE.quoteExpiredShort : t(WE.quoteExpiresIn, { t: formatCountdown(qLeft) })) : ''}
                     {qExpired ? (
                       <>
                         {' '}
                         <button type="button" className="linkbtn" onClick={() => setQn((n) => n + 1)}>
-                          重新计算费用
+                          {WE.recompute}
                         </button>
                       </>
                     ) : null}
                   </span>
                 </>
               )}
-              <span className="small">节省模式（默认开启）：停止实验机；{nonStoppable.length ? '以下资源停不了，会继续计费：' : '停不了的资源（例如弹性 IP、EBS 数据卷、按请求计费的服务）会继续计费。'}</span>
+              <span className="small">{t(WE.saveMode, { tail: nonStoppable.length ? WE.nonStoppable : WE.nonStoppableGeneric })}</span>
               {nonStoppable.length ? (
                 <ul className="small mlist">
                   {nonStoppable.slice(0, 8).map((b, i) => (
@@ -219,17 +218,17 @@ export function EndDialog({ initialWhen = 'now', onClose }: { initialWhen?: When
                   ))}
                 </ul>
               ) : null}
-              <span className="small">保留期间没有终端与控制台；要继续操作，请开始一个复用该环境的新会话。</span>
+              <span className="small">{WE.noAccess}</span>
               <label className="row small">
                 <input type="checkbox" checked={ackKeep} onChange={(e) => setAckKeep(e.target.checked)} />
-                我了解保留期间这些资源会持续计费
+                {WE.ackKeep}
               </label>
               {typedNeeded ? (
                 <label className="small stack-4">
-                  请输入卡片 id 以确认：
+                  {WE.typeId}
                   <input className="input mono" value={typed} onChange={(e) => setTyped(e.target.value)} aria-describedby={`${ids}-typed`} />
                   <span id={`${ids}-typed`} className="faint">
-                    每小时估算较高，输入 {v.labId} 确认
+                    {t(WE.typeIdHint, { labId: v.labId })}
                   </span>
                 </label>
               ) : null}
@@ -238,7 +237,7 @@ export function EndDialog({ initialWhen = 'now', onClose }: { initialWhen?: When
         </fieldset>
         {keepables.length ? (
           <fieldset className="stack-4">
-            <legend>前置资源（可选保留，不随环境释放）</legend>
+            <legend>{WE.prereqs}</legend>
             {keepables.map((p) => (
               <label key={p} className="row small">
                 <input type="checkbox" checked={prereqs.includes(p)} onChange={(e) => setPrereqs((l) => (e.target.checked ? [...l, p] : l.filter((x) => x !== p)))} />
@@ -248,14 +247,14 @@ export function EndDialog({ initialWhen = 'now', onClose }: { initialWhen?: When
           </fieldset>
         ) : null}
         <fieldset className="row">
-          <legend>何时</legend>
+          <legend>{WE.when}</legend>
           <label className="row">
             <input type="radio" name={`${ids}-w`} checked={when === 'now'} onChange={() => setWhen('now')} />
-            现在结束
+            {WE.now}
           </label>
           <label className="row">
             <input type="radio" name={`${ids}-w`} checked={when === 'at-expiry'} onChange={() => setWhen('at-expiry')} />
-            到期时按上面的选择处理{v.deadlineAt ? `（${formatClock(v.deadlineAt)}）` : ''}
+            {v.deadlineAt ? t(WE.atExpiryTime, { t: formatClock(v.deadlineAt) }) : WE.atExpiry}
           </label>
         </fieldset>
         {error ? (
@@ -265,7 +264,7 @@ export function EndDialog({ initialWhen = 'now', onClose }: { initialWhen?: When
         ) : null}
         {disposition === 'keep' ? null : (
           <p className="small muted">
-            <Shape name="dot" /> 释放是默认选择；结束后会跳到回收进度页。
+            <Shape name="dot" /> {WE.defaultNote}
           </p>
         )}
       </div>

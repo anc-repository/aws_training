@@ -4,7 +4,7 @@
  * 全局层（离线条、登录过期、需要最近登录、横幅、错误边界、角色不足页）由 src/components 负责；这里只管画面内部。
  */
 import type { ApiError } from '../../api/errors';
-import { t, zhCN } from '../../i18n/zh-CN';
+import { msg, t } from '../../i18n';
 
 export type ProblemKind =
   /** 网络不可达（P13 #1；离线条由全局显示，画面内给重试）。 */
@@ -46,34 +46,34 @@ export interface Problem {
   tone: 'red' | 'amber' | 'blue' | 'grey';
 }
 
-const ROLE_TEXT: Record<string, string> = zhCN.roles;
+const ROLE_TEXT: Record<string, string> = msg.roles;
 
 export function describeProblem(err: ApiError | null | undefined, opts: { role?: 'L' | 'A' | 'O' | null; overrides?: Record<string, string> } = {}): Problem | null {
   if (!err) return null;
   const code = String(err.code ?? '');
   const over = opts.overrides?.[code];
-  const known = over ?? zhCN.errors[code];
-  const msg = (tpl: string) => t(tpl, { detail: err.detail ?? '', requestId: err.requestId ?? '—', n: err.retryAfterSec ?? 30 });
+  const known = over ?? msg.errors[code];
+  const fill = (tpl: string) => t(tpl, { detail: err.detail ?? '', requestId: err.requestId ?? '—', n: err.retryAfterSec ?? 30 });
   const base = { retry: false, retryAfterSec: null, refreshView: false, tone: 'red' as const };
-  if (code === 'NETWORK' || err.status === 0) return { ...base, kind: 'network', message: zhCN.errors.NETWORK!, retry: true, tone: 'grey' };
+  if (code === 'NETWORK' || err.status === 0) return { ...base, kind: 'network', message: msg.errors.NETWORK!, retry: true, tone: 'grey' };
   if (code === 'RATE_LIMITED' || err.status === 429) {
     const n = err.retryAfterSec ?? 30;
-    return { ...base, kind: 'rate-limited', message: t(zhCN.p13.rateLimited, { n }), retryAfterSec: n, tone: 'amber' };
+    return { ...base, kind: 'rate-limited', message: t(msg.p13.rateLimited, { n }), retryAfterSec: n, tone: 'amber' };
   }
-  if (code === 'UPSTREAM_THROTTLED') return { ...base, kind: 'throttled', message: zhCN.p13.throttled, retry: true, retryAfterSec: err.retryAfterSec, tone: 'amber' };
-  if (code === 'REAUTH_REQUIRED') return { ...base, kind: 'reauth', message: zhCN.errors.REAUTH_REQUIRED!, tone: 'blue' };
+  if (code === 'UPSTREAM_THROTTLED') return { ...base, kind: 'throttled', message: msg.p13.throttled, retry: true, retryAfterSec: err.retryAfterSec, tone: 'amber' };
+  if (code === 'REAUTH_REQUIRED') return { ...base, kind: 'reauth', message: msg.errors.REAUTH_REQUIRED!, tone: 'blue' };
   if (code === 'FORBIDDEN_ROLE' || (err.status === 403 && !known)) {
     const role = opts.role ? ROLE_TEXT[opts.role] : '—';
-    return { ...base, kind: 'role', message: t(zhCN.p13.roleDeniedInline, { role }), tone: 'grey' };
+    return { ...base, kind: 'role', message: t(msg.p13.roleDeniedInline, { role }), tone: 'grey' };
   }
-  if (code === 'PRECONDITION_FAILED') return { ...base, kind: 'precondition', message: over ?? zhCN.errors.PRECONDITION_FAILED!, refreshView: true, tone: 'blue' };
-  if (code === 'INVALID_STATE' || code === 'SESSION_EXPIRING_OR_ENDED') return { ...base, kind: 'state', message: msg(known ?? zhCN.errors.INVALID_STATE!), refreshView: true, tone: 'blue' };
-  if (code === 'MAINTENANCE_MODE' || code === 'PLATFORM_UNINSTALLING' || code === 'BUDGET_BLOCKED') return { ...base, kind: 'blocked', message: msg(known!), tone: 'amber' };
+  if (code === 'PRECONDITION_FAILED') return { ...base, kind: 'precondition', message: over ?? msg.errors.PRECONDITION_FAILED!, refreshView: true, tone: 'blue' };
+  if (code === 'INVALID_STATE' || code === 'SESSION_EXPIRING_OR_ENDED') return { ...base, kind: 'state', message: fill(known ?? msg.errors.INVALID_STATE!), refreshView: true, tone: 'blue' };
+  if (code === 'MAINTENANCE_MODE' || code === 'PLATFORM_UNINSTALLING' || code === 'BUDGET_BLOCKED') return { ...base, kind: 'blocked', message: fill(known!), tone: 'amber' };
   if (err.status >= 500 || code === 'UPSTREAM_UNAVAILABLE' || code === 'INTERNAL') {
-    return { ...base, kind: 'unavailable', message: code === 'INTERNAL' ? msg(zhCN.errors.INTERNAL!) : t(zhCN.p13.apiUnavailable, { status: err.status || 503 }), retry: true };
+    return { ...base, kind: 'unavailable', message: code === 'INTERNAL' ? fill(msg.errors.INTERNAL!) : t(msg.p13.apiUnavailable, { status: err.status || 503 }), retry: true };
   }
-  if (code === 'NOT_FOUND' || err.status === 404) return { ...base, kind: 'not-found', message: msg(known ?? zhCN.errors.NOT_FOUND!), tone: 'grey' };
-  if (known) return { ...base, kind: 'known', message: msg(known) };
+  if (code === 'NOT_FOUND' || err.status === 404) return { ...base, kind: 'not-found', message: fill(known ?? msg.errors.NOT_FOUND!), tone: 'grey' };
+  if (known) return { ...base, kind: 'known', message: fill(known) };
   return { ...base, kind: 'unknown', message: [err.title, err.detail].filter(Boolean).join('：') || code, retry: true };
 }
 

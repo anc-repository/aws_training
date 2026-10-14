@@ -12,6 +12,7 @@
 import { API_PREFIX, routeById, type ResolvedRouteDef, type RouteId } from '@atl/shared';
 import { uuidV4 } from '../lib/uuid';
 import { ApiError, errorFromResponse, networkError } from './errors';
+import { getLocale } from '../i18n/core';
 
 export interface TokenSource {
   /** 当前访问令牌（快过期时由实现先刷新）；没有登录时返回 null。 */
@@ -154,7 +155,8 @@ export class ApiClient {
   }
 
   private async send(route: ResolvedRouteDef, url: string, opts: CallOptions, idempotencyKey: string | undefined): Promise<Response> {
-    const headers: Record<string, string> = { accept: 'application/json, application/problem+json' };
+    // 内容类接口按界面语言返回（?lang= 或 Accept-Language，09 §2.5）；错误码在前端按码本地化，detail 只作补充
+    const headers: Record<string, string> = { accept: 'application/json, application/problem+json', 'accept-language': getLocale() };
     if (route.kind === 'jwt') {
       const token = await this.tokens.getAccessToken();
       if (token) headers.authorization = `Bearer ${token}`;

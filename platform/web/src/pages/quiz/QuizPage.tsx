@@ -11,7 +11,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router-dom';
 import { isApiError, type ApiError } from '../../api/errors';
 import { useServices, useSessionSync } from '../../app/context';
-import { t } from '../../i18n/zh-CN';
+import { msg, t } from '../../i18n';
+import { UntranslatedIf } from '../../i18n/Untranslated';
 import { formatClock } from '../../lib/format';
 import { ssGet, ssSet } from '../../lib/storage';
 import { Button, EmptyState, ErrorPanel, Shape, Skeleton } from '../../ui';
@@ -145,10 +146,10 @@ export default function QuizPage() {
 
   const stepTitle = useMemo(() => new Map((intro.data?.steps ?? []).map((s) => [s.id, s.title])), [intro.data]);
   const crumbs = (
-    <nav className="crumbs-nav" aria-label="面包屑">
+    <nav className="crumbs-nav" aria-label={msg.frame.crumbs}>
       <ol>
         <li>
-          <Link to="/labs">卡片目录</Link>
+          <Link to="/labs">{msg.frame.catalog}</Link>
         </li>
         <li>
           <Link className="mono" to={`/labs/${labId}`}>
@@ -318,6 +319,7 @@ export default function QuizPage() {
         </div>
         <p id={`qz-stem-${q.id}`}>
           <b>{q.stem}</b>
+          <UntranslatedIf show={a.i18n?.untranslated?.includes(q.id)} />
         </p>
         {q.options.map((o, j) => (
           <label key={o.id} className="chk qz-opt">

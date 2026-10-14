@@ -6,16 +6,26 @@
  */
 import type { SessionEvent, SessionView } from '../../api/types';
 
+import { msg, t } from '../../i18n';
 export type PhaseKey = 'validate' | 'base' | 'profile' | 'connect' | 'health' | 'ready';
 export type PhaseStatus = 'todo' | 'running' | 'done' | 'retrying' | 'queued' | 'failed' | 'skipped';
 
-export const VISIBLE_PHASES: readonly { key: PhaseKey; title: string; prefixes: readonly string[] }[] = [
-  { key: 'validate', title: '校验与预检', prefixes: ['start.'] },
-  { key: 'base', title: '创建基础环境', prefixes: ['provision.base', 'provision.resume', 'provision.workstation'] },
-  { key: 'profile', title: '部署实验起始状态', prefixes: ['provision.profile', 'provision.extra-stack'] },
-  { key: 'connect', title: '连接实验机（SSM）', prefixes: ['provision.ssm', 'provision.wire'] },
-  { key: 'health', title: '健康检查', prefixes: ['provision.health'] },
-  { key: 'ready', title: '就绪，开始计时', prefixes: ['provision.ready'] },
+const WP = msg.workspace.phases;
+const phase = (key: PhaseKey, prefixes: readonly string[]) => ({
+  key,
+  get title() {
+    return WP.title[key];
+  },
+  prefixes,
+});
+
+export const VISIBLE_PHASES: readonly { key: PhaseKey; readonly title: string; prefixes: readonly string[] }[] = [
+  phase('validate', ['start.']),
+  phase('base', ['provision.base', 'provision.resume', 'provision.workstation']),
+  phase('profile', ['provision.profile', 'provision.extra-stack']),
+  phase('connect', ['provision.ssm', 'provision.wire']),
+  phase('health', ['provision.health']),
+  phase('ready', ['provision.ready']),
 ];
 
 export interface RawPhase {
@@ -71,30 +81,30 @@ const ts = (v: string | null | undefined): number | null => {
 };
 
 /** 慢资源（02 §11.1）：RDS、ElastiCache 复制组、CloudFront 分配、EFS、ASG、Image Builder、实例替换。 */
-const SLOW: readonly [RegExp, string][] = [
-  [/AWS::RDS::/, 'RDS'],
-  [/AWS::ElastiCache::ReplicationGroup/, 'ElastiCache 复制组'],
-  [/AWS::CloudFront::Distribution/, 'CloudFront 分配'],
-  [/AWS::EFS::/, 'EFS'],
-  [/AWS::AutoScaling::AutoScalingGroup/, 'Auto Scaling 组'],
-  [/AWS::ImageBuilder::/, 'Image Builder'],
+const SLOW: readonly [RegExp, () => string][] = [
+  [/AWS::RDS::/, () => 'RDS'],
+  [/AWS::ElastiCache::ReplicationGroup/, () => WP.slow.elasticache],
+  [/AWS::CloudFront::Distribution/, () => WP.slow.cloudfront],
+  [/AWS::EFS::/, () => 'EFS'],
+  [/AWS::AutoScaling::AutoScalingGroup/, () => WP.slow.asg],
+  [/AWS::ImageBuilder::/, () => 'Image Builder'],
 ];
 
 export function slowResourceName(type: string | null | undefined): string | null {
   if (!type) return null;
-  for (const [re, name] of SLOW) if (re.test(type)) return name;
+  for (const [re, name] of SLOW) if (re.test(type)) return name();
   return null;
 }
 
 /** 细节文案（phase 的 detail 是运行器写的英文短语，常见的几种翻成中文；其余原样显示）。 */
 export function detailText(phase: string, detail: string | null | undefined): string | null {
   if (!detail) return null;
-  if (/^fallback variant (.+)$/.test(detail)) return `已改用回退档 ${detail.replace(/^fallback variant /, '')}`;
-  if (/reuse reserved/.test(detail)) return '正在接管保留的环境';
-  if (/health gate failed/.test(detail)) return '健康检查未通过，正在修复一次';
-  if (/rebooting the lab instance/.test(detail)) return '正在重启实验机后重试';
-  if (/queue/i.test(detail) && phase.startsWith('provision')) return '运行器排队中（CodeBuild 并发已满）';
-  if (/(another )?availability zone|retry-az/i.test(detail)) return '正在换可用区重试';
+  if (/^fallback variant (.+)$/.test(detail)) return t(WP.fallbackVariant, { name: detail.replace(/^fallback variant /, '') });
+  if (/reuse reserved/.test(detail)) return WP.reuse;
+  if (/health gate failed/.test(detail)) return WP.healthFix;
+  if (/rebooting the lab instance/.test(detail)) return WP.reboot;
+  if (/queue/i.test(detail) && phase.startsWith('provision')) return WP.queued;
+  if (/(another )?availability zone|retry-az/i.test(detail)) return WP.retryAz;
   return detail;
 }
 
@@ -107,9 +117,9 @@ export interface ProgressDetail {
 }
 
 function progressLine(d: ProgressDetail): string | null {
-  const mod = d.module ? (typeof d.moduleIndex === 'number' && typeof d.moduleTotal === 'number' ? `模块 ${d.moduleIndex}/${d.moduleTotal} · ${d.module}` : `模块 ${d.module}`) : null;
+  const mod = d.module ? (typeof d.moduleIndex === 'number' && typeof d.moduleTotal === 'number' ? t(WP.moduleIdx, { i: d.moduleIndex, n: d.moduleTotal, module: d.module }) : t(WP.module, { module: d.module })) : null;
   const r = d.resource;
-  const res = r && (r.type || r.logicalId) ? `${r.status ? `${r.status} ` : ''}${r.type ?? ''}${r.logicalId ? `（${r.stack ? `${r.stack} · ` : ''}${r.logicalId}）` : ''}`.trim() : null;
+  const res = r && (r.type || r.logicalId) ? `${r.status ? `${r.status} ` : ''}${r.type ?? ''}${r.logicalId ? t(WP.resourceParen, { text: `${r.stack ? `${r.stack} · ` : ''}${r.logicalId}` }) : ''}`.trim() : null;
   return [mod, res].filter(Boolean).join(' · ') || null;
 }
 
@@ -192,9 +202,9 @@ export function buildPhaseRows(i: PhaseInput): PhaseRowModel[] {
   if (current && progress) {
     const d = progress.data as ProgressDetail;
     const line = progressLine(d);
-    if (line) current.details.push(`正在处理：${line}`);
+    if (line) current.details.push(t(WP.processing, { line }));
     const slow = slowResourceName(d.resource?.type ?? null);
-    if (slow) current.slowHint = `${slow}通常是最慢的一步。可以先阅读手册第 1～2 节。`;
+    if (slow) current.slowHint = t(WP.slowHint, { name: slow });
   }
   if (current) for (const u of unknown) {
     const d = detailText(u.name, u.detail) ?? u.name;
@@ -202,12 +212,12 @@ export function buildPhaseRows(i: PhaseInput): PhaseRowModel[] {
   }
   // 4) 起始档位与实例就绪标记
   const profile = typeof i.view.startProfileResolved === 'object' && i.view.startProfileResolved ? (i.view.startProfileResolved as { name?: string }).name : null;
-  if (profile && rows[0]!.status !== 'todo') rows[0]!.details.unshift(`起始档位 ${profile}`);
+  if (profile && rows[0]!.status !== 'todo') rows[0]!.details.unshift(t(WP.profileName, { name: profile }));
   if (i.targets?.length && rows[1]!.status !== 'todo') {
     const lab = i.targets.find((t) => t.tab === 'terminal-lab' || t.role === 'lab-app');
     const ws = i.targets.find((t) => t.tab === 'terminal-workstation' || t.role === 'workstation');
-    const mark = (t: typeof lab) => (t ? (t.ssmPing === 'Online' || t.prepared ? '✓' : '…') : '—');
-    rows[1]!.details.push(`实验机 ${mark(lab)} · 工作台 ${ws ? mark(ws) : '—'}`);
+    const mark = (x: typeof lab) => (x ? (x.ssmPing === 'Online' || x.prepared ? '✓' : '…') : '—');
+    rows[1]!.details.push(t(WP.instances, { lab: mark(lab), ws: ws ? mark(ws) : '—' }));
   }
   return rows;
 }

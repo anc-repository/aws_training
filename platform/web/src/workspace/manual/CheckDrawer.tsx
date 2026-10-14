@@ -17,6 +17,8 @@ import { checkRow, latestResults, type CheckResultItemView } from '../model/chec
 import { checkLocalId, checkRefRequired } from '../model/lab';
 import { ManualCommand } from './ManualCommand';
 
+import { t } from '../../i18n';
+import { W } from '../strings';
 function fmt(v: unknown): string {
   if (v === undefined) return '—';
   if (typeof v === 'string') return redact(v);
@@ -27,7 +29,8 @@ function fmt(v: unknown): string {
   }
 }
 
-const BASIS_TEXT: Record<string, string> = { stack: '栈成员', ledger: '台账', parent: '父资源', lookup: '定向扫描（CloudTrail）' };
+const CD = W.checkDrawer;
+const BASIS_TEXT: Readonly<Record<string, string>> = CD.basis;
 
 export function CheckDrawer({ checkId, onClose }: { checkId: string; onClose: () => void }) {
   const ws = useWorkspace();
@@ -54,56 +57,59 @@ export function CheckDrawer({ checkId, onClose }: { checkId: string; onClose: ()
   const manual = st?.lastManual ?? null;
 
   return (
-    <Drawer open onClose={onClose} title={`检查详情：${decl?.title ?? checkId}`}>
+    <Drawer open onClose={onClose} title={t(CD.title, { name: decl?.title ?? checkId })}>
       {!lab ? (
         <Skeleton lines={4} />
       ) : (
         <div className="stack drawer-body" data-check-drawer={checkId}>
           <section className="stack-8" aria-labelledby="cd-verdict">
             <h3 id="cd-verdict" className="small">
-              结论
+              {CD.verdict}
             </h3>
             <div className="chks" role="list">
               <CheckResultRow title={row.title} result={row.result} reason={row.reason} how={row.how} source={row.source} sourceSub={row.sub} trust={row.trust} summary={row.summary} at={row.at} review={row.review} stale={row.stale} />
             </div>
             <dl className="kv">
-              <dt>判定方式</dt>
-              <dd>{row.how === 'manual' ? `手动${row.sub ? `（${row.sub === 'native' ? '原生' : row.sub === 'degraded' ? '降级' : '带证据'}）` : ''}` : '自动'}</dd>
-              <dt>来源</dt>
+              <dt>{CD.how}</dt>
+              <dd>{row.how === 'manual' ? (row.sub ? t(CD.manualSub, { sub: CD.sub[row.sub] }) : CD.manual) : CD.auto}</dd>
+              <dt>{CD.source}</dt>
               <dd>
                 <SourceTag source={row.source} sub={row.sub} trust={row.trust} />
               </dd>
-              <dt>执行者</dt>
-              <dd className="mono">{row.how === 'manual' ? '提交手动确认的学员' : ev?.executor?.role ? `${ev.executor.role}（atl-${ws.sid}-verify）` : (latest?.executor?.function ?? '—')}</dd>
-              <dt>时间</dt>
+              <dt>{CD.executor}</dt>
+              <dd className="mono">{row.how === 'manual' ? CD.manualLearner : ev?.executor?.role ? t(CD.executorRole, { role: ev.executor.role, sid: ws.sid }) : (latest?.executor?.function ?? '—')}</dd>
+              <dt>{CD.time}</dt>
               <dd>{row.at ? formatDate(row.at, ws.now()) : '—'}</dd>
               {manual?.review ? (
                 <>
-                  <dt>复核</dt>
+                  <dt>{CD.review}</dt>
                   <dd>
-                    {manual.review.decision === 'approve' ? '助教已复核' : '被打回'}
-                    {manual.review.comment ? `：${manual.review.comment}` : ''}
+                    {manual.review.decision === 'approve' ? CD.reviewed : CD.rejected}
+                    {manual.review.comment ? t(CD.comment, { text: manual.review.comment }) : ''}
                   </dd>
                 </>
               ) : null}
             </dl>
             {ws.role === 'A' && manual && !manual.review ? <ReviewBox confirmationId={manual.confirmationId} /> : null}
-            {row.reason === 'OWNERSHIP_PENDING' ? <p className="small muted">正在确认这个资源是你在本次实验中创建的（CloudTrail 通常几分钟，不作保证）。平台会按 2、2、4、4、8 分钟的节奏复查。</p> : null}
-            {row.result === 'error' ? <p className="small muted">检测器出错，不是你的问题。{latest?.error?.message ? redact(latest.error.message) : ''}</p> : null}
+            {row.reason === 'OWNERSHIP_PENDING' ? <p className="small muted">{CD.ownershipPending}</p> : null}
+            {row.result === 'error' ? <p className="small muted">
+                {CD.checkerError}
+                {latest?.error?.message ? redact(latest.error.message) : ''}
+              </p> : null}
           </section>
           {assertions.length ? (
             <section className="stack-8" aria-labelledby="cd-ea">
               <h3 id="cd-ea" className="small">
-                期望与实际
+                {CD.expectedActual}
               </h3>
               <div className="tbl-wrap">
                 <table className="tbl">
                   <thead>
                     <tr>
-                      <th scope="col">断言</th>
-                      <th scope="col">期望</th>
-                      <th scope="col">实际</th>
-                      <th scope="col">结果</th>
+                      <th scope="col">{CD.colAssertion}</th>
+                      <th scope="col">{CD.colExpected}</th>
+                      <th scope="col">{CD.colActual}</th>
+                      <th scope="col">{CD.colResult}</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -113,7 +119,7 @@ export function CheckDrawer({ checkId, onClose }: { checkId: string; onClose: ()
                         <td className="mono small">{fmt(a.expected)}</td>
                         <td className="mono small">{fmt(a.actual)}</td>
                         <td>
-                          <span className={a.ok ? 'st pass' : 'st fail'}>{a.ok ? '✓ 符合' : '✕ 不符合'}</span>
+                          <span className={a.ok ? 'st pass' : 'st fail'}>{a.ok ? CD.matches : CD.mismatch}</span>
                         </td>
                       </tr>
                     ))}
@@ -125,12 +131,14 @@ export function CheckDrawer({ checkId, onClose }: { checkId: string; onClose: ()
           {latest?.corroboration?.length ? (
             <section className="stack-8" aria-labelledby="cd-cor">
               <h3 id="cd-cor" className="small">
-                佐证
+                {CD.corroboration}
               </h3>
               <ul className="small mlist">
                 {latest.corroboration.map((c) => (
                   <li key={c.id}>
-                    <span className={c.ok ? 'st pass' : 'st fail'}>{c.ok ? '✓' : '✕'}</span> {c.id}（{c.via}）{c.required ? '' : ' · 可选'}
+                    <span className={c.ok ? 'st pass' : 'st fail'}>{c.ok ? '✓' : '✕'}</span> {c.id}
+                    {t(CD.via, { via: c.via })}
+                    {c.required ? '' : CD.optionalTail}
                     {c.observed !== undefined ? <span className="mono faint"> · {fmt(c.observed)}</span> : null}
                   </li>
                 ))}
@@ -140,34 +148,34 @@ export function CheckDrawer({ checkId, onClose }: { checkId: string; onClose: ()
           {latest?.ownership ? (
             <section className="stack-8" aria-labelledby="cd-own">
               <h3 id="cd-own" className="small">
-                归属
+                {CD.ownership}
               </h3>
               <p className="small">
-                {latest.ownership.basis ? `依据：${BASIS_TEXT[latest.ownership.basis] ?? latest.ownership.basis}` : '尚未确认'}
-                {latest.ownership.pending ? ' · 确认中' : ''}
+                {latest.ownership.basis ? t(CD.basisLine, { basis: BASIS_TEXT[latest.ownership.basis] ?? latest.ownership.basis }) : CD.notConfirmed}
+                {latest.ownership.pending ? CD.confirming : ''}
                 {latest.ownership.detail ? ` · ${redact(latest.ownership.detail)}` : ''}
               </p>
             </section>
           ) : null}
           <section className="stack-8" aria-labelledby="cd-raw">
             <h3 id="cd-raw" className="small">
-              原始证据
+              {CD.raw}
             </h3>
             {latest?.evidence ? (
               <details className="disc">
-                <summary>脱敏后的 JSON（已打码）</summary>
+                <summary>{CD.redactedJson}</summary>
                 <pre className="mono small evjson">{redact(JSON.stringify(latest.evidence, null, 2))}</pre>
               </details>
             ) : latest?.evidenceKey ? (
-              <p className="small muted">证据较大，摘要已显示；完整证据可在报告导出中查看。</p>
+              <p className="small muted">{CD.large}</p>
             ) : (
-              <p className="small muted">还没有证据。</p>
+              <p className="small muted">{CD.noEvidence}</p>
             )}
           </section>
           {decl?.reproduce ? (
             <section className="stack-8" aria-labelledby="cd-rep">
               <h3 id="cd-rep" className="small">
-                复现命令
+                {CD.reproduce}
               </h3>
               <ManualCommand node={{ type: 'code', lang: 'bash', attributes: { runsOn: decl.reproduce.runsOn }, value: decl.reproduce.run }} env={{ lab, step, vars: ws.data.vars.data, blockIndex: new WeakMap() }} />
             </section>
@@ -175,7 +183,7 @@ export function CheckDrawer({ checkId, onClose }: { checkId: string; onClose: ()
           {pitfallIds.length ? (
             <section className="stack-8" aria-labelledby="cd-pit">
               <h3 id="cd-pit" className="small">
-                常见错误
+                {CD.pitfalls}
               </h3>
               <ul className="small mlist">
                 {pitfallIds.map((id) => {
@@ -183,8 +191,8 @@ export function CheckDrawer({ checkId, onClose }: { checkId: string; onClose: ()
                   return (
                     <li key={id}>
                       <b>● {p?.title ?? id}</b>
-                      {p?.cause ? `：${p.cause}` : ''}
-                      {p?.fix ? <span className="muted"> 处理：{p.fix}</span> : null}
+                      {p?.cause ? t(CD.cause, { cause: p.cause }) : ''}
+                      {p?.fix ? <span className="muted">{t(CD.fix, { fix: p.fix })}</span> : null}
                     </li>
                   );
                 })}
@@ -193,7 +201,7 @@ export function CheckDrawer({ checkId, onClose }: { checkId: string; onClose: ()
           ) : null}
           <section className="stack-8" aria-labelledby="cd-hist">
             <h3 id="cd-hist" className="small">
-              历史（最近 10 次）
+              {CD.history}
             </h3>
             {hist.loading && !hist.data ? (
               <Skeleton lines={2} />
@@ -205,19 +213,19 @@ export function CheckDrawer({ checkId, onClose }: { checkId: string; onClose: ()
                   return (
                     <li key={`${it.at}-${i}`}>
                       <span className="mono">{formatClock(it.at)}</span> {it.result}
-                      {it.error?.code ? `（${it.error.code}）` : ''}
-                      {drift ? <b> [!] 漂移</b> : null}
+                      {it.error?.code ? t(CD.errorCode, { code: it.error.code }) : ''}
+                      {drift ? <b>{CD.drift}</b> : null}
                     </li>
                   );
                 })}
               </ol>
             ) : (
-              <p className="small muted">还没有检测记录。</p>
+              <p className="small muted">{CD.noHistory}</p>
             )}
           </section>
           {row.canManual && ws.learner && ws.live && step ? (
             <div>
-              <Button onClick={() => wb.openManualConfirm(step.id, checkId)}>手动确认…</Button>
+              <Button onClick={() => wb.openManualConfirm(step.id, checkId)}>{CD.manualConfirm}</Button>
             </div>
           ) : null}
         </div>
@@ -237,26 +245,26 @@ function ReviewBox({ confirmationId }: { confirmationId: string }) {
     setErr(null);
     try {
       await api.call('reviewManualConfirmation', { params: { sid: ws.sid, confirmationId }, body: { decision, comment } });
-      announce(decision === 'approve' ? '已通过' : '已打回');
+      announce(decision === 'approve' ? CD.approvedAnnounce : CD.rejectedAnnounce);
       void ws.data.steps.refresh();
     } catch (e) {
-      setErr(isApiError(e) ? (e.detail ?? e.title) : '没能提交复核');
+      setErr(isApiError(e) ? (e.detail ?? e.title) : CD.reviewFailed);
     } finally {
       setBusy(null);
     }
   };
   return (
     <div className="box inset stack-8" data-review="">
-      <b className="small">助教复核</b>
-      <Field label="评语（打回时学员会看到）">
+      <b className="small">{CD.assistantReview}</b>
+      <Field label={CD.commentLabel}>
         <textarea className="input" rows={2} value={comment} onChange={(e) => setComment(e.target.value)} />
       </Field>
       <div className="row">
         <Button size="sm" variant="primary" busy={busy === 'approve'} onClick={() => void send('approve')}>
-          通过
+          {CD.approve}
         </Button>
         <Button size="sm" busy={busy === 'reject'} onClick={() => void send('reject')}>
-          打回…
+          {CD.reject}
         </Button>
       </div>
       {err ? (

@@ -9,7 +9,7 @@ import { useAuth, useServices } from '../../../app/context';
 import { useGlobalStatus } from '../../../app/globalStatus';
 import { allowedActionsOf, extendBlockReason, pillTarget } from '../../../app/sessionRouting';
 import { useSessionActions } from '../../../components/SessionActions';
-import { t, zhCN } from '../../../i18n/zh-CN';
+import { msg, t } from '../../../i18n';
 import { formatClock, formatCountdown, formatDate } from '../../../lib/format';
 import { Button, CostTierMark, displayState, SESSION_STATE_META, Shape, urgencyOf, useSecondTick } from '../../../ui';
 import { PROVISION_TEXT, S } from '../strings';
@@ -121,7 +121,7 @@ export function EnvironmentBar({ view, cards, nextLabId }: EnvironmentBarProps) 
           <Shape name={warn ? 'tri' : 'dot'} /> {idEl}
           <span className="hide-sm"> · {title}</span> · {warn ? SESSION_STATE_META.EXPIRING.text : SESSION_STATE_META[ds].text} ·{' '}
           <span className="cd-inline" role="timer" aria-live="off">
-            {remaining !== null ? t(S.env.remaining, { t: formatCountdown(remaining) }) : zhCN.session.countdownNotStarted}
+            {remaining !== null ? t(S.env.remaining, { t: formatCountdown(remaining) }) : msg.session.countdownNotStarted}
           </span>
           <span className="hide-sm">
             {tier ? <> · {tier}</> : null}
@@ -136,7 +136,7 @@ export function EnvironmentBar({ view, cards, nextLabId }: EnvironmentBarProps) 
             <Button
               size="sm"
               className="hide-sm"
-              disabledReason={extendWhy ? zhCN.session.extendBlocked[extendWhy] : null}
+              disabledReason={extendWhy ? msg.session.extendBlocked[extendWhy] : null}
               onClick={() => actions.open('extend', sid)}
             >
               {S.env.extend}

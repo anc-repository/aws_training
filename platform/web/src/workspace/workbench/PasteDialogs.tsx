@@ -11,6 +11,10 @@ import { redact } from '../../lib/redact';
 import { CommandBlock, Dialog, Shape } from '../../ui';
 import { TARGET_TEXT, type ConfirmNote, type PasteRejection, type TerminalTarget } from '../model/paste';
 
+import { t } from '../../i18n';
+import { W } from '../strings';
+
+const P = W.pasteDlg;
 export type ConfirmChoice = { action: 'paste' | 'newtab' | 'cancel'; dontAsk: boolean };
 
 export interface ConfirmRequest {
@@ -31,7 +35,7 @@ export interface ConfirmRequest {
 export function PasteConfirmDialog({ req, onDone }: { req: ConfirmRequest; onDone: (c: ConfirmChoice) => void }) {
   const [dontAsk, setDontAsk] = useState(false);
   const has = (n: ConfirmNote) => req.notes.includes(n);
-  const title = req.severe ? '粘贴危险命令' : has('busy') ? '终端正在运行命令' : req.execute ? '粘贴并执行' : has('multiline') ? `将粘贴 ${req.lines} 行` : '确认粘贴';
+  const title = req.severe ? P.severeTitle : has('busy') ? P.busyTitle : req.execute ? P.executeTitle : has('multiline') ? t(P.linesTitle, { n: req.lines }) : P.confirmTitle;
   return (
     <Dialog
       open
@@ -42,15 +46,15 @@ export function PasteConfirmDialog({ req, onDone }: { req: ConfirmRequest; onDon
       footer={
         <>
           <button type="button" className="btn" data-cancel="" onClick={() => onDone({ action: 'cancel', dontAsk: false })}>
-            取消
+            {P.cancel}
           </button>
           {req.offerNewTab ? (
             <button type="button" className="btn" onClick={() => onDone({ action: 'newtab', dontAsk })}>
-              在新的终端子标签中粘贴
+              {P.newTab}
             </button>
           ) : null}
           <button type="button" className={req.severe ? 'btn danger' : 'btn primary'} onClick={() => onDone({ action: 'paste', dontAsk })} data-paste-confirm="">
-            {req.severe ? '我了解，粘贴' : has('busy') ? '仍然粘贴' : req.execute ? '粘贴并执行' : '粘贴'}
+            {req.severe ? P.severeOk : has('busy') ? P.busyOk : req.execute ? P.executeOk : P.ok}
           </button>
         </>
       }
@@ -59,37 +63,37 @@ export function PasteConfirmDialog({ req, onDone }: { req: ConfirmRequest; onDon
         {req.severe ? (
           <div className="note red">
             <Shape name="tri" />
-            <span>这条命令会删除或停用资源，影响无法撤销。粘贴后请检查，再自己按 Enter；危险命令不允许“粘贴并执行”。</span>
+            <span>{P.severeNote}</span>
           </div>
         ) : null}
         {has('busy') ? (
           <div className="note amber">
             <Shape name="tri" />
-            <span>终端正在运行命令（例如 tail -f），粘贴的内容会成为该程序的输入。</span>
+            <span>{P.busyNote}</span>
           </div>
         ) : null}
         {has('mismatch') && req.expected ? (
           <div className="note amber">
             <Shape name="tri" />
-            <span>这条命令本应在 {TARGET_TEXT[req.expected]} 上执行。</span>
+            <span>{t(P.mismatch, { target: TARGET_TEXT[req.expected] })}</span>
           </div>
         ) : null}
-        {has('multiline') ? <p className="small">将向 {TARGET_TEXT[req.target]}终端粘贴 {req.lines} 行（安全粘贴，不会立即执行）。</p> : null}
+        {has('multiline') ? <p className="small">{t(P.multiline, { target: TARGET_TEXT[req.target], n: req.lines })}</p> : null}
         <pre className="mono small evjson">{redact(req.text)}</pre>
         <dl className="kv">
-          <dt>目标主机</dt>
+          <dt>{P.host}</dt>
           <dd className="mono">
             {TARGET_TEXT[req.target]} {req.host ?? ''}
           </dd>
-          <dt>Linux 用户</dt>
+          <dt>{P.linuxUser}</dt>
           <dd className="mono">{req.user}</dd>
-          <dt>AWS 身份</dt>
+          <dt>{P.awsIdentity}</dt>
           <dd className="mono">{req.identity}</dd>
         </dl>
         {req.offerDontAsk ? (
           <label className="row small">
             <input type="checkbox" checked={dontAsk} onChange={(e) => setDontAsk(e.target.checked)} />
-            本卡片内不再询问（仅普通命令）
+            {P.dontAsk}
           </label>
         ) : null}
       </div>
@@ -100,21 +104,31 @@ export function PasteConfirmDialog({ req, onDone }: { req: ConfirmRequest; onDon
 /** `copied`：命令已复制到剪贴板（多行但终端不支持安全粘贴时自动复制，03 §7.1）。 */
 export function PasteRejectDialog({ rejection, copied = false, onClose }: { rejection: PasteRejection; copied?: boolean; onClose: () => void }) {
   return (
-    <Dialog open onClose={onClose} title="不能粘贴" size="narrow" footer={<button type="button" className="btn" onClick={onClose}>知道了</button>}>
+    <Dialog
+      open
+      onClose={onClose}
+      title={P.rejectTitle}
+      size="narrow"
+      footer={
+        <button type="button" className="btn" onClick={onClose}>
+          {P.gotIt}
+        </button>
+      }
+    >
       <div className="stack-8" data-paste-reject={rejection.reason}>
         <p>{rejection.message}</p>
         {rejection.reason === 'secret' && rejection.readCommand ? (
           <>
-            <p className="small">在实验机终端中读取：</p>
+            <p className="small">{P.readOnLab}</p>
             <CommandBlock text={rejection.readCommand} runsOn="lab" copyOnly />
           </>
         ) : null}
         {copied ? (
           <p className="small" data-paste-copied="">
-            命令已复制到剪贴板，检查后可以在终端里手动粘贴。
+            {P.copied}
           </p>
         ) : rejection.reason === 'multiline-unsafe' || rejection.reason === 'too-large' ? (
-          <p className="small muted">可以先复制命令，再在终端里手动粘贴。</p>
+          <p className="small muted">{P.copyFirst}</p>
         ) : null}
       </div>
     </Dialog>

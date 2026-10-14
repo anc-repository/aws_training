@@ -14,6 +14,7 @@ import { ManualItemCard, Shape } from '../../ui';
 import { InlineProblem } from '../errors/InlineProblem';
 import { isOpen, normalizeResource, sortManual, type LedgerItem } from '../end/resources';
 
+import { msg, rich } from '../../i18n';
 export type CheckState = { kind: 'verifying'; since: number; before: string | null } | { kind: 'confirmed' } | { kind: 'still' } | { kind: 'slow' } | { kind: 'error'; error: ApiError };
 
 /** 核对的轮询节奏（测试可调）。 */
@@ -52,14 +53,14 @@ export function useResolve(onChanged?: () => void) {
         const hit = data?.items?.map(normalizeResource).find((r) => r.resourceKey === item.resourceKey) ?? null;
         if (data && (!hit || !isOpen(hit))) {
           set(item.resourceKey, { kind: 'confirmed' });
-          announce('已确认：资源已不存在');
+          announce(msg.frame.manualPage.confirmed);
           void sync.refreshView(sid);
           changed.current?.();
           return;
         }
         if (hit && hit.lastAttemptAt && hit.lastAttemptAt !== item.lastAttemptAt && Date.parse(hit.lastAttemptAt) >= since - 5_000) {
           set(item.resourceKey, { kind: 'still' });
-          announce('资源仍然存在');
+          announce(msg.frame.manualPage.still);
           changed.current?.();
           return;
         }
@@ -79,7 +80,7 @@ export function useResolve(onChanged?: () => void) {
     async (sid: string, item: LedgerItem) => {
       const since = Date.now();
       set(item.resourceKey, { kind: 'verifying', since, before: item.lastAttemptAt ?? null });
-      announce('正在核对…');
+      announce(msg.frame.manualPage.verifying);
       try {
         await api.call('resolveCleanupItem', { params: { sid, resourceKey: item.resourceKey }, body: {} });
         poll(sid, item, since);
@@ -128,7 +129,7 @@ export function ManualList({ items, sid, canAct, unmasked, onChanged }: ManualLi
               <div className="note blue">
                 <Shape name="dot" />
                 <span>
-                  <b>安全</b> 这不是计费资源，但留着会让域名指向已删除的托管区域。
+                  {rich(msg.frame.manualPage.safeNote, { safe: <b>{msg.frame.manualPage.safe}</b> })}
                 </span>
               </div>
             ) : null}
@@ -141,17 +142,17 @@ export function ManualList({ items, sid, canAct, unmasked, onChanged }: ManualLi
             {c?.kind === 'confirmed' ? (
               <div className="note green" role="status">
                 <Shape name="check" />
-                <span>已确认：资源已不存在。</span>
+                <span>{msg.frame.manualPage.confirmedNote}</span>
               </div>
             ) : c?.kind === 'still' ? (
               <div className="note amber" role="status">
                 <Shape name="tri" />
-                <span>资源仍然存在，请确认删除已完成；CloudFront、RDS 等删除较慢，可以稍后再核对。</span>
+                <span>{msg.frame.manualPage.stillNote}</span>
               </div>
             ) : c?.kind === 'slow' ? (
               <div className="note" role="status">
                 <Shape name="clock" />
-                <span>核对仍在进行，结果出来后清单会自动更新；也可以稍后刷新本页。</span>
+                <span>{msg.frame.manualPage.slowNote}</span>
               </div>
             ) : c?.kind === 'error' ? (
               <InlineProblem error={c.error} onRetry={owner ? () => void resolve(owner, r) : undefined} />

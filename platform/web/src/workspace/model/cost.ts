@@ -3,6 +3,7 @@
  * 取不到时显示“未提供”。会话视图的 `env.hourlyEstimate` 有三种写法（§9.2 #30）：字符串、`{low, high}`、报价的 `hourly{start, completed}`。
  */
 
+import { msg, t } from '../../i18n';
 export interface Range {
   low: number;
   high: number;
@@ -48,9 +49,9 @@ export function formatMoney(n: number, currency = 'USD'): string {
 
 /** “≈ $0.12～$0.20”；没有区间时“未提供”。 */
 export function formatRange(r: Range | null, currency = 'USD'): string {
-  if (!r) return '未提供';
-  if (r.low === r.high) return `≈ ${formatMoney(r.low, currency)}`;
-  return `≈ ${formatMoney(r.low, currency)}～${formatMoney(r.high, currency)}`;
+  if (!r) return msg.workspace.money.notProvided;
+  if (r.low === r.high) return t(msg.workspace.money.approx, { v: formatMoney(r.low, currency) });
+  return t(msg.workspace.money.range, { low: formatMoney(r.low, currency), high: formatMoney(r.high, currency) });
 }
 
 /** 区间乘以小时数（延长 0.5 小时、保留 4 小时……）。 */

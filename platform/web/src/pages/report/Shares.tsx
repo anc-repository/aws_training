@@ -15,6 +15,8 @@ import { InlineProblem } from '../errors/InlineProblem';
 import { useAction } from '../errors/useAction';
 import { useApiData } from '../sessions/data';
 
+import { msg, rich, t, withText } from '../../i18n';
+import { RP } from './strings';
 export interface ReportShare {
   shareId: string;
   url?: string;
@@ -26,13 +28,16 @@ export interface ReportShare {
   revision?: number | null;
 }
 
-export const SHARE_STATUS_META: Readonly<Record<string, StatusMeta>> = {
-  publishing: { text: '正在发布', shape: 'clock', tone: 'pend' },
-  revoking: { text: '正在撤销', shape: 'clock', tone: 'pend' },
-  active: { text: '有效', shape: 'dot', tone: 'pass' },
-  revoked: { text: '已撤销', shape: 'dash', tone: 'mut' },
-  expired: { text: '已过期', shape: 'dash', tone: 'mut' },
-};
+export const SHARE_STATUS_META: Readonly<Record<string, StatusMeta>> = withText(
+  {
+    publishing: { shape: 'clock', tone: 'pend' },
+    revoking: { shape: 'clock', tone: 'pend' },
+    active: { shape: 'dot', tone: 'pass' },
+    revoked: { shape: 'dash', tone: 'mut' },
+    expired: { shape: 'dash', tone: 'mut' },
+  },
+  RP.share.status,
+);
 
 export function shareHref(s: Pick<ReportShare, 'shareId' | 'url'>): string {
   return s.url ?? `/share/${s.shareId}/index.html`;
@@ -42,11 +47,11 @@ export function absoluteUrl(path: string): string {
   return /^https?:/i.test(path) ? path : `${window.location.origin}${path.startsWith('/') ? '' : '/'}${path}`;
 }
 
-const EXPIRY: readonly [number | null, string][] = [
-  [7, '7 天'],
-  [30, '30 天'],
-  [90, '90 天'],
-  [null, '不过期'],
+const EXPIRY: readonly [number | null, 'd7' | 'd30' | 'd90' | 'never'][] = [
+  [7, 'd7'],
+  [30, 'd30'],
+  [90, 'd90'],
+  [null, 'never'],
 ];
 
 export function ShareDialog({ sid, onClose, onCreated }: { sid: string; onClose: () => void; onCreated: () => void }) {
@@ -57,44 +62,44 @@ export function ShareDialog({ sid, onClose, onCreated }: { sid: string; onClose:
     <Dialog
       open
       onClose={onClose}
-      title="创建分享链接"
+      title={RP.share.createTitle}
       size="narrow"
       footer={
         <>
           <button type="button" className="btn" onClick={onClose}>
-            {created ? '关闭' : '取消'}
+            {created ? RP.share.close : RP.share.cancel}
           </button>
           {!created ? (
-            <Button variant="primary" busy={create.busy} busyText="正在创建…" onClick={() => void create.run({ params: { sid }, body: { expiresInDays: days } })}>
-              创建链接
+            <Button variant="primary" busy={create.busy} busyText={RP.share.creating} onClick={() => void create.run({ params: { sid }, body: { expiresInDays: days } })}>
+              {RP.share.create}
             </Button>
           ) : null}
         </>
       }
     >
-      <p className="small">分享的是一份脱敏副本：账号 ID（含 ARN、桶名、URL 中嵌入的）只留后 4 位，公网 IP、资源 ID 的中段、会话 id 与环境名一律打码，不含手动确认备注。</p>
-      <p className="small">任何拿到链接的人都能打开，无需登录；搜索引擎不收录。</p>
+      <p className="small">{RP.share.redactNote}</p>
+      <p className="small">{RP.share.publicNote}</p>
       <fieldset className="stack-4 plain-fieldset" disabled={!!created}>
-        <legend className="flabel">有效期</legend>
-        <div className="radio-row" role="radiogroup" aria-label="有效期">
-          {EXPIRY.map(([v, t]) => (
-            <label key={t}>
+        <legend className="flabel">{RP.share.expiresIn}</legend>
+        <div className="radio-row" role="radiogroup" aria-label={RP.share.expiresIn}>
+          {EXPIRY.map(([v, k]) => (
+            <label key={k}>
               <input type="radio" name="share-exp" checked={days === v} onChange={() => setDays(v)} />
-              {t}
+              {RP.share.expiry[k]}
             </label>
           ))}
         </div>
       </fieldset>
-      <p className="small muted">平台卸载后链接随之失效。</p>
+      <p className="small muted">{RP.share.uninstallNote}</p>
       {created ? (
         <div className="note green" role="status">
           <Icon name="link" />
           <span className="wrap-any">
-            已创建：<span className="mono">{absoluteUrl(shareHref(created))}</span>（正在发布，通常几秒后可以打开）
+            {rich(RP.share.created, { url: <span className="mono">{absoluteUrl(shareHref(created))}</span> })}
           </span>
         </div>
       ) : null}
-      {create.error ? <InlineProblem error={create.error} onRetry={() => void create.retry()} overrides={{ INVALID_STATE: '报告还没有生成，生成后才能分享' }} /> : null}
+      {create.error ? <InlineProblem error={create.error} onRetry={() => void create.retry()} overrides={{ INVALID_STATE: RP.share.notGenerated }} /> : null}
     </Dialog>
   );
 }
@@ -109,9 +114,9 @@ export function ShareList({ sid, reloadKey }: { sid: string; reloadKey: number }
   const pending = items.some((s) => s.status === 'publishing' || s.status === 'revoking');
   useEffect(() => setBusyPoll(pending), [pending]);
   const now = clock.now();
-  if (!list.loaded && list.status === 'error') return <InlineProblem error={list.error} onRetry={() => void list.refresh()} title="分享链接" />;
+  if (!list.loaded && list.status === 'error') return <InlineProblem error={list.error} onRetry={() => void list.refresh()} title={RP.share.listTitle} />;
   if (!list.loaded) return <Skeleton lines={2} />;
-  if (!items.length) return <p className="small muted">还没有分享链接。</p>;
+  if (!items.length) return <p className="small muted">{RP.share.none}</p>;
   return (
     <>
       <div className="sharelist" data-shares={items.length}>
@@ -123,32 +128,32 @@ export function ShareList({ sid, reloadKey }: { sid: string; reloadKey: number }
               <span className="url mono small">{href}</span>
               <Status meta={SHARE_STATUS_META[s.status ?? 'publishing'] ?? SHARE_STATUS_META.publishing!} />
               <span className="small muted">
-                {s.createdAt ? `创建 ${formatDate(s.createdAt, now)}` : ''}
-                {s.expiresAt ? ` · ${formatDate(s.expiresAt, now)} 过期` : ' · 不过期'}
+                {s.createdAt ? t(RP.share.createdAt, { t: formatDate(s.createdAt, now) }) : ''}
+                {s.expiresAt ? t(RP.share.expiresAt, { t: formatDate(s.expiresAt, now) }) : RP.share.noExpiry}
               </span>
               {live ? (
                 <span className="row">
                   <Button
                     size="sm"
                     icon="copy"
-                    aria-label={`复制分享链接 ${href}`}
+                    aria-label={t(RP.share.copyLabel, { url: href })}
                     onClick={() =>
                       void copyText(absoluteUrl(href)).then((ok) => {
                         setCopied(ok ? s.shareId : null);
-                        announce(ok ? '已复制' : '复制失败，请手动选中链接');
+                        announce(ok ? RP.share.copied : RP.share.copyFailed);
                       })
                     }
                   >
-                    {copied === s.shareId ? '已复制' : '复制'}
+                    {copied === s.shareId ? RP.share.copied : RP.share.copy}
                   </Button>
                   {s.status === 'active' ? (
                     <a className="btn sm" href={href} target="_blank" rel="noopener noreferrer">
-                      打开 <Icon name="ext" />
-                      <span className="sr">（新标签页）</span>
+                      {RP.share.open} <Icon name="ext" />
+                      <span className="sr">{msg.app.newTab}</span>
                     </a>
                   ) : null}
-                  <Button size="sm" variant="danger" onClick={() => setRevoking(s)} aria-label={`撤销分享链接 ${href}`}>
-                    撤销
+                  <Button size="sm" variant="danger" onClick={() => setRevoking(s)} aria-label={t(RP.share.revokeLabel, { url: href })}>
+                    {RP.share.revoke}
                   </Button>
                 </span>
               ) : null}
@@ -176,7 +181,7 @@ function RevokeShareDialog({ sid, share, onClose, onDone }: { sid: string; share
   const revoke = useAction<{ status?: string }>('deleteReportShare', {
     sid,
     onSuccess: () => {
-      announce('已撤销分享链接');
+      announce(RP.share.revokedAnnounce);
       onDone();
     },
   });
@@ -184,22 +189,22 @@ function RevokeShareDialog({ sid, share, onClose, onDone }: { sid: string; share
     <Dialog
       open
       onClose={onClose}
-      title="撤销分享链接"
+      title={RP.share.revokeTitle}
       size="narrow"
       alert
       initialFocus="[data-cancel]"
       footer={
         <>
           <button type="button" className="btn" data-cancel="" onClick={onClose}>
-            取消
+            {RP.share.cancel}
           </button>
-          <Button variant="danger-solid" busy={revoke.busy} busyText="正在撤销…" onClick={() => void revoke.run({ params: { sid, shareId: share.shareId } })}>
-            撤销
+          <Button variant="danger-solid" busy={revoke.busy} busyText={RP.share.revoking} onClick={() => void revoke.run({ params: { sid, shareId: share.shareId } })}>
+            {RP.share.revoke}
           </Button>
         </>
       }
     >
-      <p>撤销后链接在短时间内失效（CDN 缓存刷新需要时间）。</p>
+      <p>{RP.share.revokeNote}</p>
       <p className="mono small wrap-any">{shareHref(share)}</p>
       {revoke.error ? <InlineProblem error={revoke.error} onRetry={() => void revoke.retry()} /> : null}
     </Dialog>

@@ -10,6 +10,7 @@ import { formatClock, formatCountdown, formatUtcTitle } from '../lib/format';
 import { Shape } from './Shape';
 import { keepUrgencyOf, URGENCY_META, urgencyOf } from './semantics';
 
+import { msg, t } from '../i18n';
 export interface CountdownProps {
   deadlineAt: string | null | undefined;
   now: () => number;
@@ -44,7 +45,7 @@ export function Countdown({ deadlineAt, now, variant = 'inline', offline }: Coun
   if (!deadlineAt) {
     return (
       <span className="cd-inline muted" role="timer" aria-live="off">
-        倒计时未开始
+        {msg.ui.countdown.notStarted}
       </span>
     );
   }
@@ -56,14 +57,14 @@ export function Countdown({ deadlineAt, now, variant = 'inline', offline }: Coun
       <span className={`st ${k === 'K2' ? 'drift' : 'kept'}`} role="timer" aria-live="off" title={formatUtcTitle(deadline)} data-urgency={k}>
         <Shape name={k === 'K2' ? 'tri' : 'dia'} />
         <span className="t cd-inline">
-          至 {formatClock(deadline)}（剩余 {formatCountdown(remaining)}）
+          {t(msg.ui.countdown.keepUntil, { t: formatClock(deadline), left: formatCountdown(remaining) })}
         </span>
       </span>
     );
   }
   const u = urgencyOf(remaining);
   const meta = URGENCY_META[u];
-  const text = u === 'U4' ? '已到期 · 正在结束' : formatCountdown(remaining);
+  const text = u === 'U4' ? msg.ui.countdown.overdue : formatCountdown(remaining);
   if (variant === 'bar') {
     return (
       <span className="row" data-urgency={u}>
@@ -73,10 +74,10 @@ export function Countdown({ deadlineAt, now, variant = 'inline', offline }: Coun
         </span>
         {u !== 'U4' ? (
           <span className="small muted" title={formatUtcTitle(deadline)}>
-            {formatClock(deadline)} 到期（本地时间）
+            {t(msg.ui.countdown.expiresAt, { t: formatClock(deadline) })}
           </span>
         ) : null}
-        {offline ? <span className="small faint">按服务器时间计算</span> : null}
+        {offline ? <span className="small faint">{msg.ui.countdown.serverTime}</span> : null}
       </span>
     );
   }

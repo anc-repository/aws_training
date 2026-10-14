@@ -11,6 +11,7 @@ import { targetOfRunsOn } from '../model/paste';
 import { resolveTemplate } from '../model/vars';
 import type { RenderEnv } from './Mdast';
 
+import { W } from '../strings';
 const SHELL_LANGS = new Set(['bash', 'sh', 'shell', 'zsh', 'console']);
 
 function codeAttrs(n: MdNode): { runsOn: RunsOn | null; copy: boolean; vars: boolean; danger: boolean } {
@@ -34,7 +35,7 @@ export function ManualCommand({ node, env }: { node: MdNode; env: RenderEnv }) {
   const text = node.value ?? '';
   const r = resolveTemplate(text, env.vars, a.vars);
   const blockIndex = env.blockIndex.get(node) ?? 0;
-  const pasteDisabledReason = !ws ? '环境就绪后可用' : ws.preparing ? '环境就绪后可用' : !ws.learner ? '你的角色不能使用终端' : !ws.live ? '实验已结束，终端不可用' : null;
+  const pasteDisabledReason = !ws ? W.command.afterReady : ws.preparing ? W.command.afterReady : !ws.learner ? W.command.role : !ws.live ? W.command.ended : null;
   const expected = targetOfRunsOn(a.runsOn);
   const observe = env.step?.type === 'experiment' && (a.runsOn === 'lab' || a.runsOn === 'ec2');
   const secretPaths = r.parts.filter((p) => typeof p !== 'string' && p.secret).map((p) => (p as { name: string }).name);

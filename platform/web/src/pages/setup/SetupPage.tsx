@@ -14,7 +14,7 @@ import { useAuth, useServices, useSessionSync } from '../../app/context';
 import { useGlobalStatus } from '../../app/globalStatus';
 import { pillTarget } from '../../app/sessionRouting';
 import { safeNext } from '../../auth/authService';
-import { t, zhCN } from '../../i18n/zh-CN';
+import { msg, t } from '../../i18n';
 import { formatClock, formatCountdown, formatDate } from '../../lib/format';
 import { redact } from '../../lib/redact';
 import { lsGet, lsSet, ssGet, ssSet } from '../../lib/storage';
@@ -131,7 +131,7 @@ export default function SetupPage() {
         {!L ? (
           <div className="note blue">
             <Shape name="dot" />
-            <span>{t(SU.s1.invited, { role: role ? zhCN.roles[role] : '' })}</span>
+            <span>{t(SU.s1.invited, { role: role ? msg.roles[role] : '' })}</span>
           </div>
         ) : null}
         <p>{SU.s1.p1}</p>
@@ -181,7 +181,7 @@ export default function SetupPage() {
                   ) : null}
                   {m?.link || i.fix?.url ? (
                     <a href={i.fix?.url ?? m!.link!.url(region)} target="_blank" rel="noopener noreferrer">
-                      {m?.link?.label ?? SU.s2.open} ↗<span className="sr">{zhCN.app.newTab}</span>
+                      {m?.link?.label ?? SU.s2.open} ↗<span className="sr">{msg.app.newTab}</span>
                     </a>
                   ) : null}
                   {i.resources?.length ? (
@@ -318,7 +318,7 @@ export default function SetupPage() {
               </li>
             </ul>
             <a href={`https://console.aws.amazon.com/cloudformation/home?region=${encodeURIComponent(region)}`} target="_blank" rel="noopener noreferrer">
-              {SU.s4.openCfn} ↗<span className="sr">{zhCN.app.newTab}</span>
+              {SU.s4.openCfn} ↗<span className="sr">{msg.app.newTab}</span>
             </a>
             <div className="note">
               <span>{SU.s4.delay}</span>

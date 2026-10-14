@@ -16,6 +16,7 @@ import { EndDialog } from './EndDialog';
 import { ExtendDialog } from './ExtendDialog';
 import { CancelDialog } from './SessionDialogs';
 
+import { W } from '../strings';
 function Loading({ title, onClose }: { title: string; onClose: () => void }) {
   return (
     <Dialog open onClose={onClose} title={title} size="narrow">
@@ -72,7 +73,7 @@ function Standalone({ sid, title, onClose, children }: { sid: string; title: str
 
 export function CancelAction({ sid, onClose }: SessionActionDialogProps) {
   return (
-    <Standalone sid={sid} title="取消实验" onClose={onClose}>
+    <Standalone sid={sid} title={W.dialogs.standaloneCancel} onClose={onClose}>
       <CancelDialog onClose={onClose} />
     </Standalone>
   );
@@ -80,7 +81,7 @@ export function CancelAction({ sid, onClose }: SessionActionDialogProps) {
 
 export function ExtendAction({ sid, onClose }: SessionActionDialogProps) {
   return (
-    <Standalone sid={sid} title="延长实验" onClose={onClose}>
+    <Standalone sid={sid} title={W.dialogs.standaloneExtend} onClose={onClose}>
       <ExtendDialog onClose={onClose} />
     </Standalone>
   );
@@ -88,7 +89,7 @@ export function ExtendAction({ sid, onClose }: SessionActionDialogProps) {
 
 export function EndAction({ sid, onClose }: SessionActionDialogProps) {
   return (
-    <Standalone sid={sid} title="结束实验" onClose={onClose}>
+    <Standalone sid={sid} title={W.dialogs.standaloneEnd} onClose={onClose}>
       <EndDialog onClose={onClose} />
     </Standalone>
   );

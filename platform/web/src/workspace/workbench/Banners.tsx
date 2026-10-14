@@ -12,6 +12,10 @@ import { useWorkspace } from '../context';
 import { expiryPhase, showT15Banner } from '../model/expiry';
 import { actionTitle } from '../manual/PlatformAction';
 
+import { t } from '../../i18n';
+import { W } from '../strings';
+
+const WB = W.banners;
 export interface BannerProps {
   onExtend: () => void;
   onEnd: (when: 'now' | 'at-expiry') => void;
@@ -53,23 +57,23 @@ export function WorkspaceBanners({ onExtend, onEnd, onRepair, extendBlocked }: B
       <div key="t15" className="wsban amber" data-banner="t15">
         <Shape name="tri" />
         <span className="b-body">
-          剩余 {mins} 分钟（{formatClock(v.deadlineAt)} 到期）。到期后自动收回访问并释放资源。
+          {t(WB.t15, { n: mins, t: formatClock(v.deadlineAt) })}
         </span>
         {canEnd ? (
           <>
             <button type="button" className="btn sm" aria-disabled={extendBlocked ? true : undefined} aria-describedby="ws-ban-ext" onClick={() => (extendBlocked ? undefined : onExtend())}>
-              延长 {v.limits?.extensionMinutes ?? 30} 分钟
+              {t(WB.extend, { n: v.limits?.extensionMinutes ?? 30 })}
             </button>
             <span id="ws-ban-ext" className="sr">
-              {extendBlocked ?? '可以延长'}
+              {extendBlocked ?? WB.canExtend}
             </span>
             {ws.allowed.includes('end-keep') ? (
               <button type="button" className="btn sm" onClick={() => onEnd('at-expiry')}>
-                到期后保留环境…
+                {WB.keepAtExpiry}
               </button>
             ) : null}
             <button type="button" className="btn sm" onClick={() => onEnd('now')}>
-              现在结束…
+              {WB.endNow}
             </button>
           </>
         ) : null}
@@ -82,7 +86,7 @@ export function WorkspaceBanners({ onExtend, onEnd, onRepair, extendBlocked }: B
         <div key="precheck" className="wsban grey" data-banner="precheck">
           <Shape name="clock" />
           <span className="b-body small">
-            到期预检：还差 {p.missing.map((m) => `第 ${steps.findIndex((s) => s.id === m) + 1} 步`).join('、')}。结束时平台会自动做最终复核。
+            {t(WB.precheck, { list: p.missing.map((m) => t(WB.stepNo, { n: steps.findIndex((s) => s.id === m) + 1 })).join(WB.listSep) })}
           </span>
         </div>,
       );
@@ -92,9 +96,9 @@ export function WorkspaceBanners({ onExtend, onEnd, onRepair, extendBlocked }: B
     out.push(
       <div key="kept" className="wsban amber" data-banner="kept">
         <Shape name="dia" />
-        <span className="b-body">环境保留中{v.keep?.until ? ` · 至 ${formatClock(v.keep.until)}` : ''}。保留期间没有终端与控制台访问。</span>
+        <span className="b-body">{v.keep?.until ? t(WB.keptUntil, { t: formatClock(v.keep.until) }) : WB.kept}</span>
         <Button size="sm" onClick={() => navigate(`/sessions/${ws.sid}/end`)}>
-          管理保留
+          {WB.manageKeep}
         </Button>
       </div>,
     );
@@ -103,9 +107,9 @@ export function WorkspaceBanners({ onExtend, onEnd, onRepair, extendBlocked }: B
     out.push(
       <div key="cf" className="wsban red" role="alert" data-banner="cleanup-failed">
         <Shape name="tri" />
-        <span className="b-body">释放未完成：有资源没能自动删除，它们仍可能计费。</span>
+        <span className="b-body">{WB.cleanupFailed}</span>
         <Button size="sm" onClick={() => navigate(`/sessions/${ws.sid}/end#manual`)}>
-          查看清单
+          {WB.viewList}
         </Button>
       </div>,
     );
@@ -114,9 +118,9 @@ export function WorkspaceBanners({ onExtend, onEnd, onRepair, extendBlocked }: B
     out.push(
       <div key="ended" className="wsban grey" data-banner="archive">
         <Shape name="sq" />
-        <span className="b-body">已结束 · 只读存档。本会话打开过的终端列在右侧终端区。</span>
+        <span className="b-body">{WB.archive}</span>
         <Button size="sm" onClick={() => navigate(`/sessions/${ws.sid}/report`)}>
-          查看报告
+          {WB.viewReport}
         </Button>
       </div>,
     );
@@ -126,21 +130,21 @@ export function WorkspaceBanners({ onExtend, onEnd, onRepair, extendBlocked }: B
       <div key="deg" className="wsban amber" role="alert" data-banner="env-degraded">
         <Shape name="tri" />
         <span className="b-body">
-          实验机的管理通道不可达：终端与本地检测暂时不可用。
-          {ws.outage ? ` 本步骤会让管理通道暂时不可达：检测会显示“通道不可达”，属预期，窗口结束后（${formatClock(ws.outage.until)}）重新检测即可。` : ''}
+          {WB.degraded}
+          {ws.outage ? t(WB.degradedOutage, { t: formatClock(ws.outage.until) }) : ''}
           <details className="small">
-            <summary>常见原因</summary>
-            给 CloudAlbumAppRole 加了拒绝策略或“撤销活动会话”；私有放置缺 NAT 或 ssm / ssmmessages / ec2messages 终端节点；实例配置文件被替换；Agent 被停止。
+            <summary>{WB.causes}</summary>
+            {WB.causesText}
           </details>
         </span>
         {ws.learner ? (
           <>
             <Button size="sm" onClick={onRepair}>
-              修复环境
+              {WB.repair}
             </Button>
             {canEnd ? (
               <Button size="sm" onClick={() => onEnd('now')}>
-                结束实验…
+                {WB.end}
               </Button>
             ) : null}
           </>
@@ -152,7 +156,7 @@ export function WorkspaceBanners({ onExtend, onEnd, onRepair, extendBlocked }: B
     out.push(
       <div key="budget" className="wsban red" role="alert" data-banner="budget">
         <Shape name="sq" />
-        <span className="b-body">本月费用已超过预算，平台将在 10 分钟后结束本实验。</span>
+        <span className="b-body">{WB.budget}</span>
       </div>,
     );
   }
@@ -162,8 +166,8 @@ export function WorkspaceBanners({ onExtend, onEnd, onRepair, extendBlocked }: B
       <div key="op" className="wsban blue" role="status" data-banner="module-op">
         <Shape name="spin" spin />
         <span className="b-body">
-          平台正在修改环境：{actionTitle(running.actionId ?? running.op ?? '平台动作')}
-          {running.runId ? `（运行器 ${running.runId}）` : ''}
+          {t(WB.moduleOp, { action: actionTitle(running.actionId ?? running.op ?? WB.platformAction) })}
+          {running.runId ? t(WB.runner, { id: running.runId }) : ''}
         </span>
       </div>,
     );
@@ -175,15 +179,17 @@ export function WorkspaceBanners({ onExtend, onEnd, onRepair, extendBlocked }: B
         <div key="res" className="wsban green" role="status" data-banner="result">
           <Shape name="check" />
           <span className="b-body">
-            {result.to === 'completed' ? '已完成（全自动）' : '已完成（含手动）'}。{badge ? `获得徽章“${badge}”。` : ''}你可以结束并清理，也可以继续探索（倒计时照常）。
+            {result.to === 'completed' ? WB.completed : WB.completedManual}
+            {badge ? t(WB.badge, { badge }) : ''}
+            {WB.completedTail}
           </span>
           {canEnd ? (
             <Button size="sm" variant="primary" onClick={() => onEnd('now')}>
-              结束并清理…
+              {WB.endAndClean}
             </Button>
           ) : null}
           <Button size="sm" onClick={() => setDismissedResult(result.at)}>
-            继续探索
+            {WB.keepExploring}
           </Button>
         </div>,
       );
@@ -191,8 +197,8 @@ export function WorkspaceBanners({ onExtend, onEnd, onRepair, extendBlocked }: B
       out.push(
         <div key="res" className="wsban amber" role="status" data-banner="result">
           <Shape name="tri" />
-          <span className="b-body">提交未通过：还差 {result.missing} 项。修好之后可以再次提交。</span>
-          <button type="button" className="btn sm ghost icon" aria-label="关闭提醒" onClick={() => setDismissedResult(result.at)}>
+          <span className="b-body">{t(WB.submitFailed, { n: result.missing })}</span>
+          <button type="button" className="btn sm ghost icon" aria-label={WB.dismiss} onClick={() => setDismissedResult(result.at)}>
             <Icon name="x" />
           </button>
         </div>,
@@ -201,7 +207,7 @@ export function WorkspaceBanners({ onExtend, onEnd, onRepair, extendBlocked }: B
   }
   if (!out.length) return null;
   return (
-    <div className="wsbans" role="region" aria-label="工作台提醒">
+    <div className="wsbans" role="region" aria-label={WB.region}>
       {out}
     </div>
   );

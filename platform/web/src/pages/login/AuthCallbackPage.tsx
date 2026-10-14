@@ -7,7 +7,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useServices } from '../../app/context';
-import { t, zhCN } from '../../i18n/zh-CN';
+import { msg, t } from '../../i18n';
 import { Button, Shape } from '../../ui';
 import { LoginCard } from './LoginPage';
 import './login.css';
@@ -29,7 +29,7 @@ export default function AuthCallbackPage() {
       else setOutcome({ kind: r.result });
     });
   }, [auth, navigate]);
-  const a = zhCN.auth;
+  const a = msg.auth;
   if (outcome.kind === 'working') {
     return (
       <LoginCard>
@@ -46,7 +46,7 @@ export default function AuthCallbackPage() {
   const text = outcome.kind === 'stale' ? a.callbackStale : outcome.kind === 'error' ? t(a.callbackError, { error: outcome.error }) : a.tokenFailed;
   return (
     <LoginCard>
-      <h1 tabIndex={-1}>登录未完成</h1>
+      <h1 tabIndex={-1}>{msg.frame.login.callbackFailed}</h1>
       <div className="note red" role="alert" data-callback={outcome.kind}>
         <Shape name="xbox" />
         <span>{text}</span>
@@ -54,11 +54,11 @@ export default function AuthCallbackPage() {
       <div className="row">
         {outcome.kind === 'token-failed' ? (
           <Button variant="primary" onClick={() => window.location.reload()}>
-            {zhCN.app.retry}
+            {msg.app.retry}
           </Button>
         ) : (
           <Link className="btn primary" to="/login">
-            {zhCN.p13.signInAgain}
+            {msg.p13.signInAgain}
           </Link>
         )}
       </div>

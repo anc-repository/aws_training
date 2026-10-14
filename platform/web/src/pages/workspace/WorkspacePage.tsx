@@ -9,6 +9,7 @@ import { useServices, useWatchedSession } from '../../app/context';
 import { BrandMark, EmptyState, ErrorPanel, Skeleton } from '../../ui';
 import { Workspace } from '../../workspace/Workspace';
 
+import { msg } from '../../i18n';
 export default function WorkspacePage() {
   const { sid = '' } = useParams();
   const view = useWatchedSession(sid);
@@ -30,11 +31,11 @@ export default function WorkspacePage() {
   return (
     <div className="ws ws-main" data-screen="loading">
       <header className="wsbar">
-        <Link className="brand" to="/labs" title="ATL 实验平台（非 AWS 官方）">
+        <Link className="brand" to="/labs" title={msg.app.fullName}>
           <BrandMark />
         </Link>
         <Link className="btn sm ghost" to="/labs">
-          ‹ 目录
+          {msg.frame.ws.catalog}
         </Link>
         <div className="ttl">
           <span className="t mono small">{sid}</span>
@@ -42,11 +43,11 @@ export default function WorkspacePage() {
       </header>
       <div className="ws-loading">
         <h1 className="sr" tabIndex={-1}>
-          工作台
+          {msg.frame.ws.title}
         </h1>
         {error ? (
           isApiError(error) && error.status === 404 ? (
-            <EmptyState title="没有找到这个实验会话">它可能已被删除，或者地址有误。可以在“我的实验”中查看全部会话。</EmptyState>
+            <EmptyState title={msg.frame.ws.notFoundTitle}>{msg.frame.ws.notFound}</EmptyState>
           ) : (
             <ErrorPanel error={error as never} onRetry={() => setError(null)} />
           )

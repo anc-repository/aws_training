@@ -2,7 +2,7 @@
  * 骨架屏（08 §4.0）：形状与真实布局一致，1.2 秒透明度呼吸，不用闪光；超过 10 秒仍未完成时出现“仍在加载… [重试]”。
  */
 import { useEffect, useState } from 'react';
-import { zhCN } from '../i18n/zh-CN';
+import { msg } from '../i18n';
 
 export interface SkeletonProps {
   lines?: number;
@@ -13,7 +13,7 @@ export interface SkeletonProps {
   label?: string;
 }
 
-export function Skeleton({ lines = 3, block, onRetry, slowAfterMs = 10_000, label = zhCN.app.loading }: SkeletonProps) {
+export function Skeleton({ lines = 3, block, onRetry, slowAfterMs = 10_000, label = msg.app.loading }: SkeletonProps) {
   const [slow, setSlow] = useState(false);
   useEffect(() => {
     const timer = setTimeout(() => setSlow(true), slowAfterMs);
@@ -27,10 +27,10 @@ export function Skeleton({ lines = 3, block, onRetry, slowAfterMs = 10_000, labe
       ))}
       {slow ? (
         <div className="row small muted">
-          {zhCN.app.stillLoading}
+          {msg.app.stillLoading}
           {onRetry ? (
             <button type="button" className="btn sm" onClick={onRetry}>
-              {zhCN.app.retry}
+              {msg.app.retry}
             </button>
           ) : null}
         </div>

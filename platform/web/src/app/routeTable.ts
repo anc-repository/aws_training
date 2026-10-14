@@ -4,6 +4,7 @@
  */
 import { lazy, type ComponentType, type LazyExoticComponent } from 'react';
 import type { Role } from '../auth/jwt';
+import { msg } from '../i18n/core';
 
 /** `*`（P13 #33“页面不存在”，在全局框架内）。 */
 export const NotFoundRoute = lazy(() => import('../pages/errors/NotFoundPage'));
@@ -28,33 +29,197 @@ const NONE: readonly Role[] = [];
 
 export const ROUTE_TABLE: readonly RouteSpec[] = [
   // 公开（P01）
-  { screen: 'P01', path: '/login', title: '登录', layout: 'public', roles: NONE, component: lazy(() => import('../pages/login/LoginPage')) },
-  { screen: 'P01', path: '/auth/callback', title: '正在完成登录', layout: 'public', roles: NONE, component: lazy(() => import('../pages/login/AuthCallbackPage')) },
-  { screen: 'P01', path: '/auth/signed-out', title: '已退出', layout: 'public', roles: NONE, component: lazy(() => import('../pages/login/SignedOutPage')) },
+  {
+    screen: 'P01',
+    path: '/login',
+    get title() {
+      return msg.frame.routes.login;
+    },
+    layout: 'public',
+    roles: NONE,
+    component: lazy(() => import('../pages/login/LoginPage')),
+  },
+  {
+    screen: 'P01',
+    path: '/auth/callback',
+    get title() {
+      return msg.frame.routes.callback;
+    },
+    layout: 'public',
+    roles: NONE,
+    component: lazy(() => import('../pages/login/AuthCallbackPage')),
+  },
+  {
+    screen: 'P01',
+    path: '/auth/signed-out',
+    get title() {
+      return msg.frame.routes.signedOut;
+    },
+    layout: 'public',
+    roles: NONE,
+    component: lazy(() => import('../pages/login/SignedOutPage')),
+  },
   // 需要登录
-  { screen: 'P00', path: '/setup', title: '首次设置', layout: 'app', roles: LAO, component: lazy(() => import('../pages/setup/SetupPage')) },
-  { screen: 'P02', path: '/labs', title: '卡片目录', layout: 'app', roles: LAO, component: lazy(() => import('../pages/labs/CatalogPage')) },
-  { screen: 'P03', path: '/labs/:labId', title: '卡片简介', layout: 'app', roles: LAO, component: lazy(() => import('../pages/card/CardIntroPage')) },
-  { screen: 'P03-Q', path: '/labs/:labId/quiz', title: '小测', layout: 'app', roles: L, component: lazy(() => import('../pages/quiz/QuizPage')) },
-  { screen: 'P02-T', path: '/tracks/:trackId', title: '学习路径', layout: 'app', roles: LAO, component: lazy(() => import('../pages/tracks/TrackPage')) },
-  { screen: 'P04/P05', path: '/workspace/:sid', title: '工作台', layout: 'workspace', roles: LAO, component: lazy(() => import('../pages/workspace/WorkspacePage')) },
-  { screen: 'P11', path: '/sessions', title: '我的实验', layout: 'app', roles: LAO, component: lazy(() => import('../pages/sessions/SessionsPage')) },
-  { screen: 'P11-D', path: '/sessions/:sid', title: '会话详情', layout: 'app', roles: LAO, component: lazy(() => import('../pages/sessions/SessionDetailPage')) },
-  { screen: 'P07', path: '/sessions/:sid/end', title: '结束与回收进度', layout: 'app', roles: LAO, component: lazy(() => import('../pages/end/EndPage')) },
-  { screen: 'P08', path: '/sessions/:sid/report', title: '实验报告', layout: 'app', roles: LAO, component: lazy(() => import('../pages/report/ReportPage')) },
+  {
+    screen: 'P00',
+    path: '/setup',
+    get title() {
+      return msg.frame.routes.setup;
+    },
+    layout: 'app',
+    roles: LAO,
+    component: lazy(() => import('../pages/setup/SetupPage')),
+  },
+  {
+    screen: 'P02',
+    path: '/labs',
+    get title() {
+      return msg.frame.routes.catalog;
+    },
+    layout: 'app',
+    roles: LAO,
+    component: lazy(() => import('../pages/labs/CatalogPage')),
+  },
+  {
+    screen: 'P03',
+    path: '/labs/:labId',
+    get title() {
+      return msg.frame.routes.card;
+    },
+    layout: 'app',
+    roles: LAO,
+    component: lazy(() => import('../pages/card/CardIntroPage')),
+  },
+  {
+    screen: 'P03-Q',
+    path: '/labs/:labId/quiz',
+    get title() {
+      return msg.frame.routes.quiz;
+    },
+    layout: 'app',
+    roles: L,
+    component: lazy(() => import('../pages/quiz/QuizPage')),
+  },
+  {
+    screen: 'P02-T',
+    path: '/tracks/:trackId',
+    get title() {
+      return msg.frame.routes.track;
+    },
+    layout: 'app',
+    roles: LAO,
+    component: lazy(() => import('../pages/tracks/TrackPage')),
+  },
+  {
+    screen: 'P04/P05',
+    path: '/workspace/:sid',
+    get title() {
+      return msg.frame.routes.workspace;
+    },
+    layout: 'workspace',
+    roles: LAO,
+    component: lazy(() => import('../pages/workspace/WorkspacePage')),
+  },
+  {
+    screen: 'P11',
+    path: '/sessions',
+    get title() {
+      return msg.frame.routes.sessions;
+    },
+    layout: 'app',
+    roles: LAO,
+    component: lazy(() => import('../pages/sessions/SessionsPage')),
+  },
+  {
+    screen: 'P11-D',
+    path: '/sessions/:sid',
+    get title() {
+      return msg.frame.routes.session;
+    },
+    layout: 'app',
+    roles: LAO,
+    component: lazy(() => import('../pages/sessions/SessionDetailPage')),
+  },
+  {
+    screen: 'P07',
+    path: '/sessions/:sid/end',
+    get title() {
+      return msg.frame.routes.end;
+    },
+    layout: 'app',
+    roles: LAO,
+    component: lazy(() => import('../pages/end/EndPage')),
+  },
+  {
+    screen: 'P08',
+    path: '/sessions/:sid/report',
+    get title() {
+      return msg.frame.routes.report;
+    },
+    layout: 'app',
+    roles: LAO,
+    component: lazy(() => import('../pages/report/ReportPage')),
+  },
   {
     screen: 'P06',
     path: '/sessions/:sid/experiments/:module/:experimentId',
-    title: '对比实验',
+    get title() {
+      return msg.frame.routes.experiment;
+    },
     layout: 'app',
     roles: LAO,
     component: lazy(() => import('../pages/experiments/ExperimentPage')),
   },
-  { screen: 'P07-M', path: '/resources/manual', title: '待人工处理清单', layout: 'app', roles: LA, component: lazy(() => import('../pages/manual/ManualResourcesPage')) },
-  { screen: 'P09', path: '/certificates', title: '证书与徽章', layout: 'app', roles: LAO, component: lazy(() => import('../pages/certificates/CertificatesPage')) },
-  { screen: 'P09-C', path: '/certificates/:certId', title: '证书详情', layout: 'app', roles: LAO, component: lazy(() => import('../pages/certificates/CertificateDetailPage')) },
-  { screen: 'P10', path: '/learning', title: '我的学习', layout: 'app', roles: LAO, component: lazy(() => import('../pages/learning/LearningPage')) },
-  { screen: 'P12', path: '/settings/:tab', title: '设置', layout: 'app', roles: LAO, component: lazy(() => import('../pages/settings/SettingsPage')) },
+  {
+    screen: 'P07-M',
+    path: '/resources/manual',
+    get title() {
+      return msg.frame.routes.manual;
+    },
+    layout: 'app',
+    roles: LA,
+    component: lazy(() => import('../pages/manual/ManualResourcesPage')),
+  },
+  {
+    screen: 'P09',
+    path: '/certificates',
+    get title() {
+      return msg.frame.routes.certificates;
+    },
+    layout: 'app',
+    roles: LAO,
+    component: lazy(() => import('../pages/certificates/CertificatesPage')),
+  },
+  {
+    screen: 'P09-C',
+    path: '/certificates/:certId',
+    get title() {
+      return msg.frame.routes.certificate;
+    },
+    layout: 'app',
+    roles: LAO,
+    component: lazy(() => import('../pages/certificates/CertificateDetailPage')),
+  },
+  {
+    screen: 'P10',
+    path: '/learning',
+    get title() {
+      return msg.frame.routes.learning;
+    },
+    layout: 'app',
+    roles: LAO,
+    component: lazy(() => import('../pages/learning/LearningPage')),
+  },
+  {
+    screen: 'P12',
+    path: '/settings/:tab',
+    get title() {
+      return msg.frame.routes.settings;
+    },
+    layout: 'app',
+    roles: LAO,
+    component: lazy(() => import('../pages/settings/SettingsPage')),
+  },
 ];
 
 /** 08 §2.1 站点地图中属于 SPA 的全部路径（测试用：路由表必须逐一覆盖）。 */

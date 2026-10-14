@@ -9,6 +9,7 @@
 import type { SessionState } from '@atl/shared';
 import type { AllowedAction, SessionView } from '../../api/types';
 
+import { msg, t } from '../../i18n';
 const MIN = 60_000;
 export const T15_MS = 15 * MIN;
 export const T5_MS = 5 * MIN;
@@ -77,15 +78,9 @@ export function t5Key(view: Pick<SessionView, 'deadlineAt' | 'deadlineVersion'>)
 
 export type ExtendReason = 'state' | 'none' | 'last30s' | 'cap' | 'uninstalling' | 'budget' | 'role';
 
-export const EXTEND_REASON_TEXT: Readonly<Record<ExtendReason, string>> = {
-  state: '实验已到期或正在结束，无法延长。',
-  none: '已延长到上限次数。',
-  last30s: '即将到期，无法延长。',
-  cap: '已达到单次实验总时长上限。',
-  uninstalling: '平台正在卸载，不能延长。',
-  budget: '本月费用已超过预算，不能延长。',
-  role: '你的角色不能延长实验。',
-};
+const WX = msg.workspace.expiry;
+
+export const EXTEND_REASON_TEXT: Readonly<Record<ExtendReason, string>> = WX.extend;
 
 export interface GuardContext {
   learner: boolean;
@@ -111,14 +106,7 @@ export function extendBlock(view: SessionView, allowed: readonly AllowedAction[]
 
 export type KeepReason = 'not-allowed' | 'degraded' | 'uninstalling' | 'budget' | 'env-age' | 'state';
 
-export const KEEP_REASON_TEXT: Readonly<Record<KeepReason, string>> = {
-  'not-allowed': '本卡片不允许保留环境，只能释放。',
-  degraded: '环境异常时不能保留，只能释放。',
-  uninstalling: '平台正在卸载，进行中的实验会被结束，不允许保留。',
-  budget: '本月费用已超过预算，只能释放。',
-  'env-age': '环境已超过最长寿命，只能释放。',
-  state: '当前状态不能保留环境。',
-};
+export const KEEP_REASON_TEXT: Readonly<Record<KeepReason, string>> = WX.keep;
 
 export interface KeepContext extends GuardContext {
   envDegraded: boolean;
@@ -151,8 +139,8 @@ export type When = 'now' | 'at-expiry';
 
 /** 主按钮文案随选择变化（P05.9）。 */
 export function endPrimaryLabel(disposition: Disposition, when: When, keepHours: number): string {
-  if (when === 'now') return disposition === 'keep' ? `结束并保留环境 ${keepHours} 小时` : '结束并释放资源';
-  return disposition === 'keep' ? `到期时保留 ${keepHours} 小时` : '到期时释放';
+  if (when === 'now') return disposition === 'keep' ? t(WX.endKeep, { n: keepHours }) : WX.endRelease;
+  return disposition === 'keep' ? t(WX.expiryKeep, { n: keepHours }) : WX.expiryRelease;
 }
 
 /** 延长对话框的说明文字：“延长后 17:00 到期（第 1 次，还可以再延长 1 次；本次实验最晚到 17:30）”。 */
@@ -161,14 +149,14 @@ export function extendSummary(view: SessionView, minutes: number, fmt: (ms: numb
   const left = view.limits?.extensionsLeft ?? 0;
   const used = Array.isArray(view.extensions) ? view.extensions.length : 0;
   const after = deadline !== null ? fmt(deadline + minutes * MIN) : '—';
-  const nth = `第 ${used + 1} 次`;
+  const nth = t(WX.nth, { n: used + 1 });
   // 之后还能延长几次：受剩余次数与“最晚到”两方面约束
   const maxDl = view.limits?.maxDeadlineAt ? Date.parse(view.limits.maxDeadlineAt) : null;
   const byCap = maxDl !== null && deadline !== null ? Math.max(0, Math.floor((maxDl - (deadline + minutes * MIN)) / (minutes * MIN))) : Number.POSITIVE_INFINITY;
   const rest = Math.min(left - 1, byCap);
-  const more = rest <= 0 ? '这是最后一次延长' : `还可以再延长 ${rest} 次`;
-  const latest = view.limits?.maxDeadlineAt ? `；本次实验最晚到 ${fmt(Date.parse(view.limits.maxDeadlineAt))}` : '';
-  return `延长后 ${after} 到期（${nth}，${more}${latest}）。`;
+  const more = rest <= 0 ? WX.last : t(WX.more, { n: rest });
+  const latest = view.limits?.maxDeadlineAt ? t(WX.latest, { t: fmt(Date.parse(view.limits.maxDeadlineAt)) }) : '';
+  return t(WX.summary, { after, nth, more, latest });
 }
 
 /** 报价剩余有效期（毫秒；没有 expiresAt 时 null）。 */

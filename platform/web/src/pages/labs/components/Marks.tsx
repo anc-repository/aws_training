@@ -4,11 +4,13 @@
  * （CSP style-src 'self'）；图形一律 aria-hidden 或 role="img" + 完整 aria-label（08 §8.4）。
  */
 import { useId, type ReactElement } from 'react';
-import { t } from '../../../i18n/zh-CN';
+import { msg, t } from '../../../i18n';
 import { Shape, type StatusMeta } from '../../../ui';
 import { catClass } from '../model';
 import { BADGE_LEVEL_TEXT, DIFFICULTY_LEVEL, DIFFICULTY_TEXT, S } from '../strings';
 import type { BadgeView, Difficulty } from '../types';
+
+const PL = msg.pages.labs;
 
 const CAT_SYMBOL: Readonly<Record<string, ReactElement>> = {
   base: <rect x="1" y="1" width="4" height="4" />,
@@ -104,7 +106,7 @@ export function BadgeMark({ kind, label, state, title, size = 24, old }: BadgeMa
   const sc = kind === 'scenario';
   const dash = state === 'attested' ? '3 2' : state === 'self-reported' ? '1 2' : state === 'none' || state === 'pending' ? '2 2' : undefined;
   const fs = sc ? (size >= 40 ? 9 : 6) : size >= 40 ? 11 : 8;
-  const aria = `徽章：${title}，${badgeStateText(state)}`;
+  const aria = t(PL.badgeAria, { title, state: badgeStateText(state) });
   const shapeCls = `bm-shape s-${state}${state === 'pending' ? ' spin' : ''}`;
   const hatch = `bmh${useId().replace(/[^a-zA-Z0-9]/g, '')}`;
   return (
@@ -128,7 +130,7 @@ export function BadgeMark({ kind, label, state, title, size = 24, old }: BadgeMa
         </text>
         {old ? (
           <text x="36" y="9" textAnchor="end" fontSize="8" className="bm-text">
-            旧
+            {PL.old}
           </text>
         ) : null}
       </svg>

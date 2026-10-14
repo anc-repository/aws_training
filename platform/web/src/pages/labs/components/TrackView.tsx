@@ -7,12 +7,14 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import { useServices } from '../../../app/context';
-import { t } from '../../../i18n/zh-CN';
+import { msg, t } from '../../../i18n';
 import { CostTierMark, Icon, Shape } from '../../../ui';
 import { cardStateOf, isDoneStatus, pct, reuseHintsOf, type Holder, type ProgressLike, type TrackSummary } from '../model';
 import { ROLE_IN_TRACK, S } from '../strings';
 import type { CatalogCard, LabItem, TrackDef, TrackItem } from '../types';
 import { SegmentedProgress, StateText } from './Marks';
+
+const PL = msg.pages.labs;
 
 export type CertState = 'eligible' | 'not-yet' | 'claimed' | 'revoked';
 
@@ -203,7 +205,7 @@ export function TrackNode({
         <span className="wrap-any">{c?.title ?? ''}</span>
         {c ? (
           <span className="faint small">
-            {c.estimatedMinutes} 分钟 · <CostTierMark tier={c.costTier.required} withOptional={c.costTier.withOptional} />
+            {t(PL.minutes, { n: c.estimatedMinutes })} · <CostTierMark tier={c.costTier.required} withOptional={c.costTier.withOptional} />
           </span>
         ) : null}
         {rec ? <span className="tag accent">{S.track.recommended}</span> : null}

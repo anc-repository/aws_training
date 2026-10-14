@@ -9,8 +9,13 @@
  *
  * Quiz banks with answers are only in `atl-artifacts` under `releases/<catalogVersion>/private/quiz/<id>.json`
  * (04 §2.5 R-06). Content is immutable per version, so parsed objects are cached per container.
+ *
+ * Languages (09-i18n-and-visual.md §2): the root documents are zh-CN; a build also has `<lang>/catalog/index.json`,
+ * `<lang>/labs/…` and `private/quiz/<lang>/<id>.json` for ja and en (manifest `languages`). The texts shown to the learner
+ * (catalog index, tracks, quiz questions) are read in the requested language with a fallback to the root; everything that
+ * drives sessions and checks (`lab()`, digests) always reads the root documents.
  */
-import { AtlError, WebKeys, type LabV2 } from '@atl/shared';
+import { AtlError, SOURCE_LANG, WebKeys, type ContentLang, type LabV2 } from '@atl/shared';
 import type { FunctionDeps } from '../../runtime/deps.js';
 import type { CatalogReleaseItem, PlatformRepo } from '../../repositories/index.js';
 
@@ -116,13 +121,22 @@ export class CatalogStore {
     return this.json<T>(this.deps.env.buckets.web, `${WebKeys.content(catalogVersion)}${rel}`);
   }
 
-  async index(catalogVersion: string): Promise<CatalogIndex> {
-    const idx = (await this.web<CatalogIndex>(catalogVersion, 'catalog/index.json')) ?? (await this.web<CatalogIndex>(catalogVersion, 'index.json'));
+  /** The catalog index; with `lang` the translated index (`<lang>/catalog/index.json`) when the release has one. */
+  async index(catalogVersion: string, lang: ContentLang = SOURCE_LANG): Promise<CatalogIndex> {
+    const translated = lang !== SOURCE_LANG ? await this.web<CatalogIndex>(catalogVersion, `${lang}/catalog/index.json`) : null;
+    const idx = translated ?? (await this.web<CatalogIndex>(catalogVersion, 'catalog/index.json')) ?? (await this.web<CatalogIndex>(catalogVersion, 'index.json'));
     return { cards: [], tracks: [], ...(idx ?? {}) } as CatalogIndex;
   }
 
   async manifest(catalogVersion: string): Promise<Record<string, unknown> | null> {
     return this.web<Record<string, unknown>>(catalogVersion, 'manifest.json');
+  }
+
+  /** Content languages of a release (manifest `languages`; releases built before 09 have zh-CN only). */
+  async languages(catalogVersion: string): Promise<ContentLang[]> {
+    const list = (await this.manifest(catalogVersion).catch(() => null))?.languages;
+    const langs = Array.isArray(list) ? list.filter((l): l is ContentLang => l === 'zh-CN' || l === 'ja' || l === 'en') : [];
+    return langs.includes(SOURCE_LANG) ? langs : [SOURCE_LANG, ...langs];
   }
 
   async lab(labId: string, catalogVersion: string): Promise<LabContent | null> {
@@ -141,9 +155,13 @@ export class CatalogStore {
    * Quiz bank with answers in atl-artifacts (01 §3.7: `releases/<ver>/private/quiz/`). WebDeploy records the prefix it
    * wrote (`CatalogRelease.quizPrefix`, the release version's prefix); releases without it use `releases/<catalogVersion>/`.
    */
-  async quizBank(labId: string, catalogVersion: string): Promise<QuizBank | null> {
+  async quizBank(labId: string, catalogVersion: string, lang: ContentLang = SOURCE_LANG): Promise<QuizBank | null> {
     const rel = await this.platform.getRelease(catalogVersion).catch(() => null);
     const prefix = typeof rel?.quizPrefix === 'string' && /^releases\/[A-Za-z0-9._-]+\/private\/quiz\/$/.test(rel.quizPrefix) ? rel.quizPrefix : `releases/${catalogVersion}/private/quiz/`;
+    if (lang !== SOURCE_LANG) {
+      const translated = await this.json<QuizBank>(this.deps.env.buckets.artifacts, `${prefix}${lang}/${labId}.json`);
+      if (translated) return translated;
+    }
     return this.json<QuizBank>(this.deps.env.buckets.artifacts, `${prefix}${labId}.json`);
   }
 
@@ -186,4 +204,6 @@ export interface QuizBank {
   questions: QuizQuestion[];
   maxAttemptsPerDay?: number;
   timeLimitMinutes?: number;
+  /** translated banks (`private/quiz/<lang>/`): the requested language and the JSON pointers that show another one */
+  i18n?: { lang: ContentLang; fallback?: string[] };
 }

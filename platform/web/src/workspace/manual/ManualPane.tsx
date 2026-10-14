@@ -12,6 +12,8 @@ import { indexCodeBlocks, Nodes } from './Mdast';
 import { StepCard, stepStateOf, usedVariablePaths } from './StepCard';
 import { VariableStrip, type VariableStripHandle } from './VariableStrip';
 
+import { rich, t } from '../../i18n';
+import { W } from '../strings';
 export interface ManualPaneProps {
   stepIndex: number;
   onStep: (index: number) => void;
@@ -58,23 +60,29 @@ export function ManualPane({ stepIndex, onStep, onSubmit, revealRef }: ManualPan
   const overviewIdx = useMemo(() => indexCodeBlocks(overview?.ast), [overview]);
 
   return (
-    <section className="mpane" id="mpane" aria-label="实验手册" onKeyDown={onKey}>
+    <section className="mpane" id="mpane" aria-label={W.manual.title} onKeyDown={onKey}>
       <div className="mhead">
         <div className="row between mhead-row">
-          <b>实验手册</b>
+          <b>{W.manual.title}</b>
           {attempt && ATTEMPT_STATUS_META[attempt] ? (
             <span className="small">
-              尝试：<Status meta={ATTEMPT_STATUS_META[attempt]} />
+              {rich(W.manual.attempt, { state: <Status meta={ATTEMPT_STATUS_META[attempt]} /> })}
             </span>
           ) : null}
           <span className="small">
-            进度 <span className="tnum">{done}/{total}</span>
-            <span className="sr"> 个必需步骤已达成</span>
+            {rich(W.manual.progress, {
+              n: (
+                <span className="tnum">
+                  {done}/{total}
+                </span>
+              ),
+            })}
+            <span className="sr">{W.manual.progressSr}</span>
           </span>
           {steps.length ? <StepRail steps={steps} current={stepIndex} onPick={onStep} /> : null}
           {ws.learner && ws.live && steps.length ? (
             <Button size="sm" onClick={onSubmit} data-submit="">
-              提交实验
+              {W.manual.submit}
             </Button>
           ) : null}
         </div>
@@ -84,28 +92,28 @@ export function ManualPane({ stepIndex, onStep, onSubmit, revealRef }: ManualPan
         {ws.preparing ? (
           <div className="note blue" role="note">
             <Shape name="clock" />
-            <span>环境准备中：可以先读手册；“粘贴到终端”与检测会在就绪后可用。</span>
+            <span>{W.manual.preparing}</span>
           </div>
         ) : null}
         {!ws.learner ? (
           <div className="note" role="note">
             <Icon name="eye" />
-            <span>只读：你的角色可以查看手册与检测结果{ws.role === 'A' ? '、运行检测并复核手动确认' : ''}。</span>
+            <span>{t(W.manual.readOnly, { extra: ws.role === 'A' ? W.manual.readOnlyAssistant : '' })}</span>
           </div>
         ) : null}
         {!lab ? (
           ws.data.lab.error ? (
-            <EmptyState title="手册内容缺失">请在 设置 › 内容版本 中检查。</EmptyState>
+            <EmptyState title={W.manual.missingTitle}>{W.manual.missingBody}</EmptyState>
           ) : (
             <Skeleton lines={6} block />
           )
         ) : !steps.length ? (
-          <EmptyState title="手册内容缺失">请在 设置 › 内容版本 中检查。</EmptyState>
+          <EmptyState title={W.manual.missingTitle}>{W.manual.missingBody}</EmptyState>
         ) : (
           <>
             {stepIndex === 0 && overview ? (
               <details className="disc overview">
-                <summary>卡片概览</summary>
+                <summary>{W.manual.overview}</summary>
                 <div className="stack-8 small">
                   <Nodes nodes={overview.ast.children ?? []} env={{ lab, step: null, vars: ws.data.vars.data, blockIndex: overviewIdx }} />
                 </div>
@@ -117,12 +125,12 @@ export function ManualPane({ stepIndex, onStep, onSubmit, revealRef }: ManualPan
       </div>
       <div className="mfoot">
         <Button size="sm" onClick={() => onStep(stepIndex - 1)} disabledReason={stepIndex <= 0 ? null : null} disabled={stepIndex <= 0}>
-          ← 上一步
+          {W.manual.prev}
         </Button>
         <span className="spacer" />
         {(ws.role === 'L' || ws.role === 'A') && step ? (
-          <Button size="sm" onClick={(e) => (e.shiftKey ? wb.runLabCheck() : wb.runStepCheck(step.id))} aria-disabled={!ws.live ? true : undefined} title={!ws.live ? (ws.preparing ? '环境就绪后可用' : '实验已结束') : undefined} data-foot-check="">
-            检测
+          <Button size="sm" onClick={(e) => (e.shiftKey ? wb.runLabCheck() : wb.runStepCheck(step.id))} aria-disabled={!ws.live ? true : undefined} title={!ws.live ? (ws.preparing ? W.manual.afterReady : W.manual.ended) : undefined} data-foot-check="">
+            {W.manual.check}
             <span className="kbd-hint">
               {' '}
               <kbd>⌃.</kbd>
@@ -132,7 +140,7 @@ export function ManualPane({ stepIndex, onStep, onSubmit, revealRef }: ManualPan
         ) : null}
         <span className="spacer" />
         <Button size="sm" onClick={() => onStep(stepIndex + 1)} disabled={stepIndex >= steps.length - 1}>
-          下一步 →
+          {W.manual.next}
         </Button>
       </div>
     </section>
@@ -153,15 +161,15 @@ function StepRail({ steps, current, onPick }: { steps: readonly LabStep[]; curre
     <Disclosure
       label={
         <>
-          步骤 <Icon name="chev" />
+          {W.manual.steps} <Icon name="chev" />
         </>
       }
-      ariaLabel="全部步骤"
+      ariaLabel={W.manual.allSteps}
       buttonClassName="btn sm"
       className="railpop"
     >
       {(close) => (
-        <ol className="steprail" aria-label="全部步骤" onKeyDown={onKey}>
+        <ol className="steprail" aria-label={W.manual.allSteps} onKeyDown={onKey}>
           {steps.map((s, i) => {
             const { state, at } = stepStateOf(ws, s.id);
             const m = STEP_STATE_META[state];
@@ -181,10 +189,10 @@ function StepRail({ steps, current, onPick }: { steps: readonly LabStep[]; curre
                   <span className="mono small">{i + 1}</span>
                   <span className="wrap-any small">
                     {s.title}
-                    {isOptional(s) ? <span className="tag">选做</span> : null}
-                    {s.wait ? <span className="tag">等待</span> : null}
-                    {s.expectedOutage ? <span className="tag">预期中断</span> : null}
-                    {s.startsBilling ? <span className="tag">开始计费</span> : null}
+                    {isOptional(s) ? <span className="tag">{W.manual.optional}</span> : null}
+                    {s.wait ? <span className="tag">{W.manual.wait}</span> : null}
+                    {s.expectedOutage ? <span className="tag">{W.manual.outage}</span> : null}
+                    {s.startsBilling ? <span className="tag">{W.manual.billing}</span> : null}
                   </span>
                   <span className="small faint">
                     {m.text}

@@ -10,7 +10,8 @@ import { Disclosure, Icon } from '../../ui';
 import { InlineProblem } from '../errors/InlineProblem';
 import { downloadFromApi, saveText } from '../sessions/download';
 
-export function CleanupExport({ sid, label = '导出回收报告', compact }: { sid: string; label?: string; compact?: boolean }) {
+import { msg, t } from '../../i18n';
+export function CleanupExport({ sid, label = msg.end.export.label, compact }: { sid: string; label?: string; compact?: boolean }) {
   const services = useServices();
   const [error, setError] = useState<ApiError | null>(null);
   const [busy, setBusy] = useState(false);
@@ -23,7 +24,7 @@ export function CleanupExport({ sid, label = '导出回收报告', compact }: { 
         const r = await services.api.call<unknown>('getCleanup', { params: { sid }, query: { format: 'json' }, conditional: false });
         saveText(`${JSON.stringify(r.data, null, 2)}\n`, `cleanup-${sid}.json`, 'application/json');
       }
-      announce('已开始下载');
+      announce(msg.end.export.started);
     } catch (e) {
       if (isApiError(e)) setError(e);
       else throw e;
@@ -36,11 +37,11 @@ export function CleanupExport({ sid, label = '导出回收报告', compact }: { 
       <Disclosure
         label={
           <>
-            {busy ? '正在导出…' : label} <Icon name="chev" />
+            {busy ? msg.end.export.exporting : label} <Icon name="chev" />
           </>
         }
         buttonClassName={compact ? 'linkbtn' : 'btn ghost'}
-        ariaLabel={`${label}（Markdown 或 JSON）`}
+        ariaLabel={t(msg.end.export.aria, { label })}
       >
         {(close) => (
           <>
@@ -52,7 +53,7 @@ export function CleanupExport({ sid, label = '导出回收报告', compact }: { 
                 void run('md');
               }}
             >
-              Markdown（含 CLI 删除命令）
+              {msg.end.export.md}
             </button>
             <button
               type="button"

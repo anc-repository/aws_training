@@ -39,7 +39,7 @@ const patchMeSchema = z
   .object({
     displayName: z.string().trim().min(1).max(64).optional(),
     certName: z.string().trim().min(1).max(64).nullable().optional(),
-    locale: z.enum(['zh-CN', 'en']).optional(),
+    locale: z.enum(['zh-CN', 'ja', 'en']).optional(),
     notify: z.record(z.string(), z.boolean()).optional(),
     currentTrackId: z.string().regex(/^[a-z][a-z0-9-]{1,31}$/).optional(),
     onboarding: z.object({ completedAt: z.iso.datetime(), version: z.string().max(16) }).optional(),

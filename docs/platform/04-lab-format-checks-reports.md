@@ -700,6 +700,8 @@ v2 只保留 `enabled`、`title`、`maxManualChecks`。少数需要单独出示�
 
 下面是 `labs/_schema/lab.schema.json` 的规范内容（以 YAML 书写，构建时 1:1 转成 JSON；源头是 `platform/api/src/content/lab.ts` 的 zod 定义，CI 校验二者一致）。检查定义的 schema 见 §5.1。schema 只管结构；跨字段、跨文件的约束（例如 `title` 等于 `service：function`、`modules.target` 等于 `targetModules[].id`、起始状态与 plan 一致）由 §3.5 的 lint 与 `labs:derive` 负责。内容按 YAML 1.2 解析（`on`/`off` 是字符串而不是布尔值）。
 
+**多语言文本（`$defs.l10n`，09-i18n-and-visual.md §2，决定 I4）**：学员看到的文本字段（标题、摘要、步骤标题、原因说明、变量标签等，即下面写成 `anyOf: [ { type: string … }, { $ref: '#/$defs/l10n' } ]` 的字段）既可以写成字符串（视为 zh-CN），也可以写成 `{ zh-CN: …, ja: …, en: … }`：zh-CN 必填，ja、en 可选，缺少时按“所选语言 → en → zh-CN”回退，界面在回退的内容旁标“未翻訳 / Not translated”。字符串分支上的长度限制只约束 zh-CN（`labs:lint` 把卡片解析成 zh-CN 后再按本 schema 校验一遍）。id、枚举、命令、资源名、AWS 服务名等不是文本字段，不能写成本地化对象（lint I2）。检查定义（§5.1）、小测、学习路径与 taxonomy 的文本字段同样接受这种写法。手册的译文放在 `manual/ja/`、`manual/en/`（与 `manual/` 中的 zh-CN 文件同名，§4.2）。`labs:build` 在 `content/<v>/` 下发布 zh-CN，在 `content/<v>/ja/`、`content/<v>/en/` 下发布按语言解析后的同名文件（09 §2.4）。
+
 ```yaml
 $schema: https://json-schema.org/draft/2020-12/schema
 $id: urn:atl:schema:lab:v2
@@ -713,22 +715,22 @@ properties:
   schema:           { const: atl.lab/v2 }
   id:               { $ref: '#/$defs/cardId' }
   kind:             { enum: [service, scenario] }
-  service:          { type: string, minLength: 3, maxLength: 40 }
-  function:         { type: string, minLength: 2, maxLength: 20 }
+  service:          { anyOf: [ { type: string, minLength: 3, maxLength: 40 }, { $ref: '#/$defs/l10n' } ] }
+  function:         { anyOf: [ { type: string, minLength: 2, maxLength: 20 }, { $ref: '#/$defs/l10n' } ] }
   version:          { $ref: '#/$defs/semver' }
   status:           { enum: [draft, beta, stable, deprecated], default: draft }
-  title:            { type: string, minLength: 2, maxLength: 48 }
-  subtitle:         { type: string, maxLength: 60 }
-  summary:          { type: string, minLength: 10, maxLength: 200 }
-  story:            { type: string, maxLength: 1200 }
+  title:            { anyOf: [ { type: string, minLength: 2, maxLength: 48 }, { $ref: '#/$defs/l10n' } ] }
+  subtitle:         { anyOf: [ { type: string, maxLength: 60 }, { $ref: '#/$defs/l10n' } ] }
+  summary:          { anyOf: [ { type: string, minLength: 10, maxLength: 200 }, { $ref: '#/$defs/l10n' } ] }
+  story:            { anyOf: [ { type: string, maxLength: 1200 }, { $ref: '#/$defs/l10n' } ] }
   scenario:
     type: object
     additionalProperties: false
     required: [question]
     properties:
-      question:     { type: string, minLength: 20, maxLength: 400 }
-      constraints:  { type: array, maxItems: 6, items: { type: string, maxLength: 80 } }
-      antiPatterns: { type: array, maxItems: 6, items: { type: string, maxLength: 120 } }
+      question:     { anyOf: [ { type: string, minLength: 20, maxLength: 400 }, { $ref: '#/$defs/l10n' } ] }
+      constraints:  { type: array, maxItems: 6, items: { anyOf: [ { type: string, maxLength: 80 }, { $ref: '#/$defs/l10n' } ] } }
+      antiPatterns: { type: array, maxItems: 6, items: { anyOf: [ { type: string, maxLength: 120 }, { $ref: '#/$defs/l10n' } ] } }
   objectives:
     type: array
     maxItems: 6
@@ -737,7 +739,7 @@ properties:
       additionalProperties: false
       required: [text, domain]
       properties:
-        text:       { type: string, maxLength: 80 }
+        text:       { anyOf: [ { type: string, maxLength: 80 }, { $ref: '#/$defs/l10n' } ] }
         domain:     { $ref: '#/$defs/saaDomain' }
         relatesTo:  { $ref: '#/$defs/stepId' }
   difficulty:       { enum: [intro, beginner, intermediate, advanced] }      # 入门 / 初级 / 中级 / 高级
@@ -757,7 +759,7 @@ properties:
     properties:
       allowed:      { type: boolean }
       maxHours:     { type: integer, minimum: 1, maximum: 72 }
-      reason:       { type: string, maxLength: 120 }
+      reason:       { anyOf: [ { type: string, maxLength: 120 }, { $ref: '#/$defs/l10n' } ] }
   regions:
     type: object
     additionalProperties: false
@@ -774,7 +776,7 @@ properties:
       required: [id, role]
       properties:
         id:         { $ref: '#/$defs/serviceId' }                            # _catalog/taxonomy.yaml 的服务格或附属服务 id
-        name:       { type: string, maxLength: 60 }
+        name:       { anyOf: [ { type: string, maxLength: 60 }, { $ref: '#/$defs/l10n' } ] }
         role:       { enum: [primary, supporting, observed, context] }
         module:     { $ref: '#/$defs/moduleId' }
         featureOf:  { $ref: '#/$defs/serviceId' }
@@ -811,7 +813,7 @@ properties:
           properties:
             id:       { enum: [domain, hosted-zone, ses-identity, notify-email, recipient-emails, alert-email, budget-amounts, cost-tags-active] }
             required: { type: boolean, default: true }
-      knowledge:    { type: array, items: { type: string, maxLength: 60 } }
+      knowledge:    { type: array, items: { anyOf: [ { type: string, maxLength: 60 }, { $ref: '#/$defs/l10n' } ] } }
   startProfile:     { $ref: '#/$defs/startProfile' }
   targetModules:    { type: array, maxItems: 6, items: { $ref: '#/$defs/targetModule' } }
   expectedWarnings: { type: array, uniqueItems: true, items: { $ref: '#/$defs/ruleId' } }
@@ -838,10 +840,10 @@ properties:
           properties:
             id:          { type: string, pattern: '^[a-z][a-z0-9-]{1,39}$' }
             scope:       { enum: [account, region] }
-            resource:    { type: string, maxLength: 80 }
+            resource:    { anyOf: [ { type: string, maxLength: 80 }, { $ref: '#/$defs/l10n' } ] }
             preexisting: { enum: [adopt-readonly, not-applicable], default: not-applicable }
             revert:      { enum: [delete, restore, keep, manual] }
-            note:        { type: string, maxLength: 200 }
+            note:        { anyOf: [ { type: string, maxLength: 200 }, { $ref: '#/$defs/l10n' } ] }
   variables:
     type: object
     propertyNames:  { pattern: '^[a-z][A-Za-z0-9]{1,31}$' }
@@ -870,8 +872,8 @@ properties:
     additionalProperties: false
     required: [title]
     properties:
-      title:        { type: string, minLength: 2, maxLength: 8 }
-      short:        { type: string, maxLength: 6 }
+      title:        { anyOf: [ { type: string, minLength: 2, maxLength: 8 }, { $ref: '#/$defs/l10n' } ] }
+      short:        { anyOf: [ { type: string, maxLength: 6 }, { $ref: '#/$defs/l10n' } ] }
       icon:         { type: string, pattern: '^assets/[a-z0-9-]+\.svg$' }
   tracks:           { type: array, minItems: 1, uniqueItems: true, items: { $ref: '#/$defs/trackId' } }
   cleanup:          { $ref: '#/$defs/cleanup' }
@@ -899,8 +901,8 @@ properties:
         op:       { enum: [enable, disable] }   # lab.yaml 中只能写这两种；labs:build 为 deploy: step:<id> 的 extraStacks 生成的 xstk-<stackId> 动作为 op: extra-stack（只出现在展开后的 labs/<id>.json，§3.2.15）
         module:   { $ref: '#/$defs/moduleId' }
         args:     { type: object, additionalProperties: { type: [string, number, boolean] } }   # 只能取 registry platformActions 白名单
-        title:    { type: string, maxLength: 40 }
-        confirm:  { type: string, maxLength: 200 }
+        title:    { anyOf: [ { type: string, maxLength: 40 }, { $ref: '#/$defs/l10n' } ] }
+        confirm:  { anyOf: [ { type: string, maxLength: 200 }, { $ref: '#/$defs/l10n' } ] }
         optional: { type: boolean, default: false }
         interruptsManagementChannel: { type: boolean, default: false }
   keepablePrerequisites:
@@ -913,7 +915,7 @@ properties:
     additionalProperties: false
     properties:
       enabled:         { type: boolean, default: false }
-      title:           { type: string, maxLength: 40 }
+      title:           { anyOf: [ { type: string, maxLength: 40 }, { $ref: '#/$defs/l10n' } ] }
       maxManualChecks: { type: integer, minimum: 0 }
   owners:           { type: array, items: { type: string } }
 allOf:
@@ -923,6 +925,18 @@ allOf:
     then: { required: [scenario, story], properties: { id: { pattern: '^sc-' }, difficulty: { enum: [intermediate, advanced] } } }
 
 $defs:
+  # 本地化文本（09 §2，决定 I4）：纯字符串视为 zh-CN；对象形式 zh-CN 必填、ja / en 可选（缺少时按 所选 → en → zh-CN 回退）。
+  # 长度限制写在各字段的字符串分支上，只对 zh-CN 生效（labs:lint 把整张卡片解析成 zh-CN 后再按本 schema 校验一遍）；
+  # ja / en 只要求非空，过长时由 labs:lint 给出提示。
+  l10n:
+    type: object
+    additionalProperties: false
+    required: [zh-CN]
+    properties:
+      zh-CN: { type: string, minLength: 1 }
+      ja:    { type: string, minLength: 1 }
+      en:    { type: string, minLength: 1 }
+  text:      { anyOf: [ { type: string }, { $ref: '#/$defs/l10n' } ] }
   cardId:    { type: string, pattern: '^(svc|sc)-[a-z0-9]+(-[a-z0-9]+)*$', maxLength: 28 }   # 前缀之后 ≤ 24 字符
   trackId:   { type: string, pattern: '^[a-z][a-z0-9-]{1,31}$' }
   stepId:    { type: string, pattern: '^[a-z][a-z0-9-]{1,39}$' }
@@ -962,7 +976,7 @@ $defs:
       value:       { $ref: '#/$defs/scalar' }
       rule:        { oneOf: [ { $ref: '#/$defs/ruleId' }, { type: array, minItems: 1, items: { $ref: '#/$defs/ruleId' } } ] }
       contextKind: { enum: [https-entry, protected-data, shorten-wait, realism] }
-      reason:      { type: string, minLength: 4, maxLength: 240 }
+      reason:      { anyOf: [ { type: string, minLength: 4, maxLength: 240 }, { $ref: '#/$defs/l10n' } ] }
     allOf:
       - if:   { properties: { kind: { const: module } } }
         then: { required: [basis], properties: { item: { $ref: '#/$defs/moduleId' } } }
@@ -999,7 +1013,7 @@ $defs:
       required: [choose, reason]
       properties:
         choose: { $ref: '#/$defs/moduleId' }
-        reason: { type: string, maxLength: 200 }
+        reason: { anyOf: [ { type: string, maxLength: 200 }, { $ref: '#/$defs/l10n' } ] }
 
   startProfile:
     type: object
@@ -1011,7 +1025,7 @@ $defs:
       branches:   { $ref: '#/$defs/branches' }
       platform:   { $ref: '#/$defs/platformStart' }
       variants:   { type: array, maxItems: 3, items: { $ref: '#/$defs/startVariant' } }
-      reason:     { type: string, maxLength: 400 }
+      reason:     { anyOf: [ { type: string, maxLength: 400 }, { $ref: '#/$defs/l10n' } ] }
 
   startVariant:
     type: object
@@ -1019,14 +1033,14 @@ $defs:
     required: [id, title, select, provisions, reason]
     properties:
       id:            { type: string, pattern: '^[a-z][a-z0-9-]{1,23}$', not: { const: default } }
-      title:         { type: string, maxLength: 40 }
+      title:         { anyOf: [ { type: string, maxLength: 40 }, { $ref: '#/$defs/l10n' } ] }
       select:        { enum: [learner, preflight] }
       when:          { $ref: '#/$defs/expr' }                     # 预检结果表达式，例如 "preflight.tlsAcme == 'off'"
       provisions:    { type: array, minItems: 1, items: { $ref: '#/$defs/provisionItem' } }
       branches:      { $ref: '#/$defs/branches' }
       platform:      { $ref: '#/$defs/platformStart' }
       targetModules: { type: array, items: { $ref: '#/$defs/targetModule' } }
-      reason:        { type: string, maxLength: 240 }
+      reason:        { anyOf: [ { type: string, maxLength: 240 }, { $ref: '#/$defs/l10n' } ] }
     if:   { properties: { select: { const: preflight } } }
     then: { required: [when] }
 
@@ -1049,12 +1063,12 @@ $defs:
     additionalProperties: false
     required: [label, from]
     properties:
-      label:    { type: string, maxLength: 24 }
+      label:    { anyOf: [ { type: string, maxLength: 24 }, { $ref: '#/$defs/l10n' } ] }
       from:     { enum: [input, derived] }
       fillFrom: { type: string, maxLength: 120 }
       pattern:  { type: string, maxLength: 200 }
       example:  { type: string }
-      help:     { type: string, maxLength: 200 }
+      help:     { anyOf: [ { type: string, maxLength: 200 }, { $ref: '#/$defs/l10n' } ] }
     if:   { properties: { from: { const: input } } }
     then: { required: [pattern] }
     else: { required: [fillFrom] }
@@ -1067,9 +1081,9 @@ $defs:
       currency:         { const: USD }
       tier:             { enum: [low, medium, high] }
       tierWithOptional: { enum: [low, medium, high] }
-      mainDrivers:      { type: array, maxItems: 6, items: { type: string, maxLength: 40 } }
+      mainDrivers:      { type: array, maxItems: 6, items: { anyOf: [ { type: string, maxLength: 40 }, { $ref: '#/$defs/l10n' } ] } }
       basis:            { type: array, minItems: 1, items: { $ref: '#/$defs/costItem' } }
-      assumptions:      { type: array, items: { type: string, maxLength: 200 } }
+      assumptions:      { type: array, items: { anyOf: [ { type: string, maxLength: 200 }, { $ref: '#/$defs/l10n' } ] } }
 
   costItem:
     oneOf:
@@ -1078,7 +1092,7 @@ $defs:
         required: [ref]
         properties:
           ref:  { enum: [start-profile, workstation, target-modules, extra-stacks] }
-          note: { type: string }
+          note: { anyOf: [ { type: string }, { $ref: '#/$defs/l10n' } ] }
       - type: object
         additionalProperties: false
         required: [key, pricingKey, billing, quantity, source]
@@ -1092,7 +1106,7 @@ $defs:
           source:              { enum: [start-profile, workstation, target, learner-created, extra-stack, platform] }
           optional:            { type: boolean, default: false }       # 只在选做步骤中出现（05 F-3）
           whenRetained:        { type: boolean, default: true }
-          note:                { type: string, maxLength: 200 }
+          note:                { anyOf: [ { type: string, maxLength: 200 }, { $ref: '#/$defs/l10n' } ] }
         allOf:
           - if:   { properties: { billing: { const: usage } } }
             then: { required: [assumedUsagePerHour, unit] }
@@ -1104,7 +1118,7 @@ $defs:
     properties:
       id:          { $ref: '#/$defs/stepId' }
       type:        { enum: [console, cli, script, code, observe, experiment] }
-      title:       { type: string, maxLength: 60 }
+      title:       { anyOf: [ { type: string, maxLength: 60 }, { $ref: '#/$defs/l10n' } ] }
       manual:      { type: string, pattern: '^manual/[0-9]{2}-[a-z0-9-]+\.md$' }
       from:        { $ref: '#/$defs/guideRef' }
       wire:        { type: boolean, default: false }
@@ -1115,7 +1129,7 @@ $defs:
             additionalProperties: false
             required: [reason]
             properties:
-              reason: { type: string, maxLength: 120 }
+              reason: { anyOf: [ { type: string, maxLength: 120 }, { $ref: '#/$defs/l10n' } ] }
               when:   { $ref: '#/$defs/expr' }
       when:        { $ref: '#/$defs/expr' }
       requires:
@@ -1135,7 +1149,7 @@ $defs:
         properties:
           class:       { enum: [hourly, usage, fixed-monthly] }
           pricingKeys: { type: array, items: { type: string } }
-          note:        { type: string }
+          note:        { anyOf: [ { type: string }, { $ref: '#/$defs/l10n' } ] }
       wait:
         type: object
         additionalProperties: false
@@ -1143,7 +1157,7 @@ $defs:
         properties:
           typicalMinutes: { type: integer, minimum: 1 }
           maxMinutes:     { type: integer, minimum: 1, maximum: 60 }
-          text:           { type: string, maxLength: 120 }
+          text:           { anyOf: [ { type: string, maxLength: 120 }, { $ref: '#/$defs/l10n' } ] }
       expectedOutage:
         type: object
         additionalProperties: false
@@ -1151,7 +1165,7 @@ $defs:
         properties:
           channel:    { enum: [lab, workstation, both] }
           maxMinutes: { type: integer, minimum: 1, maximum: 30 }
-          reason:     { type: string, maxLength: 120 }
+          reason:     { anyOf: [ { type: string, maxLength: 120 }, { $ref: '#/$defs/l10n' } ] }
       checks:      { type: array, items: { $ref: '#/$defs/checkRef' } }
       experiment:
         type: object
@@ -1199,7 +1213,7 @@ $defs:
         properties:
           id:       { $ref: '#/$defs/labelId' }
           role:     { enum: [baseline, treatment, single] }
-          title:    { type: string, maxLength: 24 }
+          title:    { anyOf: [ { type: string, maxLength: 24 }, { $ref: '#/$defs/l10n' } ] }
           requires: { type: object, propertyNames: { $ref: '#/$defs/moduleId' }, additionalProperties: { type: string } }
 
   experiment:
@@ -1256,9 +1270,9 @@ $defs:
     additionalProperties: false
     required: [summary, autoReclaim]
     properties:
-      summary:     { type: string, maxLength: 400 }
+      summary:     { anyOf: [ { type: string, maxLength: 400 }, { $ref: '#/$defs/l10n' } ] }
       autoReclaim: { const: true }
-      dataRisk:    { type: array, items: { type: string } }
+      dataRisk:    { type: array, items: { anyOf: [ { type: string }, { $ref: '#/$defs/l10n' } ] } }
       learnerCreatedHints:
         type: array
         items:
@@ -1267,7 +1281,7 @@ $defs:
           required: [resourceType, how]
           properties:
             resourceType: { type: string, pattern: '^AWS::[A-Za-z0-9]+::[A-Za-z0-9]+$' }
-            how:          { type: string, maxLength: 200 }
+            how:          { anyOf: [ { type: string, maxLength: 200 }, { $ref: '#/$defs/l10n' } ] }
       verify:      { type: array, items: { $ref: '#/$defs/checkRef' } }
 
   saa:
@@ -1289,7 +1303,7 @@ $defs:
               required: [id, title, domain]
               properties:
                 id:        { type: string }
-                title:     { type: string, maxLength: 60 }
+                title:     { anyOf: [ { type: string, maxLength: 60 }, { $ref: '#/$defs/l10n' } ] }
                 domain:    { $ref: '#/$defs/saaDomain' }
                 relatesTo: { $ref: '#/$defs/stepId' }
       confusables:
@@ -1297,7 +1311,7 @@ $defs:
         items:
           oneOf:
             - { type: object, required: [ref], properties: { ref: { $ref: '#/$defs/guideRef' } } }
-            - { type: object, required: [a, b, rule], properties: { a: { type: string }, b: { type: string }, rule: { type: string } } }
+            - { type: object, required: [a, b, rule], properties: { a: { $ref: '#/$defs/text' }, b: { $ref: '#/$defs/text' }, rule: { $ref: '#/$defs/text' } } }
 ```
 
 ### 3.4 预计每小时费用的计算依据
@@ -1486,6 +1500,7 @@ section: overview                    # overview | wrap-up | cleanup
 ```
 
 - 标题、类型、预计时长都取自 `lab.yaml`，手册文件不重复（减少不一致）。
+- 译文（可选，09 §2.1）：`manual/ja/<同名>.md`、`manual/en/<同名>.md`，front matter 与 zh-CN 文件相同，`{{ … }}` 变量、指令与代码块保持原样，只翻译文字；`manual/*.md`（或 `manual/zh-CN/*.md`）是源语言，必需。没有译文的文件按“所选语言 → en → zh-CN”回退。
 - 正文第一段应当是“本步做什么、为什么”，不超过 3 句；详细原理放进 `:::why` 或 `:::reveal` 中折叠。
 
 ### 4.3 Markdown 子集与指令

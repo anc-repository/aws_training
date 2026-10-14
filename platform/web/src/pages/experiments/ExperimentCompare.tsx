@@ -22,6 +22,8 @@ import { BarsChartSvg, LadderChartSvg } from './Charts';
 import { buildBarsChart, buildLadderChart, deltaText, formatMetricValue, variantClass, type VariantDecl } from './compareModel';
 import { clientServerMismatch, declVariants, defaultRun, maybeUploadFailed, metricRows, runLabel, runsOf, runStatus, type CompareResult, type ExperimentRun, type VariantStatus } from './runs';
 
+import { rich, t, withText } from '../../i18n';
+import { EX } from './strings';
 export interface CompareSelection {
   a?: string | null;
   b?: string | null;
@@ -41,26 +43,36 @@ export interface ExperimentCompareProps {
 
 const LIVE = ['READY', 'RUNNING', 'EXPIRING'];
 
+const XC = EX.compare;
+const STATUS_TEXT = withText(
+  {
+    none: { shape: 'ring', tone: 'faint' },
+    running: { shape: 'clock', tone: 'pend' },
+    simulated: { shape: VALIDITY_META.simulated.shape, tone: VALIDITY_META.simulated.tone },
+  } as const,
+  XC.status,
+);
+
 const STATUS_META: Record<VariantStatus, StatusMeta> = {
-  none: { text: '还没有记录', shape: 'ring', tone: 'faint' },
-  running: { text: '运行中或未上传', shape: 'clock', tone: 'pend' },
+  none: STATUS_TEXT.none,
+  running: STATUS_TEXT.running,
   'pending-crosscheck': VALIDITY_META['pending-crosscheck'],
   valid: VALIDITY_META.valid,
-  simulated: { ...VALIDITY_META.simulated, text: '模拟基线（旁路补测）' },
+  simulated: STATUS_TEXT.simulated,
   invalid: VALIDITY_META.invalid,
 };
 
-const TRACK = ['已登记', '已上传', '交叉校验中'] as const;
+const TRACK = ['registered', 'uploaded', 'crosscheck'] as const;
 
 function UploadTrack({ status }: { status: VariantStatus }) {
-  const last = status === 'invalid' ? '无效' : status === 'simulated' ? '模拟基线' : '有效';
-  const steps = [...TRACK, last];
+  const last = status === 'invalid' ? 'invalid' : status === 'simulated' ? 'simulated' : 'valid';
+  const steps = [...TRACK, last] as const;
   const cur = status === 'none' ? -1 : status === 'running' ? 0 : status === 'pending-crosscheck' ? 2 : 3;
   return (
-    <ol className="track4" aria-label="上传进度">
-      {steps.map((t, i) => (
-        <li key={t} className={i < cur || (i === 3 && cur === 3) ? 'done' : i === cur ? 'cur' : ''} aria-current={i === cur ? 'step' : undefined}>
-          {t}
+    <ol className="track4" aria-label={XC.uploadProgress}>
+      {steps.map((k, i) => (
+        <li key={k} className={i < cur || (i === 3 && cur === 3) ? 'done' : i === cur ? 'cur' : ''} aria-current={i === cur ? 'step' : undefined}>
+          {XC.track[k]}
         </li>
       ))}
     </ol>
@@ -106,12 +118,12 @@ export function ExperimentCompare({ view, module, experimentId, mode = 'page', s
   const now = clock.now();
   const select = (i: number, runId: string) => onSelect?.({ ...selection, ...(i === 0 ? { a: runId } : { b: runId }) });
 
-  if (!runsData.loaded && runsData.status !== 'error') return <Skeleton lines={5} block label="正在读取实验记录" />;
-  if (runsData.status === 'error' && !runsData.loaded) return <InlineProblem error={runsData.error} onRetry={() => void runsData.refresh()} title="对比实验" />;
+  if (!runsData.loaded && runsData.status !== 'error') return <Skeleton lines={5} block label={XC.readingRuns} />;
+  if (runsData.status === 'error' && !runsData.loaded) return <InlineProblem error={runsData.error} onRetry={() => void runsData.refresh()} title={EX.page.title} />;
   if (labLoaded && !decl && !runs.length) {
     return (
-      <EmptyState title="这张卡片没有声明这个实验。">
-        实验 {module}/{experimentId} 不在本卡片的实验列表中，链接可能有误。
+      <EmptyState title={XC.notDeclaredTitle}>
+        {t(XC.notDeclared, { key: `${module}/${experimentId}` })}
       </EmptyState>
     );
   }
@@ -120,7 +132,7 @@ export function ExperimentCompare({ view, module, experimentId, mode = 'page', s
     ? variants
         .filter((v) => runStatus(chosen[v.label]) !== 'valid')
         .map((v) => (
-          <CommandBlock key={v.label} text={expCommand(module, experimentId, v.label)} runsOn="workstation" copyOnly={!onPaste} onPaste={onPaste} label={`运行 ${v.label}`} />
+          <CommandBlock key={v.label} text={expCommand(module, experimentId, v.label)} runsOn="workstation" copyOnly={!onPaste} onPaste={onPaste} label={t(XC.runLabel, { label: v.label })} />
         ))
     : [];
 
@@ -128,10 +140,8 @@ export function ExperimentCompare({ view, module, experimentId, mode = 'page', s
     return (
       <div className="stack-16" data-compare="empty">
         <Notes view={view} role={role} mode={mode} />
-        <EmptyState title="还没有运行这个实验。">
-          {single ? '在工作台终端运行它，结果会自动上传并交叉校验。' : `先在工作台终端运行 ${variants[0]?.label ?? 'before'}，再完成接入应用后运行 ${variants[1]?.label ?? 'after'}。`}
-        </EmptyState>
-        {commands.length ? <div className="stack-8">{commands}</div> : <p className="small faint">运行命令已隐藏（会话已结束或你的角色不能使用工作台终端）。</p>}
+        <EmptyState title={XC.noRunsTitle}>{single ? XC.noRunsSingle : t(XC.noRunsPair, { a: variants[0]?.label ?? 'before', b: variants[1]?.label ?? 'after' })}</EmptyState>
+        {commands.length ? <div className="stack-8">{commands}</div> : <p className="small faint">{XC.commandsHidden}</p>}
       </div>
     );
   }
@@ -159,37 +169,40 @@ export function ExperimentCompare({ view, module, experimentId, mode = 'page', s
                 <Status meta={STATUS_META[st]} />
                 {r ? (
                   <span className="faint" title={r.finishedAt ? formatUtcTitle(r.finishedAt) : undefined}>
-                    {r.finishedAt ? formatClock(r.finishedAt) : r.registeredAt ? `登记于 ${formatClock(r.registeredAt)}` : ''} · runId <span className="mono">{r.runId.slice(0, 4)}…{r.runId.slice(-4)}</span>
+                    {r.finishedAt ? formatClock(r.finishedAt) : r.registeredAt ? t(XC.registeredAt, { t: formatClock(r.registeredAt) }) : ''} · runId <span className="mono">{r.runId.slice(0, 4)}…{r.runId.slice(-4)}</span>
                   </span>
                 ) : null}
               </div>
               <UploadTrack status={st} />
-              {st === 'pending-crosscheck' ? <p className="small muted">服务端佐证有数分钟延迟（例如 CloudFront 指标），稍后自动复核。</p> : null}
-              {r && maybeUploadFailed(r, now) ? <p className="small st drift">可能上传失败：请看工作台终端中运行器的输出。</p> : null}
+              {st === 'pending-crosscheck' ? <p className="small muted">{XC.crosscheckDelay}</p> : null}
+              {r && maybeUploadFailed(r, now) ? <p className="small st drift">{XC.uploadFailed}</p> : null}
               {st === 'invalid' && r?.validity?.reasons?.length ? (
                 <ul className="small checklist">
                   {r.validity.reasons.map((c) => (
                     <li key={c}>
-                      <Status meta={{ text: `无效：${validityReasonText(c)}`, shape: 'xbox', tone: 'fail' }} />
+                      <Status meta={{ text: t(XC.invalid, { reason: validityReasonText(c) }), shape: 'xbox', tone: 'fail' }} />
                     </li>
                   ))}
                 </ul>
               ) : null}
-              {r && r.sessionId && r.sessionId !== sid ? <p className="small muted">来自会话 <span className="mono">{r.sessionId}</span>{i === 0 ? '（交接链中的会话）' : '（跨会话比较）'}</p> : null}
+              {r && r.sessionId && r.sessionId !== sid ? <p className="small muted">{rich(XC.fromSession, { sid: <span className="mono">{r.sessionId}</span>, kind: i === 0 ? XC.handover : XC.crossSession })}</p> : null}
               {list.length > 1 && onSelect ? (
                 <label className="small row">
-                  记录 {list.length} 次
-                  <select className="input" value={r?.runId ?? ''} onChange={(e) => select(i, e.target.value)} aria-label={`选择 ${v.label} 用于比较的记录`}>
+                  {t(XC.runs, { n: list.length })}
+                  <select className="input" value={r?.runId ?? ''} onChange={(e) => select(i, e.target.value)} aria-label={t(XC.pickRun, { label: v.label })}>
                     {list.map((x) => (
                       <option key={x.runId} value={x.runId}>
-                        {x.finishedAt ? formatDate(x.finishedAt, now) : '未上传'} · {STATUS_META[runStatus(x)].text}
-                        {x.sessionId && x.sessionId !== sid ? ` · 会话 ${x.sessionId.slice(0, 5)}…` : ''}
+                        {x.finishedAt ? formatDate(x.finishedAt, now) : XC.notUploaded} · {STATUS_META[runStatus(x)].text}
+                        {x.sessionId && x.sessionId !== sid ? t(XC.sessionShort, { sid: x.sessionId.slice(0, 5) }) : ''}
                       </option>
                     ))}
                   </select>
                 </label>
               ) : (
-                <span className="small faint">记录 {list.length} 次{list.length > 1 ? ' · 默认使用最近一次有效记录' : ''}</span>
+                <span className="small faint">
+                  {t(XC.runs, { n: list.length })}
+                  {list.length > 1 ? XC.latestValid : ''}
+                </span>
               )}
             </div>
           );
@@ -198,8 +211,8 @@ export function ExperimentCompare({ view, module, experimentId, mode = 'page', s
 
       {functional ? (
         <div className="stack-8">
-          <b>功能型实验</b>
-          <p className="small">以下检查在实验时间窗内通过即视为有效：</p>
+          <b>{XC.functional}</b>
+          <p className="small">{XC.functionalNote}</p>
           <ul className="small mono">
             {(decl?.corroborateWith ?? []).map((c) => (
               <li key={c}>{c}</li>
@@ -209,25 +222,25 @@ export function ExperimentCompare({ view, module, experimentId, mode = 'page', s
       ) : (
         <div className="stack-8">
           <div className="row between">
-            <b>指标</b>
-            <span className="small muted">服务端校正后的值；客户端与服务端差异 &gt; 10% 时标注</span>
+            <b>{XC.metrics}</b>
+            <span className="small muted">{XC.metricsNote}</span>
           </div>
           {rows.length ? (
             <>
               <div className="tbl-wrap compare-tbl">
                 <table className="tbl">
                   <caption className="sr">
-                    {module}/{experimentId} 的指标对照
+                    {t(XC.caption, { key: `${module}/${experimentId}` })}
                   </caption>
                   <thead>
                     <tr>
-                      <th scope="col">指标</th>
+                      <th scope="col">{XC.colMetric}</th>
                       {variants.map((v) => (
                         <th key={v.label} scope="col" className="num">
                           {v.label}
                         </th>
                       ))}
-                      {!single ? <th scope="col">差异</th> : null}
+                      {!single ? <th scope="col">{XC.colDelta}</th> : null}
                     </tr>
                   </thead>
                   <tbody>
@@ -236,9 +249,9 @@ export function ExperimentCompare({ view, module, experimentId, mode = 'page', s
                         <td>
                           <span className={m.label === m.id ? 'mono small' : undefined}>{m.label}</span>
                           {m.id === 'client.requests' && pair && clientServerMismatch(chosen[pair[1]] ?? null) ? (
-                            <span className="small st drift" title={`客户端 ${clientServerMismatch(chosen[pair[1]] ?? null)!.client} · 服务端 ${clientServerMismatch(chosen[pair[1]] ?? null)!.server}`}>
+                            <span className="small st drift" title={t(XC.clientServer, { client: clientServerMismatch(chosen[pair[1]] ?? null)!.client, server: clientServerMismatch(chosen[pair[1]] ?? null)!.server })}>
                               {' '}
-                              <Shape name="tri" /> 客户端与服务端统计不一致
+                              <Shape name="tri" /> {XC.mismatch}
                             </span>
                           ) : null}
                         </td>
@@ -259,32 +272,32 @@ export function ExperimentCompare({ view, module, experimentId, mode = 'page', s
                     <b className={m.label === m.id ? 'mono small' : undefined}>{m.label}</b>
                     {variants.map((v) => (
                       <span key={v.label}>
-                        {v.label}：{formatMetricValue(m.values[v.label], m.unit)}
+                        {t(XC.valueLine, { label: v.label, value: formatMetricValue(m.values[v.label], m.unit) })}
                       </span>
                     ))}
-                    {!single && pair ? <span className="small muted">差异：{deltaText(m.values[pair[0]], m.values[pair[1]], m.unit, m.label)}</span> : null}
+                    {!single && pair ? <span className="small muted">{t(XC.deltaLine, { delta: deltaText(m.values[pair[0]], m.values[pair[1]], m.unit, m.label) })}</span> : null}
                   </div>
                 ))}
               </div>
             </>
           ) : (
-            <p className="small muted">所选记录还没有可比较的指标（上传或交叉校验完成后显示）。</p>
+            <p className="small muted">{XC.noMetrics}</p>
           )}
         </div>
       )}
 
       {!functional && (bars || ladder) ? (
         <div className="stack-8">
-          <div className="seg" role="group" aria-label="图表">
+          <div className="seg" role="group" aria-label={XC.charts}>
             <button type="button" aria-pressed={!table} onClick={() => setTable(false)}>
-              条形对照与分位阶梯
+              {XC.chartsView}
             </button>
             <button type="button" aria-pressed={table} onClick={() => setTable(true)}>
-              查看数据表
+              {XC.tableView}
             </button>
           </div>
           {table ? (
-            <p className="small muted">数据表即上方的指标表（读屏视图）。</p>
+            <p className="small muted">{XC.tableNote}</p>
           ) : (
             <>
               {bars ? (
@@ -299,53 +312,55 @@ export function ExperimentCompare({ view, module, experimentId, mode = 'page', s
               ) : null}
             </>
           )}
-          <p className="small muted">差异方向只说明变化，不代表好坏：启用托管服务后单次延迟变高也可能是正确结论。不用红绿：{variants[0]?.label} 中性灰，{variants[1]?.label ?? '其余'} 青瓷。</p>
+          <p className="small muted">{t(XC.directionNote, { a: variants[0]?.label, b: variants[1]?.label ?? XC.others })}</p>
         </div>
       ) : null}
 
       {!single && pair ? (
         <div className="stack-4" data-section="pair">
-          <b className="small">成对比较</b>
+          <b className="small">{XC.pair}</b>
           <span className="small">
-            {pair[0]} ↔ {pair[1]}：
+            {t(XC.pairLabel, { a: pair[0], b: pair[1] })}
             {!ra || !rb ? (
-              <Status meta={{ text: `缺少 ${!ra ? pair[0] : pair[1]}`, shape: 'ring', tone: 'faint' }} />
+              <Status meta={{ text: t(XC.missing, { label: !ra ? pair[0] : pair[1] }), shape: 'ring', tone: 'faint' }} />
             ) : cmp.loaded && cmp.data ? (
               cmp.data.comparable ? (
                 <>
-                  <Status meta={{ text: '可比', shape: 'check', tone: 'pass' }} />（场景、起始变体、实例类型一致；都不是强制运行）
+                  <Status meta={{ text: XC.comparable, shape: 'check', tone: 'pass' }} />
+                  {XC.comparableNote}
                 </>
               ) : (
                 <>
-                  <Status meta={{ text: '不可比', shape: 'xbox', tone: 'fail' }} />（{(cmp.data.reasons ?? []).map((c) => COMPARE_REASON_TEXT[c] ?? c).join('；')}）
+                  <Status meta={{ text: XC.notComparable, shape: 'xbox', tone: 'fail' }} />
+                  {t(XC.reasons, { list: (cmp.data.reasons ?? []).map((c) => COMPARE_REASON_TEXT[c] ?? c).join(XC.reasonSep) })}
                 </>
               )
             ) : cmp.status === 'error' ? (
-              '暂时无法判断'
+              XC.unknown
             ) : (
-              '正在比较…'
+              XC.comparing
             )}
           </span>
-          {decl?.compareAcross?.length ? <span className="small muted">允许跨维度比较：{decl.compareAcross.join('、')}（跨实例类型比较时显著标注）</span> : null}
+          {decl?.compareAcross?.length ? <span className="small muted">{t(XC.across, { list: decl.compareAcross.join(XC.listSep) })}</span> : null}
         </div>
       ) : null}
 
       <div className="stack-4" data-section="validity">
-        <b className="small">有效性校验{variants.length > 1 && pair ? `（${pair[1]}）` : ''}</b>
+        <b className="small">{variants.length > 1 && pair ? t(XC.validityOf, { label: pair[1] }) : XC.validity}</b>
         <ValidityList run={pair ? (rb ?? null) : (chosen[variants[0]?.label ?? ''] ?? null)} />
       </div>
 
       {commands.length ? (
         <div className="stack-8">
-          <b className="small">怎么运行（在工作台终端）</b>
+          <b className="small">{XC.howToRun}</b>
           {commands}
         </div>
       ) : mode !== 'report' ? (
-        <p className="small faint">{canRun ? '所有变体都已有有效记录。' : '运行命令已隐藏（会话已结束或你的角色不能使用工作台终端）。'}</p>
+        <p className="small faint">{canRun ? XC.allValid : XC.commandsHidden}</p>
       ) : null}
 
       <div className="stack-4" data-section="history">
-        <b className="small">历史记录（本会话）</b>
+        <b className="small">{XC.history}</b>
         <ul className="small checklist">
           {[...runs]
             .sort((x, y) => (y.registeredAt ?? '').localeCompare(x.registeredAt ?? ''))
@@ -354,17 +369,17 @@ export function ExperimentCompare({ view, module, experimentId, mode = 'page', s
                 <span className="mono">
                   {r.runId.slice(0, 4)}…{r.runId.slice(-4)}
                 </span>{' '}
-                {runLabel(r)} · <Status meta={STATUS_META[runStatus(r)]} /> · {r.finishedAt ? formatDate(r.finishedAt, now) : r.registeredAt ? `登记于 ${formatDate(r.registeredAt, now)}` : '—'}
+                {runLabel(r)} · <Status meta={STATUS_META[runStatus(r)]} /> · {r.finishedAt ? formatDate(r.finishedAt, now) : r.registeredAt ? t(XC.registeredAt, { t: formatDate(r.registeredAt, now) }) : '—'}
               </li>
             ))}
         </ul>
         {!single && onSelect && mode !== 'report' ? (
           <label className="small row">
             <input type="checkbox" checked={!!selection.across} onChange={(e) => onSelect({ ...selection, across: e.target.checked || undefined, b: e.target.checked ? selection.b : null })} />
-            跨会话对比：在第二列选择之前会话的同一实验记录
+            {XC.crossToggle}
           </label>
         ) : null}
-        {selection.across && across.loaded && !otherRuns.length ? <span className="small muted">之前的会话没有这个实验的记录。</span> : null}
+        {selection.across && across.loaded && !otherRuns.length ? <span className="small muted">{XC.noOther}</span> : null}
       </div>
     </div>
   );
@@ -372,11 +387,11 @@ export function ExperimentCompare({ view, module, experimentId, mode = 'page', s
 
 function ValidityList({ run }: { run: ExperimentRun | null }) {
   const st = runStatus(run);
-  if (!run) return <span className="small faint">还没有记录。</span>;
-  if (st === 'valid') return <Status meta={{ text: '结构与完整性、登记、时间窗、驱动、服务端佐证均通过', shape: 'check', tone: 'pass' }} />;
-  if (st === 'simulated') return <Status meta={{ text: '模拟基线：证据权重较低', shape: 'half', tone: 'stale' }} />;
-  if (st === 'pending-crosscheck') return <Status meta={{ text: '服务端佐证：等待中（指标有数分钟延迟）', shape: 'clock', tone: 'pend' }} />;
-  if (st === 'running') return <Status meta={{ text: '等待上传', shape: 'clock', tone: 'pend' }} />;
+  if (!run) return <span className="small faint">{XC.noRun}</span>;
+  if (st === 'valid') return <Status meta={{ text: XC.validAll, shape: 'check', tone: 'pass' }} />;
+  if (st === 'simulated') return <Status meta={{ text: XC.simulatedLow, shape: 'half', tone: 'stale' }} />;
+  if (st === 'pending-crosscheck') return <Status meta={{ text: XC.crosscheckWait, shape: 'clock', tone: 'pend' }} />;
+  if (st === 'running') return <Status meta={{ text: XC.waitUpload, shape: 'clock', tone: 'pend' }} />;
   return (
     <ul className="small checklist">
       {(run.validity?.reasons ?? ['—']).map((c) => (
@@ -396,11 +411,11 @@ function Notes({ view, role, mode }: { view: SessionView; role: 'L' | 'A' | 'O' 
       {savings ? (
         <div className="note amber">
           <Shape name="tri" />
-          <span>省钱模式下对比实验结果无法上传，相关检查只能按规则降级。</span>
+          <span>{XC.cloudshell}</span>
         </div>
       ) : null}
-      {view.state === 'ENDING' ? <div className="note">实验已结束：进入结束前已登记的运行仍会接收上传。</div> : null}
-      {mode !== 'report' && role !== 'L' ? <div className="note">只读：你的角色不能使用工作台终端。</div> : null}
+      {view.state === 'ENDING' ? <div className="note">{XC.ending}</div> : null}
+      {mode !== 'report' && role !== 'L' ? <div className="note">{XC.readOnly}</div> : null}
     </>
   );
 }

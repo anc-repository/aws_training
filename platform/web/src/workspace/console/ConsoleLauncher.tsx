@@ -22,20 +22,16 @@ import type { ConsoleLinkResponse, WorkspaceView } from '../data/types';
 import type { Resource } from '../data/resource';
 import type { WorkspaceReporter } from '../workbench/reporter';
 
+import { msg, t } from '../../i18n';
+import { W } from '../strings';
 const MIN = 60_000;
 export const FORM_STALE_MS = 10 * MIN;
 export const DIRECT_DEEPLINK_MS = 50 * MIN;
 const ISSUED_KEY = (sid: string) => `atl.ws.console-issued.${sid}.v1`;
 const LINKS_KEY = (sid: string) => `atl.ws.console-links.${sid}.v1`;
 
-const LINK_TEXT: Record<string, string> = {
-  's3.bucket': 'S3 · 照片桶',
-  'cloudfront.distribution': 'CloudFront · 分配',
-  'ec2.instance': 'EC2 · 实验机',
-  'iam.role': 'IAM · 角色',
-  'sqs.queue': 'SQS · 队列',
-  'rds.instance': 'RDS · 数据库实例',
-};
+const WC = W.console;
+const LINK_TEXT: Readonly<Record<string, string>> = WC.link;
 
 export function linkLabel(linkId: string, label?: string): string {
   return label ?? LINK_TEXT[linkId] ?? linkId;
@@ -119,7 +115,7 @@ export function useConsoleOpener(o: { sid: string; workspace: Resource<Workspace
       const known = dest ? ssGet<Record<string, string>>(LINKS_KEY(ws.sid), {})[dest.linkId] : null;
       if (!opts.forceLogin && dest && known && lastIssued && Date.now() - lastIssued < DIRECT_DEEPLINK_MS) {
         window.open(known, '_blank', 'noopener');
-        announce('已在新标签页打开 AWS 控制台');
+        announce(WC.opened);
         return;
       }
       const name = `atl-aws-console-${Math.random().toString(36).slice(2, 10)}`;
@@ -146,7 +142,7 @@ export function useConsoleOpener(o: { sid: string; workspace: Resource<Workspace
           }
           if (data.form) submitForm(data.form, name);
           else if (data.url) w.location.href = data.url;
-          announce('已在新标签页打开 AWS 控制台');
+          announce(WC.opened);
         })
         .finally(() => {
           inflight.current = false;
@@ -175,19 +171,19 @@ export function useConsoleOpener(o: { sid: string; workspace: Resource<Workspace
 export function consoleErrorText(e: ApiError | null): string {
   switch (e?.code) {
     case 'CONSOLE_SESSION_STATE':
-      return '实验已结束，控制台访问已收回。';
+      return WC.errState;
     case 'CONSOLE_DESTINATION_NOT_ALLOWED':
-      return '该页面不在允许列表中。';
+      return WC.errDestination;
     case 'CONSOLE_FEDERATION_FAILED':
-      return '联合登录失败，可以重试。';
+      return WC.errFederation;
     case 'REAUTH_REQUIRED':
-      return '这个操作要求最近 60 分钟内登录过，请重新登录后再试。';
+      return WC.errReauth;
     case 'NOT_IMPLEMENTED':
-      return '控制台登录暂时不可用（平台还没有提供控制台联合登录）。';
+      return WC.errNotImplemented;
     case 'RATE_LIMITED':
-      return '操作太频繁，请稍后重试。';
+      return WC.errRate;
     default:
-      return e ? `没能取得控制台登录（${e.title}）。` : '没能取得控制台登录，请检查网络后重试。';
+      return e ? t(WC.errOther, { title: e.title }) : WC.errNetwork;
   }
 }
 
@@ -203,11 +199,11 @@ export function ConsoleLauncher({ opener }: { opener: ConsoleOpener }) {
     return (
       <div className="cpane stack">
         <div className="empty">
-          <b>{st === 'CLEANUP_FAILED' ? '只提供待人工处理清单中各项的控制台深链（不签发新的联合登录）' : '实验已结束，控制台访问已收回'}</b>
-          <span className="small">已打开的控制台窗口中的权限已被收回。</span>
+          <b>{st === 'CLEANUP_FAILED' ? WC.cleanupFailedOnly : WC.revoked}</b>
+          <span className="small">{WC.permissionsRevoked}</span>
           {st === 'CLEANUP_FAILED' ? (
             <Button size="sm" onClick={() => navigate(`/sessions/${ws.sid}/end#manual`)}>
-              查看待人工处理清单
+              {WC.viewManual}
             </Button>
           ) : null}
         </div>
@@ -224,27 +220,27 @@ export function ConsoleLauncher({ opener }: { opener: ConsoleOpener }) {
   return (
     <div className="cpane stack" data-console="">
       <div className="box stack-8">
-        <b>AWS 控制台（新标签页打开，AWS 不允许嵌入）</b>
+        <b>{WC.title}</b>
         <dl className="kv">
-          <dt>身份</dt>
-          <dd className="mono">ATLLearnerRole · 会话名 atl-{ws.sid}-console</dd>
-          <dt>区域</dt>
+          <dt>{WC.identity}</dt>
+          <dd className="mono">{t(WC.identityValue, { sid: ws.sid })}</dd>
+          <dt>{WC.region}</dt>
           <dd className="mono">{region}</dd>
-          <dt>上次签发</dt>
+          <dt>{WC.lastIssued}</dt>
           <dd data-issued="">
-            {issuedAt ? `${formatClock(issuedAt)} · 控制台会话到 ${expiresAt ? formatClock(expiresAt) : '—'}（最长 1 小时，到期后需要续期）` : '尚未签发（控制台会话最长 1 小时，到期后需要续期）'}
+            {issuedAt ? t(WC.issued, { t: formatClock(issuedAt), until: expiresAt ? formatClock(expiresAt) : '—' }) : WC.notIssued}
             {soon ? (
               <span className="st drift">
                 {' '}
                 <Shape name="clock" />
-                <span className="t">剩余不足 10 分钟</span>
+                <span className="t">{WC.soon}</span>
               </span>
             ) : null}
             {over ? (
               <span className="st fail">
                 {' '}
                 <Shape name="xbox" />
-                <span className="t">控制台会话已到期</span>
+                <span className="t">{WC.expired}</span>
               </span>
             ) : null}
           </dd>
@@ -252,16 +248,16 @@ export function ConsoleLauncher({ opener }: { opener: ConsoleOpener }) {
         {st === 'EXPIRING' ? (
           <div className="note amber">
             <Shape name="tri" />
-            <span>控制台会话可能先于实验结束失效。</span>
+            <span>{WC.expiringNote}</span>
           </div>
         ) : null}
         <div className="row">
-          <Button variant="primary" icon="ext" onClick={() => opener.open()} busy={opener.busy} busyText="正在获取登录…" data-console-open="">
-            在新标签页打开 AWS 控制台
+          <Button variant="primary" icon="ext" onClick={() => opener.open()} busy={opener.busy} busyText={WC.gettingLogin} data-console-open="">
+            {WC.open}
           </Button>
           {issuedAt && (soon || over) ? (
             <Button icon="refresh" onClick={() => opener.open(undefined, { forceLogin: true })}>
-              续期
+              {WC.renew}
             </Button>
           ) : null}
         </div>
@@ -269,11 +265,11 @@ export function ConsoleLauncher({ opener }: { opener: ConsoleOpener }) {
           <div className="note amber" role="alert">
             <Shape name="tri" />
             <span>
-              浏览器拦截了新窗口。
+              {WC.popupBlocked}
               <button type="button" className="linkbtn" onClick={opener.retryBlocked}>
-                {Date.now() - opener.blocked.at > FORM_STALE_MS ? '重新获取并打开' : '在新标签页打开'}
+                {Date.now() - opener.blocked.at > FORM_STALE_MS ? WC.refetchOpen : WC.openInNewTab}
               </button>
-              （登录链接取得后 10 分钟内使用，超过后自动重新获取）
+              {WC.linkValidity}
             </span>
           </div>
         ) : null}
@@ -285,28 +281,28 @@ export function ConsoleLauncher({ opener }: { opener: ConsoleOpener }) {
       </div>
       {links.length ? (
         <div className="stack-4">
-          <b className="small">本卡片常用页面</b>
+          <b className="small">{WC.commonPages}</b>
           {links.map((l) => (
             <div className="crow" key={l.linkId}>
               <button type="button" className="linkbtn" onClick={() => opener.open({ linkId: l.linkId })}>
                 <Icon name="ext" /> {linkLabel(l.linkId, l.label)}
-                <span className="sr">（新标签页）</span>
+                <span className="sr">{msg.app.newTab}</span>
               </button>
-              {stepNos(l.steps).length ? <span className="small faint">步骤 {stepNos(l.steps).join('、')} 用到</span> : null}
+              {stepNos(l.steps).length ? <span className="small faint">{t(WC.usedBySteps, { list: stepNos(l.steps).join(WC.listSep) })}</span> : null}
             </div>
           ))}
         </div>
       ) : null}
       <button type="button" className="linkbtn small" onClick={() => opener.open(undefined, { forceLogin: true })}>
-        以学员身份重新登录
+        {WC.reLogin}
       </button>
       <div className="note">
         <Shape name="dot" />
-        <span>控制台中的操作会被 CloudTrail 记录；结束实验时，本次实验中手动创建的资源会被回收。刚在控制台创建的资源，平台需要几分钟才能确认归属（检测时显示“归属确认中”）。</span>
+        <span>{WC.cloudTrailNote}</span>
       </div>
       <div className="note">
         <Icon name="user" />
-        <span>浏览器里若已登录你自己的 AWS 身份，联合登录会替换当前控制台会话。建议用单独的浏览器配置文件。</span>
+        <span>{WC.profileNote}</span>
       </div>
     </div>
   );

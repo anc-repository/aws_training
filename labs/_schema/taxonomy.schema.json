@@ -15,6 +15,29 @@
     "provisionSpeed",
     "provisionClasses"
   ],
+  "$defs": {
+    "l10n": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "zh-CN"
+      ],
+      "properties": {
+        "zh-CN": {
+          "type": "string",
+          "minLength": 1
+        },
+        "ja": {
+          "type": "string",
+          "minLength": 1
+        },
+        "en": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    }
+  },
   "properties": {
     "schema": {
       "const": "atl.taxonomy/v1"
@@ -48,8 +71,15 @@
             ]
           },
           "label": {
-            "type": "string",
-            "maxLength": 20
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 20
+              },
+              {
+                "$ref": "#/$defs/l10n"
+              }
+            ]
           },
           "token": {
             "type": "string",
@@ -92,16 +122,37 @@
             "maxLength": 4
           },
           "name": {
-            "type": "string",
-            "maxLength": 60
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 60
+              },
+              {
+                "$ref": "#/$defs/l10n"
+              }
+            ]
           },
           "short": {
-            "type": "string",
-            "maxLength": 30
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 30
+              },
+              {
+                "$ref": "#/$defs/l10n"
+              }
+            ]
           },
           "function": {
-            "type": "string",
-            "maxLength": 20
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 20
+              },
+              {
+                "$ref": "#/$defs/l10n"
+              }
+            ]
           },
           "category": {
             "enum": [
@@ -155,7 +206,14 @@
             ]
           },
           "label": {
-            "type": "string"
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "$ref": "#/$defs/l10n"
+              }
+            ]
           },
           "weight": {
             "type": "number",
@@ -188,7 +246,14 @@
             ]
           },
           "label": {
-            "type": "string"
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "$ref": "#/$defs/l10n"
+              }
+            ]
           },
           "maxMinutes": {
             "type": "integer",
@@ -234,13 +299,34 @@
           ],
           "properties": {
             "low": {
-              "type": "string"
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "$ref": "#/$defs/l10n"
+                }
+              ]
             },
             "medium": {
-              "type": "string"
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "$ref": "#/$defs/l10n"
+                }
+              ]
             },
             "high": {
-              "type": "string"
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "$ref": "#/$defs/l10n"
+                }
+              ]
             }
           }
         }
@@ -296,10 +382,24 @@
             ]
           },
           "label": {
-            "type": "string"
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "$ref": "#/$defs/l10n"
+              }
+            ]
           },
           "hint": {
-            "type": "string"
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "$ref": "#/$defs/l10n"
+              }
+            ]
           }
         }
       }
@@ -319,8 +419,15 @@
             "pattern": "^[a-z][a-z0-9-]{1,31}$"
           },
           "title": {
-            "type": "string",
-            "maxLength": 60
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 60
+              },
+              {
+                "$ref": "#/$defs/l10n"
+              }
+            ]
           }
         }
       }

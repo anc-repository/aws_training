@@ -16,6 +16,10 @@ import type { ManualSpec } from '../model/lab';
 import { resolveTemplate } from '../model/vars';
 import { ManualCommand } from './ManualCommand';
 
+import { t } from '../../i18n';
+import { W } from '../strings';
+
+const MC = W.manualConfirm;
 export const EVIDENCE_MAX_CHARS = 4096;
 
 interface Draft {
@@ -57,12 +61,12 @@ export function ManualConfirmDialog({ stepId, checkId, onClose }: { stepId: stri
   const noteOk = d.note.trim().length >= 6;
   const evidenceErr = useMemo(() => {
     if (!d.evidence.trim()) return null;
-    if (d.evidence.length > EVIDENCE_MAX_CHARS) return `证据超过 ${EVIDENCE_MAX_CHARS} 个字符，请只粘贴命令输出中的相关部分`;
+    if (d.evidence.length > EVIDENCE_MAX_CHARS) return t(MC.evidenceTooLong, { n: EVIDENCE_MAX_CHARS });
     try {
       JSON.parse(d.evidence);
       return null;
     } catch {
-      return '只能粘贴 JSON 格式的命令输出';
+      return MC.evidenceJson;
     }
   }, [d.evidence]);
   const canSubmit = observedOk && noteOk && !evidenceErr && !busy;
@@ -79,11 +83,11 @@ export function ManualConfirmDialog({ stepId, checkId, onClose }: { stepId: stri
       });
       ssSet(key, undefined);
       setDone({ reviewPending: !!r.data?.reviewPending, result: r.data?.result ?? 'manual' });
-      announce(r.data?.reviewPending ? '已提交手动确认，等待助教复核' : '已提交手动确认');
+      announce(r.data?.reviewPending ? MC.submittedReview : MC.submitted);
       void ws.data.steps.refresh();
       void ws.data.progress.refresh();
     } catch (e) {
-      setError(isApiError(e) ? (e.code === 'VALIDATION_FAILED' ? `输入不符合要求：${e.detail ?? ''}` : (e.detail ?? e.title)) : '提交失败，可以重试');
+      setError(isApiError(e) ? (e.code === 'VALIDATION_FAILED' ? t(MC.invalid, { detail: e.detail ?? '' }) : (e.detail ?? e.title)) : MC.failed);
     } finally {
       setBusy(false);
     }
@@ -93,19 +97,19 @@ export function ManualConfirmDialog({ stepId, checkId, onClose }: { stepId: stri
     <Dialog
       open
       onClose={onClose}
-      title={`手动确认：${decl?.title ?? checkId}`}
+      title={t(MC.title, { name: decl?.title ?? checkId })}
       footer={
         done ? (
           <button type="button" className="btn primary" onClick={onClose}>
-            完成
+            {MC.done}
           </button>
         ) : (
           <>
             <button type="button" className="btn" onClick={onClose}>
-              取消
+              {MC.cancel}
             </button>
-            <Button variant="primary" onClick={() => void submit()} busy={busy} busyText="正在提交…" disabled={!canSubmit} data-mc-submit="">
-              提交确认
+            <Button variant="primary" onClick={() => void submit()} busy={busy} busyText={MC.submitting} disabled={!canSubmit} data-mc-submit="">
+              {MC.submit}
             </Button>
           </>
         )
@@ -114,23 +118,23 @@ export function ManualConfirmDialog({ stepId, checkId, onClose }: { stepId: stri
       {done ? (
         <div className="note green" role="status">
           <Shape name={done.result === 'manual_evidence' ? 'manp' : 'man'} />
-          <span>{done.reviewPending ? '已提交。安装中有助教时，复核前会显示“等待助教复核”。' : done.result === 'manual_evidence' ? '已手动确认（带证据）。' : '已手动确认。'}</span>
+          <span>{done.reviewPending ? MC.doneReview : done.result === 'manual_evidence' ? MC.doneEvidence : MC.doneManual}</span>
         </div>
       ) : (
         <div className="stack">
           <p className="small muted">
-            {native ? '这项检查需要你确认看到的结果（手动·原生）。' : '自动检测暂时无法判定，你可以按下面的位置查看后手动确认（手动·降级）。手动确认不能覆盖自动检测的“未通过”。'}
+            {native ? MC.native : MC.degraded}
           </p>
           {where?.breadcrumb?.length ? (
             <p className="small">
-              位置：{where.breadcrumb.map((b) => resolveTemplate(b, ws.data.vars.data).text).join(' › ')}
-              {where.region ? `（区域：${where.region === 'app' ? (ws.data.vars.data?.session?.region as string | undefined) ?? '实验区域' : where.region}）` : ''}
+              {t(MC.where, { path: where.breadcrumb.map((b) => resolveTemplate(b, ws.data.vars.data).text).join(' › ') })}
+              {where.region ? t(MC.whereRegion, { region: where.region === 'app' ? ((ws.data.vars.data?.session?.region as string | undefined) ?? MC.labRegion) : where.region }) : ''}
             </p>
           ) : null}
           {spec.confirm ? <p className="small">{resolveTemplate(spec.confirm, ws.data.vars.data).text}</p> : null}
           {options.length ? (
             <fieldset className="stack-4">
-              <legend id={qid}>{spec.observed?.question ?? '你看到的是什么？'}</legend>
+              <legend id={qid}>{spec.observed?.question ?? MC.question}</legend>
               {options.map((o) => (
                 <label key={o.value} className="row">
                   <input type="radio" name={qid} value={o.value} checked={d.observed === o.value} onChange={() => setD({ ...d, observed: o.value })} />
@@ -140,25 +144,28 @@ export function ManualConfirmDialog({ stepId, checkId, onClose }: { stepId: stri
               {chosen && !chosen.expected ? (
                 <div className="note amber" role="alert">
                   <Shape name="tri" />
-                  <span>这不是期望的结果，不能提交。{chosen.fixHint ?? '先修正配置，再重新检测。'}</span>
+                  <span>
+                    {MC.notExpected}
+                    {chosen.fixHint ?? MC.fixDefault}
+                  </span>
                 </div>
               ) : null}
             </fieldset>
           ) : (
-            <Field label={spec.observed?.question ?? spec.input?.label ?? '你看到的值'} hint={spec.input?.example ? `例如 ${spec.input.example}` : undefined} error={d.observed && !observedOk ? '格式不符合要求' : null}>
+            <Field label={spec.observed?.question ?? spec.input?.label ?? MC.valueLabel} hint={spec.input?.example ? t(MC.example, { v: spec.input.example }) : undefined} error={d.observed && !observedOk ? MC.badFormat : null}>
               <input className="input mono" value={d.observed} onChange={(e) => setD({ ...d, observed: e.target.value })} />
             </Field>
           )}
-          <Field label="备注（至少 6 个字）" error={d.note && !noteOk ? '备注至少 6 个字' : null}>
+          <Field label={MC.note} error={d.note && !noteOk ? MC.noteShort : null}>
             <textarea className="input" rows={3} value={d.note} onChange={(e) => setD({ ...d, note: e.target.value })} />
           </Field>
           {spec.evidence?.command ? (
             <div className="stack-8">
-              <b className="small">可选：粘贴命令输出作为证据（平台会用同一套断言校验，通过记为“带证据的手动”）</b>
+              <b className="small">{MC.evidenceOptional}</b>
               {lab ? (
                 <ManualCommand node={{ type: 'code', lang: 'bash', attributes: { runsOn: spec.evidence.command.runsOn }, value: spec.evidence.command.run }} env={{ lab, step: null, vars: ws.data.vars.data, blockIndex: new WeakMap() }} />
               ) : null}
-              <Field label="命令输出（JSON）" error={evidenceErr}>
+              <Field label={MC.evidenceLabel} error={evidenceErr}>
                 <textarea className="input mono" rows={4} value={d.evidence} onChange={(e) => setD({ ...d, evidence: e.target.value })} />
               </Field>
             </div>

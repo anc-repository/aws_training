@@ -8,6 +8,7 @@ import { formatClock, formatUtcTitle } from '../../lib/format';
 import { Shape } from '../../ui';
 import { STAGE_STATUS_META, type EndStage } from './phases';
 
+import { msg, t } from '../../i18n';
 export interface EndPhaseListProps {
   stages: readonly EndStage[];
   /** 每个阶段附加的说明（报告链接、收回访问说明……）。 */
@@ -19,13 +20,13 @@ export function EndPhaseList({ stages, extra = {} }: EndPhaseListProps) {
   useEffect(() => {
     for (const s of stages) {
       const before = prev.current[s.def.id];
-      if (before && before !== s.status && s.status === 'done') announce(`${s.def.title}已完成`, { topic: `end-phase-${s.def.id}` });
+      if (before && before !== s.status && s.status === 'done') announce(t(msg.end.phaseDone, { title: s.def.title }), { topic: `end-phase-${s.def.id}` });
       prev.current[s.def.id] = s.status;
     }
   }, [stages]);
   return (
     <section className="sec" aria-labelledby="end-phases-h" data-section="phases">
-      <h2 id="end-phases-h">结束阶段</h2>
+      <h2 id="end-phases-h">{msg.end.phasesTitle}</h2>
       <ol className="prov" data-phases="">
         {stages.map((s) => {
           const m = STAGE_STATUS_META[s.status];
@@ -39,7 +40,7 @@ export function EndPhaseList({ stages, extra = {} }: EndPhaseListProps) {
               </span>
               <span className="pt">
                 {s.def.title}
-                {s.def.id === 'reclaim' ? <span className="small muted">（发现 → 分阶段删除 → 校验）</span> : null}
+                {s.def.id === 'reclaim' ? <span className="small muted">{msg.end.reclaimFlow}</span> : null}
               </span>
               <span className="tm" title={s.at ? formatUtcTitle(s.at) : undefined}>
                 {s.at && !todo ? formatClock(s.at) : ''}

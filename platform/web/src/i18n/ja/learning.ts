@@ -1,0 +1,68 @@
+/**
+ * ja（日本語）：命名空间 learning。由 `npm run i18n:sync` 按 zh-CN 词典维护结构：
+ * 只填写引号内的译文（空字符串 = 未翻译，运行时按 ja → en → zh-CN 回退）；行尾注释是 zh-CN 原文。
+ * 术语与风格见 ../glossary.md（不翻译 AWS 服务名、CLI 命令、代码、资源名、API 路径、环境变量）。
+ */
+import type { Dict } from '../dict';
+import type zh from '../zh-CN/learning';
+
+export default {
+  title: '', // 我的学习
+  subject: '', // 学员 {name} 的学习进度
+  subjectAnon: '', // 学员的学习进度
+  tabSelect: '', // 切换页签
+  tabs: {
+    tracks: '', // 路径进度
+    mastery: '', // 服务掌握度
+    badges: '', // 徽章墙
+    history: '', // 最近实验
+  },
+  tracks: {
+    currentSuffix: '', // （当前）
+    cert: '', // 证书：
+    revokedNote: '', // （依据的证据被判无效，可以重做相关卡片后重新领取）
+    pending: '', // 核验中 {n} 张：{list}（等交叉核验结束后计入）
+    next: '', // 推荐下一张：
+    view: '', // 查看路径
+  },
+  mastery: {
+    title: '', // 服务掌握度
+  },
+  badges: {
+    title: '', // 卡片徽章 · {n} / {total}
+    onlyEarned: '', // 只看已获得
+    level: '', // 等级
+    levelAll: '', // 全部等级与状态
+    empty: '', // 完成第一张卡片即获得徽章。
+    emptyAction: '', // 从 svc-ec2 开始 →
+    drawerTitle: '', // 徽章 · {title}
+    evidence: '', // 证据分
+    earnedAt: '', // 获得时间
+    attempt: '', // 依据的尝试
+    report: '', // 查看报告
+    variant: '', // 起始方式
+    version: '', // 内容版本
+    quiz: '', // 小测最好成绩
+    quizBest: '', // {s}%（只记录）
+    quizNone: '', // 尚未作答
+    credits: '', // 计入的服务格
+    notEarned: '', // 未获得。完成本卡片（最终复核通过）即获得徽章；小测成绩只记录。
+    openCard: '', // 打开卡片
+  },
+  history: {
+    start: '', // 开始时间
+    card: '', // 卡片
+    state: '', // 状态
+    duration: '', // 用时
+    cleanup: '', // 清理
+    report: '', // 报告
+    cleanupFailed: '', // 释放未完成
+    cleanupPending: '', // {n} 项待处理
+    cleanupRunning: '', // 进行中
+    cleanupKept: '', // 保留中
+    cleanupDone: '', // 已释放
+    empty: '', // 还没有实验记录。
+    emptyAction: '', // 去卡片目录开始第一张 →
+    all: '', // 全部实验 →
+  },
+} satisfies Dict<typeof zh>;

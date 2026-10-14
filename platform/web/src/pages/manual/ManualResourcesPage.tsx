@@ -18,17 +18,19 @@ import { useApiData } from '../sessions/data';
 import '../sessions/pages.css';
 import { ManualList } from './ManualList';
 
+import { msg, rich, t } from '../../i18n';
 interface ManualView {
   items?: Record<string, unknown>[];
   total?: number;
   hourlyBlocking?: number;
 }
 
+const MP = msg.frame.manualPage;
 const SEVERITIES = [
-  ['', '全部'],
-  ['BLOCKING', '阻塞'],
-  ['REVIEW', '需复核'],
-  ['INFO', '信息'],
+  ['', 'all'],
+  ['BLOCKING', 'BLOCKING'],
+  ['REVIEW', 'REVIEW'],
+  ['INFO', 'INFO'],
 ] as const;
 
 const BILLINGS = ['hourly', 'storage', 'monthly', 'usage', 'none'] as const;
@@ -91,45 +93,45 @@ export default function ManualResourcesPage() {
   return (
     <div className="stack-16" data-screen="P07-M">
       <div>
-        <nav className="crumbs-row" aria-label="面包屑">
-          <Link to="/sessions">我的实验</Link>
+        <nav className="crumbs-row" aria-label={MP.crumbs}>
+          <Link to="/sessions">{MP.mySessions}</Link>
           <span aria-hidden="true">›</span>
-          <span>待人工处理清单</span>
+          <span>{MP.title}</span>
         </nav>
         <div className="ph">
           <div className="ttl">
-            <h1 tabIndex={-1}>待人工处理清单</h1>
-            <span className="sub">跨会话汇总 · 每项都有控制台链接与 CLI 命令，处理后可重新核对</span>
+            <h1 tabIndex={-1}>{MP.title}</h1>
+            <span className="sub">{MP.sub}</span>
           </div>
           {L && items.length ? (
             <span className="acts">
               <button type="button" className="linkbtn" aria-pressed={unmasked} onClick={() => setUnmasked((v) => !v)}>
-                {unmasked ? '恢复打码' : '显示完整名称'}
+                {unmasked ? MP.remask : MP.unmask}
               </button>
             </span>
           ) : null}
         </div>
       </div>
 
-      <div className="filters" role="group" aria-label="筛选">
+      <div className="filters" role="group" aria-label={MP.filters}>
         <span className="fi">
           <label className="small muted" htmlFor="mf-sev">
-            严重级别
+            {MP.severityLabel}
           </label>
           <select id="mf-sev" className="input" value={severity} onChange={(e) => setFilter('severity', e.target.value)}>
-            {SEVERITIES.map(([v, t]) => (
+            {SEVERITIES.map(([v, k]) => (
               <option key={v} value={v}>
-                {t}
+                {MP.severity[k]}
               </option>
             ))}
           </select>
         </span>
         <span className="fi">
           <label className="small muted" htmlFor="mf-bill">
-            计费方式
+            {MP.billing}
           </label>
           <select id="mf-bill" className="input" value={billing} onChange={(e) => setFilter('billing', e.target.value)}>
-            <option value="">全部</option>
+            <option value="">{MP.all}</option>
             {BILLINGS.map((b) => (
               <option key={b} value={b}>
                 {BILLING_TEXT[b]}
@@ -139,49 +141,50 @@ export default function ManualResourcesPage() {
         </span>
         {data.loaded ? (
           <span className="small muted" role="status">
-            共 {items.length} 项{hourly ? `，其中 ${hourly} 项阻塞且按小时计费` : ''}
+            {hourly ? t(MP.countHourly, { n: items.length, h: hourly }) : t(MP.count, { n: items.length })}
           </span>
         ) : null}
       </div>
 
       {!data.loaded && data.status === 'error' ? (
-        <InlineProblem error={data.error} onRetry={() => void data.refresh()} title="待人工处理清单" />
+        <InlineProblem error={data.error} onRetry={() => void data.refresh()} title={MP.title} />
       ) : !data.loaded ? (
         <Skeleton lines={4} block />
       ) : !items.length ? (
         <EmptyState
-          title="没有未释放的资源。"
+          title={MP.emptyTitle}
           action={
             <Link className="btn" to="/sessions">
-              查看我的实验
+              {MP.viewSessions}
             </Link>
           }
         >
-          回收失败或复扫发现的残留会出现在这里。
+          {MP.emptyBody}
         </EmptyState>
       ) : !filtered.length ? (
         <EmptyState
-          title="没有符合筛选条件的条目。"
+          title={MP.noMatch}
           action={
             <button type="button" className="btn" onClick={() => setSearch(new URLSearchParams(), { replace: true })}>
-              清除筛选
+              {MP.clear}
             </button>
           }
         />
       ) : (
         <>
-          <p className="small muted">这些资源都带有 atl:env-id 标签，可以在控制台按标签查找。处理后点“我已处理，重新核对”，平台会复核并在全部处理后结束回收。</p>
+          <p className="small muted">{MP.tagNote}</p>
           {groups.map(([sid, list]) => {
             const h = heads[sid];
             return (
               <section key={sid} className="sec" aria-labelledby={`mg-${sid}`} data-group={sid}>
                 <h2 id={`mg-${sid}`}>
-                  {h?.labId ?? '之前的实验'}
-                  {h?.createdAt ? ` · ${formatDate(h.createdAt, clock.now())}` : ''} · 会话 <span className="mono">{sid === '—' ? '—' : `${sid.slice(0, 4)}…`}</span>
+                  {h?.labId ?? MP.previous}
+                  {h?.createdAt ? ` · ${formatDate(h.createdAt, clock.now())}` : ''}
+                  {rich(MP.session, { sid: <span className="mono">{sid === '—' ? '—' : `${sid.slice(0, 4)}…`}</span> })}
                   <span className="aside">
                     {sid !== '—' ? (
                       <>
-                        <Link to={`/sessions/${sid}/end#manual`}>回收进度</Link> · <CleanupExport sid={sid} label="导出" compact />
+                        <Link to={`/sessions/${sid}/end#manual`}>{MP.reclaim}</Link> · <CleanupExport sid={sid} label={MP.export} compact />
                       </>
                     ) : null}
                   </span>

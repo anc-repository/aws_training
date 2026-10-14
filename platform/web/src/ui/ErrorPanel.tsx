@@ -3,7 +3,7 @@
  * 区块级错误不影响其他区块。未知 code 显示 title + detail + requestId（P13 #34）。
  */
 import { useState } from 'react';
-import { t, zhCN } from '../i18n/zh-CN';
+import { msg, t } from '../i18n';
 import { copyText } from '../lib/clipboard';
 import { Button } from './Button';
 
@@ -19,10 +19,10 @@ export interface ProblemLike {
 /** 错误码 → 学员看到的文案（画面可传 overrides 覆盖）。 */
 export function problemMessage(p: ProblemLike, overrides: Record<string, string> = {}): string {
   const code = p.code ?? '';
-  const tpl = overrides[code] ?? zhCN.errors[code];
+  const tpl = overrides[code] ?? msg.errors[code];
   if (tpl) return t(tpl, { detail: p.detail ?? '', requestId: p.requestId ?? '—' });
-  if (p.status && p.status >= 500) return t(zhCN.p13.apiUnavailable, { status: p.status });
-  return [p.title, p.detail].filter(Boolean).join('：') || zhCN.errors.INTERNAL!.replace('{requestId}', p.requestId ?? '—');
+  if (p.status && p.status >= 500) return t(msg.p13.apiUnavailable, { status: p.status });
+  return [p.title, p.detail].filter(Boolean).join('：') || msg.errors.INTERNAL!.replace('{requestId}', p.requestId ?? '—');
 }
 
 export interface ErrorPanelProps {
@@ -35,21 +35,21 @@ export interface ErrorPanelProps {
 
 export function ErrorPanel({ error, onRetry, overrides, title }: ErrorPanelProps) {
   const [copied, setCopied] = useState(false);
-  const msg = problemMessage(error, overrides);
+  const text = problemMessage(error, overrides);
   const diag = JSON.stringify({ code: error.code ?? null, status: error.status ?? null, requestId: error.requestId ?? null, title: error.title ?? null });
   return (
     <div className="errpanel" role="alert" data-code={error.code ?? undefined}>
       {title ? <b>{title}</b> : null}
-      <p>{msg}</p>
+      <p>{text}</p>
       {error.requestId ? (
         <span className="rid">
-          {zhCN.p13.requestId} {error.requestId}
+          {msg.p13.requestId} {error.requestId}
         </span>
       ) : null}
       <div className="row">
         {onRetry ? (
           <Button size="sm" onClick={onRetry} icon="refresh">
-            {zhCN.app.retry}
+            {msg.app.retry}
           </Button>
         ) : null}
         <Button
@@ -60,7 +60,7 @@ export function ErrorPanel({ error, onRetry, overrides, title }: ErrorPanelProps
             void copyText(diag).then((ok) => setCopied(ok));
           }}
         >
-          {copied ? zhCN.app.copied : zhCN.app.copyDiagnostics}
+          {copied ? msg.app.copied : msg.app.copyDiagnostics}
         </Button>
       </div>
     </div>

@@ -1,7 +1,205 @@
 # 09 · 多语言与视觉化（ATL Web）
 
 > 记录 I1～I7（“文字太多、多用图像；增加日语与英语，默认日语”）在平台网页中的实现方式。
-> 多语言（i18n）部分由 i18n 实现者补充；本文件先收录“视觉组件”部分（实现者 prep-visual）。
+> 本文件分两部分：“多语言（I1～I5）”（§1 界面、§2 卡片内容、§3 差异与待办；实现者 prep-i18n）与“视觉组件（I6）”（V1～V10；实现者 prep-visual）。
+
+---
+
+## 多语言（I1～I5）
+
+实现者 prep-i18n。界面（§1）与卡片内容（§2）分开处理：界面文案在前端词典里，内容文案在 `labs/` 的内容文件里，两者共用同一条
+回退链（所选语言 → en → zh-CN）与同一个“未翻訳 / Not translated / 未翻译”标记。zh-CN 是源语言，也是唯一必需的语言。
+
+### 1 界面（`platform/web`）
+
+#### 1.1 语言的确定与切换（I1）
+
+| 项目 | 做法 |
+|---|---|
+| 语言 | `ja`（默认）、`en`、`zh-CN`（`i18n/locale.ts` 的 `LOCALES`） |
+| 第一次访问 | 一律日语，不看浏览器语言（`navigator.language` 不参与） |
+| 切换入口 | 顶栏（登录后在账号菜单左边，`components/GlobalBar.tsx`）、公开页面右上角（`Shells.tsx` 的 `PublicShell`）、工作台“更多”菜单（`SessionBar.tsx`）。选项固定写成各自的语言：日本語 / English / 中文（带 `lang` 属性，读屏按该语言朗读） |
+| 保存 | `localStorage` 的 `atl.locale.v1`（`lib/storage.ts` 的 `STORAGE_KEYS.locale`）；它是唯一依据 |
+| 个人资料同步 | 已登录时在顶栏切换后尽力 `PATCH /me { locale }`（失败不影响切换）；服务器上的值目前不回读（见 §3） |
+| `<html lang>` | 随当前语言（`applyHtmlLang`）；视觉组件（V6）没有 Provider 时也读它 |
+| API 请求 | 每个请求带 `Accept-Language: <当前语言>`（`api/client.ts`）；切换后丢弃 API 缓存（`api.invalidate()`），内容类接口按新语言重新取 |
+| 切换方式 | 不整页刷新：`i18n/LocaleRoot.tsx` 以语言为 key 重新挂载应用，服务对象（API 客户端、会话同步）保留 |
+
+#### 1.2 框架选择与运行时
+
+**选择**：自写的轻量运行时，不引入 i18next / react-intl。理由：现有页面已经把文案集中在各目录的 `strings.ts` 常量里
+（`S.title`、`L.ui.x` 这样的属性访问遍布页面与纯函数模块），换成 `t('key')` 调用要改动几千处并改变代码形状；自写方案让这些
+常量继续是对象属性，只把数据源换成词典，界面代码几乎不变（“只替换键、不改布局”）；同时不增加依赖（无需 `npm install`），
+验证页与分享副本这类不加载 React 的产物也能用同一份词典；复数与格式化交给 Intl，需求的子集很小。
+
+| 文件 | 内容 |
+|---|---|
+| `i18n/zh-CN/<ns>.ts`（17 个命名空间） | 源语言词典：core（应用、导航、账号、错误码、语言、时长单位）、labs、card、learning、settings、setup、report、sessions、ui、workspace、certificates、experiments、end、share、verify、pages、frame |
+| `i18n/zh-CN.ts`、`ja.ts`、`en.ts` | 合并后的词典（`npm run i18n:sync` 生成）；`Messages = typeof zhCN` |
+| `i18n/ja/<ns>.ts`、`en/<ns>.ts` | 译文骨架：键与 zh-CN 完全相同，值为空字符串表示“未翻译”，行尾注释是 zh-CN 原文 |
+| `i18n/runtime.ts` | `msg`、`setLocale()`、`getLocale()`、`subscribeLocale()`、`missingKeys()`（不依赖 React） |
+| `i18n/hooks.ts`、`LocaleRoot.tsx`、`LanguageSwitcher.tsx`、`Untranslated.tsx`、`i18n.css` | React 部分 |
+| `i18n/text.ts`、`template.ts`、`format.ts`、`meta.ts`、`content.ts`、`dict.ts` | 模板、富文本、Intl 格式化、带文字的常量表、内容按语言读取、词典比较 |
+| `i18n/index.ts`、`core.ts` | 入口：页面用 `index`；纯函数模块、分享副本渲染器、各目录 `strings.ts` 用不含 React 的 `core` |
+| `i18n/tools/sync.mjs`、`check.mjs` | `npm run i18n:sync`、`npm run i18n:check` |
+| `i18n/glossary.md` | 用语表（ja / en 两列） |
+
+**运行时**：`msg` 是 zh-CN 词典的深拷贝。切换语言时按回退链把每个叶子原地改写成当前语言的文案；对象身份不变，所以
+`export const S = msg.labs.ui` 这类模块级别名、`withText()` 生成的表都在重新挂载后取到新语言。各目录的 `strings.ts` 保留原来的
+导出名（`L`、`SS`、`LS`、`ST`、`SU`、`RP`、`SN`、`CT`、`EX`、`W`、`VT`），改为指向词典。
+
+#### 1.3 文案模板
+
+- `t(template, vars)`：`{name}` 占位；简单复数 `{n, plural, one {# item} other {# items}}`（按 `Intl.PluralRules`，zh-CN / ja
+  的源文案不需要复数）。
+- `rich(template, { name: <ReactNode> })`：占位换成 React 节点（加粗的 id、链接），语序由译文决定，不再在 JSX 里拼句子。
+- `withText(base, texts)`：状态 / 形状 / 色调这类不随语言变化的属性写在代码里，`text` 用 getter 从词典取（`ui/semantics.ts`、
+  路由表标题、失败码表等）。
+- 文案约定沿用 08 §1.6（称呼“你”、按钮动词开头、不写价格数字），译文风格见 §1.9。
+
+#### 1.4 日期、时间与数字（I1）
+
+`i18n/format.ts` 一律用 Intl，语言取当前界面语言：`fmtClock`、`fmtDate`、`fmtDay`、`fmtNumber`、`fmtPercent`、`fmtMoney`、
+`fmtList`、`fmtRelative`。zh-CN 保持原有写法（`10/13 10:42`、`2026-10-13`），ja / en 用 Intl 的本地写法。时长的单位文案在词典
+`fmt`（ja「1 時間 5 分」、en「1 hour 5 minutes」）。`lib/format.ts` 的 `formatClock` / `formatDate` 委托给它们。
+
+#### 1.5 词典的同步与检查（I2 的 CI 检查）
+
+- `npm run i18n:sync`：按 zh-CN 命名空间生成 / 更新 ja、en 骨架（新键补空字符串、删掉多余的键、保留已有译文），并重写合并文件。
+- `npm run i18n:check`：ja、en 是否覆盖 zh-CN 的全部键、有无多余键、占位符（`{name}` 与复数变量）是否一致、叶子类型、骨架是否已同步。
+  未翻译（空字符串）默认算失败；翻译进行中用 `npm run i18n:check -- --allow-empty`（只计数）。`--json` 输出机器可读结果。
+  2026-10-14：3482 个键，ja / en 各译 15 个（语言名、时长单位、概览标题），结构问题 0。
+- 类型：`Dict<T>` 要求 ja / en 与 zh-CN 同结构（缺键或多键编译不过，`satisfies`）。
+- 开发模式（`import.meta.env.DEV` 且不是测试）下切换语言时，把走了回退的键汇总成一条控制台警告。
+
+#### 1.6 回退与“未翻訳”标记（I2）
+
+- 界面词典：空字符串视为缺少，按 所选 → en → zh-CN 取值。界面文案的回退**不加标记**（未翻译期间几乎每个元素都会带标记），
+  只在开发模式警告；由 `i18n:check` 保证发布前补齐。
+- 内容（§2）：显示了其他语言的卡片标题、简介、手册、小测题目旁加 `<Untranslated>`（ja「未翻訳」、en「Not translated」、
+  zh-CN「未翻译」；虚线框小字，`title` 说明原因）。目前用在：目录卡片标题（`CardTile`）、简介页标题（`CardIntroPage`）、
+  工作台步骤标题（`StepCard`，手册文件的语言与界面不同）、小测题干（`QuizPage`）。
+- 错误：API 错误按 `code` 在前端本地化（`msg.errors`），服务器返回的中文 `detail` 只作补充显示。
+
+#### 1.7 测试
+
+`i18n/i18n.test.tsx`：默认 ja 与 `localStorage`、`<html lang>`、回退链、词典结构（缺键 / 多键 / 占位符为 0、键数 > 1500）、
+`msg` 原地改写、复数、`rich()` 语序、Intl 格式、`contentUrl`、内容 404 回退、`untranslated()` 指针、切换器选项。
+其余页面测试按 zh-CN 源文案断言：`test/setup.ts` 在每个用例前把语言设为 zh-CN（不写 localStorage）。
+`npm run e2e:platform` 同样显式选 zh-CN（`scripts/e2e/platform_e2e.py` 的 `UI_LOCALE_ZH`，像用户选择那样写入 `atl.locale.v1`）；
+公开页面顶部多了语言选择框，登录步骤的角色选择改为在 `main` 中查找。
+
+#### 1.8 不在 SPA 里的页面
+
+- **公开验证页**（`public-pages/verify/`，独立 IIFE 包，不加载 React）：语言取 `?lang=` → 已保存的选择 → ja；静态 HTML 的
+  文字带 `data-i18n="<key>"`，脚本换成 `VT.static[key]`；页内有 日本語 / English / 中文 链接（保留 `#jws=` 片段）。
+  没有脚本时显示 zh-CN 源文案。
+- **分享副本**（`pages/share/renderShare.ts`，浏览器端生成）：`ShareMeta.lang` 指定语言（默认当前界面语言），HTML 的
+  `lang` 随之。服务器端生成的报告 / 分享 HTML（`platform/api/src/services/reports/html.ts`）本轮未本地化（§3）。
+
+#### 1.9 翻译者须知（I3）
+
+- 用语表 `platform/web/src/i18n/glossary.md`（zh-CN / ja / en 三列）；新词先进表再用。
+- 不翻译：AWS 服务与产品名、CLI 命令、代码、资源名与 ID、API 路径、环境变量、`{name}` 占位、`{{ … }}` 变量、指令、错误码。
+- ja 用です／ます体；en 用自然的技术英语，按钮动词开头。
+- 流程：在 `i18n/ja/<ns>.ts`、`en/<ns>.ts` 中填空字符串（行尾注释是原文）→ `npm run i18n:check -- --allow-empty` → 全部译完后
+  不带参数运行，CI 以它为准。
+
+### 2 卡片内容（`labs/`、`scripts/labs`、`platform/shared`、`platform/api`）
+
+#### 2.1 写法（I4）
+
+```yaml
+title:                                  # 字符串 = zh-CN；对象 = 按语言
+  zh-CN: Amazon CloudFront：内容分发与边缘缓存
+  ja: Amazon CloudFront：コンテンツ配信とエッジキャッシュ
+  en: "Amazon CloudFront: content delivery and edge caching"
+summary: 给 EC2 直出的相册加一层 CloudFront……   # 仍是 zh-CN，ja / en 回退
+```
+
+- `lab.yaml` v2 中学员看到的文本字段（04 §3.3 中写成 `anyOf: [ { type: string … }, { $ref: '#/$defs/l10n' } ]` 的字段）、
+  检查定义（标题、说明、手动确认的问题与选项、常见问题）、`quiz.yaml`（题干、选项、解析）、学习路径（标题、摘要、阶段、备注、
+  证书标题）、`taxonomy.yaml`（类别、服务名、领域、时长档、费用档、部署等级）都可以这样写。zh-CN 必填，ja、en 可选。
+- 手册：`manual/*.md`（或 `manual/zh-CN/*.md`）是源语言；译文放 `manual/ja/<同名>.md`、`manual/en/<同名>.md`，front matter
+  相同，`{{ … }}`、指令、代码块保持原样。00-overview.md 的标题用用语表中的译名（背景 / 比較実験の予告 / なぜ組み合わせるのか…）。
+- 旧内容不用改：没有本地化对象、没有 `manual/<lang>/` 的卡片照旧通过 lint，ja / en 产物整体回退到 zh-CN 并带标记。
+
+#### 2.2 Schema 与类型
+
+- 04 §3.3 的 YAML 增加 `$defs.l10n`（`{ zh-CN, ja?, en? }`，值非空、不许其他键）与 `$defs.text`，文本字段改为 `anyOf`；
+  `platform/shared/src/lab/lab-schema.generated.ts` 由 `node platform/shared/scripts/gen-lab-schema.mjs` 从文档重新生成
+  （`lab-schema.test.ts` 仍逐字比较）。其他 schema 用 `scripts/labs/src/schemas/l10n.ts` 的 `l10n()` 包装；`npm run labs:schema`
+  重写 `labs/_schema/*.json`。
+- 长度限制只约束 zh-CN：lint 先把文档解析成 zh-CN 再校验；`anyOf` 两个分支的报错只保留与值的形态相符的一支。
+- TypeScript：`LabV2<S = string>` 的文本字段是 `S`；`LabV2`（解析后，构建产物与 API 读的就是它）不变，`LabV2Source =
+  LabV2<LocalizedText>` 是写在 lab.yaml 里的形态。`@atl/shared` 的 `l10n.ts`：`ContentLang`、`resolveText`、`resolveLocalized`
+  （回退指针回调、标记）、`collectLocalized`、`negotiateLang`、`normalizeLang`。
+- 哪些字段是文本不另列清单：`scripts/labs/src/l10n.ts` 的 `textPatterns()` 从 schema 中找出带 `$defs/l10n` 分支的位置。
+
+#### 2.3 `labs:lint` 的翻译规则与覆盖率
+
+内容集按语言加载（`loadContent(paths, { lang })`），每份文档解析成该语言的字符串，原文保留在 `source`，因此原有的 lint、
+目录与构建逻辑不变。新增规则（`scripts/labs/src/lint/i18n.ts`）：
+
+| 规则 | 级别 | 内容 |
+|---|---|---|
+| I1 | error | 本地化对象中有空字符串（不翻译就不写该语言） |
+| I2 | error | 本地化对象写在了非文本字段（id、枚举、命令、标签…） |
+| I3 | error | `manual/<lang>/x.md` 没有对应的 zh-CN 文件、同一文件写了两份、front matter 的 step / section 与原文不同 |
+| I4 | warn | 译文改变了 `{{ … }}` 变量、指令或代码块数量 |
+| I5 | warn | 译后的 00-overview.md 缺少原文已有标题的译名（C-12 / 简介页按标题找章节） |
+
+`npm run labs:i18n`：每张卡片（以及 `_shared`、`_tracks`、`_catalog`）的文本字段数与 ja / en 已译比例、手册文件数与已译比例，
+附 I1～I5；`--json` 可读。2026-10-14：4281 个文本字段、231 个手册文件，ja / en 均 0%。
+`npm run labs:catalog -- --lang ja [--out f]` 打印按语言解析的目录（提交到仓库的 catalog.yaml 仍是 zh-CN）。
+
+#### 2.4 构建产物与前端读取
+
+`labs:build` 的根目录不变（zh-CN 源文档，字节级与以前相同），另外生成：
+
+| 路径 | 内容 |
+|---|---|
+| `content/<v>/<lang>/catalog/index.json` | 目录索引；每张卡片、每条路径带自己的 `i18n`，索引本身的 `i18n` 列出 taxonomy 等处的回退 |
+| `content/<v>/<lang>/catalog/cards/<id>.json` | 简介；概览手册不是该语言时含 `/overview` |
+| `content/<v>/<lang>/labs/<id>.json` | 展开后的卡片；`manuals[file].lang` 是该手册实际的语言 |
+| `content/<v>/<lang>/tracks/<id>.json` | 学习路径 |
+| `private/quiz/<lang>/<id>.json` | 小测题库（只进 atl-artifacts） |
+| `manifest.json` | 增加 `languages: [zh-CN, ja, en]` |
+
+`<lang>` 为 ja、en。每份按语言生成的文档带 `i18n: { lang, fallback: [JSON 指针…] }`，指针相对于带 `i18n` 的对象，列出显示了
+其他语言的字段。计算方法：同一语言渲染两遍，第二遍把回退的值加上不可见前缀，比较两份输出的差异——因此派生字段（搜索文本、
+拼接的标题）也能正确标出，构建代码不需要知道哪些字段来自哪里。
+
+前端（`i18n/content.ts`）：`contentUrl()` 把 `/content/<v>/<rel>` 改写成当前语言的地址（zh-CN 用根路径）；`fetchContentJson()`
+在所选语言的文件 404（旧的内容版本）时读根路径并把整份文档标为未翻译（`i18n.whole`）；`untranslated(doc, pointer)`、
+`manualUntranslated(manual)` 决定是否显示标记。目录（`pages/labs/data.ts`）、会话（`pages/sessions/data.ts`）与工作台
+（`workspace/model/lab.ts`）的内容读取都经过它们，缓存键是改写后的地址，切换语言后自然重新读取。
+
+#### 2.5 API 与开发服务器
+
+- 语言协商（`@atl/shared` `negotiateLang`）：`?lang=` 优先，其次 `Accept-Language`（按 q 值；`ja-*` → ja、`en-*` → en、
+  `zh`、`zh-CN`、`zh-Hans*`、`zh-SG` → zh-CN），都没有时 zh-CN。`platform/api/src/routes/catalog.ts` 的 `contentLang(ctx)`。
+- `GET /catalog`：发布包有该语言（manifest `languages`）时，`indexUrl` / `cardIntroUrlTemplate` / `labUrlTemplate` 指向
+  `/content/<v>/<lang>/…`，并返回 `contentLang`、`languages`；ETag 为 `"<v>-<lang>"`（zh-CN 仍是 `"<v>"`）。
+- `GET /tracks`、`/tracks/{id}`：读该语言的目录索引，没有时读根索引。
+- 小测：抽题与解析读 `private/quiz/<lang>/`（没有时读根题库），开始作答的响应带 `i18n: { lang, untranslated: [题目 id] }`；
+  判分只按题目与选项 id，与语言无关。
+- 会话、报价、检查、摘要校验一律读根目录的 zh-CN 文档（`CatalogStore.lab()`），语言只影响显示的文字。
+- `PATCH /me` 的 `locale` 接受 `zh-CN | ja | en`。
+- 开发服务器 `/content/`：`/content/<v>/<lang>/…` 按发布的文件提供（不存在时 404，由前端回退）；根路径的 JSON 带 `?lang=` 或
+  `Accept-Language`（ja / en）时返回译后文档，没有时返回根文档，并设 `Content-Language` 与 `Vary: Accept-Language`。
+  没有 `labs:build` 产物时的种子目录（`seedDevCatalog`）把本地化对象解析成 zh-CN。
+
+### 3 与指示的差异、待办与需要配合
+
+- **个人资料中的语言只写不读**：I1 要求“有偏好 API 就同步”。服务器上的 `locale` 默认仍是 zh-CN（`users.ts` 的建档默认值、
+  `/me` 的回退值不属于本次范围），若回读会把第一次访问的日语改掉，所以 localStorage 是唯一依据，服务器值只供将来的邮件等使用。
+- **界面文案的回退不加标记**（§1.6），只有内容加标记。
+- **译文本身**：ja / en 词典各 3467 个键、内容 4281 个文本字段与 231 个手册文件待翻译（翻译者按 §1.9、§2.1）。
+- **服务器端生成的报告 / 分享 HTML**（`platform/api/src/services/reports/html.ts`）与 API 错误的 `detail` 仍为中文。
+- **CloudAlbum 前端（`frontend/`）** 不在本轮（I5）。
+- **e2e** 显式选择 zh-CN（§1.7）；按 ja / en 的端到端检查需在译文就绪后补充。
+- 按语言生成的 `labs/<id>.json` 中 `checkHashes` 按译后的检查定义计算；执行与校验只用根目录文档，不受影响。
 
 ---
 

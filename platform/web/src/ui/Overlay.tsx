@@ -9,7 +9,7 @@
  */
 import { useEffect, useId, useRef, type ReactNode, type RefObject } from 'react';
 import { createPortal } from 'react-dom';
-import { zhCN } from '../i18n/zh-CN';
+import { msg } from '../i18n';
 import { Icon } from './Icon';
 
 const FOCUSABLE =
@@ -155,7 +155,7 @@ export function Dialog({
             {title}
           </h2>
           {dismissible ? (
-            <button type="button" className="btn sm ghost icon" aria-label={zhCN.app.close} onClick={onClose}>
+            <button type="button" className="btn sm ghost icon" aria-label={msg.app.close} onClick={onClose}>
               <Icon name="x" />
             </button>
           ) : null}
@@ -204,7 +204,7 @@ export function Drawer({ open, onClose, title, children, wide, initialFocus, ret
           <h2 id={titleId} tabIndex={-1} data-overlay-title="">
             {title}
           </h2>
-          <button type="button" className="btn sm ghost icon" aria-label={zhCN.app.close} onClick={onClose}>
+          <button type="button" className="btn sm ghost icon" aria-label={msg.app.close} onClick={onClose}>
             <Icon name="x" />
           </button>
         </header>

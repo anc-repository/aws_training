@@ -17,12 +17,14 @@ import { ManualCommand } from '../manual/ManualCommand';
 import { comparability, metricRows, reasonText, runCommand, trackIndex, variantColumns, type ExperimentRunView, type MetricRow, type VariantColumn } from '../model/experiments';
 import { findExperiment } from '../model/lab';
 
-const ROLE_TEXT: Record<string, string> = { baseline: 'baseline · 基线', treatment: 'treatment · 处理', single: 'single · 一次性' };
-const TRACK = ['已登记', '已上传', '交叉校验中', '结论'];
+import { msg, rich, t } from '../../i18n';
+const WE = msg.workspace.exp;
+const ROLE_TEXT: Readonly<Record<string, string>> = WE.role;
+const TRACK = ['registered', 'uploaded', 'crosscheck', 'result'] as const;
 
 export function ExperimentCompareDrawer({ expKey, onClose }: { expKey: string; onClose: () => void }) {
   return (
-    <Drawer open onClose={onClose} title={`对比实验 · ${expKey}`} wide>
+    <Drawer open onClose={onClose} title={t(WE.drawerTitle, { key: expKey })} wide>
       <ExperimentCompare expKey={expKey} />
     </Drawer>
   );
@@ -46,7 +48,7 @@ export function ExperimentCompare({ expKey }: { expKey: string }) {
   const cols = useMemo(() => (exp ? variantColumns(exp, all, selection, ws.now()) : []), [exp, all, selection, ws]);
   const rows = useMemo(() => (exp ? metricRows(exp, cols) : []), [exp, cols]);
   if (!lab) return <Skeleton lines={4} />;
-  if (!exp) return <EmptyState title="没有找到这个实验">卡片 {ws.view.labId} 没有声明对比实验 {expKey}。</EmptyState>;
+  if (!exp) return <EmptyState title={WE.notFoundTitle}>{t(WE.notFound, { labId: ws.view.labId, key: expKey })}</EmptyState>;
   if (runs.error && !runs.data) return <ErrorPanel error={runs.error as never} onRetry={() => void runs.refresh()} />;
   if (runs.loading && !runs.data) return <Skeleton lines={5} />;
 
@@ -62,20 +64,20 @@ export function ExperimentCompare({ expKey }: { expKey: string }) {
     <div className="stack expcmp" data-exp-compare={expKey}>
       <div className="row between small">
         <span>
-          {ws.view.labId} › 对比实验 · <span className="mono">{expKey}</span>（{exp.required ? '必做' : '选做'}）
+          {rich(WE.crumb, { labId: ws.view.labId, key: <span className="mono">{expKey}</span>, req: exp.required ? WE.required : WE.optional })}
         </span>
-        <span className="muted">会话 {ws.sid}</span>
+        <span className="muted">{t(WE.session, { sid: ws.sid })}</span>
       </div>
       {ws.data.workspace.data?.features?.workstation === 'cloudshell' ? (
         <div className="note amber">
           <Shape name="tri" />
-          <span>省钱模式下对比实验结果无法上传，相关检查只能按规则降级。</span>
+          <span>{WE.cloudshell}</span>
         </div>
       ) : null}
-      {ws.view.state === 'ENDING' ? <p className="note">实验已结束：进入结束前已登记的运行仍会接收上传。</p> : null}
+      {ws.view.state === 'ENDING' ? <p className="note">{WE.ending}</p> : null}
       {noRecords ? (
-        <EmptyState title="还没有运行这个实验">
-          先在工作台终端运行{cols[0] ? ` ${cols[0].label.id}` : ''}，再完成接入应用后运行{cols[1] ? ` ${cols[1].label.id}` : ''}。
+        <EmptyState title={WE.noRuns}>
+          {t(WE.noRunsHint, { a: cols[0] ? ` ${cols[0].label.id}` : '', b: cols[1] ? ` ${cols[1].label.id}` : '' })}
         </EmptyState>
       ) : null}
       <div className={`vcols n${cols.length}`}>
@@ -87,37 +89,36 @@ export function ExperimentCompare({ expKey }: { expKey: string }) {
         <FunctionalChecks checkIds={exp.corroborateWith ?? []} />
       ) : rows.length ? (
         <>
-          <div className="seg" role="group" aria-label="图表">
+          <div className="seg" role="group" aria-label={WE.chart}>
             <button type="button" aria-pressed={view === 'chart'} onClick={() => setView('chart')}>
-              条形对照
+              {WE.bars}
             </button>
             <button type="button" aria-pressed={view === 'table'} onClick={() => setView('table')}>
-              查看数据表
+              {WE.table}
             </button>
           </div>
           {view === 'table' ? <CompareTable cols={cols} rows={rows} /> : <BarChart cols={cols} rows={rows} />}
-          <p className="small muted">差异方向只说明变化，不代表好坏：启用托管服务后单次延迟变高也可能是正确结论。</p>
+          <p className="small muted">{WE.directionNote}</p>
         </>
       ) : !noRecords ? (
-        <p className="small muted">所选记录还没有可比较的指标（上传与交叉校验完成后显示）。</p>
+        <p className="small muted">{WE.noMetrics}</p>
       ) : null}
       {cmp ? (
         <div className="stack-4" data-pair="">
           <b className="small">
-            成对比较 {pair ? `${pair[0]} ↔ ${pair[1]}` : `${cols[0]?.label.id} ↔ ${cols[1]?.label.id}`}
+            {t(WE.pair, pair ? { a: pair[0], b: pair[1] } : { a: cols[0]?.label.id, b: cols[1]?.label.id })}
           </b>
           {cmp.comparable === null ? (
             <span className="small muted">
-              缺少{' '}
-              {[!a ? (pair?.[0] ?? cols[0]?.label.id) : null, !b ? (pair?.[1] ?? cols[1]?.label.id) : null].filter(Boolean).join(' 和 ')}
+              {t(WE.missing, { list: [!a ? (pair?.[0] ?? cols[0]?.label.id) : null, !b ? (pair?.[1] ?? cols[1]?.label.id) : null].filter(Boolean).join(WE.and) })}
             </span>
           ) : cmp.comparable ? (
             <span className="small st pass">
-              <Shape name="check" /> 可比（场景、参数、实例类型、起始变体一致；都不是强制运行）
+              <Shape name="check" /> {WE.comparable}
             </span>
           ) : (
             <span className="small st fail">
-              <Shape name="xbox" /> 不可比：{cmp.reasons.join('、')}
+              <Shape name="xbox" /> {t(WE.notComparable, { list: cmp.reasons.join(WE.listSep) })}
             </span>
           )}
         </div>
@@ -125,17 +126,17 @@ export function ExperimentCompare({ expKey }: { expKey: string }) {
       <ValidityList cols={cols} />
       {canRun ? (
         <div className="stack-8">
-          <b className="small">怎么运行（在工作台终端）</b>
+          <b className="small">{WE.howToRun}</b>
           {cols.map((c) => (
             <ManualCommand key={c.label.id} node={{ type: 'code', lang: 'bash', attributes: { runsOn: 'workstation' }, value: runCommand(exp, c.label.id) }} env={env} />
           ))}
         </div>
       ) : !ws.learner ? (
-        <p className="small muted">只读：你的角色不能使用工作台终端。</p>
+        <p className="small muted">{WE.readOnly}</p>
       ) : null}
       {cols.length > 1 ? (
         <details className="disc" onToggle={(e) => (e.currentTarget.open ? setCrossFor(cols[0]!.label.id) : undefined)}>
-          <summary>跨会话对比（与之前会话的 {cols[0]!.label.id} 比较）</summary>
+          <summary>{t(WE.crossSession, { label: cols[0]!.label.id })}</summary>
           {cross.loading && !cross.data ? (
             <Skeleton lines={2} />
           ) : (
@@ -162,31 +163,31 @@ function VariantHeader({ col, onSelect }: { col: VariantColumn; onSelect: (runId
     <div className="box stack-4 vhead" data-variant={col.label.id}>
       <b>
         {col.label.id}
-        <span className="small muted">（{ROLE_TEXT[col.label.role ?? ''] ?? col.label.role}{col.label.title ? ` · ${col.label.title}` : ''}）</span>
+        <span className="small muted">{t(WE.roleTitle, { role: `${ROLE_TEXT[col.label.role ?? ''] ?? col.label.role ?? ''}${col.label.title ? ` · ${col.label.title}` : ''}` })}</span>
       </b>
       <span className="small">
         <Status meta={variantMeta(col.status)} />
         {r ? <span className="faint"> · {formatClock(r.finishedAt ?? r.registeredAt ?? ws.now())} · runId {r.runId.slice(0, 6)}…{r.runId.slice(-4)}</span> : null}
-        {r && r.sessionId && r.sessionId !== ws.sid ? <span className="faint"> · 来自会话 {r.sessionId}</span> : null}
+        {r && r.sessionId && r.sessionId !== ws.sid ? <span className="faint">{t(WE.fromSession, { sid: r.sessionId })}</span> : null}
       </span>
-      {col.status === 'invalid' && r?.validity?.reasons?.length ? <span className="small st fail">无效：{r.validity.reasons.map(reasonText).join('、')}</span> : null}
+      {col.status === 'invalid' && r?.validity?.reasons?.length ? <span className="small st fail">{t(WE.invalid, { list: r.validity.reasons.map(reasonText).join(WE.listSep) })}</span> : null}
       {col.runs.length > 1 ? (
         <label className="small row">
-          记录 {col.runs.length} 次
-          <select className="input" value={r?.runId ?? ''} onChange={(e) => onSelect(e.target.value)} aria-label={`选择 ${col.label.id} 的记录`}>
+          {t(WE.runsCount, { n: col.runs.length })}
+          <select className="input" value={r?.runId ?? ''} onChange={(e) => onSelect(e.target.value)} aria-label={t(WE.pickRun, { label: col.label.id })}>
             {col.runs.map((x) => (
               <option key={x.runId} value={x.runId}>
-                {formatDate(x.finishedAt ?? x.registeredAt ?? x.runId, ws.now())} · {x.validity?.status ?? x.status ?? '已登记'}
+                {formatDate(x.finishedAt ?? x.registeredAt ?? x.runId, ws.now())} · {x.validity?.status ?? x.status ?? WE.registered}
               </option>
             ))}
           </select>
         </label>
       ) : null}
       {idx >= 0 ? (
-        <ol className="track4" aria-label="上传进度">
-          {TRACK.map((t, i) => (
-            <li key={t} className={i < idx ? 'done' : i === idx ? 'cur' : undefined} aria-current={i === idx ? 'step' : undefined}>
-              {i === 3 && idx === 3 ? variantMeta(col.status).text : t}
+        <ol className="track4" aria-label={WE.uploadProgress}>
+          {TRACK.map((k, i) => (
+            <li key={k} className={i < idx ? 'done' : i === idx ? 'cur' : undefined} aria-current={i === idx ? 'step' : undefined}>
+              {i === 3 && idx === 3 ? variantMeta(col.status).text : WE.track[k]}
             </li>
           ))}
         </ol>
@@ -206,13 +207,13 @@ function CompareTable({ cols, rows }: { cols: VariantColumn[]; rows: MetricRow[]
       <table className="tbl cmptable">
         <thead>
           <tr>
-            <th scope="col">指标</th>
+            <th scope="col">{WE.colMetric}</th>
             {cols.map((c) => (
               <th key={c.label.id} scope="col">
                 {c.label.id}
               </th>
             ))}
-            {cols.length > 1 ? <th scope="col">差异</th> : null}
+            {cols.length > 1 ? <th scope="col">{WE.colDelta}</th> : null}
           </tr>
         </thead>
         <tbody>
@@ -222,9 +223,9 @@ function CompareTable({ cols, rows }: { cols: VariantColumn[]; rows: MetricRow[]
                 {r.label}
               </th>
               {r.values.map((v, i) => (
-                <td key={i} className="num" title={v?.mismatch ? `客户端 ${num(v.client)} · 服务端 ${num(v.server)}` : undefined}>
+                <td key={i} className="num" title={v?.mismatch ? t(WE.clientServer, { client: num(v.client), server: num(v.server) }) : undefined}>
                   {num(v?.value)}
-                  {v?.mismatch ? <span className="st drift"> ▲ 客户端与服务端统计不一致</span> : null}
+                  {v?.mismatch ? <span className="st drift">{WE.mismatch}</span> : null}
                 </td>
               ))}
               {r.delta ? <td>{r.delta.text}</td> : null}
@@ -245,11 +246,11 @@ function BarChart({ cols, rows }: { cols: VariantColumn[]; rows: MetricRow[] }) 
   const H = shown.length * groupH + 10;
   const W = 640;
   const LABEL = 180;
-  const desc = shown.map((r) => `${r.label}：${r.values.map((v, i) => `${cols[i]?.label.id} ${num(v?.value)}`).join('，')}`).join('；');
+  const desc = shown.map((r) => t(WE.descItem, { label: r.label, values: r.values.map((v, i) => `${cols[i]?.label.id} ${num(v?.value)}`).join(WE.descItemSep) })).join(WE.descSep);
   const cls = ['b', 'a', 't3', 'a'];
   return (
-    <svg className="chart" viewBox={`0 0 ${W} ${H}`} role="img" aria-label={`条形对照：${desc}`}>
-      <title>条形对照</title>
+    <svg className="chart" viewBox={`0 0 ${W} ${H}`} role="img" aria-label={t(WE.chartDesc, { desc })}>
+      <title>{WE.bars}</title>
       <desc>{desc}</desc>
       {shown.map((r, gi) => {
         const max = Math.max(...r.values.map((v) => Math.abs(v?.value ?? 0)), 1e-9);
@@ -283,7 +284,7 @@ function ValidityList({ cols }: { cols: VariantColumn[] }) {
   if (!withRuns.length) return null;
   return (
     <div className="stack-4">
-      <b className="small">有效性校验</b>
+      <b className="small">{WE.validity}</b>
       <ul className="small mlist">
         {withRuns.map((c) => {
           const v = c.selected!.validity;
@@ -291,15 +292,15 @@ function ValidityList({ cols }: { cols: VariantColumn[] }) {
             <li key={c.label.id}>
               <span className="mono">{c.label.id}</span>：
               {!v ? (
-                <span className="st pend">◷ 等待上传与校验</span>
+                <span className="st pend">{WE.waitUpload}</span>
               ) : v.status === 'valid' ? (
-                <span className="st pass">✓ 结构、登记、时间窗、驱动与服务端佐证都通过</span>
+                <span className="st pass">{WE.validAll}</span>
               ) : v.status === 'simulated' ? (
-                <span className="st stale">◐ 模拟基线（旁路补测），证据权重较低</span>
+                <span className="st stale">{WE.simulated}</span>
               ) : v.status === 'pending-crosscheck' ? (
-                <span className="st pend">◷ 服务端佐证等待中（指标可能有数分钟延迟）</span>
+                <span className="st pend">{WE.crosscheckWait}</span>
               ) : (
-                <span className="st fail">✕ {(v.reasons ?? []).map(reasonText).join('、') || '无效'}</span>
+                <span className="st fail">✕ {(v.reasons ?? []).map(reasonText).join(WE.listSep) || WE.invalidShort}</span>
               )}
             </li>
           );
@@ -314,14 +315,14 @@ function FunctionalChecks({ checkIds }: { checkIds: string[] }) {
   const lab = ws.data.lab.data;
   return (
     <div className="stack-4">
-      <p className="small">功能型实验：以下检查在实验时间窗内通过即视为有效。</p>
+      <p className="small">{WE.functional}</p>
       <ul className="small mlist">
         {checkIds.map((id) => {
           let eff: string | null = null;
           for (const st of ws.data.stepMap.values()) if (st.checks?.[id]) eff = st.checks[id]!.effective ?? null;
           return (
             <li key={id}>
-              {lab?.checks?.[id]?.title ?? id} · {eff === 'pass' ? '✓ 通过' : eff ? eff : '未检测'}
+              {lab?.checks?.[id]?.title ?? id} · {eff === 'pass' ? WE.pass : eff ? eff : WE.notRun}
             </li>
           );
         })}
@@ -332,19 +333,19 @@ function FunctionalChecks({ checkIds }: { checkIds: string[] }) {
 
 function CrossSession({ runs, selected, onPick }: { runs: ExperimentRunView[]; selected: string | null; onPick: (r: ExperimentRunView | null) => void }) {
   const ws = useWorkspace();
-  if (!runs.length) return <p className="small muted">之前的会话里没有这个变体的记录。</p>;
+  if (!runs.length) return <p className="small muted">{WE.noPrevious}</p>;
   return (
     <label className="small row">
-      选择之前会话的记录
+      {WE.pickPrevious}
       <select
         className="input"
         value={selected ?? ''}
         onChange={(e) => onPick(runs.find((r) => r.runId === e.target.value) ?? null)}
       >
-        <option value="">（不使用）</option>
+        <option value="">{WE.none}</option>
         {runs.map((r) => (
           <option key={r.runId} value={r.runId}>
-            {formatDate(r.finishedAt ?? r.registeredAt ?? r.runId, ws.now())} · 会话 {r.sessionId ?? '—'} · {r.validity?.status ?? r.status ?? ''}
+            {t(WE.prevOption, { t: formatDate(r.finishedAt ?? r.registeredAt ?? r.runId, ws.now()), sid: r.sessionId ?? '—', status: r.validity?.status ?? r.status ?? '' })}
           </option>
         ))}
       </select>

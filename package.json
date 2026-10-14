@@ -67,7 +67,10 @@
     "labs:derive": "tsx scripts/labs/src/cli.ts derive",
     "labs:build": "tsx scripts/labs/src/cli.ts build",
     "labs:catalog": "tsx scripts/labs/src/cli.ts catalog",
-    "labs:policy": "tsx scripts/labs/src/cli.ts policy"
+    "labs:policy": "tsx scripts/labs/src/cli.ts policy",
+    "labs:i18n": "tsx scripts/labs/src/cli.ts i18n",
+    "i18n:check": "tsx platform/web/src/i18n/tools/check.mjs",
+    "i18n:sync": "tsx platform/web/src/i18n/tools/sync.mjs"
   },
   "devDependencies": {
     "@eslint/js": "^9.37.0",

@@ -1,3 +1,4 @@
+import { L10N_SCHEMA, l10n } from './l10n.js';
 /** `labs/_tracks/<track-id>.yaml` (`atl.track/v2`, tracks-and-catalog §7.3). Cross-file rules: tracks §7.3 and 04 B23. */
 export const TRACK_SCHEMA = {
   $schema: 'https://json-schema.org/draft/2020-12/schema',
@@ -6,13 +7,14 @@ export const TRACK_SCHEMA = {
   type: 'object',
   additionalProperties: false,
   required: ['schema', 'id', 'version', 'title', 'summary', 'stages', 'completion', 'certificate'],
+  $defs: { l10n: L10N_SCHEMA },
   properties: {
     schema: { const: 'atl.track/v2' },
     id: { type: 'string', pattern: '^[a-z][a-z0-9-]{1,31}$' },
     version: { type: 'string', pattern: '^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$' },
-    title: { type: 'string', minLength: 2, maxLength: 40 },
-    summary: { type: 'string', minLength: 4, maxLength: 200 },
-    audience: { type: 'string', maxLength: 120 },
+    title: l10n({ type: 'string', minLength: 2, maxLength: 40 }),
+    summary: l10n({ type: 'string', minLength: 4, maxLength: 200 }),
+    audience: l10n({ type: 'string', maxLength: 120 }),
     domain: { enum: ['secure', 'resilient', 'performance', 'cost'] },
     stages: {
       type: 'array',
@@ -23,9 +25,9 @@ export const TRACK_SCHEMA = {
         required: ['id', 'title', 'items'],
         properties: {
           id: { type: 'string', pattern: '^[a-z][a-z0-9-]{1,31}$' },
-          title: { type: 'string', maxLength: 40 },
+          title: l10n({ type: 'string', maxLength: 40 }),
           legacyLabs: { type: 'array', uniqueItems: true, items: { type: 'integer', minimum: 0, maximum: 30 } },
-          note: { type: 'string', maxLength: 200 },
+          note: l10n({ type: 'string', maxLength: 200 }),
           items: {
             type: 'array',
             minItems: 1,
@@ -39,7 +41,7 @@ export const TRACK_SCHEMA = {
                     card: { type: 'string', pattern: '^(svc|sc)-[a-z0-9]+(-[a-z0-9]+)*$' },
                     role: { enum: ['required', 'optional'] },
                     legacyLab: { type: 'integer', minimum: 0, maximum: 30 },
-                    note: { type: 'string', maxLength: 120 },
+                    note: l10n({ type: 'string', maxLength: 120 }),
                   },
                 },
                 {
@@ -48,11 +50,11 @@ export const TRACK_SCHEMA = {
                   required: ['group', 'title', 'pick', 'cards'],
                   properties: {
                     group: { type: 'string', pattern: '^[a-z][a-z0-9-]{1,31}$' },
-                    title: { type: 'string', maxLength: 40 },
+                    title: l10n({ type: 'string', maxLength: 40 }),
                     pick: { type: 'integer', minimum: 1 },
                     cards: { type: 'array', minItems: 2, uniqueItems: true, items: { type: 'string', pattern: '^(svc|sc)-[a-z0-9]+(-[a-z0-9]+)*$' } },
                     legacyLab: { type: 'integer', minimum: 0, maximum: 30 },
-                    note: { type: 'string', maxLength: 120 },
+                    note: l10n({ type: 'string', maxLength: 120 }),
                   },
                 },
               ],
@@ -75,7 +77,7 @@ export const TRACK_SCHEMA = {
       type: 'object',
       additionalProperties: false,
       required: ['enabled', 'title'],
-      properties: { enabled: { type: 'boolean' }, title: { type: 'string', maxLength: 40 } },
+      properties: { enabled: { type: 'boolean' }, title: l10n({ type: 'string', maxLength: 40 }) },
     },
   },
 } as const;

@@ -1,6 +1,7 @@
 /**
  * `labs:lint` (04 §3.5 groups A and B, 05 §8.7 C-1…C-15, tracks-and-catalog §7.3): schema validation with ajv plus the
- * cross-field / cross-file rules. Group C (start-state derivation) is `labs:derive`.
+ * cross-field / cross-file rules, and the translation rules I1–I5 (09 §2.3, `lint/i18n.ts`). Group C (start-state
+ * derivation) is `labs:derive`.
  */
 import { buildCatalog, CATALOG_HEADER, readCommittedCatalog } from '../catalog.js';
 import { loadContent, type ContentSet, type LintIssue } from '../content.js';
@@ -9,6 +10,7 @@ import { loadCheckCatalogue, loadRules } from '../registry.js';
 import { stringifyYaml } from '../yaml.js';
 import { lintCard, type LintContext } from './card.js';
 import { lintCatalog } from './catalog.js';
+import { lintTranslations } from './i18n.js';
 
 export interface LintResult {
   set: ContentSet;
@@ -24,6 +26,7 @@ export async function lintContent(set: ContentSet, opts: { checkCatalog?: boolea
   const ctx: LintContext = { set, rules: loadRules(set.paths), checkCatalogue: await loadCheckCatalogue(set.paths) };
   const issues: LintIssue[] = [...set.issues];
   for (const card of set.cards) issues.push(...lintCard(ctx, card));
+  issues.push(...lintTranslations(set));
   let generatedCatalog: string | undefined;
   if (opts.checkCatalog !== false) {
     try {

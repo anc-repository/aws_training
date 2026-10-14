@@ -8,6 +8,7 @@
 import type { LabExperimentDecl } from '../sessions/data';
 import type { Better, MetricRow, VariantDecl, VariantRole } from './compareModel';
 
+import { msg, t } from '../../i18n';
 export interface ExperimentRun {
   runId: string;
   sessionId?: string;
@@ -84,22 +85,30 @@ export function runsOf(runs: readonly ExperimentRun[], label: string): Experimen
   return runs.filter((r) => runLabel(r) === label).sort(newest);
 }
 
-const METRIC_LABELS: Readonly<Record<string, { label: string; unit: string; better: Better }>> = {
-  'server.app.requests': { label: '源站收到的请求数', unit: 'count', better: 'lower' },
-  'server.origin.requests': { label: '经 Nginx 的源站请求', unit: 'count', better: 'lower' },
-  'client.requests': { label: '客户端请求数', unit: 'count', better: 'neutral' },
-  'client.errors': { label: '客户端错误数', unit: 'count', better: 'lower' },
-  'client.cdnHitRatio': { label: 'CDN 命中率', unit: 'ratio', better: 'higher' },
-  'client.hitRatio': { label: '命中率', unit: 'ratio', better: 'higher' },
+const metric = (key: keyof typeof msg.experiments.metrics, unit: string, better: Better) => ({
+  get label() {
+    return msg.experiments.metrics[key];
+  },
+  unit,
+  better,
+});
+
+const METRIC_LABELS: Readonly<Record<string, { readonly label: string; unit: string; better: Better }>> = {
+  'server.app.requests': metric('server.app.requests', 'count', 'lower'),
+  'server.origin.requests': metric('server.origin.requests', 'count', 'lower'),
+  'client.requests': metric('client.requests', 'count', 'neutral'),
+  'client.errors': metric('client.errors', 'count', 'lower'),
+  'client.cdnHitRatio': metric('client.cdnHitRatio', 'ratio', 'higher'),
+  'client.hitRatio': metric('client.hitRatio', 'ratio', 'higher'),
 };
 
-const PCT_LABEL: Readonly<Record<string, string>> = { ttfb: '首字节时间', latency: '延迟', duration: '耗时' };
+const PCT_LABEL: Readonly<Record<string, string>> = msg.experiments.pctLabel;
 
 export function metricMeta(path: string): { label: string; unit: string; better: Better } {
   const hit = METRIC_LABELS[path];
   if (hit) return hit;
   const pct = /(?:^|\.)(ttfb|latency|duration)\.(p\d{2})$/i.exec(path);
-  if (pct) return { label: `${PCT_LABEL[pct[1]!.toLowerCase()]} ${pct[2]!.toLowerCase()}（毫秒）`, unit: 'ms', better: 'lower' };
+  if (pct) return { label: t(msg.experiments.pctMetric, { name: PCT_LABEL[pct[1]!.toLowerCase()], p: pct[2]!.toLowerCase() }), unit: 'ms', better: 'lower' };
   const leaf = path.split('.').pop() ?? path;
   const unit = /ratio|rate$/i.test(leaf) ? 'ratio' : /(^|[^a-z])(p50|p90|p95|p99|ms|latency|ttfb|duration)/i.test(path) ? 'ms' : 'count';
   const better: Better = /error|lost|fail|latency|ttfb|p50|p95|p99|ms/i.test(path) ? 'lower' : /hit|ratio|success/i.test(path) ? 'higher' : 'neutral';

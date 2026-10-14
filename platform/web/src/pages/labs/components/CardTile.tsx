@@ -8,7 +8,7 @@ import { Fragment, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import { useServices } from '../../../app/context';
 import { pillTarget } from '../../../app/sessionRouting';
-import { t } from '../../../i18n/zh-CN';
+import { msg, t } from '../../../i18n';
 import { CostTierMark, Skeleton, useSecondTick } from '../../../ui';
 import {
   cardStateOf,
@@ -26,6 +26,10 @@ import {
 import { COST_TIER_HINT, DIFFICULTY_TEXT, FLAG_TEXT, PROVISION_HINT, PROVISION_TEXT, S } from '../strings';
 import type { BadgeView, CatalogCard, LabItem, Taxonomy } from '../types';
 import { BadgeMark, badgeStateOf, badgeStateText, DifficultyBar, ServiceAbbr, StateText } from './Marks';
+import { untranslated } from '../../../i18n/content';
+import { UntranslatedIf } from '../../../i18n/Untranslated';
+
+const PL = msg.pages.labs;
 
 /** 把文本中与搜索词相同的片段包进 <mark>（不区分大小写；原 Lab 编号查询不高亮）。 */
 export function highlight(text: string, q: string): ReactNode {
@@ -148,7 +152,7 @@ export function CardTile({ card, tax, item, holder, personal, query, flags }: Ca
             {FLAG_TEXT[f] ?? f}
           </span>
         ))}
-        {hint ? <span className="lab-hit">{hint.kind === 'lab' ? t(S.card.legacy, { n: hint.n }) : `考点：${hint.text}`}</span> : null}
+        {hint ? <span className="lab-hit">{hint.kind === 'lab' ? t(S.card.legacy, { n: hint.n }) : t(PL.topic, { text: hint.text })}</span> : null}
       </div>
       <div className="foot">
         {personal === 'loading' ? (
@@ -195,9 +199,12 @@ export function CardRowCompact({ card, item, holder = null, extra, current }: Ca
       <Link className="id" to={`/labs/${card.id}`}>
         {card.id}
       </Link>
-      <span className="wrap-any">{card.title}</span>
+      <span className="wrap-any">
+        {card.title}
+        <UntranslatedIf show={untranslated(card, '/title')} />
+      </span>
       <span className="faint small">
-        · {DIFFICULTY_TEXT[card.difficulty]} · {card.estimatedMinutes} 分钟 · <CostTierMark tier={card.costTier.required} withOptional={card.costTier.withOptional} />
+        · {DIFFICULTY_TEXT[card.difficulty]} · {t(PL.minutes, { n: card.estimatedMinutes })} · <CostTierMark tier={card.costTier.required} withOptional={card.costTier.withOptional} />
         {isPlanned(card) ? ` · ${S.card.planned}` : ''}
       </span>
       {extra}

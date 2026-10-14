@@ -14,6 +14,8 @@ import type { LabDoc, LabStep, MdNode } from '../model/lab';
 import { resolveTemplate, type VarsResponse } from '../model/vars';
 import { ManualCommand } from './ManualCommand';
 
+import { msg, t } from '../../i18n';
+import { W } from '../strings';
 export interface RenderEnv {
   lab: LabDoc;
   step: LabStep | null;
@@ -29,8 +31,9 @@ export interface RenderEnv {
   blockIndex: WeakMap<MdNode, number>;
 }
 
-const METHOD_TEXT: Record<string, string> = { console: '控制台', cli: 'CLI', script: '脚本', code: '代码' };
-const SAA_DOMAIN: Record<string, string> = { secure: '安全', resilient: '弹性', performance: '高性能', cost: '成本优化' };
+const WD = W.md;
+const METHOD_TEXT: Readonly<Record<string, string>> = WD.method;
+const SAA_DOMAIN: Readonly<Record<string, string>> = WD.domain;
 export const METHOD_PREF_KEY = 'atl.ws.method.v1';
 
 function attr(n: MdNode, k: string): string | undefined {
@@ -75,11 +78,11 @@ export function InlineText({ text, vars }: { text: string; vars: VarsResponse | 
         typeof p === 'string' ? (
           <Fragment key={i}>{p}</Fragment>
         ) : p.value ? (
-          <span key={i} className="vsub" title={`来自变量 ${p.name}`}>
+          <span key={i} className="vsub" title={t(WD.fromVar, { name: p.name })}>
             {p.value}
           </span>
         ) : (
-          <span key={i} className="unres" title={`未填写：${p.name}`}>
+          <span key={i} className="unres" title={t(WD.unfilled, { name: p.name })}>
             {p.placeholder}
           </span>
         ),
@@ -97,7 +100,7 @@ function MethodTabs({ groups, env }: { groups: MdNode[]; env: RenderEnv }) {
   if (groups.length === 1) {
     return (
       <div className="stack-8 method" data-method={kinds[0]}>
-        <span className="small muted">做法：{METHOD_TEXT[kinds[0]!] ?? kinds[0]}</span>
+        <span className="small muted">{t(WD.methodLabel, { m: METHOD_TEXT[kinds[0]!] ?? kinds[0] })}</span>
         <Nodes nodes={groups[0]!.children ?? []} env={env} />
       </div>
     );
@@ -116,8 +119,8 @@ function MethodTabs({ groups, env }: { groups: MdNode[]; env: RenderEnv }) {
   return (
     <div className="stack-8 method">
       <div className="mtabs-row">
-        <span className="small muted">做法</span>
-        <div className="tabs mtabs" role="tablist" aria-label="做法" onKeyDown={onKey}>
+        <span className="small muted">{WD.methods}</span>
+        <div className="tabs mtabs" role="tablist" aria-label={WD.methods} onKeyDown={onKey}>
           {groups.map((g, i) => (
             <button
               key={i}
@@ -134,7 +137,7 @@ function MethodTabs({ groups, env }: { groups: MdNode[]; env: RenderEnv }) {
             </button>
           ))}
         </div>
-        <select className="input mselect" aria-label="做法" value={sel} onChange={(e) => choose(Number(e.target.value))}>
+        <select className="input mselect" aria-label={WD.methods} value={sel} onChange={(e) => choose(Number(e.target.value))}>
           {groups.map((_, i) => (
             <option key={i} value={i}>
               {METHOD_TEXT[kinds[i]!] ?? kinds[i]}
@@ -240,7 +243,7 @@ export function Node({ node: n, env }: { node: MdNode; env: RenderEnv }): ReactN
       return (
         <a href={href} target="_blank" rel="noopener noreferrer">
           <Children node={n} env={env} />
-          <span className="sr">（新标签页）</span>
+          <span className="sr">{msg.app.newTab}</span>
         </a>
       );
     }
@@ -255,7 +258,7 @@ export function Node({ node: n, env }: { node: MdNode; env: RenderEnv }): ReactN
     case 'listItem':
       return (
         <li>
-          {n.checked === true || n.checked === false ? <span aria-label={n.checked ? '已完成' : '未完成'}>{n.checked ? '☑ ' : '☐ '}</span> : null}
+          {n.checked === true || n.checked === false ? <span aria-label={n.checked ? WD.done : WD.notDone}>{n.checked ? '☑ ' : '☐ '}</span> : null}
           {(n.children ?? []).length === 1 && n.children![0]!.type === 'paragraph' ? <Children node={n.children![0]!} env={env} /> : <Children node={n} env={env} />}
         </li>
       );
@@ -315,7 +318,7 @@ function Container({ node: n, env }: { node: MdNode; env: RenderEnv }) {
     case 'why':
       return (
         <details className="why">
-          <summary>为什么</summary>
+          <summary>{WD.why}</summary>
           <div className="small stack-8">
             <Children node={n} env={env} />
           </div>
@@ -324,7 +327,7 @@ function Container({ node: n, env }: { node: MdNode; env: RenderEnv }) {
     case 'reveal':
       return (
         <details className="disc">
-          <summary>{attr(n, 'title') ?? '展开提示'}</summary>
+          <summary>{attr(n, 'title') ?? WD.reveal}</summary>
           <div className="small stack-8">
             <Children node={n} env={env} />
           </div>
@@ -334,7 +337,7 @@ function Container({ node: n, env }: { node: MdNode; env: RenderEnv }) {
     case 'warning':
     case 'danger': {
       const cls = n.name === 'tip' ? 'note blue' : n.name === 'warning' ? 'note amber' : 'note red';
-      const label = n.name === 'tip' ? '提示' : n.name === 'warning' ? '注意' : '危险';
+      const label = n.name === 'tip' ? WD.tip : n.name === 'warning' ? WD.warning : WD.danger;
       return (
         <div className={`${cls} mnote`} role="note">
           {n.name === 'tip' ? <Shape name="dot" /> : <Shape name="tri" />}
@@ -348,7 +351,7 @@ function Container({ node: n, env }: { node: MdNode; env: RenderEnv }) {
     case 'expected':
       return (
         <div className="stack-4 expected">
-          <b className="small">预期结果</b>
+          <b className="small">{WD.expected}</b>
           <div className="small">
             <Children node={n} env={env} />
           </div>
@@ -362,7 +365,7 @@ function Container({ node: n, env }: { node: MdNode; env: RenderEnv }) {
           <Shape name="clock" />
           <div className="stack-4">
             <span className="small">
-              等待：通常需要约 {typical ?? '—'} 分钟{max ? `（最长 ${max} 分钟）` : ''}。等待型检查会自动复查（15、30、45、60 秒之后每 60 秒），页面不可见时暂停。
+              {t(WD.wait, { n: typical ?? '—', max: max ? t(WD.waitMax, { n: max }) : '' })}
             </span>
             <Children node={n} env={env} />
           </div>
@@ -374,8 +377,9 @@ function Container({ node: n, env }: { node: MdNode; env: RenderEnv }) {
       return (
         <details className="disc saa">
           <summary>
-            为什么（SAA）{domain ? ` · ${SAA_DOMAIN[domain] ?? domain}` : ''}
-            {n.attributes?.confusable ? ' · 易混淆' : ''}
+            {WD.whySaa}
+            {domain ? t(WD.domainTail, { d: SAA_DOMAIN[domain] ?? domain }) : ''}
+            {n.attributes?.confusable ? WD.confusable : ''}
           </summary>
           <div className="small stack-8">
             <Children node={n} env={env} />
@@ -388,7 +392,7 @@ function Container({ node: n, env }: { node: MdNode; env: RenderEnv }) {
         <div className="box stack-8 coderef">
           <span className="small mono">
             {attr(n, 'path') ?? ''}
-            {attr(n, 'runsOn') ? ` · 运行于：${attr(n, 'runsOn') === 'lab' ? '实验机' : '工作台'}` : ''}
+            {attr(n, 'runsOn') ? t(WD.runsOn, { where: attr(n, 'runsOn') === 'lab' ? WD.lab : WD.workstation }) : ''}
           </span>
           <Children node={n} env={env} />
         </div>
@@ -418,13 +422,13 @@ function Leaf({ node: n, env }: { node: MdNode; env: RenderEnv }) {
         if (k === 'link' || typeof v !== 'string') continue;
         params[k] = resolveTemplate(v, env.vars).text;
       }
-      const label = n.label ?? (n.children?.length ? collectTexts(n).join('') : '在控制台打开');
+      const label = n.label ?? (n.children?.length ? collectTexts(n).join('') : WD.openConsole);
       return (
         <div>
           <button type="button" className="btn sm" onClick={() => env.onConsoleLink?.(link, params)} data-link={link}>
             <Icon name="ext" />
             <InlineText text={label} vars={env.vars} />
-            <span className="sr">（AWS 控制台，新标签页）</span>
+            <span className="sr">{WD.consoleNewTab}</span>
           </button>
         </div>
       );
@@ -432,11 +436,11 @@ function Leaf({ node: n, env }: { node: MdNode; env: RenderEnv }) {
     case 'open-tab': {
       const tab = attr(n, 'tab');
       if (!tab) return null;
-      const text: Record<string, string> = { 'terminal-lab': '实验机终端', 'terminal-workstation': '工作台终端', console: 'AWS 控制台', preview: '应用预览' };
+      const text: Readonly<Record<string, string>> = WD.tab;
       return (
         <div>
           <button type="button" className="btn sm ghost" onClick={() => env.onOpenTab?.(tab)}>
-            切换到“{text[tab] ?? tab}”
+            {t(WD.switchTo, { tab: text[tab] ?? tab })}
           </button>
         </div>
       );

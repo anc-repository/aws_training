@@ -5,6 +5,9 @@
  * 数值只来自实际记录；差异小于噪声带（10%）时写“差异不明显”；方向只说明变化，不代表好坏。
  */
 
+import { msg, t as tf } from '../../i18n/core';
+
+const C = msg.experiments.chart;
 export type VariantRole = 'baseline' | 'treatment' | 'single';
 export type Better = 'lower' | 'higher' | 'neutral';
 
@@ -28,7 +31,7 @@ export interface MetricRow {
 export const NOISE_BAND = 0.1;
 
 export function isMs(unit: string, label = ''): boolean {
-  return unit === 'ms' || /毫秒/.test(label);
+  return unit === 'ms' || /毫秒|ミリ秒|\(ms\)/.test(label);
 }
 
 export function formatMetricValue(v: number | null | undefined, unit: string): string {
@@ -43,11 +46,12 @@ export function deltaText(a: number | null | undefined, b: number | null | undef
   if (a === null || a === undefined || b === null || b === undefined || !Number.isFinite(a) || !Number.isFinite(b)) return '—';
   const d = b - a;
   const rel = a !== 0 ? Math.abs(d) / Math.abs(a) : d === 0 ? 0 : 1;
-  if (rel < NOISE_BAND) return '差异不明显';
-  if (b === 0 && a !== 0) return '▼ 变为 0';
+  const D = msg.experiments.delta;
+  if (rel < NOISE_BAND) return D.same;
+  if (b === 0 && a !== 0) return D.toZero;
   const down = d < 0;
-  let t = down ? '▼ 下降' : '▲ 上升';
-  if (isMs(unit, label)) t += down ? ' · 更快' : ' · 更慢';
+  let t = down ? D.down : D.up;
+  if (isMs(unit, label)) t += down ? D.faster : D.slower;
   return t;
 }
 
@@ -115,13 +119,13 @@ export function buildBarsChart(metrics: readonly MetricRow[], variants: readonly
       bars.push({ x: labelWidth, y: by + 4, w, h: barH, cls: variantClass(variants, l), label: l, valueText: `${l} ${formatMetricValue(v, m.unit)}`, textX: labelWidth + w + 6, textY: by + 15 });
       by += barH + gap;
     }
-    groups.push({ label: m.label.split('（')[0]!, textY: y + 15, bars, gridY1: y, gridY2: by + 4 });
+    groups.push({ label: m.label.split(/（|\(/)[0]!.trim(), textY: y + 15, bars, gridY1: y, gridY2: by + 4 });
     y = by + groupGap;
   }
   const desc = rows
-    .map((m) => `${m.label}：${labels.map((l) => `${l} ${formatMetricValue(m.values[l], m.unit)}`).join('，')}`)
-    .join('；');
-  return { width, height: y, labelWidth, groups, title: `条形对照：${labels.join(' 与 ')} 的各项指标`, desc };
+    .map((m) => tf(C.descItem, { label: m.label, values: labels.map((l) => `${l} ${formatMetricValue(m.values[l], m.unit)}`).join(C.itemSep) }))
+    .join(C.sep);
+  return { width, height: y, labelWidth, groups, title: tf(C.barsTitle, { labels: labels.join(C.and) }), desc };
 }
 
 export interface LadderChart {
@@ -171,7 +175,7 @@ export function buildLadderChart(metrics: readonly MetricRow[], variants: readon
     baseY: height - 24,
     xTicks: pct.map(({ p }, i) => ({ x: xOf(i), text: p })),
     yTicks: [0, 0.5, 1].map((f) => ({ y: yOf(top * f), text: String(Math.round(top * f)) })),
-    title: `分位阶梯：${pct.map((x) => x.p).join(' / ')}，${labels.join(' 与 ')}`,
+    title: tf(C.ladderTitle, { ps: pct.map((x) => x.p).join(' / '), labels: labels.join(C.and) }),
   };
 }
 

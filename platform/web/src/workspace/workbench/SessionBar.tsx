@@ -14,6 +14,8 @@ import { accruedOf, formatRange, hourlyRangeOf } from '../model/cost';
 import { EXTEND_REASON_TEXT, extendBlock } from '../model/expiry';
 import type { CatalogIndexLite } from '../data/useWorkspaceData';
 
+import { getLocale, LOCALE_NAMES, LOCALES, msg, rich, setLocale, t } from '../../i18n';
+import { W } from '../strings';
 export interface SessionBarProps {
   onExtend: () => void;
   onEnd: () => void;
@@ -62,18 +64,18 @@ export function SessionBar(p: SessionBarProps) {
   const doneModules = new Set((ws.data.progress.data?.steps ?? []).filter((s) => ['done', 'done_manual'].includes(s.state)).map((s) => lab?.targetModules?.find((t) => t.wireStep === s.stepId)?.id).filter(Boolean));
   return (
     <header className="wsbar" data-sessionbar="">
-      <Link className="brand" to="/labs" title="ATL 实验平台（非 AWS 官方）">
+      <Link className="brand" to="/labs" title={msg.app.fullName}>
         <BrandMark />
       </Link>
       <Link className="btn sm ghost" to="/labs">
-        ‹ 目录
+        {W.bar.catalog}
       </Link>
       <div className="ttl">
         {/* 每个画面一个 h1（08 §8.2）；工作台的可见标题是这一行，h1 只给读屏 */}
         <h1 className="sr" tabIndex={-1}>
-          工作台 · {lab?.title ?? v.labId}
+          {t(W.bar.heading, { title: lab?.title ?? v.labId })}
         </h1>
-        <span className="tag">{lab?.kind === 'scenario' ? '场景' : '服务'}</span>
+        <span className="tag">{lab?.kind === 'scenario' ? W.bar.scenario : W.bar.service}</span>
         {blocks.map((s) => {
           const a = abbrOf(index, s.id);
           return (
@@ -85,33 +87,33 @@ export function SessionBar(p: SessionBarProps) {
         <span className="mono small">{v.labId}</span>
         <span className="t small muted wide-only">
           {lab?.title ?? ''}
-          {v.variant && v.variant !== 'default' ? ` · 变体 ${v.variant}` : ''}
+          {v.variant && v.variant !== 'default' ? t(W.bar.variant, { v: v.variant }) : ''}
         </span>
       </div>
       <div className="clock">
         <SessionStatePill state={state} size="sm" />
         {ws.preparing ? (
           <span className="small">
-            已用 <ElapsedClock since={v.createdAt} now={ws.now} /> · 倒计时未开始
+            {rich(W.bar.elapsed, { t: <ElapsedClock since={v.createdAt} now={ws.now} /> })}
           </span>
         ) : v.deadlineAt && ['READY', 'RUNNING', 'EXPIRING'].includes(v.state) ? (
           <>
-            {v.state === 'READY' ? <span className="small muted wide-only">环境已就绪 · 剩余</span> : null}
+            {v.state === 'READY' ? <span className="small muted wide-only">{W.bar.readyRemaining}</span> : null}
             <Countdown deadlineAt={v.deadlineAt} now={ws.now} variant="bar" />
-            {preferred ? <span className="small muted wide-only">{preferred === 'keep' ? `到期后保留 ${preferredKeep?.keepHours ?? preferredKeep?.hours ?? ''} 小时` : '到期时释放'}</span> : null}
+            {preferred ? <span className="small muted wide-only">{preferred === 'keep' ? t(W.bar.keepAfter, { n: preferredKeep?.keepHours ?? preferredKeep?.hours ?? '' }) : W.bar.releaseAtExpiry}</span> : null}
           </>
         ) : v.state === 'KEPT' && v.keep?.until ? (
-          <span className="small">至 {formatClock(v.keep.until)}</span>
+          <span className="small">{t(W.bar.keptUntil, { t: formatClock(v.keep.until) })}</span>
         ) : null}
         {!ws.preparing || hourly ? (
           ws.role === 'O' ? (
             <span className="small muted wide-only" data-cost="">
-              {hourly ? `${formatRange(hourly, cur)}/h（估算）` : '每小时估算未提供'}
+              {hourly ? t(W.bar.hourlyEstimate, { range: formatRange(hourly, cur) }) : W.bar.noHourly}
             </span>
           ) : (
-            <button type="button" className="btn sm ghost wide-only" onClick={p.onCost} title="费用计（估算）" data-cost="">
-              {hourly ? `${formatRange(hourly, cur)}/h` : '每小时估算未提供'}
-              {ws.preparing ? '' : ` · 已产生 ${accrued ? formatRange(accrued, cur) : '未提供'}`}
+            <button type="button" className="btn sm ghost wide-only" onClick={p.onCost} title={W.bar.costTitle} data-cost="">
+              {hourly ? t(W.bar.hourly, { range: formatRange(hourly, cur) }) : W.bar.noHourly}
+              {ws.preparing ? '' : t(W.bar.accrued, { v: accrued ? formatRange(accrued, cur) : W.bar.notProvided })}
             </button>
           )
         ) : null}
@@ -120,27 +122,27 @@ export function SessionBar(p: SessionBarProps) {
         <span className="row wide-only bar-acts">
           {left > 0 ? (
             <button type="button" className="btn sm" aria-disabled={block ? true : undefined} aria-describedby={block ? reasonId : undefined} onClick={() => (block ? undefined : p.onExtend())} data-extend="">
-              延长 {v.limits?.extensionMinutes ?? 30} 分钟（剩 {left} 次）
+              {t(W.bar.extend, { n: v.limits?.extensionMinutes ?? 30, left })}
             </button>
           ) : (
             <button type="button" className="btn sm" aria-disabled="true" aria-describedby={reasonId}>
-              已延长 {used} 次（上限）
+              {t(W.bar.extendedMax, { n: used })}
             </button>
           )}
           <span id={reasonId} className="sr">
-            {block ? EXTEND_REASON_TEXT[block] : '可以延长'}
+            {block ? EXTEND_REASON_TEXT[block] : W.bar.canExtend}
           </span>
           <button type="button" className="btn sm" onClick={p.onEnd} data-end="">
-            结束实验…
+            {W.bar.end}
           </button>
         </span>
       ) : null}
       {canCancel ? (
         <button type="button" className="btn sm wide-only" onClick={p.onCancel} data-cancel-open="">
-          取消…
+          {W.bar.cancel}
         </button>
       ) : null}
-      <Disclosure label={<Icon name="dots" />} ariaLabel="更多" buttonClassName="btn sm ghost icon">
+      <Disclosure label={<Icon name="dots" />} ariaLabel={W.bar.more} buttonClassName="btn sm ghost icon">
         {(close) => (
           <>
             {canCancel ? (
@@ -152,7 +154,7 @@ export function SessionBar(p: SessionBarProps) {
                   p.onCancel();
                 }}
               >
-                取消…
+                {W.bar.cancel}
               </button>
             ) : null}
             {canEnd ? (
@@ -168,7 +170,7 @@ export function SessionBar(p: SessionBarProps) {
                     p.onExtend();
                   }}
                 >
-                  延长 {v.limits?.extensionMinutes ?? 30} 分钟（剩 {left} 次）
+                  {t(W.bar.extend, { n: v.limits?.extensionMinutes ?? 30, left })}
                 </button>
                 <button
                   type="button"
@@ -178,7 +180,7 @@ export function SessionBar(p: SessionBarProps) {
                     p.onEnd();
                   }}
                 >
-                  结束实验…
+                  {W.bar.end}
                 </button>
               </>
             ) : null}
@@ -191,7 +193,7 @@ export function SessionBar(p: SessionBarProps) {
                   p.onCost();
                 }}
               >
-                费用计明细
+                {W.bar.costDetail}
               </button>
             ) : null}
             <button
@@ -202,7 +204,7 @@ export function SessionBar(p: SessionBarProps) {
                 p.onShortcuts();
               }}
             >
-              快捷键帮助
+              {W.bar.shortcuts}
             </button>
             {ws.learner ? (
               <button
@@ -213,27 +215,44 @@ export function SessionBar(p: SessionBarProps) {
                   p.onTermSettings();
                 }}
               >
-                终端设置…
+                {W.bar.termSettings}
               </button>
             ) : null}
-            <div className="mi-group" role="group" aria-label="主题">
-              {(['system', 'light', 'dark'] as ThemePref[]).map((t) => (
+            <div className="mi-group" role="group" aria-label={W.bar.theme}>
+              {(['system', 'light', 'dark'] as ThemePref[]).map((th) => (
                 <button
-                  key={t}
+                  key={th}
                   type="button"
                   className="mi"
-                  aria-pressed={getThemePref() === t}
+                  aria-pressed={getThemePref() === th}
                   onClick={() => {
-                    setThemePref(t);
+                    setThemePref(th);
                     close();
                   }}
                 >
-                  主题：{t === 'system' ? '跟随系统' : t === 'light' ? '亮' : '暗'}
+                  {t(W.bar.themeItem, { v: th === 'system' ? msg.account.themeSystem : th === 'light' ? msg.account.themeLight : msg.account.themeDark })}
+                </button>
+              ))}
+            </div>
+            <div className="mi-group" role="group" aria-label={W.bar.language}>
+              {LOCALES.map((l) => (
+                <button
+                  key={l}
+                  type="button"
+                  className="mi"
+                  lang={l}
+                  aria-pressed={getLocale() === l}
+                  onClick={() => {
+                    close();
+                    setLocale(l);
+                  }}
+                >
+                  {LOCALE_NAMES[l]}
                 </button>
               ))}
             </div>
             <Link className="mi" to={`/sessions/${ws.sid}`} onClick={() => close()}>
-              会话详情
+              {W.bar.sessionDetail}
             </Link>
             {ws.learner && ws.live ? (
               <button
@@ -244,18 +263,18 @@ export function SessionBar(p: SessionBarProps) {
                   p.onCredentials();
                 }}
               >
-                查看 CloudAlbum 管理员账号
+                {W.bar.adminAccount}
               </button>
             ) : null}
             <Link className="mi" to="/labs" onClick={() => close()}>
-              卡片目录（全站导航）
+              {W.bar.catalogNav}
             </Link>
           </>
         )}
       </Disclosure>
       {targets.length ? (
         <div className="wsbar-targets small muted">
-          本卡将依次启用：
+          {W.bar.targets}
           {targets.map((t, i) => (
             <span key={t}>
               {i ? ' → ' : ''}

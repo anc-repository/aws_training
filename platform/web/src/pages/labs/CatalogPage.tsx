@@ -15,7 +15,7 @@ import type { SessionView } from '../../api/types';
 import { useAuth, useServices, useSessionSync } from '../../app/context';
 import { useGlobalStatus } from '../../app/globalStatus';
 import { shortcutsEnabled } from '../../components/globalHooks';
-import { t, zhCN } from '../../i18n/zh-CN';
+import { msg, t } from '../../i18n';
 import { announce } from '../../lib/announce';
 import { lsGet, lsSet, ssGet, ssSet } from '../../lib/storage';
 import { EmptyState, ErrorPanel, Icon, Skeleton } from '../../ui';
@@ -297,7 +297,7 @@ export default function CatalogPage() {
           <button
             type="button"
             className="btn sm ghost icon"
-            aria-label={zhCN.banners.dismiss}
+            aria-label={msg.banners.dismiss}
             onClick={() => {
               ssSet(SETUP_SKIPPED_KEY, undefined);
               setSkipped(false);

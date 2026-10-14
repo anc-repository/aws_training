@@ -20,6 +20,8 @@ import type { WorkspaceTarget } from '../data/types';
 import { TerminalController, overlayOf, type TermPhase, type TermSnapshot, type TermTarget } from './controller';
 import { TerminalView, type TermHandle } from './TerminalView';
 
+import { rich, t } from '../../i18n';
+import { W } from '../strings';
 export const MAX_PER_INSTANCE = 3;
 
 export interface TerminalPaneHandle {
@@ -43,7 +45,8 @@ interface Sub {
   targetAtOpen: string | null;
 }
 
-const HOST_TEXT: Record<TermTarget, string> = { lab: '实验机', workstation: '工作台' };
+const WT = W.terminal;
+const HOST_TEXT: Readonly<Record<TermTarget, string>> = WT.host;
 
 function shortId(id: string | null | undefined): string {
   if (!id) return '—';
@@ -149,7 +152,7 @@ export function TerminalPane({
 
   const addSub = useCallback((): Sub | null => {
     if (subsRef.current.filter((s) => s.ctl.getSnapshot().phase !== 'closed').length >= MAX_PER_INSTANCE) {
-      announce('同一实例最多 3 个终端');
+      announce(WT.limitPerInstance);
       return null;
     }
     const s = make();
@@ -227,10 +230,10 @@ export function TerminalPane({
           {shortId(active?.ctl.getSnapshot().instanceId ?? target?.instanceId)}
         </span>
         <span className="who">
-          {active?.ctl.getSnapshot().runAs ?? target?.runAs ?? 'labuser'} · AWS 身份 {identity}
+          {t(WT.awsIdentity, { user: active?.ctl.getSnapshot().runAs ?? target?.runAs ?? 'labuser', identity })}
         </span>
-        <span className="sr">{which === 'lab' ? '实验机终端里的 AWS CLI 默认使用实例角色；你的学员权限在工作台终端里。' : ''}</span>
-        <div className="subtabs" role="tablist" aria-label={`${HOST_TEXT[which]}终端子标签`} onKeyDown={onSubKey}>
+        <span className="sr">{which === 'lab' ? WT.labIdentityNote : ''}</span>
+        <div className="subtabs" role="tablist" aria-label={t(WT.subtabs, { host: HOST_TEXT[which] })} onKeyDown={onSubKey}>
           {subs.map((s) => (
             <button
               key={s.no}
@@ -245,12 +248,12 @@ export function TerminalPane({
               #{s.no}
             </button>
           ))}
-          <button type="button" aria-label="新开终端" onClick={() => addSub()} disabled={subs.length >= MAX_PER_INSTANCE} title={subs.length >= MAX_PER_INSTANCE ? '同一实例最多 3 个终端' : undefined}>
+          <button type="button" aria-label={WT.newTerminal} onClick={() => addSub()} disabled={subs.length >= MAX_PER_INSTANCE} title={subs.length >= MAX_PER_INSTANCE ? WT.limitPerInstance : undefined}>
             +
           </button>
         </div>
         {active ? (
-          <Disclosure label={<Icon name="dots" />} ariaLabel="终端菜单" buttonClassName="btn sm ghost icon termmenu">
+          <Disclosure label={<Icon name="dots" />} ariaLabel={WT.menu} buttonClassName="btn sm ghost icon termmenu">
             {(close) => (
               <>
                 <button
@@ -259,11 +262,11 @@ export function TerminalPane({
                   onClick={() => {
                     close();
                     const sel = handles.current.get(active.no)?.term.getSelection?.() ?? '';
-                    if (sel) void navigator.clipboard?.writeText(sel).then(() => announce('已复制选中内容'));
-                    else announce('没有选中的内容');
+                    if (sel) void navigator.clipboard?.writeText(sel).then(() => announce(WT.copiedSelection));
+                    else announce(WT.noSelection);
                   }}
                 >
-                  复制选中
+                  {WT.copySelection}
                 </button>
                 <button
                   type="button"
@@ -273,7 +276,7 @@ export function TerminalPane({
                     handles.current.get(active.no)?.term.clear?.();
                   }}
                 >
-                  清屏
+                  {WT.clear}
                 </button>
                 <button
                   type="button"
@@ -283,7 +286,7 @@ export function TerminalPane({
                     addSub();
                   }}
                 >
-                  在新子标签中打开
+                  {WT.openInNewSub}
                 </button>
                 <button
                   type="button"
@@ -293,7 +296,7 @@ export function TerminalPane({
                     closeSub(active.no);
                   }}
                 >
-                  结束会话
+                  {WT.endSession}
                 </button>
               </>
             )}
@@ -322,9 +325,9 @@ export function TerminalPane({
           <div className="term blank">
             <div className="ovl">
               <div className="ob">
-                <b>还没有打开终端</b>
+                <b>{WT.notOpened}</b>
                 <Button size="sm" onClick={() => addSub()}>
-                  打开终端
+                  {WT.open}
                 </Button>
               </div>
             </div>
@@ -359,7 +362,7 @@ function SubTerminal({
   onReplace: () => void;
 }) {
   const s = useSyncExternalStore(sub.ctl.subscribe, sub.ctl.getSnapshot);
-  const label = `${HOST_TEXT[which]}终端 #${sub.no}，${s.instanceId ?? '实例未知'}，${s.runAs ?? 'labuser'}`;
+  const label = t(WT.termLabel, { host: HOST_TEXT[which], no: sub.no, instance: s.instanceId ?? WT.unknownInstance, user: s.runAs ?? 'labuser' });
   return (
     <div className="term" id={`term-${which}-${sub.no}`} role="tabpanel" hidden={!visible} data-phase={s.phase}>
       <TerminalView controller={sub.ctl} label={label} fontSize={fontSize} screenReaderMode={screenReaderMode} visible={visible} onHandle={onHandle} />
@@ -389,22 +392,22 @@ function Overlay({ snap, ctl, which, replaced, newInstance, onReplace }: { snap:
   const body = (() => {
     switch (kind) {
       case 'connecting':
-        return { title: '正在建立 Session Manager 会话…', text: null, actions: null };
+        return { title: WT.connecting, text: null, actions: null };
       case 'agent-offline':
         return {
-          title: `${host}的 SSM Agent 不在线`,
-          text: '常见原因：实例正在重启；网络切换为私有放置但缺少 NAT 或 ssm / ssmmessages / ec2messages 终端节点；Agent 被停止。',
+          title: t(WT.agentOffline, { host }),
+          text: WT.agentOfflineText,
           actions: (
             <>
               <Button size="sm" onClick={() => void ctl.open()}>
-                重试
+                {WT.retry}
               </Button>
               <details className="small">
-                <summary>查看排障步骤</summary>
+                <summary>{WT.troubleshoot}</summary>
                 <ol className="mlist">
-                  <li>在 AWS 控制台确认实验机处于“正在运行”。</li>
-                  <li>私有放置时确认 NAT 网关或 ssm、ssmmessages、ec2messages 接口终端节点存在。</li>
-                  <li>确认实例配置文件仍是 CloudAlbumAppRole，且没有被加上拒绝策略。</li>
+                  <li>{WT.ts1}</li>
+                  <li>{WT.ts2}</li>
+                  <li>{WT.ts3}</li>
                 </ol>
               </details>
               {ws.learner && ws.view.env?.envId ? (
@@ -415,132 +418,132 @@ function Overlay({ snap, ctl, which, replaced, newInstance, onReplace }: { snap:
                     setRepairing(true);
                     try {
                       await api.call('repairEnvironment', { params: { envId: ws.view.env!.envId }, body: {} });
-                      announce('已请求修复环境');
+                      announce(WT.repairRequested);
                     } catch {
-                      announce('修复请求没有完成');
+                      announce(WT.repairFailed);
                     } finally {
                       setRepairing(false);
                     }
                   }}
                 >
-                  修复环境
+                  {WT.repair}
                 </Button>
               ) : null}
             </>
           ),
         };
       case 'not-prepared':
-        return { title: `${host}还在执行平台准备（创建 labuser 等）`, text: '平台会自动重试连接。', actions: null };
+        return { title: t(WT.notPrepared, { host }), text: WT.autoRetry, actions: null };
       case 'access-denied':
-        return { title: '权限不足', text: '学员角色缺少打开终端的权限，这是平台配置问题，不是你的操作问题。', actions: <CopyDiag text={diag} /> };
+        return { title: WT.accessDenied, text: WT.accessDeniedText, actions: <CopyDiag text={diag} /> };
       case 'invalid-document':
-        return { title: '平台文档不可用', text: '平台文档 ATL-SessionShell 不存在或不可用，请重新部署平台。', actions: null };
+        return { title: WT.invalidDocument, text: WT.invalidDocumentText, actions: null };
       case 'handshake-timeout':
         return {
-          title: `${host}没有响应`,
+          title: t(WT.noResponse, { host }),
           text: null,
           actions: (
             <Button size="sm" onClick={() => void ctl.open()}>
-              重新连接
+              {WT.reconnect}
             </Button>
           ),
         };
       case 'reconnecting':
         return {
-          title: `网络中断，正在重连（第 ${Math.max(1, snap.attempt)}/${snap.maxAttempts} 次）`,
+          title: t(WT.reconnecting, { n: Math.max(1, snap.attempt), max: snap.maxAttempts }),
           text: null,
           actions: (
             <Button size="sm" onClick={() => ctl.retryNow()}>
-              立即重试
+              {WT.retryNow}
             </Button>
           ),
         };
       case 'idle':
         return {
-          title: `会话因空闲 ${snap.idleTimeoutMin ?? 20} 分钟被关闭`,
+          title: t(WT.idle, { n: snap.idleTimeoutMin ?? 20 }),
           text: null,
           actions: (
             <Button size="sm" onClick={() => void ctl.open()}>
-              重新连接
+              {WT.reconnect}
             </Button>
           ),
         };
       case 'max-duration':
         return {
-          title: `单个终端会话最长 ${Math.round((snap.maxDurationMin ?? 240) / 60)} 小时，已自动关闭`,
+          title: t(WT.maxDuration, { n: Math.round((snap.maxDurationMin ?? 240) / 60) }),
           text: null,
           actions: (
             <Button size="sm" onClick={() => void ctl.open()}>
-              新开终端
+              {WT.newTerminal}
             </Button>
           ),
         };
       case 'replaced':
         return {
-          title: `${host}已替换：${shortId(snap.instanceId)} → ${shortId(newInstance)}`,
-          text: '命令中的实例 ID 已更新。',
+          title: t(WT.replaced, { host, from: shortId(snap.instanceId), to: shortId(newInstance) }),
+          text: WT.replacedText,
           actions: (
             <Button size="sm" onClick={onReplace}>
-              连接新{host}
+              {t(WT.connectNew, { host })}
             </Button>
           ),
         };
       case 'expected-outage':
         return {
-          title: '预期中断',
-          text: `本步骤会暂时中断平台管理通道，终端与本地检查暂时不可用，这是预期现象${ws.outage ? `；预计在 ${formatClock(ws.outage.until)} 前恢复` : ''}。平台会自动重试连接。`,
+          title: WT.expectedOutage,
+          text: t(WT.expectedOutageText, { until: ws.outage ? t(WT.expectedOutageUntil, { t: formatClock(ws.outage.until) }) : '' }),
           actions: null,
         };
       case 'reauth':
         return {
-          title: '需要重新登录',
-          text: '打开终端要求最近 60 分钟内登录过。',
+          title: WT.reauth,
+          text: WT.reauthText,
           actions: (
             <Button size="sm" onClick={() => void ctl.open()}>
-              重新登录
+              {WT.signInAgain}
             </Button>
           ),
         };
       case 'revoked':
         return {
-          title: '访问已收回',
-          text: '实验已结束，正在收回访问并释放资源。',
+          title: WT.revoked,
+          text: WT.revokedText,
           actions: (
             <Button size="sm" onClick={() => navigate(`/sessions/${ws.sid}/end`)}>
-              查看回收进度
+              {WT.viewReclaim}
             </Button>
           ),
         };
       case 'limit':
-        return { title: '终端数量已达上限', text: '同一实例最多 3 个、整个会话最多 6 个终端。请先结束不用的终端。', actions: null };
+        return { title: WT.limit, text: WT.limitText, actions: null };
       case 'unavailable':
         return {
-          title: '终端暂时不可用',
-          text: snap.error?.code === 'CLIENT_UNAVAILABLE' ? '终端组件没有加载。请刷新页面后重试。' : '平台还没有提供网页终端（开发环境中需要启动本地终端模拟服务）。',
+          title: WT.unavailable,
+          text: snap.error?.code === 'CLIENT_UNAVAILABLE' ? WT.clientUnavailable : WT.notProvided,
           actions: (
             <Button size="sm" onClick={() => void ctl.open()}>
-              重试
+              {WT.retry}
             </Button>
           ),
         };
       case 'closed':
         return {
-          title: snap.reason === 'gone' ? '终端会话已结束，不能续连' : '终端会话已关闭',
+          title: snap.reason === 'gone' ? WT.gone : WT.closed,
           text: snap.closedOutput,
           actions: (
             <Button size="sm" onClick={() => void ctl.open()}>
-              重新连接
+              {WT.reconnect}
             </Button>
           ),
         };
       default:
         return {
-          title: '终端连接失败',
+          title: WT.failed,
           text: snap.error?.message ?? null,
           actions: (
             <>
               <Button size="sm" onClick={() => void ctl.open()}>
-                重新连接
+                {WT.reconnect}
               </Button>
               <CopyDiag text={diag} />
             </>
@@ -567,13 +570,13 @@ function CopyDiag({ text }: { text: string }) {
       onClick={async () => {
         try {
           await navigator.clipboard.writeText(text);
-          announce('已复制诊断信息');
+          announce(WT.copiedDiag);
         } catch {
-          announce('无法访问剪贴板');
+          announce(WT.clipboardDenied);
         }
       }}
     >
-      复制诊断信息
+      {WT.copyDiag}
     </Button>
   );
 }
@@ -582,25 +585,25 @@ function StatusLine({ ctl, tmux, recording }: { ctl: TerminalController; tmux: b
   const s = useSyncExternalStore(ctl.subscribe, ctl.getSnapshot);
   const ok = s.phase === 'ready';
   const meta = ok
-    ? { cls: 'pass', shape: 'dot' as const, text: '已连接' }
+    ? { cls: 'pass', shape: 'dot' as const, text: WT.connected }
     : s.phase === 'reconnecting'
-      ? { cls: 'pend', shape: 'retry' as const, text: '重连中' }
+      ? { cls: 'pend', shape: 'retry' as const, text: WT.reconnectingShort }
       : s.phase === 'connecting' || s.phase === 'requesting' || s.phase === 'handshaking'
-        ? { cls: 'pend', shape: 'clock' as const, text: '连接中' }
-        : { cls: 'faint', shape: 'ring' as const, text: '断开' };
+        ? { cls: 'pend', shape: 'clock' as const, text: WT.connectingShort }
+        : { cls: 'faint', shape: 'ring' as const, text: WT.disconnected };
   return (
     <div className="tstatus">
       <span className={`st ${meta.cls}`} aria-live="polite">
         <Shape name={meta.shape} />
         <span className="t">{meta.text}</span>
       </span>
-      <span>Session Manager · 空闲 {s.idleTimeoutMin ?? 20} 分钟断开</span>
-      {s.busy && !tmux ? <span className="small">正在运行命令</span> : null}
-      {tmux ? <span className="small">tmux 中无法判断终端是否空闲</span> : null}
-      {recording !== 'off' ? <span className="small">本终端的输入输出会记录到 CloudWatch Logs /atl-recordings/terminal-sessions</span> : null}
+      <span>{t(WT.idleNote, { n: s.idleTimeoutMin ?? 20 })}</span>
+      {s.busy && !tmux ? <span className="small">{WT.busy}</span> : null}
+      {tmux ? <span className="small">{WT.tmuxNote}</span> : null}
+      {recording !== 'off' ? <span className="small">{WT.recording}</span> : null}
       <span className="spacer" />
       <span className="kbd-hint">
-        按 <kbd>Ctrl</kbd>+<kbd>.</kbd> 再按 <kbd>M</kbd> 回到手册
+        {rich(WT.backToManual, { ctrl: <kbd>Ctrl</kbd>, dot: <kbd>.</kbd>, m: <kbd>M</kbd> })}
       </span>
     </div>
   );
@@ -641,7 +644,7 @@ function KeyBar({ ctl }: { ctl: TerminalController }) {
   }, [ctrl, alt, ctl]);
   const keys = useMemo(() => KEYS, []);
   return (
-    <div className="keybar" aria-label="终端按键条">
+    <div className="keybar" aria-label={WT.keybar}>
       {keys.map(([k, seq]) =>
         k === 'Ctrl' ? (
           <button key={k} type="button" aria-pressed={ctrl} onClick={() => setCtrl((x) => !x)}>
@@ -652,7 +655,7 @@ function KeyBar({ ctl }: { ctl: TerminalController }) {
             Alt
           </button>
         ) : (
-          <button key={k} type="button" onClick={() => ctl.sendRaw(seq)} aria-label={k === '|' ? '竖线' : k === '~' ? '波浪号' : k === '/' ? '斜杠' : k === '-' ? '减号' : k}>
+          <button key={k} type="button" onClick={() => ctl.sendRaw(seq)} aria-label={k === '|' ? WT.key.pipe : k === '~' ? WT.key.tilde : k === '/' ? WT.key.slash : k === '-' ? WT.key.minus : k}>
             {k}
           </button>
         ),
@@ -664,11 +667,11 @@ function KeyBar({ ctl }: { ctl: TerminalController }) {
             const t = await navigator.clipboard.readText();
             if (t) ctl.paste(t);
           } catch {
-            announce('无法读取剪贴板，请用系统粘贴');
+            announce(WT.readClipboardFailed);
           }
         }}
       >
-        粘贴
+        {WT.paste}
       </button>
     </div>
   );
@@ -685,24 +688,24 @@ function NoTerminal({ which }: { which: TermTarget }) {
       <div className="term blank">
         <div className="ovl">
           <div className="ob">
-            <b>会话已结束，终端不可连接</b>
+            <b>{WT.endedNoConnect}</b>
             {list.length ? (
               <>
-                <span>本会话打开过的终端：</span>
+                <span>{WT.openedList}</span>
                 <ul className="small mlist mono">
                   {list.map((t, i) => (
                     <li key={t.terminalId}>
-                      #{i + 1} · {shortId(t.ssmSessionId ?? t.terminalId)} · {t.openedAt ? formatClock(t.openedAt) : '—'} · {t.status === 'OPEN' ? '打开' : '已关闭'}
+                      #{i + 1} · {shortId(t.ssmSessionId ?? t.terminalId)} · {t.openedAt ? formatClock(t.openedAt) : '—'} · {t.status === 'OPEN' ? WT.statusOpen : WT.statusClosed}
                     </li>
                   ))}
                 </ul>
               </>
             ) : (
-              <span>本会话没有打开过{HOST_TEXT[which]}终端。</span>
+              <span>{t(WT.noneOpened, { host: HOST_TEXT[which] })}</span>
             )}
             {ws.view.readyAt ? (
               <Button size="sm" onClick={() => navigate(`/sessions/${ws.sid}/report`)}>
-                查看报告
+                {WT.viewReport}
               </Button>
             ) : null}
           </div>
@@ -715,19 +718,19 @@ function NoTerminal({ which }: { which: TermTarget }) {
     <div className="term blank">
       <div className="ovl">
         <div className="ob" role={winding ? 'alert' : undefined}>
-          <b>{winding ? '访问已收回' : '本状态下不提供终端'}</b>
+          <b>{winding ? WT.revoked : WT.notInState}</b>
           <span>
             {winding
-              ? '实验已结束，正在收回访问并释放资源。'
+              ? WT.revokedText
               : st === 'KEPT'
-                ? '保留期间没有终端与控制台访问。要继续操作，请开始一个复用该环境的新会话。'
+                ? WT.keptNote
                 : st === 'REQUESTED' || st === 'PROVISIONING'
-                  ? '环境就绪后可用。'
-                  : '会话已结束。'}
+                  ? WT.afterReady
+                  : WT.ended}
           </span>
           {st !== 'REQUESTED' && st !== 'PROVISIONING' ? (
             <Button size="sm" onClick={() => navigate(`/sessions/${ws.sid}/end${st === 'CLEANUP_FAILED' ? '#manual' : ''}`)}>
-              {st === 'KEPT' ? '管理保留' : '查看回收进度'}
+              {st === 'KEPT' ? WT.manageKeep : WT.viewReclaim}
             </Button>
           ) : null}
         </div>

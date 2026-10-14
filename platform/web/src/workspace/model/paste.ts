@@ -7,6 +7,7 @@
  * 默认只粘贴、不回车（bracketed paste 包裹，末尾换行去掉）；“粘贴并执行”需在设置中开启，单行普通命令可勾选“本卡片内不再询问”。
  */
 
+import { msg, t } from '../../i18n';
 export type TerminalTarget = 'lab' | 'workstation';
 export type PasteMode = 'paste' | 'execute';
 
@@ -72,15 +73,15 @@ export function secretReadCommand(paths: readonly string[] | undefined): string 
 }
 
 export function precheckPaste(i: PrecheckInput): PasteRejection | null {
-  if (i.unresolved?.length) return { reason: 'unresolved', names: [...i.unresolved], message: `有 ${i.unresolved.length} 个变量未填写，已定位到变量条` };
+  if (i.unresolved?.length) return { reason: 'unresolved', names: [...i.unresolved], message: t(msg.workspace.paste.unresolved, { n: i.unresolved.length }) };
   if (i.secret)
     return {
       reason: 'secret',
-      message: '命令含密钥占位，不能粘贴。请在实验机上读取密钥后手动输入。',
+      message: msg.workspace.paste.secret,
       readCommand: secretReadCommand(i.secretPaths),
     };
-  if (byteLength(i.text) > PASTE_LIMIT_BYTES) return { reason: 'too-large', message: '命令超过 16KB，只能复制' };
-  if (i.mode === 'execute' && (i.danger || looksDangerous(i.text))) return { reason: 'danger-execute', message: '危险命令不允许“粘贴并执行”，请粘贴后检查再自己按 Enter' };
+  if (byteLength(i.text) > PASTE_LIMIT_BYTES) return { reason: 'too-large', message: msg.workspace.paste.tooLarge };
+  if (i.mode === 'execute' && (i.danger || looksDangerous(i.text))) return { reason: 'danger-execute', message: msg.workspace.paste.dangerExecute };
   return null;
 }
 
@@ -128,7 +129,7 @@ export function evaluatePaste(i: EvaluateInput): PasteDecision {
   const multi = lines > 1;
   const danger = !!i.danger || looksDangerous(text);
   if (multi && !i.terminal.bracketedPaste)
-    return { kind: 'reject', rejection: { reason: 'multiline-unsafe', message: '当前程序不支持安全粘贴，请复制后手动粘贴' } };
+    return { kind: 'reject', rejection: { reason: 'multiline-unsafe', message: msg.workspace.paste.multiline } };
   const notes: ConfirmNote[] = [];
   if (i.expected && i.expected !== i.target) notes.push('mismatch');
   if (i.terminal.busy && !i.terminal.tmux) notes.push('busy');
@@ -149,7 +150,7 @@ export function evaluatePaste(i: EvaluateInput): PasteDecision {
   };
 }
 
-export const TARGET_TEXT: Readonly<Record<TerminalTarget, string>> = { lab: '实验机', workstation: '工作台' };
+export const TARGET_TEXT: Readonly<Record<TerminalTarget, string>> = msg.workspace.paste.target;
 
 /** runsOn → 目标终端（03 §7.1 目标映射；local / browser 只能复制）。 */
 export function targetOfRunsOn(runsOn: string | null | undefined): TerminalTarget | null {

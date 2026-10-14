@@ -3,6 +3,7 @@
  * 时间取会话视图 `reclaim.rescanAt[]`；完成情况取回收报告 `passes[]` 中 mode = RESCAN 的轮次（L A）；`reclaim.followUp = DONE` 时全部完成。
  * 观察者读不到回收报告，只按时间显示“未到 / 已到计划时间”。
  */
+import { msg, t } from '../../i18n';
 export interface ReclaimPass {
   passNo?: number | null;
   mode?: string | null;
@@ -27,9 +28,9 @@ export function offsetText(fromIso: string | null | undefined, atIso: string): s
   if (!fromIso) return '';
   const min = Math.round((Date.parse(atIso) - Date.parse(fromIso)) / 60_000);
   if (!Number.isFinite(min) || min <= 0) return '';
-  if (min <= 60) return `+${min} 分钟`;
+  if (min <= 60) return t(msg.end.offsetMin, { n: min });
   const h = min / 60;
-  return `+${Number.isInteger(h) ? h : h.toFixed(1)} 小时`;
+  return t(msg.end.offsetHour, { n: Number.isInteger(h) ? h : h.toFixed(1) });
 }
 
 export function rescanTimeline(

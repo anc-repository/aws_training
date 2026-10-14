@@ -9,6 +9,29 @@
     "version",
     "questions"
   ],
+  "$defs": {
+    "l10n": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "zh-CN"
+      ],
+      "properties": {
+        "zh-CN": {
+          "type": "string",
+          "minLength": 1
+        },
+        "ja": {
+          "type": "string",
+          "minLength": 1
+        },
+        "en": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    }
+  },
   "properties": {
     "schema": {
       "const": "atl.quiz/v1"
@@ -92,9 +115,16 @@
             }
           },
           "stem": {
-            "type": "string",
-            "minLength": 10,
-            "maxLength": 1200
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 10,
+                "maxLength": 1200
+              },
+              {
+                "$ref": "#/$defs/l10n"
+              }
+            ]
           },
           "options": {
             "type": "array",
@@ -113,9 +143,16 @@
                   "pattern": "^[a-f]$"
                 },
                 "text": {
-                  "type": "string",
-                  "minLength": 1,
-                  "maxLength": 300
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 300
+                    },
+                    {
+                      "$ref": "#/$defs/l10n"
+                    }
+                  ]
                 }
               }
             }
@@ -130,9 +167,16 @@
             }
           },
           "explain": {
-            "type": "string",
-            "minLength": 10,
-            "maxLength": 1200
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 10,
+                "maxLength": 1200
+              },
+              {
+                "$ref": "#/$defs/l10n"
+              }
+            ]
           },
           "relatesTo": {
             "type": "string",

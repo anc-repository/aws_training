@@ -14,6 +14,29 @@
     "completion",
     "certificate"
   ],
+  "$defs": {
+    "l10n": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "zh-CN"
+      ],
+      "properties": {
+        "zh-CN": {
+          "type": "string",
+          "minLength": 1
+        },
+        "ja": {
+          "type": "string",
+          "minLength": 1
+        },
+        "en": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    }
+  },
   "properties": {
     "schema": {
       "const": "atl.track/v2"
@@ -27,18 +50,39 @@
       "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$"
     },
     "title": {
-      "type": "string",
-      "minLength": 2,
-      "maxLength": 40
+      "anyOf": [
+        {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 40
+        },
+        {
+          "$ref": "#/$defs/l10n"
+        }
+      ]
     },
     "summary": {
-      "type": "string",
-      "minLength": 4,
-      "maxLength": 200
+      "anyOf": [
+        {
+          "type": "string",
+          "minLength": 4,
+          "maxLength": 200
+        },
+        {
+          "$ref": "#/$defs/l10n"
+        }
+      ]
     },
     "audience": {
-      "type": "string",
-      "maxLength": 120
+      "anyOf": [
+        {
+          "type": "string",
+          "maxLength": 120
+        },
+        {
+          "$ref": "#/$defs/l10n"
+        }
+      ]
     },
     "domain": {
       "enum": [
@@ -65,8 +109,15 @@
             "pattern": "^[a-z][a-z0-9-]{1,31}$"
           },
           "title": {
-            "type": "string",
-            "maxLength": 40
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 40
+              },
+              {
+                "$ref": "#/$defs/l10n"
+              }
+            ]
           },
           "legacyLabs": {
             "type": "array",
@@ -78,8 +129,15 @@
             }
           },
           "note": {
-            "type": "string",
-            "maxLength": 200
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200
+              },
+              {
+                "$ref": "#/$defs/l10n"
+              }
+            ]
           },
           "items": {
             "type": "array",
@@ -110,8 +168,15 @@
                       "maximum": 30
                     },
                     "note": {
-                      "type": "string",
-                      "maxLength": 120
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "maxLength": 120
+                        },
+                        {
+                          "$ref": "#/$defs/l10n"
+                        }
+                      ]
                     }
                   }
                 },
@@ -130,8 +195,15 @@
                       "pattern": "^[a-z][a-z0-9-]{1,31}$"
                     },
                     "title": {
-                      "type": "string",
-                      "maxLength": 40
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "maxLength": 40
+                        },
+                        {
+                          "$ref": "#/$defs/l10n"
+                        }
+                      ]
                     },
                     "pick": {
                       "type": "integer",
@@ -152,8 +224,15 @@
                       "maximum": 30
                     },
                     "note": {
-                      "type": "string",
-                      "maxLength": 120
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "maxLength": 120
+                        },
+                        {
+                          "$ref": "#/$defs/l10n"
+                        }
+                      ]
                     }
                   }
                 }
@@ -197,8 +276,15 @@
           "type": "boolean"
         },
         "title": {
-          "type": "string",
-          "maxLength": 40
+          "anyOf": [
+            {
+              "type": "string",
+              "maxLength": 40
+            },
+            {
+              "$ref": "#/$defs/l10n"
+            }
+          ]
         }
       }
     }

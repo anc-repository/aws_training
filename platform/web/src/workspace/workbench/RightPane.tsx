@@ -13,11 +13,24 @@ import { PreviewFrame } from '../preview/PreviewFrame';
 import { TerminalPane, type TerminalPaneHandle } from '../terminal/TerminalPane';
 import type { TermPhase, TermTarget } from '../terminal/controller';
 
-export const TAB_META: Readonly<Record<PanelId, { icon: IconName; text: string; short: string }>> = {
-  'terminal-lab': { icon: 'term', text: '实验机', short: '实验机' },
-  'terminal-workstation': { icon: 'term', text: '工作台', short: '工作台' },
-  console: { icon: 'ext', text: 'AWS 控制台', short: '控制台' },
-  preview: { icon: 'preview', text: '应用预览', short: '预览' },
+import { t as tr } from '../../i18n';
+import { W } from '../strings';
+const WR = W.right;
+const tabMeta = (id: PanelId, icon: IconName) => ({
+  icon,
+  get text() {
+    return WR.tab[id];
+  },
+  get short() {
+    return WR.tabShort[id];
+  },
+});
+
+export const TAB_META: Readonly<Record<PanelId, { icon: IconName; readonly text: string; readonly short: string }>> = {
+  'terminal-lab': tabMeta('terminal-lab', 'term'),
+  'terminal-workstation': tabMeta('terminal-workstation', 'term'),
+  console: tabMeta('console', 'ext'),
+  preview: tabMeta('preview', 'preview'),
 };
 
 export const TABS: readonly PanelId[] = ['terminal-lab', 'terminal-workstation', 'console', 'preview'];
@@ -43,14 +56,14 @@ export interface RightPaneProps {
 function TermState({ phase, started }: { phase: TermPhase | null; started: boolean }) {
   const m =
     phase === 'ready'
-      ? { cls: 'pass', shape: 'dot' as const, text: '已连接' }
+      ? { cls: 'pass', shape: 'dot' as const, text: WR.connected }
       : phase === 'reconnecting'
-        ? { cls: 'pend', shape: 'retry' as const, text: '重连中' }
+        ? { cls: 'pend', shape: 'retry' as const, text: WR.reconnecting }
         : phase === 'blocked' || phase === 'failed'
-          ? { cls: 'fail', shape: 'xbox' as const, text: '不可用' }
+          ? { cls: 'fail', shape: 'xbox' as const, text: WR.unavailable }
           : started && phase && phase !== 'closed'
-            ? { cls: 'pend', shape: 'clock' as const, text: '连接中' }
-            : { cls: 'faint', shape: 'ring' as const, text: '断开' };
+            ? { cls: 'pend', shape: 'clock' as const, text: WR.connecting }
+            : { cls: 'faint', shape: 'ring' as const, text: WR.disconnected };
   return (
     <span className={`st ${m.cls}`}>
       <Shape name={m.shape} />
@@ -73,8 +86,8 @@ export function RightPane(p: RightPaneProps) {
   const readOnly = !ws.learner;
   const cloudshell = ws.data.workspace.data?.features?.workstation === 'cloudshell';
   return (
-    <section className="rpane" aria-label="终端、控制台与预览" data-rpane="">
-      <div className="rtabs" role="tablist" aria-label="右侧标签" onKeyDown={onKey}>
+    <section className="rpane" aria-label={WR.region} data-rpane="">
+      <div className="rtabs" role="tablist" aria-label={WR.tabs} onKeyDown={onKey}>
         {TABS.map((t) => {
           const meta = TAB_META[t];
           const which: TermTarget | null = t === 'terminal-lab' ? 'lab' : t === 'terminal-workstation' ? 'workstation' : null;
@@ -97,14 +110,14 @@ export function RightPane(p: RightPaneProps) {
                 {meta.short}
               </span>
               {which && !readOnly && ws.live && !(which === 'workstation' && cloudshell) ? <TermState phase={p.termStatus[which]} started={p.started.has(which)} /> : null}
-              {t === 'console' ? <span className="sr">（新标签页打开）</span> : null}
+              {t === 'console' ? <span className="sr">{WR.newTab}</span> : null}
             </button>
           );
         })}
         <span className="spacer" />
-        <button type="button" className="btn sm ghost lt" aria-disabled="true" title="拆分右栏暂不提供">
+        <button type="button" className="btn sm ghost lt" aria-disabled="true" title={WR.splitNA}>
           <Icon name="split" />
-          <span className="lt">拆分</span>
+          <span className="lt">{WR.split}</span>
         </button>
       </div>
       {TABS.map((t) => (
@@ -146,8 +159,8 @@ function ReadOnlyNotice() {
   return (
     <div className="empty ro-empty">
       <Icon name="lock" />
-      <b>只读：你的角色不能连接终端或控制台</b>
-      <span className="small">助教与观察者永远拿不到 AWS 凭证。可以在手册中查看检测结果{ws.role === 'A' ? '、运行检测并复核手动确认' : ''}。</span>
+      <b>{WR.readOnly}</b>
+      <span className="small">{tr(WR.readOnlyText, { extra: ws.role === 'A' ? WR.readOnlyAssistant : '' })}</span>
     </div>
   );
 }
@@ -157,12 +170,12 @@ function CloudShellCard({ opener }: { opener: ConsoleOpener }) {
   return (
     <div className="cpane stack">
       <div className="box stack-8">
-        <b>CloudShell（省钱模式）</b>
-        <p className="small">本次实验没有启动工作台实例。工作台命令请在 AWS CloudShell 中执行：先打开控制台，再从控制台顶栏打开 CloudShell。手册中工作台命令的“粘贴”改为“复制”。</p>
-        <p className="small muted">省钱模式下对比实验结果无法上传，相关检查只能按规则降级。</p>
+        <b>{WR.cloudshell}</b>
+        <p className="small">{WR.cloudshellText}</p>
+        <p className="small muted">{WR.cloudshellExp}</p>
         <div className="row">
           <Button variant="primary" icon="ext" onClick={() => opener.open()}>
-            在新标签页打开 AWS 控制台
+            {WR.openConsole}
           </Button>
         </div>
       </div>

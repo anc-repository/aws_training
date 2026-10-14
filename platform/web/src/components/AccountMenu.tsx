@@ -11,7 +11,7 @@ import { Link } from 'react-router-dom';
 import { useAuth, useServices } from '../app/context';
 import { useGlobalStatus } from '../app/globalStatus';
 import { getThemePref, setThemePref, type ThemePref } from '../app/theme';
-import { t, zhCN } from '../i18n/zh-CN';
+import { msg, t } from '../i18n';
 import { isMaskedAccountId, maskAccountId } from '../lib/redact';
 import { Disclosure, Icon } from '../ui';
 
@@ -27,9 +27,9 @@ export function AccountMenu() {
     return () => clearTimeout(timer);
   }, [reveal]);
 
-  const a = zhCN.account;
+  const a = msg.account;
   const role = principal?.role ?? null;
-  const roleText = role ? zhCN.roles[role] : '';
+  const roleText = role ? msg.roles[role] : '';
   const name = me?.displayName ?? principal?.username ?? '';
   const region = platform.data?.region ?? '—';
   const accountId = platform.data?.accountId ?? null;
@@ -77,7 +77,7 @@ export function AccountMenu() {
             · {a.region} <span className="mono">{region}</span>
           </div>
           <div className="small muted">
-            {a.drRegion} <span className="mono">{platform.data?.drRegion ?? '—'}</span> · {zhCN.app.name} {platform.data?.version ?? ''} · {a.regionFixed}
+            {a.drRegion} <span className="mono">{platform.data?.drRegion ?? '—'}</span> · {msg.app.name} {platform.data?.version ?? ''} · {a.regionFixed}
           </div>
           <fieldset className="small" data-theme-picker="">
             <legend className="flabel">{a.theme}</legend>

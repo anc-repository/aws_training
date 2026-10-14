@@ -52,6 +52,10 @@ import { SessionBar } from './workbench/SessionBar';
 import { Splitter } from './workbench/Splitter';
 import './workspace.css';
 
+import { t as tr } from '../i18n';
+import { W } from './strings';
+
+const WM = W.main;
 type Dlg =
   | { kind: 'extend' }
   | { kind: 'end'; when: 'now' | 'at-expiry' }
@@ -277,7 +281,7 @@ export function Workspace({ sid, view }: { sid: string; view: SessionView }) {
         return false;
       }
       if (!learner || !live) {
-        announce('环境就绪后可用');
+        announce(WM.afterReady);
         return false;
       }
       // 目标终端未打开：先打开并等待 Ready；超时则不粘贴，保留复制
@@ -287,7 +291,7 @@ export function Workspace({ sid, view }: { sid: string; view: SessionView }) {
       await new Promise((r) => setTimeout(r, 0));
       const h = handleOf(tabTarget);
       if (!h) {
-        announce('终端还没有准备好');
+        announce(WM.termNotReady);
         return false;
       }
       // 03 §7.1：等目标终端 Ready 与 shell 提示符，再按“要粘贴进去的那个终端”的状态判定；
@@ -321,8 +325,8 @@ export function Workspace({ sid, view }: { sid: string; view: SessionView }) {
         },
       );
       if (res.kind === 'not-connected') {
-        const lead = res.newTab ? '新的终端子标签没有连上' : '终端还没有连上';
-        announce(res.copied ? `${lead}，命令已复制，可以连上后手动粘贴` : `${lead}，请先复制命令，连上后手动粘贴`);
+        const lead = res.newTab ? WM.newSubNotConnected : WM.notConnected;
+        announce(tr(res.copied ? WM.notConnectedCopied : WM.notConnectedCopy, { lead }));
         return false;
       }
       if (res.kind === 'rejected') {
@@ -338,7 +342,7 @@ export function Workspace({ sid, view }: { sid: string; view: SessionView }) {
         setFlash(PANEL_OF[tabTarget]);
         setTimeout(() => setFlash(null), 150);
       }
-      announce(`已粘贴到 ${TARGET_TEXT[tabTarget]}终端 #${h.activeNo()}，检查后按 Enter 执行`);
+      announce(tr(WM.pasted, { target: TARGET_TEXT[tabTarget], no: h.activeNo() }));
       void sha256Hex(normalizePasteText(text)).then((textSha256) =>
         reporter?.push('workspace.command_pasted', { stepId: meta.stepId, blockIndex: meta.blockIndex, tab: PANEL_OF[tabTarget], mode, textSha256, dangerous: !!meta.dangerous }),
       );
@@ -357,12 +361,12 @@ export function Workspace({ sid, view }: { sid: string; view: SessionView }) {
   const runStepCheck = useCallback(
     (stepId: string, opts: { checkIds?: string[]; force?: boolean } = {}) => {
       if (!(role === 'L' || role === 'A') || !live) {
-        announce(preparing ? '环境就绪后可用' : '实验已结束，不能再检测');
+        announce(preparing ? WM.afterReady : WM.ended);
         return;
       }
       runner.runStep(stepId, opts).then(
-        () => announce('已开始检测', { topic: `check-start:${stepId}` }),
-        () => announce('检测没有开始，请稍后重试'),
+        () => announce(WM.checkStarted, { topic: `check-start:${stepId}` }),
+        () => announce(WM.checkNotStarted),
       );
     },
     [role, live, preparing, runner],
@@ -380,8 +384,8 @@ export function Workspace({ sid, view }: { sid: string; view: SessionView }) {
       runLabCheck: () => {
         if (!(role === 'L' || role === 'A') || !live) return;
         void runner.runScope('lab').then(
-          () => announce('已开始检测整张卡片'),
-          () => announce('检测没有开始'),
+          () => announce(WM.labCheckStarted),
+          () => announce(WM.labCheckNotStarted),
         );
       },
       openCheck: (checkId) => setParam('check', checkId),
@@ -391,7 +395,7 @@ export function Workspace({ sid, view }: { sid: string; view: SessionView }) {
       focusManual: () => {
         if (segmented) setSeg('manual');
         setTimeout(() => (document.querySelector('[data-step-heading]') as HTMLElement | null)?.focus(), 0);
-        announce('已回到手册');
+        announce(WM.backToManual);
       },
       checks: runner,
       onCommandFinished: (cb) => {
@@ -411,9 +415,9 @@ export function Workspace({ sid, view }: { sid: string; view: SessionView }) {
     if ((was === 'REQUESTED' || was === 'PROVISIONING') && (view.state === 'READY' || view.state === 'RUNNING')) {
       setReadyFlash(true);
       setSeg('manual');
-      announce('环境已就绪，倒计时已开始', { politeness: 'polite' });
+      announce(WM.readyAnnounce, { politeness: 'polite' });
       try {
-        if (document.hidden && typeof Notification !== 'undefined' && Notification.permission === 'granted') new Notification('ATL 实验平台', { body: `${view.labId} 的实验环境已就绪` });
+        if (document.hidden && typeof Notification !== 'undefined' && Notification.permission === 'granted') new Notification(WM.notifTitle, { body: tr(WM.notifReady, { labId: view.labId }) });
       } catch {
         /* 尽力送达 */
       }
@@ -463,7 +467,7 @@ export function Workspace({ sid, view }: { sid: string; view: SessionView }) {
           try {
             if (!document.hidden || typeof Notification === 'undefined' || Notification.permission !== 'granted' || sessionStorage.getItem(key)) return;
             sessionStorage.setItem(key, '1');
-            new Notification('ATL 实验平台', { body: `${view.labId} 还剩 ${m} 分钟，到期后自动收回访问并释放资源。` });
+            new Notification(WM.notifTitle, { body: tr(WM.notifRemaining, { labId: view.labId, n: m }) });
           } catch {
             /* 尽力送达 */
           }
@@ -582,7 +586,7 @@ export function Workspace({ sid, view }: { sid: string; view: SessionView }) {
           } catch {
             /* 忽略 */
           }
-          announce(n.screenReader ? '终端读屏模式已开启' : '终端读屏模式已关闭');
+          announce(n.screenReader ? WM.srOn : WM.srOff);
           return n;
         });
         return;
@@ -625,7 +629,7 @@ export function Workspace({ sid, view }: { sid: string; view: SessionView }) {
   };
   const extendReason = extendBlock(view, allowed, { learner, uninstalling: guard.uninstalling, budgetExceeded: guard.budgetExceeded, nowMs });
 
-  const segItems: { id: string; text: string }[] = preparing || render.screen === 'P04' ? [{ id: 'prov', text: '进度' }, { id: 'manual', text: '手册' }] : [{ id: 'manual', text: '手册' }, ...PANELS.map((p) => ({ id: p, text: TAB_META[p].short }))];
+  const segItems: { id: string; text: string }[] = preparing || render.screen === 'P04' ? [{ id: 'prov', text: WM.segProgress }, { id: 'manual', text: WM.segManual }] : [{ id: 'manual', text: WM.segManual }, ...PANELS.map((p) => ({ id: p, text: TAB_META[p].short }))];
   const segActive = segmented ? seg : null;
   const rightIsP04 = render.screen === 'P04' || readyFlash;
 
@@ -649,15 +653,15 @@ export function Workspace({ sid, view }: { sid: string; view: SessionView }) {
               const envId = view.env?.envId;
               if (!envId) return;
               void api.call('repairEnvironment', { params: { envId }, body: {} }).then(
-                () => announce('已请求修复环境'),
-                () => announce('修复请求没有完成'),
+                () => announce(WM.repairRequested),
+                () => announce(WM.repairFailed),
               );
             }}
             extendBlocked={extendReason ? EXTEND_REASON_TEXT[extendReason] : null}
           />
           {segmented ? (
-            <nav className="wsseg" aria-label="工作台分段">
-              <div className="seg" role="group" aria-label="显示">
+            <nav className="wsseg" aria-label={WM.segNav}>
+              <div className="seg" role="group" aria-label={WM.segShow}>
                 {segItems.map((s) => (
                   <button
                     key={s.id}
@@ -684,7 +688,7 @@ export function Workspace({ sid, view }: { sid: string; view: SessionView }) {
                 <button
                   type="button"
                   className="btn sm icon"
-                  aria-label="展开手册"
+                  aria-label={WM.expandManual}
                   onClick={() => {
                     const next = { split: layout.split, collapsed: false };
                     setLayout(next);
@@ -741,12 +745,12 @@ export function Workspace({ sid, view }: { sid: string; view: SessionView }) {
           </div>
           {leaderWait ? (
             <div className="leader-hint" role="status" aria-live="polite">
-              等待第二个键…
+              {WM.leaderWait}
             </div>
           ) : null}
           {t5Hint ? (
             <div className="leader-hint" role="status">
-              将显示到期提醒
+              {WM.t5Hint}
             </div>
           ) : null}
           {overlay && render.screen === 'P05' ? <ExpiredOverlay kind={overlay} /> : null}

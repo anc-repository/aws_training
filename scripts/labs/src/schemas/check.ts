@@ -4,6 +4,7 @@
  * Written to `labs/_schema/check.schema.json` by `labs:schema`. Cross-field rules (whitelists, once/must-hold, references)
  * are lint rules A7–A10 in `lint/card.ts`.
  */
+import { L10N_SCHEMA, l10n } from './l10n.js';
 
 const assertion = {
   type: 'object',
@@ -17,7 +18,7 @@ const assertion = {
         'len_eq', 'len_gte', 'len_lte', 'every', 'some', 'healthy'],
     },
     value: {},
-    label: { type: 'string', maxLength: 60 },
+    label: l10n({ type: 'string', maxLength: 60 }),
     severity: { enum: ['error', 'warn'] },
   },
 } as const;
@@ -27,13 +28,13 @@ const manualSpec = {
   additionalProperties: false,
   properties: {
     where: { type: 'object' },
-    confirm: { type: 'string', maxLength: 300 },
+    confirm: l10n({ type: 'string', maxLength: 300 }),
     observed: {
       type: 'object',
       additionalProperties: false,
       required: ['question'],
       properties: {
-        question: { type: 'string', maxLength: 200 },
+        question: l10n({ type: 'string', maxLength: 200 }),
         options: {
           type: 'array',
           minItems: 2,
@@ -43,9 +44,9 @@ const manualSpec = {
             required: ['value', 'label'],
             properties: {
               value: { type: 'string' },
-              label: { type: 'string', maxLength: 80 },
+              label: l10n({ type: 'string', maxLength: 80 }),
               expected: { type: 'boolean' },
-              fixHint: { type: 'string', maxLength: 200 },
+              fixHint: l10n({ type: 'string', maxLength: 200 }),
             },
           },
         },
@@ -76,6 +77,7 @@ export const CHECK_SCHEMA = {
     pitfalls: { type: 'array', items: { $ref: '#/$defs/pitfall' } },
   },
   $defs: {
+    l10n: L10N_SCHEMA,
     checkId: { type: 'string', pattern: '^[a-z][a-z0-9-]{1,47}$' },
     assertion,
     runCommand: {
@@ -135,7 +137,7 @@ export const CHECK_SCHEMA = {
       properties: {
         id: { $ref: '#/$defs/checkId' },
         extends: { type: 'string', pattern: '^guide:' },
-        title: { type: 'string', minLength: 4, maxLength: 80 },
+        title: l10n({ type: 'string', minLength: 4, maxLength: 80 }),
         type: { enum: ['local', 'capability', 'http-header', 'aws-readonly', 'experiment', 'manual'] },
         required: { type: 'boolean' },
         when: { type: 'string', maxLength: 200 },
@@ -163,7 +165,7 @@ export const CHECK_SCHEMA = {
           additionalProperties: false,
           properties: { keep: { type: 'array', items: { type: 'string' } }, redact: { type: 'array', items: { type: 'string' } } },
         },
-        explain: { type: 'string', maxLength: 400 },
+        explain: l10n({ type: 'string', maxLength: 400 }),
         reproduce: { $ref: '#/$defs/runCommand' },
         pitfalls: { type: 'array', items: { type: 'string', pattern: '^[a-z][a-z0-9-]{1,47}$' } },
         saaDomain: { enum: ['secure', 'resilient', 'performance', 'cost'] },
@@ -243,8 +245,8 @@ export const CHECK_SCHEMA = {
       required: ['id', 'cause', 'fix'],
       properties: {
         id: { type: 'string', pattern: '^[a-z][a-z0-9-]{1,47}$' },
-        title: { type: 'string', maxLength: 80 },
-        symptom: { type: 'string', maxLength: 200 },
+        title: l10n({ type: 'string', maxLength: 80 }),
+        symptom: l10n({ type: 'string', maxLength: 200 }),
         match: {
           type: 'array',
           minItems: 1,
@@ -259,8 +261,8 @@ export const CHECK_SCHEMA = {
             },
           },
         },
-        cause: { type: 'string', maxLength: 300 },
-        fix: { type: 'string', maxLength: 300 },
+        cause: l10n({ type: 'string', maxLength: 300 }),
+        fix: l10n({ type: 'string', maxLength: 300 }),
       },
     },
   },

@@ -4,11 +4,11 @@
  */
 import { Component, type ErrorInfo, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
-import { t, zhCN } from '../i18n/zh-CN';
+import { msg, t } from '../i18n';
 import type { Role } from '../auth/jwt';
 import { Button, EmptyState } from '../ui';
 
-const p = zhCN.p13;
+const p = msg.p13;
 
 export function NotFoundPage() {
   return (
@@ -17,7 +17,7 @@ export function NotFoundPage() {
       title={p.notFoundTitle}
       action={
         <Link className="btn" to="/labs">
-          {zhCN.app.backToCatalog}
+          {msg.app.backToCatalog}
         </Link>
       }
     >
@@ -33,11 +33,11 @@ export function RoleDeniedPage({ role }: { role: Role | null }) {
       title={p.roleDeniedTitle}
       action={
         <Link className="btn" to="/labs">
-          {zhCN.app.backToCatalog}
+          {msg.app.backToCatalog}
         </Link>
       }
     >
-      {t(p.roleDenied, { role: role ? zhCN.roles[role] : '—' })}
+      {t(p.roleDenied, { role: role ? msg.roles[role] : '—' })}
     </EmptyState>
   );
 }
@@ -50,7 +50,7 @@ export function NoRolePage({ onSignOut }: { onSignOut: () => void }) {
         title={p.noRoleTitle}
         action={
           <Button variant="primary" onClick={onSignOut}>
-            {zhCN.account.signOut}
+            {msg.account.signOut}
           </Button>
         }
       >
@@ -68,7 +68,7 @@ export function PlatformUnavailablePage({ onRetry }: { onRetry: () => void }) {
         title={p.platformUnavailableTitle}
         action={
           <Button icon="refresh" onClick={onRetry}>
-            {zhCN.app.retry}
+            {msg.app.retry}
           </Button>
         }
       >
@@ -107,7 +107,7 @@ export class ErrorBoundary extends Component<{ children: ReactNode; resetKey?: s
         title={p.pageErrorTitle}
         action={
           <Button icon="refresh" onClick={() => window.location.reload()}>
-            {zhCN.app.reload}
+            {msg.app.reload}
           </Button>
         }
       >

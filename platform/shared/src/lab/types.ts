@@ -1,7 +1,12 @@
 /**
  * TypeScript types of `lab.yaml` v2 (`atl.lab/v2`) — hand-written from the JSON Schema in 04 §3.3
  * (`lab-schema.generated.ts`). Structure only; cross-field rules are enforced by `labs:lint` (04 §3.5).
+ *
+ * Learner-facing text is generic over `S`: `LabV2` (S = string) is a card resolved to one language — what labs:build
+ * writes and what the API, the checks and the web read; `LabV2Source` (S = LocalizedText) is lab.yaml as written, where
+ * every text field may be `{ zh-CN, ja?, en? }` (09-i18n-and-visual.md §2, decision I4).
  */
+import type { LocalizedText } from './l10n.js';
 
 export type CardId = string;
 export type StepId = string;
@@ -18,34 +23,34 @@ export type EnvMap = Record<string, Scalar>;
 export type ParamMap = Record<string, Scalar>;
 export type SaaDomain = 'secure' | 'resilient' | 'performance' | 'cost';
 
-export interface LabV2 {
+export interface LabV2<S = string> {
   schema: 'atl.lab/v2';
   id: CardId;
   kind: 'service' | 'scenario';
-  service?: string;
-  function?: string;
+  service?: S;
+  function?: S;
   version: string;
   status?: 'draft' | 'beta' | 'stable' | 'deprecated';
-  title: string;
-  subtitle?: string;
-  summary: string;
-  story?: string;
-  scenario?: { question: string; constraints?: string[]; antiPatterns?: string[] };
-  objectives?: { text: string; domain: SaaDomain; relatesTo?: StepId }[];
+  title: S;
+  subtitle?: S;
+  summary: S;
+  story?: S;
+  scenario?: { question: S; constraints?: S[]; antiPatterns?: S[] };
+  objectives?: { text: S; domain: SaaDomain; relatesTo?: StepId }[];
   difficulty: 'intro' | 'beginner' | 'intermediate' | 'advanced';
   estimatedMinutes: number;
   timeLimitMinutes: number;
   extensions: { maxCount: number; minutesEach: number };
-  retain: { allowed: boolean; maxHours?: number; reason?: string };
+  retain: { allowed: boolean; maxHours?: number; reason?: S };
   regions?: { supported?: string[]; alsoUses?: ('global' | 'us-east-1')[]; extra?: 'dr-region'[] };
-  services: LabService[];
+  services: LabService<S>[];
   modules: { target: ModuleId[]; start: ModuleId[]; context?: ModuleId[]; related?: ModuleId[] };
   prerequisites?: {
     cards?: { id: CardId; kind: 'soft' | 'hard' }[];
     learnerInputs?: { id: LearnerInputId; required?: boolean }[];
-    knowledge?: string[];
+    knowledge?: S[];
   };
-  startProfile: StartProfile;
+  startProfile: StartProfile<S>;
   targetModules: TargetModule[];
   expectedWarnings?: RuleId[];
   acceptedDrift?: string[];
@@ -60,31 +65,34 @@ export interface LabV2 {
     accountImpact?: {
       id: string;
       scope: 'account' | 'region';
-      resource: string;
+      resource: S;
       preexisting?: 'adopt-readonly' | 'not-applicable';
       revert: 'delete' | 'restore' | 'keep' | 'manual';
-      note?: string;
+      note?: S;
     }[];
   };
-  variables?: Record<string, LabVariable>;
-  cost: LabCost;
+  variables?: Record<string, LabVariable<S>>;
+  cost: LabCost<S>;
   provision: { class: 'A' | 'B' | 'C' | 'D'; budgetMinutes?: number; cleanupBudgetMinutes?: number };
-  steps: LabStep[];
+  steps: LabStep<S>[];
   finalChecks?: CheckRef[];
-  experiments?: LabExperiment[];
+  experiments?: LabExperiment<S>[];
   quiz?: { file: 'quiz.yaml'; draw?: number };
-  badge: { title: string; short?: string; icon?: string };
+  badge: { title: S; short?: S; icon?: string };
   tracks: string[];
-  cleanup: LabCleanup;
-  saa: LabSaa;
+  cleanup: LabCleanup<S>;
+  saa: LabSaa<S>;
   tags: string[];
   permissions?: { learner?: string[]; notes?: string };
-  platformOps?: PlatformOp[];
+  platformOps?: PlatformOp<S>[];
   keepablePrerequisites?: ('route53-hosted-zone' | 'ses-identity' | 'acm-certificate')[];
   extraStacks?: ExtraStack[];
-  certificate?: { enabled?: boolean; title?: string; maxManualChecks?: number };
+  certificate?: { enabled?: boolean; title?: S; maxManualChecks?: number };
   owners?: string[];
 }
+
+/** lab.yaml as written: text fields may be localized objects (04 §3.3 `$defs.l10n`). */
+export type LabV2Source = LabV2<LocalizedText>;
 
 export type LearnerInputId =
   | 'domain'
@@ -96,9 +104,9 @@ export type LearnerInputId =
   | 'budget-amounts'
   | 'cost-tags-active';
 
-export interface LabService {
+export interface LabService<S = string> {
   id: ServiceId;
-  name?: string;
+  name?: S;
   role: 'primary' | 'supporting' | 'observed' | 'context';
   module?: ModuleId;
   featureOf?: ServiceId;
@@ -106,7 +114,7 @@ export interface LabService {
   creditBy?: StepId[];
 }
 
-export interface ProvisionItem {
+export interface ProvisionItem<S = string> {
   item: string;
   kind: 'module' | 'local' | 'runtime' | 'seed' | 'platform';
   basis?: 'credential' | 'closure' | 'precursor' | 'context';
@@ -115,34 +123,34 @@ export interface ProvisionItem {
   value?: Scalar;
   rule?: RuleId | RuleId[];
   contextKind?: 'https-entry' | 'protected-data' | 'shorten-wait' | 'realism';
-  reason: string;
+  reason: S;
 }
 
 export interface PlatformStart {
   preview: { directHttps: 'on' | 'off' };
 }
 
-export type Branches = Record<RuleId, { choose: ModuleId; reason: string }>;
+export type Branches<S = string> = Record<RuleId, { choose: ModuleId; reason: S }>;
 
-export interface StartProfile {
+export interface StartProfile<S = string> {
   base?: 'l0-ec2';
-  provisions: ProvisionItem[];
-  branches?: Branches;
+  provisions: ProvisionItem<S>[];
+  branches?: Branches<S>;
   platform: PlatformStart;
-  variants?: StartVariant[];
-  reason: string;
+  variants?: StartVariant<S>[];
+  reason: S;
 }
 
-export interface StartVariant {
+export interface StartVariant<S = string> {
   id: string;
-  title: string;
+  title: S;
   select: 'learner' | 'preflight';
   when?: Expr;
-  provisions: ProvisionItem[];
-  branches?: Branches;
+  provisions: ProvisionItem<S>[];
+  branches?: Branches<S>;
   platform?: PlatformStart;
   targetModules?: TargetModule[];
-  reason: string;
+  reason: S;
 }
 
 export interface TargetModule {
@@ -156,21 +164,21 @@ export interface TargetModule {
   optional?: boolean;
 }
 
-export type LabVariable =
-  | { label: string; from: 'input'; pattern: string; fillFrom?: string; example?: string; help?: string }
-  | { label: string; from: 'derived'; fillFrom: string; pattern?: string; example?: string; help?: string };
+export type LabVariable<S = string> =
+  | { label: S; from: 'input'; pattern: string; fillFrom?: string; example?: string; help?: S }
+  | { label: S; from: 'derived'; fillFrom: string; pattern?: string; example?: string; help?: S };
 
-export interface LabCost {
+export interface LabCost<S = string> {
   currency?: 'USD';
   tier: 'low' | 'medium' | 'high';
   tierWithOptional?: 'low' | 'medium' | 'high';
-  mainDrivers?: string[];
-  basis: CostItem[];
-  assumptions?: string[];
+  mainDrivers?: S[];
+  basis: CostItem<S>[];
+  assumptions?: S[];
 }
 
-export type CostItem =
-  | { ref: 'start-profile' | 'workstation' | 'target-modules' | 'extra-stacks'; note?: string }
+export type CostItem<S = string> =
+  | { ref: 'start-profile' | 'workstation' | 'target-modules' | 'extra-stacks'; note?: S }
   | {
       key: string;
       pricingKey: string;
@@ -181,28 +189,28 @@ export type CostItem =
       source: 'start-profile' | 'workstation' | 'target' | 'learner-created' | 'extra-stack' | 'platform';
       optional?: boolean;
       whenRetained?: boolean;
-      note?: string;
+      note?: S;
     };
 
 export type StepType = 'console' | 'cli' | 'script' | 'code' | 'observe' | 'experiment';
 
-export interface LabStep {
+export interface LabStep<S = string> {
   id: StepId;
   type: StepType;
-  title: string;
+  title: S;
   manual: string;
   from?: GuideRef;
   wire?: boolean;
-  optional?: boolean | { reason: string; when?: Expr };
+  optional?: boolean | { reason: S; when?: Expr };
   when?: Expr;
   requires?: { steps?: StepId[]; runtime?: ModuleId[] };
   supersedes?: StepId[];
   estMinutes?: number;
   methods?: ('console' | 'cli' | 'script' | 'code')[];
   panel?: 'terminal-lab' | 'terminal-workstation' | 'console' | 'preview';
-  startsBilling?: { class: 'hourly' | 'usage' | 'fixed-monthly'; pricingKeys: string[]; note?: string };
-  wait?: { typicalMinutes: number; maxMinutes: number; text?: string };
-  expectedOutage?: { channel: 'lab' | 'workstation' | 'both'; maxMinutes: number; reason: string };
+  startsBilling?: { class: 'hourly' | 'usage' | 'fixed-monthly'; pricingKeys: string[]; note?: S };
+  wait?: { typicalMinutes: number; maxMinutes: number; text?: S };
+  expectedOutage?: { channel: 'lab' | 'workstation' | 'both'; maxMinutes: number; reason: S };
   checks: CheckRef[];
   experiment?: { module: ModuleId; id: string; label: LabelId };
   pitfalls?: ({ ref: GuideRef } | { id: string; symptom: unknown; match: unknown; cause: unknown; fix: unknown })[];
@@ -222,16 +230,16 @@ export type CheckRef =
       drift?: { policy?: 'must-hold' | 'once'; monitor?: boolean };
     };
 
-export type ExperimentLabel =
+export type ExperimentLabel<S = string> =
   | 'before'
   | 'after'
   | 'run'
-  | { id: LabelId; role: 'baseline' | 'treatment' | 'single'; title?: string; requires?: Record<ModuleId, string> };
+  | { id: LabelId; role: 'baseline' | 'treatment' | 'single'; title?: S; requires?: Record<ModuleId, string> };
 
-export interface LabExperiment {
+export interface LabExperiment<S = string> {
   module: ModuleId;
   id: string;
-  labels: ExperimentLabel[];
+  labels: ExperimentLabel<S>[];
   pairs?: [LabelId, LabelId][];
   requiredLabels?: LabelId[];
   required: boolean;
@@ -256,27 +264,27 @@ export interface ExtraStack {
   reclaim: { phase: 'before-modules' | 'after-modules'; notes?: string };
 }
 
-export interface PlatformOp {
+export interface PlatformOp<S = string> {
   id: string;
   op: 'enable' | 'disable';
   module: ModuleId;
   args?: Record<string, string | number | boolean>;
-  title: string;
-  confirm?: string;
+  title: S;
+  confirm?: S;
   optional?: boolean;
   interruptsManagementChannel?: boolean;
 }
 
-export interface LabCleanup {
-  summary: string;
+export interface LabCleanup<S = string> {
+  summary: S;
   autoReclaim: true;
-  dataRisk?: string[];
-  learnerCreatedHints?: { resourceType: string; how: string }[];
+  dataRisk?: S[];
+  learnerCreatedHints?: { resourceType: string; how: S }[];
   verify?: CheckRef[];
 }
 
-export interface LabSaa {
+export interface LabSaa<S = string> {
   domains: SaaDomain[];
-  topics?: ({ ref: GuideRef } | { id: string; title: string; domain: SaaDomain; relatesTo?: StepId })[];
-  confusables?: ({ ref: GuideRef } | { a: string; b: string; rule: string })[];
+  topics?: ({ ref: GuideRef } | { id: string; title: S; domain: SaaDomain; relatesTo?: StepId })[];
+  confusables?: ({ ref: GuideRef } | { a: S; b: S; rule: S })[];
 }

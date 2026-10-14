@@ -33,6 +33,9 @@ import { RescanTimeline } from './RescanTimeline';
 import { isOpen, normalizeResource } from './resources';
 import { ResourceStages } from './ResourceStages';
 
+import { msg, rich, t } from '../../i18n';
+
+const EP = msg.end.page;
 export interface CleanupReport {
   sessionId: string;
   envId?: string | null;
@@ -52,9 +55,9 @@ const RECLAIM_EVENTS = ['reclaim.', 'resource.', 'cleanup.'];
 export default function EndPage() {
   const { sid = '' } = useParams();
   const { view, status, error, retry } = useSessionView(sid);
-  if (status === 'missing') return <Missing title="没有这个会话" />;
-  if (status === 'error' && !view) return <ErrorPanel error={error ?? { code: 'INTERNAL' }} onRetry={retry} title="结束与回收" />;
-  if (!view) return <Skeleton lines={5} block label="正在读取会话" />;
+  if (status === 'missing') return <Missing title={EP.noSession} />;
+  if (status === 'error' && !view) return <ErrorPanel error={error ?? { code: 'INTERNAL' }} onRetry={retry} title={EP.title} />;
+  if (!view) return <Skeleton lines={5} block label={EP.reading} />;
   const r = endRender(view);
   if (r.kind === 'redirect') return <Navigate to={r.to} replace />;
   if (r.kind === 'P07-K') return <KeptView view={view} />;
@@ -130,7 +133,7 @@ function ReclaimView({ view, manualAnchor, showReport }: { view: SessionView; ma
   const retry = useAction<SessionView>('retryCleanup', { sid, onSuccess: (v) => v && sync.applyView(v) });
   const nr = neverReady(view);
   const attempt = view.progress?.status as AttemptStatus | null | undefined;
-  const reportLink = showReport ? <Link to={`/sessions/${sid}/report`}>查看报告</Link> : null;
+  const reportLink = showReport ? <Link to={`/sessions/${sid}/report`}>{EP.viewReport}</Link> : null;
   const progressDetail = (() => {
     const d = progress?.data as { stack?: string; status?: string; resource?: { stack?: string; status?: string }; message?: string } | undefined;
     if (!d) return null;
@@ -139,21 +142,20 @@ function ReclaimView({ view, manualAnchor, showReport }: { view: SessionView; ma
     return stack ? `${redact(stack)}${st ? ` · ${st}` : ''}` : d.message ? redact(d.message) : null;
   })();
   const extra = {
-    revoke: view.revokedAt ? '终端已断开 · 控制台与工作台凭证已吊销（已打开的控制台窗口中的权限会被拒绝；权限收回需要一点时间，以官方文档为准）' : undefined,
+    revoke: view.revokedAt ? EP.revoked : undefined,
     finalize: nr ? (
-      '环境未就绪：没有报告，尝试不计入次数'
+      EP.neverReady
     ) : (
       <>
-        尝试：{attempt && ATTEMPT_STATUS_META[attempt] ? ATTEMPT_STATUS_META[attempt].text : '—'}
-        {attempt === 'unverified' ? '（部分资源的归属将在复扫后确认）' : ''}
-        {reportRev ? ` · 报告第 ${reportRev} 版已生成` : ''}
+        {t(EP.attempt, { state: attempt && ATTEMPT_STATUS_META[attempt] ? ATTEMPT_STATUS_META[attempt].text : '—' })}
+        {attempt === 'unverified' ? EP.unverified : ''}
+        {reportRev ? t(EP.reportRev, { n: reportRev }) : ''}
         {reportLink ? <> · {reportLink}</> : null}
       </>
     ),
     destroy: progressDetail ?? undefined,
-    reclaim: view.cleanup ? `已删除 ${view.cleanup.deleted ?? 0} 项${view.cleanup.manual ? ` · 需人工 ${view.cleanup.manual} 项` : ''}` : undefined,
-    conclude:
-      view.state === 'CLEANUP_FAILED' ? '释放未完成' : view.state === 'ENDED' ? '已释放全部资源' : view.state === 'FAILED' ? '启动失败，已释放已创建的资源' : undefined,
+    reclaim: view.cleanup ? (view.cleanup.manual ? t(EP.reclaimedManual, { n: view.cleanup.deleted ?? 0, m: view.cleanup.manual }) : t(EP.reclaimed, { n: view.cleanup.deleted ?? 0 })) : undefined,
+    conclude: view.state === 'CLEANUP_FAILED' ? EP.cleanupFailed : view.state === 'ENDED' ? EP.allReleased : view.state === 'FAILED' ? EP.failedReleased : undefined,
   };
   const rescans = rescanTimeline(view.reclaim as { followUp?: string; rescanAt?: string[] } | null, view.revokedAt ?? view.endedAt, canReadLedger ? (cleanup.data?.passes ?? null) : null, clock.now());
   const lastRescan = rescans[rescans.length - 1];
@@ -165,34 +167,29 @@ function ReclaimView({ view, manualAnchor, showReport }: { view: SessionView; ma
   return (
     <div className="stack-24" data-screen="P07" data-state={view.state}>
       <div>
-        <nav className="crumbs-row" aria-label="面包屑">
-          <Link to="/sessions">我的实验</Link>
+        <nav className="crumbs-row" aria-label={EP.crumbs}>
+          <Link to="/sessions">{EP.mySessions}</Link>
           <span aria-hidden="true">›</span>
           <Link className="mono" to={`/sessions/${sid}`}>
             {sid}
           </Link>
           <span aria-hidden="true">›</span>
-          <span>结束与回收</span>
+          <span>{EP.title}</span>
         </nav>
         <div className="ph">
           <div className="ttl">
-            <h1 tabIndex={-1}>{view.labId} · 结束与回收</h1>
+            <h1 tabIndex={-1}>{t(EP.heading, { labId: view.labId })}</h1>
             <span className="sub">
-              会话 <span className="mono">{sid}</span>
-              {view.env?.envName ? (
-                <>
-                  {' '}
-                  · 环境 <span className="mono">{view.env.envName}</span>
-                </>
-              ) : null}{' '}
-              · 结束原因：{endReasonText(view.endReason)}
+              {rich(EP.session, { sid: <span className="mono">{sid}</span> })}
+              {view.env?.envName ? rich(EP.env, { name: <span className="mono">{view.env.envName}</span> }) : null}
+              {t(EP.endReason, { reason: endReasonText(view.endReason) })}
             </span>
           </div>
           <span className="acts">
             <SessionStatePill state={view.state} />
             {winding ? (
               <span className="small">
-                已用 <ElapsedSince from={view.revokedAt ?? view.stateEnteredAt ?? null} /> · 回收较慢的项目会单独提示
+                {rich(EP.elapsed, { t: <ElapsedSince from={view.revokedAt ?? view.stateEnteredAt ?? null} /> })}
               </span>
             ) : null}
           </span>
@@ -202,7 +199,7 @@ function ReclaimView({ view, manualAnchor, showReport }: { view: SessionView; ma
       {retrying ? (
         <div className="note blue" role="status">
           <Shape name="retry" />
-          <span>正在重试回收。</span>
+          <span>{EP.retrying}</span>
         </div>
       ) : null}
 
@@ -210,23 +207,21 @@ function ReclaimView({ view, manualAnchor, showReport }: { view: SessionView; ma
         <div className="vres ok" role="status" data-conclusion="ended">
           <Shape name="check" />
           <div className="vbody">
-            <span className="vt">已释放全部资源。</span>
-            <span className="small">
-              {followUpPending && lastRescan
-                ? `复扫会在 ${formatClock(lastRescan.at)} 前完成。复扫若发现删不掉的残留，会话会转为“释放未完成”并通知你。`
-                : '回收已全部完成。'}
+            <span className="vt">{EP.allReleasedDot}</span>
+            <span className="small">{followUpPending && lastRescan ? t(EP.rescanPending, { t: formatClock(lastRescan.at) }) : EP.allDone}
             </span>
           </div>
         </div>
       ) : null}
-      {view.endReason === 'HANDED_OVER' ? <div className="note">环境已交接给新的会话。</div> : null}
+      {view.endReason === 'HANDED_OVER' ? <div className="note">{EP.handedOver}</div> : null}
       {view.state === 'FAILED' ? (
         <div className="vres bad" role="status" data-conclusion="failed">
           <Shape name="xbox" />
           <div className="vbody">
-            <span className="vt">启动失败，已释放已创建的资源</span>
+            <span className="vt">{EP.failedReleased}</span>
             <span className="small">
-              {failure?.code ? `失败原因：${failure.message ? redact(failure.message) : failure.code}（${failure.code}）· ` : ''}这次尝试不计入次数
+              {failure?.code ? t(EP.failureReason, { reason: failure.message ? redact(failure.message) : failure.code, code: failure.code }) : ''}
+              {EP.notCounted}
             </span>
           </div>
         </div>
@@ -234,10 +229,10 @@ function ReclaimView({ view, manualAnchor, showReport }: { view: SessionView; ma
       {view.state === 'FAILED' && L ? (
         <div className="row">
           <Link className="btn primary" to={`/labs/${view.labId}?start=1`}>
-            重新开始
+            {EP.restart}
           </Link>
           <Link className="btn" to={`/sessions/${sid}`}>
-            会话详情
+            {EP.sessionDetail}
           </Link>
         </div>
       ) : null}
@@ -247,34 +242,31 @@ function ReclaimView({ view, manualAnchor, showReport }: { view: SessionView; ma
           <h2 id="manual-h" className="st fail">
             <Shape name="tri" />
             <span className="t">
-              {canReadLedger ? `释放未完成：${manualItems.length || view.cleanup?.manual || 0} 项资源没能自动删除` : '释放未完成'}
-              {(cleanup.data?.hourlyBlocking ?? 0) > 0 ? `，其中 ${cleanup.data!.hourlyBlocking} 项按小时计费` : ''}
+              {canReadLedger ? t(EP.manualTitle, { n: manualItems.length || view.cleanup?.manual || 0 }) : EP.cleanupFailed}
+              {(cleanup.data?.hourlyBlocking ?? 0) > 0 ? t(EP.manualHourly, { n: cleanup.data!.hourlyBlocking }) : ''}
             </span>
           </h2>
           {!canReadLedger ? (
-            <p className="small">有资源没能自动删除，学员需要逐项处理。你的角色（观察者）看不到待人工处理清单。</p>
+            <p className="small">{EP.observerNote}</p>
           ) : (
             <>
-              <p className="small">
-                它们仍可能计费，请按下面的指引处理。平台会在 1 小时、6 小时、24 小时后自动重试回收（以平台设置为准）。这些资源都带有{' '}
-                <code>atl:env-id</code> 标签，可以在控制台按标签查找。
-              </p>
+              <p className="small">{rich(EP.manualGuide, { tag: <code>atl:env-id</code> })}</p>
               {cleanup.status === 'error' && !cleanup.loaded ? (
-                <InlineProblem error={cleanup.error} onRetry={() => void cleanup.refresh()} title="待人工处理清单暂不可用" />
+                <InlineProblem error={cleanup.error} onRetry={() => void cleanup.refresh()} title={EP.manualUnavailable} />
               ) : !cleanup.loaded ? (
                 <Skeleton lines={3} />
               ) : manualItems.length ? (
                 <ManualList items={manualItems} sid={sid} canAct={L} onChanged={() => void cleanup.refresh()} />
               ) : (
-                <p className="small muted">清单中的资源都已处理，正在等待平台核对结论。</p>
+                <p className="small muted">{EP.allHandled}</p>
               )}
               <div className="row">
                 {L ? (
-                  <Button onClick={() => void retry.run({ params: { sid } })} busy={retry.busy} busyText="正在请求重试…">
-                    立即重试回收
+                  <Button onClick={() => void retry.run({ params: { sid } })} busy={retry.busy} busyText={EP.requestingRetry}>
+                    {EP.retryNow}
                   </Button>
                 ) : null}
-                <CleanupExport sid={sid} label="导出清单" />
+                <CleanupExport sid={sid} label={EP.exportList} />
               </div>
               {retry.error ? <RetryError error={retry.error} onRetry={() => void retry.retry()} /> : null}
             </>
@@ -288,52 +280,50 @@ function ReclaimView({ view, manualAnchor, showReport }: { view: SessionView; ma
 
       {canReadLedger ? (
         view.state === 'ENDING' ? (
-          <p className="small muted">结束阶段完成后开始回收资源。</p>
+          <p className="small muted">{EP.reclaimAfterEnd}</p>
         ) : resources.status === 'error' && !resources.loaded ? (
           <div className="stack-8">
-            <h2>资源</h2>
+            <h2>{EP.resources}</h2>
             <p className="small">
-              回收报告暂不可用 ·{' '}
+              {EP.reportUnavailable}{' '}
               <button type="button" className="linkbtn" onClick={() => void resources.refresh()}>
-                重试
+                {EP.retry}
               </button>
             </p>
           </div>
         ) : !resources.loaded ? (
-          <Skeleton lines={3} label="正在读取资源" />
+          <Skeleton lines={3} label={EP.readingResources} />
         ) : (
           <ResourceStages sid={sid} items={ledger} chainExtra={chainExtra} canUnmask={L} />
         )
       ) : (
         <section className="sec" aria-labelledby="res-o-h">
-          <h2 id="res-o-h">资源</h2>
+          <h2 id="res-o-h">{EP.resources}</h2>
           <p className="small muted">
-            回收结论：{view.state === 'CLEANUP_FAILED' ? '释放未完成' : winding ? '回收进行中' : '已释放'}。你的角色（观察者）看不到资源清单与费用明细。
+            {t(EP.observerConclusion, { v: view.state === 'CLEANUP_FAILED' ? EP.cleanupFailed : winding ? EP.reclaiming : EP.released })}
           </p>
         </section>
       )}
 
       {winding ? (
         <section className="sec" aria-labelledby="after-h">
-          <h2 id="after-h">之后还会做什么</h2>
-          <p className="small">
-            CloudTrail 事件有投递延迟。主回收完成后，平台会在收回访问后的 +20 分钟、+60 分钟、+6 小时各复扫一次，补删迟到的资源。复扫不影响你开始下一张卡片。
-          </p>
+          <h2 id="after-h">{EP.afterTitle}</h2>
+          <p className="small">{EP.afterBody}</p>
         </section>
       ) : null}
 
       <div className="row no-print">
-        {winding ? <span className="small muted">可以离开这个页面。</span> : null}
+        {winding ? <span className="small muted">{EP.canLeave}</span> : null}
         <span className="spacer" />
         <Link className="btn" to="/labs">
-          先看看下一张卡片 →
+          {EP.nextCard}
         </Link>
         {showReport && !nr ? (
           <Link className={view.state === 'ENDED' ? 'btn primary' : 'btn'} to={`/sessions/${sid}/report`}>
-            查看报告
+            {EP.viewReport}
           </Link>
         ) : null}
-        {nr && view.state === 'ENDED' ? <span className="small muted">这次会话在环境就绪前结束，没有报告（尝试不计入次数）。</span> : null}
+        {nr && view.state === 'ENDED' ? <span className="small muted">{EP.noReport}</span> : null}
         {canReadLedger && view.state !== 'CLEANUP_FAILED' ? <CleanupExport sid={sid} /> : null}
       </div>
     </div>
@@ -341,5 +331,5 @@ function ReclaimView({ view, manualAnchor, showReport }: { view: SessionView; ma
 }
 
 function RetryError({ error, onRetry }: { error: ApiError; onRetry: () => void }) {
-  return <InlineProblem error={error} onRetry={onRetry} overrides={{ INVALID_STATE: '会话已不在“释放未完成”状态，页面已刷新' }} />;
+  return <InlineProblem error={error} onRetry={onRetry} overrides={{ INVALID_STATE: EP.notCleanupFailed }} />;
 }

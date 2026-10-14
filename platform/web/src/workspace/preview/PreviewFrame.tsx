@@ -17,18 +17,32 @@ import { useWorkspace } from '../context';
 import { useResource } from '../data/resource';
 import type { AppCredentials, PreviewTarget, PreviewView } from '../data/types';
 
-export const REASON_TEXT: Record<string, { text: string; hint?: string; retry?: boolean }> = {
-  MIXED_CONTENT: {
-    text: '当前入口只有 HTTP，嵌入会被浏览器作为混合内容拦截。本卡片从自签名 / ALB 的 HTTP 入口讲起时，预览在新标签页打开。',
-    hint: '如何在此处直接预览：使用受信任 HTTPS 的入口，例如启用 cdn 后改用 CloudFront 入口。',
+import { t as tr } from '../../i18n';
+import { W } from '../strings';
+const WP = W.preview;
+const reasonOf = (key: keyof typeof WP.reason, extra: { hint?: keyof typeof WP.reason; retry?: boolean } = {}) => ({
+  get text() {
+    return WP.reason[key];
   },
-  UNTRUSTED_CERT: { text: '入口的证书不受浏览器信任（例如自签名），无法嵌入。不建议在新标签页中忽略证书警告。' },
-  FRAME_ANCESTORS_MISSING: { text: '应用没有允许平台嵌入（CSP frame-ancestors）。' },
-  X_FRAME_OPTIONS: { text: '应用没有允许平台嵌入（X-Frame-Options）。' },
-  UNREACHABLE: { text: '入口暂时无法访问（实例停止、安全组收紧或换 IP 演练期间）。', retry: true },
+  ...(extra.hint
+    ? {
+        get hint() {
+          return WP.reason[extra.hint!];
+        },
+      }
+    : {}),
+  ...(extra.retry ? { retry: true } : {}),
+});
+
+export const REASON_TEXT: Record<string, { readonly text: string; readonly hint?: string; retry?: boolean }> = {
+  MIXED_CONTENT: reasonOf('MIXED_CONTENT', { hint: 'MIXED_CONTENT_HINT' }),
+  UNTRUSTED_CERT: reasonOf('UNTRUSTED_CERT'),
+  FRAME_ANCESTORS_MISSING: reasonOf('FRAME_ANCESTORS_MISSING'),
+  X_FRAME_OPTIONS: reasonOf('X_FRAME_OPTIONS'),
+  UNREACHABLE: reasonOf('UNREACHABLE', { retry: true }),
 };
 
-const ENTRY_TEXT: Record<string, string> = { direct: '直连 EC2', app: '应用入口', cdn: 'CloudFront', alb: '负载均衡器', 'custom-domain': '自定义域名' };
+const ENTRY_TEXT: Readonly<Record<string, string>> = WP.entry;
 const PREVIEW_STATES = ['READY', 'RUNNING', 'EXPIRING', 'KEPT'];
 
 export function entryLabel(t: PreviewTarget): string {
@@ -70,11 +84,11 @@ export function PreviewFrame({ active, narrow }: { active: boolean; narrow: bool
     ws.reporter?.push('workspace.preview_opened', { targetId: t.id, embedded: t.embeddable && !narrow });
   }, [t, active, narrow, ws.reporter]);
 
-  if (!allowed) return <div className="empty pv-empty">预览不可用：环境已停止或已释放。</div>;
+  if (!allowed) return <div className="empty pv-empty">{WP.unavailable}</div>;
   if (!touched || (pv.loading && !pv.data)) return <Skeleton lines={3} />;
-  if (!t) return <div className="empty pv-empty">{pv.error ? '读取预览入口失败。' : '还没有可用的应用入口。'}</div>;
+  if (!t) return <div className="empty pv-empty">{pv.error ? WP.loadFailed : WP.noEntry}</div>;
   const url = joinPath(t.url, path);
-  const reason = t.embeddable ? null : (REASON_TEXT[t.reason ?? ''] ?? { text: '这个入口不能嵌入预览。' });
+  const reason = t.embeddable ? null : (REASON_TEXT[t.reason ?? ''] ?? { text: WP.notEmbeddable });
   const embed = t.embeddable && !narrow;
   const openNew = () => {
     window.open(url, '_blank', 'noopener,noreferrer');
@@ -84,7 +98,7 @@ export function PreviewFrame({ active, narrow }: { active: boolean; narrow: bool
     <div className="pv" data-preview={t.id}>
       <div className="pvbar row">
         <label className="small muted" htmlFor="pv-entry">
-          入口
+          {WP.entryLabel}
         </label>
         <select
           id="pv-entry"
@@ -98,34 +112,34 @@ export function PreviewFrame({ active, narrow }: { active: boolean; narrow: bool
         >
           {targets.map((x) => (
             <option key={x.id} value={x.id}>
-              {entryLabel(x)} {x.embeddable ? '✓ 可嵌入' : '✕ 仅新标签页'}
+              {entryLabel(x)} {x.embeddable ? WP.embeddable : WP.newTabOnly}
             </option>
           ))}
         </select>
         <label className="sr" htmlFor="pv-path">
-          路径
+          {WP.path}
         </label>
         <input id="pv-path" className="input mono pvpath" value={path} onChange={(e) => setPath(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && setNonce((n) => n + 1)} />
         {embed ? (
-          <button type="button" className="btn sm icon" aria-label="刷新预览" onClick={() => setNonce((n) => n + 1)}>
+          <button type="button" className="btn sm icon" aria-label={WP.refresh} onClick={() => setNonce((n) => n + 1)}>
             <Icon name="refresh" />
           </button>
         ) : null}
         <Button size="sm" icon="ext" onClick={openNew}>
-          新标签页
+          {WP.newTab}
         </Button>
         {embed ? (
-          <div className="seg" role="group" aria-label="视口宽度">
+          <div className="seg" role="group" aria-label={WP.viewport}>
             {(['375', '768', 'auto'] as const).map((v) => (
               <button key={v} type="button" aria-pressed={vp === v} onClick={() => setVp(v)}>
-                {v === 'auto' ? '自适应' : v}
+                {v === 'auto' ? WP.auto : v}
               </button>
             ))}
           </div>
         ) : null}
         {ws.learner ? (
           <Button size="sm" icon="key" onClick={() => setCred(true)}>
-            管理员账号
+            {WP.adminAccount}
           </Button>
         ) : null}
       </div>
@@ -135,28 +149,28 @@ export function PreviewFrame({ active, narrow }: { active: boolean; narrow: bool
             <iframe
               key={`${t.id}-${nonce}`}
               src={url}
-              title={`CloudAlbum 应用预览（${t.label ?? ENTRY_TEXT[t.id] ?? t.id}）`}
+              title={tr(WP.frameTitle, { entry: t.label ?? ENTRY_TEXT[t.id] ?? t.id })}
               sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox allow-downloads"
               allow="clipboard-write"
               referrerPolicy="no-referrer"
               loading="lazy"
             />
           </div>
-          <p className="small muted pvnote">预览框内与新标签页中的 CloudAlbum 登录状态互相独立；部分浏览器（含部分 Safari 版本）在预览框内无法保持登录，请改用新标签页。</p>
+          <p className="small muted pvnote">{WP.loginNote}</p>
         </>
       ) : (
         <div className="empty pv-empty" data-reason={t.reason ?? (narrow ? 'NARROW' : '')}>
-          <b>{narrow && t.embeddable ? '窄屏下预览在新标签页打开' : '无法在此处预览'}</b>
+          <b>{narrow && t.embeddable ? WP.narrow : WP.cannotPreview}</b>
           {reason ? <span>{reason.text}</span> : null}
           {reason?.hint ? <span className="small">{reason.hint}</span> : null}
           <div className="row">
             {reason?.retry ? (
               <Button size="sm" icon="refresh" onClick={() => void pv.refresh()}>
-                重试
+                {WP.retry}
               </Button>
             ) : null}
             <Button size="sm" variant="primary" icon="ext" onClick={openNew}>
-              在新标签页打开
+              {WP.openNewTab}
             </Button>
           </div>
         </div>
@@ -178,7 +192,7 @@ export function CredentialRevealDialog({ onClose }: { onClose: () => void }) {
     api
       .call<AppCredentials>('getAppCredentials', { params: { sid: ws.sid }, conditional: false })
       .then((r) => alive && setC(r.data))
-      .catch((e) => alive && setError(isApiError(e) ? (e.code === 'REAUTH_REQUIRED' ? '查看管理员密码要求最近 60 分钟内登录过。' : e.code === 'NOT_IMPLEMENTED' ? '平台暂时不能提供管理员账号。' : (e.detail ?? e.title)) : '读取失败'));
+      .catch((e) => alive && setError(isApiError(e) ? (e.code === 'REAUTH_REQUIRED' ? WP.reauth : e.code === 'NOT_IMPLEMENTED' ? WP.notImplemented : (e.detail ?? e.title)) : WP.readFailed));
     return () => {
       alive = false;
       setC(null);
@@ -190,7 +204,17 @@ export function CredentialRevealDialog({ onClose }: { onClose: () => void }) {
     return () => clearTimeout(t);
   }, [shown]);
   return (
-    <Dialog open onClose={onClose} title="CloudAlbum 管理员账号" size="narrow" footer={<button type="button" className="btn" onClick={onClose}>关闭</button>}>
+    <Dialog
+      open
+      onClose={onClose}
+      title={WP.credTitle}
+      size="narrow"
+      footer={
+        <button type="button" className="btn" onClick={onClose}>
+          {WP.close}
+        </button>
+      }
+    >
       {error ? (
         <p className="small st fail" role="alert">
           {error}
@@ -200,31 +224,31 @@ export function CredentialRevealDialog({ onClose }: { onClose: () => void }) {
       ) : (
         <div className="stack-8">
           <dl className="kv">
-            <dt>用户名</dt>
+            <dt>{WP.username}</dt>
             <dd className="mono">{c.username}</dd>
-            <dt>初始密码</dt>
+            <dt>{WP.password}</dt>
             <dd className="mono" aria-live="polite">
               {shown ? c.password : '••••••••'}
             </dd>
           </dl>
           <div className="row">
             <Button size="sm" icon="eye" onClick={() => setShown(true)} disabled={shown}>
-              显示 10 秒
+              {WP.show10s}
             </Button>
             <Button
               size="sm"
               icon="copy"
               onClick={async () => {
-                if (await copyText(c.password)) announce('已复制密码');
-                else announce('无法访问剪贴板');
+                if (await copyText(c.password)) announce(WP.copiedPassword);
+                else announce(WP.clipboardDenied);
               }}
             >
-              复制
+              {WP.copy}
             </Button>
           </div>
           <div className="note">
             <Shape name="dot" />
-            <span>密码只在这个对话框中显示，关闭后从页面内存中清除。</span>
+            <span>{WP.passwordNote}</span>
           </div>
         </div>
       )}

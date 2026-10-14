@@ -8,7 +8,7 @@ import { Link } from 'react-router-dom';
 import { useAuth, useCurrentSession, useServices } from '../app/context';
 import { useGlobalStatus } from '../app/globalStatus';
 import { allowedActionsOf, extendBlockReason } from '../app/sessionRouting';
-import { t, zhCN } from '../i18n/zh-CN';
+import { msg, rich, t } from '../i18n';
 import { Icon, Shape, SessionStatePill, useDisclosure, useSecondTick, type CostTier } from '../ui';
 import { useSessionActions } from './SessionActions';
 import { pillModel } from './sessionPillModel';
@@ -36,7 +36,7 @@ export function SessionPill({ costTier }: { costTier?: CostTier | null } = {}) {
   const allowed = allowedActionsOf(current, ctx);
   const sid = current.sessionId;
   const st = current.state;
-  const s = zhCN.session;
+  const s = msg.session;
   const extendWhy = allowed.includes('end') && !allowed.includes('extend') ? extendBlockReason(current, ctx) : null;
   const extendMinutes = current.limits?.extensionMinutes ?? 30;
   return (
@@ -63,7 +63,7 @@ export function SessionPill({ costTier }: { costTier?: CostTier | null } = {}) {
         {menu.open ? (
           <>
             <div className="small muted">
-              会话 <span className="mono">{sid}</span> · <SessionStatePill state={st} size="sm" />
+              {rich(msg.frame.pill.session, { sid: <span className="mono">{sid}</span>, state: <SessionStatePill state={st} size="sm" /> })}
             </div>
             {['REQUESTED', 'PROVISIONING', 'READY', 'RUNNING', 'EXPIRING'].includes(st) ? (
               <Link className="mi" to={`/workspace/${sid}`} onClick={() => menu.close()}>

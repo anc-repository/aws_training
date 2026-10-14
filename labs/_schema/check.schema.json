@@ -22,6 +22,27 @@
     }
   },
   "$defs": {
+    "l10n": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "zh-CN"
+      ],
+      "properties": {
+        "zh-CN": {
+          "type": "string",
+          "minLength": 1
+        },
+        "ja": {
+          "type": "string",
+          "minLength": 1
+        },
+        "en": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
     "checkId": {
       "type": "string",
       "pattern": "^[a-z][a-z0-9-]{1,47}$"
@@ -69,8 +90,15 @@
         },
         "value": {},
         "label": {
-          "type": "string",
-          "maxLength": 60
+          "anyOf": [
+            {
+              "type": "string",
+              "maxLength": 60
+            },
+            {
+              "$ref": "#/$defs/l10n"
+            }
+          ]
         },
         "severity": {
           "enum": [
@@ -108,8 +136,15 @@
           "type": "object"
         },
         "confirm": {
-          "type": "string",
-          "maxLength": 300
+          "anyOf": [
+            {
+              "type": "string",
+              "maxLength": 300
+            },
+            {
+              "$ref": "#/$defs/l10n"
+            }
+          ]
         },
         "observed": {
           "type": "object",
@@ -119,8 +154,15 @@
           ],
           "properties": {
             "question": {
-              "type": "string",
-              "maxLength": 200
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 200
+                },
+                {
+                  "$ref": "#/$defs/l10n"
+                }
+              ]
             },
             "options": {
               "type": "array",
@@ -137,15 +179,29 @@
                     "type": "string"
                   },
                   "label": {
-                    "type": "string",
-                    "maxLength": 80
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "maxLength": 80
+                      },
+                      {
+                        "$ref": "#/$defs/l10n"
+                      }
+                    ]
                   },
                   "expected": {
                     "type": "boolean"
                   },
                   "fixHint": {
-                    "type": "string",
-                    "maxLength": 200
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "maxLength": 200
+                      },
+                      {
+                        "$ref": "#/$defs/l10n"
+                      }
+                    ]
                   }
                 }
               }
@@ -366,9 +422,16 @@
           "pattern": "^guide:"
         },
         "title": {
-          "type": "string",
-          "minLength": 4,
-          "maxLength": 80
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 4,
+              "maxLength": 80
+            },
+            {
+              "$ref": "#/$defs/l10n"
+            }
+          ]
         },
         "type": {
           "enum": [
@@ -489,8 +552,15 @@
           }
         },
         "explain": {
-          "type": "string",
-          "maxLength": 400
+          "anyOf": [
+            {
+              "type": "string",
+              "maxLength": 400
+            },
+            {
+              "$ref": "#/$defs/l10n"
+            }
+          ]
         },
         "reproduce": {
           "$ref": "#/$defs/runCommand"
@@ -823,12 +893,26 @@
           "pattern": "^[a-z][a-z0-9-]{1,47}$"
         },
         "title": {
-          "type": "string",
-          "maxLength": 80
+          "anyOf": [
+            {
+              "type": "string",
+              "maxLength": 80
+            },
+            {
+              "$ref": "#/$defs/l10n"
+            }
+          ]
         },
         "symptom": {
-          "type": "string",
-          "maxLength": 200
+          "anyOf": [
+            {
+              "type": "string",
+              "maxLength": 200
+            },
+            {
+              "$ref": "#/$defs/l10n"
+            }
+          ]
         },
         "match": {
           "type": "array",
@@ -862,12 +946,26 @@
           }
         },
         "cause": {
-          "type": "string",
-          "maxLength": 300
+          "anyOf": [
+            {
+              "type": "string",
+              "maxLength": 300
+            },
+            {
+              "$ref": "#/$defs/l10n"
+            }
+          ]
         },
         "fix": {
-          "type": "string",
-          "maxLength": 300
+          "anyOf": [
+            {
+              "type": "string",
+              "maxLength": 300
+            },
+            {
+              "$ref": "#/$defs/l10n"
+            }
+          ]
         }
       }
     }

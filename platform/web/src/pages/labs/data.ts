@@ -10,6 +10,7 @@ import { useServices, useSessionSync } from '../../app/context';
 import { isTerminal } from '@atl/shared';
 import { serviceCells, type Holder, type ProgressLike, type ServiceCellView } from './model';
 import type { CardIntro, CatalogCard, CatalogIndex, CatalogRef, LabsView, TrackDef } from './types';
+import { contentUrl, fetchContentJson, type FetchContentResult } from '../../i18n/content';
 
 // ---------------------------------------------------------------------------------------------------------------
 // 静态内容
@@ -18,24 +19,23 @@ const contentCache = new Map<string, Promise<unknown>>();
 
 /** 读取静态内容 JSON（同源，按地址缓存；失败的请求不缓存，便于重试）。 */
 export function loadContent<T>(url: string): Promise<T> {
-  const hit = contentCache.get(url);
+  // 按当前界面语言读取（content/<v>/<lang>/…；所选语言的文件不存在时退回源语言，09 §2.4），缓存键是改写后的地址
+  const key = contentUrl(url);
+  const hit = contentCache.get(key);
   if (hit) return hit as Promise<T>;
   const p = (async () => {
-    let r: Response;
+    let r: FetchContentResult<T>;
     try {
-      r = await globalThis.fetch(url, { credentials: 'same-origin' });
+      r = await fetchContentJson<T>(url);
     } catch (e) {
       throw new ApiError({ status: 0, code: 'NETWORK', title: 'network error', detail: e instanceof Error ? e.message : String(e) });
     }
-    if (!r.ok) throw new ApiError({ status: r.status, code: r.status === 404 ? 'NOT_FOUND' : r.status >= 500 ? 'UPSTREAM_UNAVAILABLE' : 'BAD_RESPONSE', title: `HTTP ${r.status}` });
-    try {
-      return (await r.json()) as T;
-    } catch {
-      throw new ApiError({ status: r.status, code: 'BAD_RESPONSE', title: 'content is not JSON' });
-    }
+    if (r.ok) return r.data as T;
+    if (r.error) throw new ApiError({ status: r.status, code: 'BAD_RESPONSE', title: 'content is not JSON' });
+    throw new ApiError({ status: r.status, code: r.status === 404 ? 'NOT_FOUND' : r.status >= 500 ? 'UPSTREAM_UNAVAILABLE' : 'BAD_RESPONSE', title: `HTTP ${r.status}` });
   })();
-  contentCache.set(url, p);
-  p.catch(() => contentCache.delete(url));
+  contentCache.set(key, p);
+  p.catch(() => contentCache.delete(key));
   return p;
 }
 

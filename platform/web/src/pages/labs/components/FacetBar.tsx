@@ -5,11 +5,13 @@
  * - 窄屏收进“筛选（N）”（由页面的切换按钮控制 collapsed）。
  */
 import { Link } from 'react-router-dom';
-import { t } from '../../../i18n/zh-CN';
+import { msg, rich, t } from '../../../i18n';
 import { CostTierMark } from '../../../ui';
 import { categoryLabel, FACET_KEYS, FACET_VALUES, serviceCategory, type CatalogQuery, type FacetKey, type Recommendation, type TrackSummary } from '../model';
 import { DIFFICULTY_TEXT, DOMAIN_TEXT, DURATION_TEXT, S } from '../strings';
 import type { CatalogCard, Taxonomy, TrackDef } from '../types';
+
+const PL = msg.pages.labs;
 
 const FACET_LABEL: Readonly<Record<FacetKey, string>> = {
   kind: S.catalog.facetKind,
@@ -31,18 +33,18 @@ export function facetValueText(k: FacetKey, v: string): string {
     case 'dur':
       return DURATION_TEXT[v as keyof typeof DURATION_TEXT] ?? v;
     case 'cost':
-      return v === 'low' ? '$ 低' : v === 'medium' ? '$$ 中' : '$$$ 高';
+      return v === 'low' ? PL.cost.low : v === 'medium' ? PL.cost.medium : PL.cost.high;
     case 'st':
-      return v === 'not_started' ? S.state.notStarted : v === 'in_progress' ? '进行中' : v === 'completed' ? S.state.completed : S.state.incomplete;
+      return v === 'not_started' ? S.state.notStarted : v === 'in_progress' ? PL.inProgress : v === 'completed' ? S.state.completed : S.state.incomplete;
   }
 }
 
 /** 当前条件摘要（“没有符合条件的卡片”下方）。 */
 export function filterSummary(q: CatalogQuery, tax: Taxonomy): string {
   const parts: string[] = [];
-  if (q.q.trim()) parts.push(`搜索“${q.q.trim()}”`);
-  for (const k of FACET_KEYS) if (q[k].length) parts.push(`${FACET_LABEL[k]}：${(q[k] as string[]).map((v) => facetValueText(k, v)).join('、')}`);
-  if (q.svc.length) parts.push(`${S.catalog.facetService}：${q.svc.map((id) => tax.services.find((s) => s.id === id)?.abbr ?? id).join('、')}`);
+  if (q.q.trim()) parts.push(t(PL.search, { q: q.q.trim() }));
+  for (const k of FACET_KEYS) if (q[k].length) parts.push(t(PL.facet, { label: FACET_LABEL[k], values: (q[k] as string[]).map((v) => facetValueText(k, v)).join(PL.listSep) }));
+  if (q.svc.length) parts.push(t(PL.facet, { label: S.catalog.facetService, values: q.svc.map((id) => tax.services.find((s) => s.id === id)?.abbr ?? id).join(PL.listSep) }));
   if (q.primary) parts.push(S.catalog.onlyPrimary);
   if (q.nomanual) parts.push(S.catalog.noManual);
   return parts.join(' · ');
@@ -196,8 +198,13 @@ export function ContinueStrip({ track, summary, rec, recCard, hasEnvironment, ne
           <span>{t(S.cont.path, { track: name, stage: rec?.stageTitle ?? '—', done: summary?.requiredDone ?? 0, total: summary?.requiredTotal ?? 0 })}</span>
           {rec && recCard ? (
             <span className="rec">
-              · {hasEnvironment ? S.cont.recommendAfter : S.cont.recommend}：<Link to={`/labs/${recCard.id}`}>{recCard.id}</Link>（{DIFFICULTY_TEXT[recCard.difficulty]} · 约{' '}
-              {recCard.estimatedMinutes} 分钟 · <CostTierMark tier={recCard.costTier.required} withOptional={recCard.costTier.withOptional} />）
+              · {t(PL.recommend, { label: hasEnvironment ? S.cont.recommendAfter : S.cont.recommend })}
+              <Link to={`/labs/${recCard.id}`}>{recCard.id}</Link>
+              {rich(PL.recCard, {
+                difficulty: DIFFICULTY_TEXT[recCard.difficulty],
+                n: recCard.estimatedMinutes,
+                cost: <CostTierMark tier={recCard.costTier.required} withOptional={recCard.costTier.withOptional} />,
+              })}
               {rec.reuseFrom ? <span className="small muted">{t(S.cont.reuseHint, { labId: rec.reuseFrom })}</span> : null}
               <Link className="btn sm" to={`/labs/${recCard.id}`}>
                 {S.cont.view}

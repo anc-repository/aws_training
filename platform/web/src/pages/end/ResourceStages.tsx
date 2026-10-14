@@ -11,6 +11,9 @@ import { Status, BILLING_TEXT, CLEANUP_STATE_META, SEVERITY_META } from '../../u
 import { STAGE_TEXT } from '../sessions/sessionText';
 import { countLedger, groupByStage, slowHint, type LedgerItem } from './resources';
 
+import { msg, t } from '../../i18n';
+
+const RR = msg.end.resources;
 const openMemory = new Map<string, boolean>();
 
 /** 测试用。 */
@@ -47,30 +50,30 @@ export function ResourceStages({ sid, items, heading, chainExtra = 0, canUnmask 
     if (timer.current) clearTimeout(timer.current);
     const next = !unmasked;
     setUnmasked(next);
-    announce(next ? '已显示完整的账号 ID 与 IP，30 秒后恢复打码' : '已恢复打码');
+    announce(next ? RR.unmasked : RR.masked);
     if (next) timer.current = setTimeout(() => setUnmasked(false), 30_000);
   };
   const show = (s: string) => (unmasked ? s : redact(s));
-  const title = heading ?? `资源（本次实验创建或接管的 ${items.length} 项${chainExtra > 0 ? `，另含交接链中其他会话的资源 ${chainExtra} 项` : ''}）`;
+  const title = heading ?? (chainExtra > 0 ? t(RR.titleChain, { n: items.length, m: chainExtra }) : t(RR.title, { n: items.length }));
   return (
     <section className="sec" aria-labelledby={`res-h-${sid}`} data-section="resources">
       <h2 id={`res-h-${sid}`}>
         {title}
         <span className="aside">
           <span data-counts="">
-            已删除 {counts.deleted} · 删除中 {counts.deleting} · 等待 {counts.waiting} · 保留 {counts.retained} · 需人工 {counts.attention}
+            {t(RR.counts, { deleted: counts.deleted, deleting: counts.deleting, waiting: counts.waiting, retained: counts.retained, attention: counts.attention })}
           </span>
           {canUnmask ? (
             <>
               {' · '}
               <button type="button" className="linkbtn" aria-pressed={unmasked} onClick={toggleUnmask}>
-                {unmasked ? '恢复打码' : '显示完整值'}
+                {unmasked ? RR.remask : RR.unmask}
               </button>
             </>
           ) : null}
         </span>
       </h2>
-      {groups.length === 0 ? <p className="small muted">没有记录到本次实验创建的资源。</p> : null}
+      {groups.length === 0 ? <p className="small muted">{RR.none}</p> : null}
       {groups.map((g) => {
         const k = `${sid}|${g.stage}`;
         const open = openMemory.get(k) ?? g.defaultOpen;
@@ -91,17 +94,17 @@ export function ResourceStages({ sid, items, heading, chainExtra = 0, canUnmask 
           >
             <summary>
               <b>{STAGE_TEXT[g.stage] ?? g.stage}</b> <Status meta={sum} />
-              <span className="sr">已删除 {g.done} 项，共 {g.total} 项</span>
+              <span className="sr">{t(RR.stageSr, { done: g.done, total: g.total })}</span>
             </summary>
             <div className="tbl-wrap">
               <table className="tbl rtable">
                 <thead>
                   <tr>
-                    <th scope="col">状态</th>
-                    <th scope="col">类型与名称</th>
-                    <th scope="col">来源</th>
-                    <th scope="col">计费</th>
-                    <th scope="col">说明</th>
+                    <th scope="col">{RR.colState}</th>
+                    <th scope="col">{RR.colName}</th>
+                    <th scope="col">{RR.colSource}</th>
+                    <th scope="col">{RR.colBilling}</th>
+                    <th scope="col">{RR.colNote}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -109,7 +112,7 @@ export function ResourceStages({ sid, items, heading, chainExtra = 0, canUnmask 
                     const hint = slowHint(r);
                     return (
                       <tr key={r.resourceKey} data-resource={r.resourceKey} data-state={r.cleanupState}>
-                        <td data-label="状态">
+                        <td data-label={RR.colState}>
                           <Status meta={CLEANUP_STATE_META[r.cleanupState]} />
                           {r.severity && r.severity !== 'INFO' && r.cleanupState !== 'DELETED' ? (
                             <>
@@ -118,19 +121,19 @@ export function ResourceStages({ sid, items, heading, chainExtra = 0, canUnmask 
                             </>
                           ) : null}
                         </td>
-                        <td data-label="类型与名称">
+                        <td data-label={RR.colName}>
                           <span className="mono small">{r.resourceType}</span>
                           <br />
                           <span className="mono small wrap-any">{show(r.name ?? r.arn ?? r.resourceKey)}</span>
                         </td>
-                        <td className="small" data-label="来源">
+                        <td className="small" data-label={RR.colSource}>
                           {r.discoveredBy ?? '—'}
                         </td>
-                        <td className="small" data-label="计费">
+                        <td className="small" data-label={RR.colBilling}>
                           {r.billing ? BILLING_TEXT[r.billing] : '—'}
                         </td>
-                        <td className="small muted" data-label="说明">
-                          {[hint, r.reason ? show(r.reason) : null, r.attempts ? `已尝试 ${r.attempts} 次` : null].filter(Boolean).join(' · ') || '—'}
+                        <td className="small muted" data-label={RR.colNote}>
+                          {[hint, r.reason ? show(r.reason) : null, r.attempts ? t(RR.attempts, { n: r.attempts }) : null].filter(Boolean).join(' · ') || '—'}
                         </td>
                       </tr>
                     );

@@ -67,9 +67,32 @@ function validator(name: SchemaName): ValidateFunction {
   return v;
 }
 
+const L10N_LANG = /\/(zh-CN|ja|en)$/;
+
+/**
+ * Localized text (`anyOf: [<string>, { $ref: '#/$defs/l10n' }]`) fails both branches; report only the branch that
+ * matches the value: a string → the string branch's errors, an object → the `$defs/l10n` errors.
+ */
+function dropL10nNoise(errors: readonly ErrorObject[]): ErrorObject[] {
+  const isL10n = (e: ErrorObject) => e.schemaPath.includes('/$defs/l10n/');
+  const objectValued = new Set<string>();
+  for (const e of errors) {
+    if (!isL10n(e)) continue;
+    if (e.keyword !== 'type' || e.schemaPath.endsWith('/properties/zh-CN/type') || L10N_LANG.test(e.instancePath)) {
+      objectValued.add(L10N_LANG.test(e.instancePath) ? e.instancePath.replace(L10N_LANG, '') : e.instancePath);
+    }
+  }
+  return errors.filter((e) => {
+    if (isL10n(e)) return !(e.keyword === 'type' && e.schemaPath.endsWith('/$defs/l10n/type'));
+    if (e.keyword === 'type' && e.schemaPath.endsWith('/anyOf/0/type') && objectValued.has(e.instancePath)) return false;
+    return true;
+  });
+}
+
 /** Drop the noise of `oneOf` / `if` wrappers: keep the most specific errors first. */
-function toIssues(errors: readonly ErrorObject[] | null | undefined): SchemaIssue[] {
-  const list = (errors ?? []).filter((e) => !['if', 'oneOf', 'anyOf', 'allOf'].includes(e.keyword) || (errors ?? []).length === 1);
+function toIssues(input: readonly ErrorObject[] | null | undefined): SchemaIssue[] {
+  const errors = dropL10nNoise(input ?? []);
+  const list = errors.filter((e) => !['if', 'oneOf', 'anyOf', 'allOf'].includes(e.keyword) || errors.length === 1);
   const seen = new Set<string>();
   const out: SchemaIssue[] = [];
   for (const e of list.length ? list : (errors ?? [])) {

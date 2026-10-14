@@ -12,7 +12,7 @@ import type { SessionEvent, SessionView } from '../../api/types';
 import { isApiError, type ApiError } from '../../api/errors';
 import { useAuth, useServices, useSessionEvents } from '../../app/context';
 import { neverReady } from '../../app/sessionRouting';
-import { t, zhCN } from '../../i18n/zh-CN';
+import { msg, rich, t, withText } from '../../i18n';
 import { formatClock, formatDate, formatUtcTitle } from '../../lib/format';
 import { redact } from '../../lib/redact';
 import { BILLING_TEXT, CLEANUP_STATE_META, ErrorPanel, SessionStatePill, Skeleton, Status } from '../../ui';
@@ -25,15 +25,11 @@ import { categoryOf, CATEGORY_TEXT, eventText, type EventCategory } from './even
 import './pages.css';
 import { endReasonText, formatMoneyRange, hourlyRange } from './sessionText';
 
+import { SN } from './strings';
 type BillingLike = keyof typeof BILLING_TEXT;
 type Tab = 'timeline' | 'resources' | 'cost' | 'ops' | 'audit';
-const TABS: readonly [Tab, string][] = [
-  ['timeline', '时间线'],
-  ['resources', '资源'],
-  ['cost', '费用'],
-  ['ops', '平台动作'],
-  ['audit', '审计'],
-];
+const D = SN.detail;
+const TABS: readonly Tab[] = ['timeline', 'resources', 'cost', 'ops', 'audit'];
 const LA_ONLY: readonly Tab[] = ['resources', 'cost', 'audit'];
 const LIVE = ['REQUESTED', 'PROVISIONING', 'READY', 'RUNNING', 'EXPIRING'];
 const WIND = ['ENDING', 'CLEANING', 'CLEANUP_FAILED', 'KEPT'];
@@ -47,12 +43,12 @@ export default function SessionDetailPage() {
   const { clock } = useServices();
   const { view, status, error, retry } = useSessionView(sid);
   const raw = search.get('tab') as Tab | null;
-  const tab: Tab = raw && TABS.some(([k]) => k === raw) ? raw : 'timeline';
-  if (status === 'missing') return <Missing title="没有这个会话" />;
-  if (status === 'error' && !view) return <ErrorPanel error={error ?? { code: 'INTERNAL' }} onRetry={retry} title="会话详情" />;
-  if (!view) return <Skeleton lines={5} block label="正在读取会话" />;
+  const tab: Tab = raw && TABS.includes(raw) ? raw : 'timeline';
+  if (status === 'missing') return <Missing title={D.noSession} />;
+  if (status === 'error' && !view) return <ErrorPanel error={error ?? { code: 'INTERNAL' }} onRetry={retry} title={D.title} />;
+  if (!view) return <Skeleton lines={5} block label={D.reading} />;
   const v = viewX(view);
-  const tabs = TABS.filter(([k]) => role !== 'O' || !LA_ONLY.includes(k));
+  const tabs = TABS.filter((k) => role !== 'O' || !LA_ONLY.includes(k));
   const href = (k: Tab) => (k === 'timeline' ? `/sessions/${sid}` : `/sessions/${sid}?tab=${k}`);
   const denied = role === 'O' && LA_ONLY.includes(tab);
   const nr = neverReady(view);
@@ -61,45 +57,40 @@ export default function SessionDetailPage() {
   return (
     <div className="stack-16" data-screen="P11-D" data-tab={tab}>
       <div>
-        <nav className="crumbs-row" aria-label="面包屑">
-          <Link to="/sessions">我的实验</Link>
+        <nav className="crumbs-row" aria-label={D.crumbs}>
+          <Link to="/sessions">{D.mySessions}</Link>
           <span aria-hidden="true">›</span>
           <span className="mono">{sid}</span>
         </nav>
         <div className="ph">
           <div className="ttl">
             <h1 tabIndex={-1}>
-              {view.labId} · 会话 <span className="mono">{sid}</span>
+              {rich(D.heading, { labId: view.labId, sid: <span className="mono">{sid}</span> })}
             </h1>
             <span className="sub">
-              <SessionStatePill state={view.state} size="sm" /> · {LIVE.includes(view.state) ? '进行中' : endReasonText(view.endReason)} ·{' '}
+              <SessionStatePill state={view.state} size="sm" /> · {LIVE.includes(view.state) ? D.inProgress : endReasonText(view.endReason)} ·{' '}
               <span title={formatUtcTitle(view.createdAt)}>{formatDate(view.createdAt, now)}</span>～{view.endedAt ? <span title={formatUtcTitle(view.endedAt)}>{formatClock(view.endedAt)}</span> : '—'}
-              {view.env?.envName ? (
-                <>
-                  {' '}
-                  · 环境 <span className="mono">{view.env.envName}</span>
-                </>
-              ) : null}
+              {view.env?.envName ? rich(D.env, { name: <span className="mono">{view.env.envName}</span> }) : null}
             </span>
           </div>
           <span className="acts">
             {LIVE.includes(view.state) ? (
               <Link className="btn primary" to={`/workspace/${sid}`}>
-                回到工作台
+                {D.backToWorkspace}
               </Link>
             ) : WIND.includes(view.state) ? (
               <Link className="btn primary" to={view.state === 'CLEANUP_FAILED' ? `/sessions/${sid}/end#manual` : `/sessions/${sid}/end`}>
-                {view.state === 'KEPT' ? '管理保留' : '查看回收进度'}
+                {view.state === 'KEPT' ? D.manageKeep : D.viewReclaim}
               </Link>
             ) : (
               <>
                 {!nr ? (
                   <Link className="btn" to={`/sessions/${sid}/report`}>
-                    报告
+                    {D.report}
                   </Link>
                 ) : null}
                 <Link className="btn" to={`/sessions/${sid}/end`}>
-                  回收
+                  {D.reclaim}
                 </Link>
               </>
             )}
@@ -107,21 +98,21 @@ export default function SessionDetailPage() {
         </div>
       </div>
 
-      <nav className="tabs collapse-sm" aria-label="会话详情">
-        {tabs.map(([k, label]) => (
+      <nav className="tabs collapse-sm" aria-label={D.title}>
+        {tabs.map((k) => (
           <Link key={k} to={href(k)} aria-current={k === tab ? 'page' : undefined} replace>
-            {label}
+            {D.tab[k]}
           </Link>
         ))}
       </nav>
       <div className="tabs-select">
         <label className="sr" htmlFor="sd-tab">
-          页签
+          {D.tabs}
         </label>
         <select id="sd-tab" className="input" value={tab} onChange={(e) => navigate(href(e.target.value as Tab), { replace: true })}>
-          {tabs.map(([k, label]) => (
+          {tabs.map((k) => (
             <option key={k} value={k}>
-              {label}
+              {D.tab[k]}
             </option>
           ))}
         </select>
@@ -129,7 +120,10 @@ export default function SessionDetailPage() {
 
       {denied ? (
         <div className="note" role="status" data-problem="role">
-          <span>{t(zhCN.p13.roleDeniedInline, { role: zhCN.roles.O })}这个页签只对学员与助教开放。</span>
+          <span>
+            {t(msg.p13.roleDeniedInline, { role: msg.roles.O })}
+            {D.deniedTail}
+          </span>
         </div>
       ) : tab === 'timeline' ? (
         <TimelineTab view={v} />
@@ -202,24 +196,24 @@ function TimelineTab({ view }: { view: SessionView }) {
 
   const shown = useMemo(() => events.filter((e) => !cat || categoryOf(e.type) === cat), [events, cat]);
   const now = clock.now();
-  if (status === 'loading') return <Skeleton lines={6} label="正在读取时间线" />;
-  if (status === 'error') return <InlineProblem error={error} onRetry={() => setAttempt((x) => x + 1)} title="时间线" />;
+  if (status === 'loading') return <Skeleton lines={6} label={D.readingTimeline} />;
+  if (status === 'error') return <InlineProblem error={error} onRetry={() => setAttempt((x) => x + 1)} title={D.timeline} />;
   const summary: [string, string][] = [
-    [view.createdAt, '已受理'],
-    ...(view.readyAt ? ([[view.readyAt, '环境已就绪']] as [string, string][]) : []),
-    ...(view.revokedAt ? ([[view.revokedAt, '收回访问']] as [string, string][]) : []),
-    ...(view.endedAt ? ([[view.endedAt, `结束（${endReasonText(view.endReason)}）`]] as [string, string][]) : []),
+    [view.createdAt, D.sumRequested],
+    ...(view.readyAt ? ([[view.readyAt, D.sumReady]] as [string, string][]) : []),
+    ...(view.revokedAt ? ([[view.revokedAt, D.sumRevoked]] as [string, string][]) : []),
+    ...(view.endedAt ? ([[view.endedAt, t(D.sumEnded, { reason: endReasonText(view.endReason) })]] as [string, string][]) : []),
   ];
   return (
     <section className="sec" aria-labelledby="tl-h" data-section="timeline">
       <h2 id="tl-h">
-        时间线
+        {D.timeline}
         <span className="aside">
           <label className="sr" htmlFor="tl-cat">
-            按类别筛选
+            {D.filterByCategory}
           </label>
           <select id="tl-cat" className="input" value={cat} onChange={(e) => setCat(e.target.value as EventCategory | '')}>
-            <option value="">全部类别</option>
+            <option value="">{D.allCategories}</option>
             {(Object.keys(CATEGORY_TEXT) as EventCategory[]).map((k) => (
               <option key={k} value={k}>
                 {CATEGORY_TEXT[k]}
@@ -228,9 +222,9 @@ function TimelineTab({ view }: { view: SessionView }) {
           </select>
         </span>
       </h2>
-      {truncated ? <p className="small muted">较早的事件已按保留期清理，只显示摘要。</p> : null}
+      {truncated ? <p className="small muted">{D.truncated}</p> : null}
       {truncated ? (
-        <ol className="timeline" aria-label="摘要">
+        <ol className="timeline" aria-label={D.summary}>
           {summary.map(([at, text]) => (
             <li key={`${at}-${text}`}>
               <span className="t" title={formatUtcTitle(at)}>
@@ -253,7 +247,7 @@ function TimelineTab({ view }: { view: SessionView }) {
           ))}
         </ol>
       ) : (
-        <p className="small muted">{events.length ? '这个类别没有事件。' : '还没有事件。'}</p>
+        <p className="small muted">{events.length ? D.noEventsInCategory : D.noEvents}</p>
       )}
     </section>
   );
@@ -272,24 +266,24 @@ function ResourcesTab({ sid, canUnmask }: { sid: string; canUnmask: boolean }) {
     <div className="stack-8">
       <div className="filters">
         <label className="small muted" htmlFor="res-state">
-          清理状态
+          {D.cleanupState}
         </label>
         <select id="res-state" className="input" value={state} onChange={(e) => setState(e.target.value)}>
           {RESOURCE_STATES.map((s) => (
             <option key={s} value={s}>
-              {s ? CLEANUP_STATE_META[s].text : '全部'}
+              {s ? CLEANUP_STATE_META[s].text : D.all}
             </option>
           ))}
         </select>
       </div>
       {data.status === 'error' && !data.loaded ? (
-        <InlineProblem error={data.error} onRetry={() => void data.refresh()} title="资源" />
+        <InlineProblem error={data.error} onRetry={() => void data.refresh()} title={D.resources} />
       ) : !data.loaded ? (
         <Skeleton lines={4} />
       ) : (
-        <ResourceStages sid={`detail-${sid}`} items={items} heading={`本会话创建的资源（${items.length} 项）`} canUnmask={canUnmask} />
+        <ResourceStages sid={`detail-${sid}`} items={items} heading={t(D.resourcesHeading, { n: items.length })} canUnmask={canUnmask} />
       )}
-      <p className="small muted">这里只列出本会话创建的资源；复用环境中由交接链里其他会话创建的资源在各自的会话中查看。</p>
+      <p className="small muted">{D.resourcesNote}</p>
     </div>
   );
 }
@@ -319,21 +313,21 @@ function CostTab({ view }: { view: SessionViewX }) {
   const priceAsOf = c?.priceAsOf ?? q?.priceAsOf ?? null;
   const est = c?.estimate ? formatMoneyRange(c.estimate.low, c.estimate.high, currency) : null;
   const start = hourlyRange(q?.hourly ?? null);
-  const startText = start ? formatMoneyRange(start.low, start.high, currency, '/小时') : null;
+  const startText = start ? formatMoneyRange(start.low, start.high, currency, D.perHour) : null;
   const now = clock.now();
   return (
     <div className="stack-16" data-section="cost">
       <p className="small muted">
-        当前或最终的计费（估算 · 单价取自 Price List{priceAsOf ? `，取价时间 ${formatDate(priceAsOf, now)}` : ''} · 以 AWS 账单为准）
+        {t(D.costNote, { asOf: priceAsOf ? t(D.priceAsOf, { t: formatDate(priceAsOf, now) }) : '' })}
       </p>
       {q?.dimensions?.length ? (
         <div className="tbl-wrap">
           <table className="tbl">
             <thead>
               <tr>
-                <th scope="col">服务</th>
-                <th scope="col">计费维度</th>
-                <th scope="col">详情</th>
+                <th scope="col">{D.colService}</th>
+                <th scope="col">{D.colDimension}</th>
+                <th scope="col">{D.colDetail}</th>
               </tr>
             </thead>
             <tbody>
@@ -348,52 +342,49 @@ function CostTab({ view }: { view: SessionViewX }) {
           </table>
         </div>
       ) : (
-        <p className="small muted">开始前的报价没有记录计费维度。</p>
+        <p className="small muted">{D.noDimensions}</p>
       )}
       <dl className="kv">
-        <dt>开始前估算</dt>
+        <dt>{D.startEstimate}</dt>
         <dd>
-          {startText ?? '未知（单价暂不可得）'}
-          {q?.quoteId ? (
-            <span className="small faint">
-              {' '}
-              · 报价 <span className="mono">{q.quoteId.slice(0, 6)}…</span>
-            </span>
-          ) : null}
+          {startText ?? D.unknownPrice}
+          {q?.quoteId ? <span className="small faint">{rich(D.quoteRef, { id: <span className="mono">{q.quoteId.slice(0, 6)}…</span> })}</span> : null}
         </dd>
-        <dt>本次会话</dt>
+        <dt>{D.thisSession}</dt>
         <dd>
-          {data.loaded ? (est ? `${est}（按实际时长重算，估算）` : '≈ 未知（单价暂不可得，以账单为准）') : '…'}
-          {c?.unestimatedManualResources ? ` · + 未估算的手工资源 ${c.unestimatedManualResources} 项` : ''}
+          {data.loaded ? (est ? t(D.recomputed, { est }) : D.unknownBill) : '…'}
+          {c?.unestimatedManualResources ? t(D.unestimated, { n: c.unestimatedManualResources }) : ''}
         </dd>
         {view.extensions?.length ? (
           <>
-            <dt>延长</dt>
+            <dt>{D.extensions}</dt>
             <dd>
               {(view.extensions as { at?: string; minutes?: number; quoteId?: string }[]).map((x, i) => (
                 <span key={i} className="block-line">
-                  {x.at ? `${formatDate(x.at, now)} ` : ''}延长 {x.minutes ?? '?'} 分钟{x.quoteId ? `（报价 ${x.quoteId.slice(0, 6)}…）` : ''}
+                  {x.at ? `${formatDate(x.at, now)} ` : ''}
+                  {t(D.extensionLine, { n: x.minutes ?? '?' })}
+                  {x.quoteId ? t(D.extensionQuote, { id: x.quoteId.slice(0, 6) }) : ''}
                 </span>
               ))}
             </dd>
           </>
         ) : null}
       </dl>
-      {data.status === 'error' && !data.loaded ? <InlineProblem error={data.error} onRetry={() => void data.refresh()} title="费用" /> : null}
+      {data.status === 'error' && !data.loaded ? <InlineProblem error={data.error} onRetry={() => void data.refresh()} title={D.cost} /> : null}
       {c?.billable?.length ? (
         <section className="sec" aria-labelledby="bill-h">
-          <h2 id="bill-h">计费资源</h2>
+          <h2 id="bill-h">{D.billable}</h2>
           <ul className="small">
             {c.billable.map((b, i) => (
               <li key={b.resourceKey ?? i}>
                 <span className="mono">{b.type ?? '—'}</span> <span className="mono wrap-any">{b.name ? redact(b.name) : ''}</span> · {b.billing ? (BILLING_TEXT[b.billing as BillingLike] ?? b.billing) : '—'}
-                {b.since ? ` · 自 ${formatDate(b.since, now)}` : ''}
+                {b.since ? t(D.since, { t: formatDate(b.since, now) }) : ''}
               </li>
             ))}
           </ul>
         </section>
       ) : null}
-      <p className="small muted">想看实际账单：激活成本分配标签后，可在 AWS Cost Explorer 中按 atl:session-id 查看（数据通常有一天左右的延迟）。</p>
+      <p className="small muted">{D.billNote}</p>
     </div>
   );
 }
@@ -414,50 +405,50 @@ interface ModuleOp {
   runId?: string | null;
 }
 
-const SOURCE_TEXT: Record<string, string> = { platform: '平台', agent: '工作台', runner: '运行器' };
+const SOURCE_TEXT: Readonly<Record<string, string>> = D.source;
 
 function OpsTab({ sid }: { sid: string }) {
   const { clock } = useServices();
   const data = useApiData<{ items?: ModuleOp[] }>(`ops:${sid}`, 'listModuleOps', { params: { sid } });
-  if (data.status === 'error' && !data.loaded) return <InlineProblem error={data.error} onRetry={() => void data.refresh()} title="平台动作" />;
+  if (data.status === 'error' && !data.loaded) return <InlineProblem error={data.error} onRetry={() => void data.refresh()} title={D.ops} />;
   if (!data.loaded) return <Skeleton lines={3} />;
   const items = data.data?.items ?? [];
-  if (!items.length) return <p className="small muted">这次会话没有平台动作或模块操作。</p>;
+  if (!items.length) return <p className="small muted">{D.noOps}</p>;
   const now = clock.now();
   return (
     <div className="tbl-wrap cardify" data-section="ops">
       <table className="tbl">
         <thead>
           <tr>
-            <th scope="col">时间</th>
-            <th scope="col">来源</th>
-            <th scope="col">操作</th>
-            <th scope="col">模块</th>
-            <th scope="col">结果</th>
-            <th scope="col">运行 ID</th>
+            <th scope="col">{D.colTime}</th>
+            <th scope="col">{D.colSource}</th>
+            <th scope="col">{D.colOp}</th>
+            <th scope="col">{D.colModule}</th>
+            <th scope="col">{D.colResult}</th>
+            <th scope="col">{D.colRunId}</th>
           </tr>
         </thead>
         <tbody>
           {items.map((o, i) => {
             const at = o.startedAt ?? o.finishedAt;
-            const result = !o.finishedAt ? { text: '进行中', shape: 'clock' as const, tone: 'pend' as const } : o.exitCode === 0 || o.exitCode === null ? { text: '成功', shape: 'check' as const, tone: 'pass' as const } : { text: `失败（退出码 ${o.exitCode}）`, shape: 'xbox' as const, tone: 'fail' as const };
+            const result = !o.finishedAt ? { text: D.opRunning, shape: 'clock' as const, tone: 'pend' as const } : o.exitCode === 0 || o.exitCode === null ? { text: D.opOk, shape: 'check' as const, tone: 'pass' as const } : { text: t(D.opFailed, { code: o.exitCode }), shape: 'xbox' as const, tone: 'fail' as const };
             return (
               <tr key={o.opId ?? i}>
-                <td className="tnum" data-label="时间">
+                <td className="tnum" data-label={D.colTime}>
                   {at ? formatDate(at, now) : '—'}
                 </td>
-                <td data-label="来源">{SOURCE_TEXT[o.source ?? ''] ?? '—'}</td>
-                <td className="mono small" data-label="操作">
+                <td data-label={D.colSource}>{SOURCE_TEXT[o.source ?? ''] ?? '—'}</td>
+                <td className="mono small" data-label={D.colOp}>
                   {o.actionId ?? o.op ?? '—'}
                 </td>
-                <td className="mono small" data-label="模块">
+                <td className="mono small" data-label={D.colModule}>
                   {o.moduleId ?? '—'}
                 </td>
-                <td data-label="结果">
+                <td data-label={D.colResult}>
                   <Status meta={result} />
                   {o.summary ? <span className="small muted block-line">{redact(o.summary)}</span> : null}
                 </td>
-                <td className="mono small" data-label="运行 ID">
+                <td className="mono small" data-label={D.colRunId}>
                   {o.runId ?? '—'}
                 </td>
               </tr>
@@ -481,54 +472,58 @@ interface AuditItem {
   result?: string;
 }
 
-const RESULT_META: Record<string, { text: string; shape: 'check' | 'xbox' | 'tri'; tone: 'pass' | 'fail' | 'drift' }> = {
-  ok: { text: '成功', shape: 'check', tone: 'pass' },
-  success: { text: '成功', shape: 'check', tone: 'pass' },
-  denied: { text: '被拒绝', shape: 'xbox', tone: 'fail' },
-  error: { text: '出错', shape: 'tri', tone: 'drift' },
-};
+const RESULT_META: Readonly<Record<string, { readonly text: string; shape: 'check' | 'xbox' | 'tri'; tone: 'pass' | 'fail' | 'drift' }>> = withText(
+  {
+    ok: { shape: 'check', tone: 'pass' },
+    success: { shape: 'check', tone: 'pass' },
+    denied: { shape: 'xbox', tone: 'fail' },
+    error: { shape: 'tri', tone: 'drift' },
+  } as const,
+  D.result,
+);
 
 function actorText(a: AuditItem['actor']): string {
   if (!a) return '—';
-  if (typeof a === 'string') return a === 'system' ? '平台' : a;
-  const role = a.role === 'learner' || a.group === 'learner' ? '学员' : a.role === 'assistant' ? '助教' : a.role === 'observer' ? '观察者' : a.role === 'system' ? '平台' : '';
-  return `${a.displayName ?? (a.sub ? `${a.sub.slice(0, 6)}…` : '平台')}${role ? `（${role}）` : ''}`;
+  if (typeof a === 'string') return a === 'system' ? D.platform : a;
+  const role = a.role === 'learner' || a.group === 'learner' ? msg.roles.L : a.role === 'assistant' ? msg.roles.A : a.role === 'observer' ? msg.roles.O : a.role === 'system' ? D.platform : '';
+  const name = a.displayName ?? (a.sub ? `${a.sub.slice(0, 6)}…` : D.platform);
+  return role ? t(D.actorRole, { name, role }) : name;
 }
 
 function AuditTab({ sid }: { sid: string }) {
   const { clock } = useServices();
   const data = useApiData<{ items?: AuditItem[] }>(`audit:${sid}`, 'listAuditEvents', { query: { sessionId: sid } });
-  if (data.status === 'error' && !data.loaded) return <InlineProblem error={data.error} onRetry={() => void data.refresh()} title="审计" />;
+  if (data.status === 'error' && !data.loaded) return <InlineProblem error={data.error} onRetry={() => void data.refresh()} title={D.audit} />;
   if (!data.loaded) return <Skeleton lines={3} />;
   const items = data.data?.items ?? [];
-  if (!items.length) return <p className="small muted">这次会话没有审计事件。</p>;
+  if (!items.length) return <p className="small muted">{D.noAudit}</p>;
   const now = clock.now();
   return (
     <div className="tbl-wrap cardify" data-section="audit">
       <table className="tbl">
         <thead>
           <tr>
-            <th scope="col">时间</th>
-            <th scope="col">操作者</th>
-            <th scope="col">动作</th>
-            <th scope="col">对象</th>
-            <th scope="col">结果</th>
+            <th scope="col">{D.colTime}</th>
+            <th scope="col">{D.colActor}</th>
+            <th scope="col">{D.colAction}</th>
+            <th scope="col">{D.colTarget}</th>
+            <th scope="col">{D.colResult}</th>
           </tr>
         </thead>
         <tbody>
           {items.map((a, i) => (
             <tr key={a.auditId ?? i}>
-              <td className="tnum" data-label="时间">
+              <td className="tnum" data-label={D.colTime}>
                 {a.at ? formatDate(a.at, now) : '—'}
               </td>
-              <td data-label="操作者">{actorText(a.actor)}</td>
-              <td className="mono small" data-label="动作">
+              <td data-label={D.colActor}>{actorText(a.actor)}</td>
+              <td className="mono small" data-label={D.colAction}>
                 {a.action ?? '—'}
               </td>
-              <td className="mono small wrap-any" data-label="对象">
+              <td className="mono small wrap-any" data-label={D.colTarget}>
                 {a.target ? redact(a.target) : '—'}
               </td>
-              <td data-label="结果">{RESULT_META[a.result ?? ''] ? <Status meta={RESULT_META[a.result!]!} /> : (a.result ?? '—')}</td>
+              <td data-label={D.colResult}>{RESULT_META[a.result ?? ''] ? <Status meta={RESULT_META[a.result!]!} /> : (a.result ?? '—')}</td>
             </tr>
           ))}
         </tbody>

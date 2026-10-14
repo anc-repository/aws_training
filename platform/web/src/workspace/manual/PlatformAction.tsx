@@ -11,9 +11,13 @@ import { announce } from '../../lib/announce';
 import { Button, Dialog, Shape, Status } from '../../ui';
 import { useWorkspace } from '../context';
 
+import { t } from '../../i18n';
+import { W } from '../strings';
+
+const WA = W.action;
 export function actionTitle(actionId: string, title?: string | null): string {
   if (title) return title;
-  if (actionId.startsWith('xstk-')) return `部署 ${actionId.slice(5)}`;
+  if (actionId.startsWith('xstk-')) return t(WA.deploy, { id: actionId.slice(5) });
   return actionId;
 }
 
@@ -29,17 +33,17 @@ export function PlatformActionButton({ actionId }: { actionId: string }) {
   const status = (op?.status ?? op?.state ?? '').toLowerCase();
   const running = !!op && !op.finishedAt && !['succeeded', 'failed', 'done'].includes(status);
   const failed = !!op && (status === 'failed' || (op.exitCode !== null && op.exitCode !== undefined && op.exitCode !== 0));
-  const blocked = !ws.learner ? '你的角色不能执行平台动作' : !ws.live ? '实验就绪后可用' : running ? '平台正在执行这个动作' : null;
+  const blocked = !ws.learner ? WA.roleDenied : !ws.live ? WA.afterReady : running ? WA.running : null;
   const submit = async () => {
     setBusy(true);
     setError(null);
     try {
       await api.call('requestModuleOp', { params: { sid: ws.sid }, body: { actionId } });
-      announce(`已请求平台动作：${title}`);
+      announce(t(WA.requested, { title }));
       setOpen(false);
       void ws.data.moduleOps.refresh();
     } catch (e) {
-      setError(isApiError(e) ? (e.code === 'OP_NOT_ALLOWED' ? '本卡片不允许这个平台动作' : e.code === 'REAUTH_REQUIRED' ? '这个操作要求最近 60 分钟内登录过' : (e.detail ?? e.title)) : '请求没有完成，请稍后重试');
+      setError(isApiError(e) ? (e.code === 'OP_NOT_ALLOWED' ? WA.notAllowed : e.code === 'REAUTH_REQUIRED' ? WA.reauth : (e.detail ?? e.title)) : WA.failed);
     } finally {
       setBusy(false);
     }
@@ -47,20 +51,20 @@ export function PlatformActionButton({ actionId }: { actionId: string }) {
   return (
     <div className="box inset stack-4 pact" data-platform-action={actionId}>
       <div className="row between">
-        <b className="small">平台动作：{title}</b>
+        <b className="small">{t(WA.title, { title })}</b>
         <Button size="sm" onClick={() => setOpen(true)} disabledReason={blocked}>
           {title}…
         </Button>
       </div>
-      {decl?.interruptsManagementChannel ? <span className="small muted">执行期间会暂时中断平台管理通道（预期中断）。</span> : null}
+      {decl?.interruptsManagementChannel ? <span className="small muted">{WA.interrupts}</span> : null}
       {op ? (
         <span className="small">
           {running ? (
-            <Status meta={{ text: '平台正在修改环境', shape: 'spin', tone: 'pend', spin: true }} />
+            <Status meta={{ text: WA.modifying, shape: 'spin', tone: 'pend', spin: true }} />
           ) : failed ? (
-            <Status meta={{ text: `执行失败${op.summary ? `：${op.summary}` : ''}`, shape: 'xbox', tone: 'fail' }} />
+            <Status meta={{ text: op.summary ? t(WA.execFailedSummary, { summary: op.summary }) : WA.execFailed, shape: 'xbox', tone: 'fail' }} />
           ) : (
-            <Status meta={{ text: '已完成', shape: 'check', tone: 'pass' }} />
+            <Status meta={{ text: WA.done, shape: 'check', tone: 'pass' }} />
           )}
         </span>
       ) : null}
@@ -73,19 +77,19 @@ export function PlatformActionButton({ actionId }: { actionId: string }) {
         footer={
           <>
             <button type="button" className="btn" data-cancel="" onClick={() => setOpen(false)}>
-              取消
+              {WA.cancel}
             </button>
-            <Button variant="primary" busy={busy} busyText="正在请求…" onClick={() => void submit()}>
-              确认执行
+            <Button variant="primary" busy={busy} busyText={WA.requesting} onClick={() => void submit()}>
+              {WA.confirm}
             </Button>
           </>
         }
       >
-        <p>{decl?.confirm ?? '平台会以运行器修改你的实验环境。确认执行吗？'}</p>
+        <p>{decl?.confirm ?? WA.confirmDefault}</p>
         {decl?.interruptsManagementChannel ? (
           <div className="note amber">
             <Shape name="tri" />
-            <span>执行期间实验机终端与本地检测会暂时不可用，属预期。</span>
+            <span>{WA.interruptsNote}</span>
           </div>
         ) : null}
         {error ? (

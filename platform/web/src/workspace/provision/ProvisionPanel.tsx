@@ -16,15 +16,22 @@ import { diagnosticLines, diagnosticsText, failureMeta, preflightCommand } from 
 import { PROVISION_CLASS } from '../model/lab';
 import { buildPhaseRows, nearBudget, type PhaseRowModel } from '../model/phases';
 
-const PHASE_SHAPE: Record<PhaseRowModel['status'], { shape: 'check' | 'spin' | 'ring' | 'retry' | 'clock' | 'xbox' | 'dash'; tone: string; text: string }> = {
-  done: { shape: 'check', tone: 'pass', text: '完成' },
-  running: { shape: 'spin', tone: 'pend', text: '进行中' },
-  todo: { shape: 'ring', tone: 'faint', text: '未开始' },
-  retrying: { shape: 'retry', tone: 'drift', text: '重试中' },
-  queued: { shape: 'clock', tone: 'pend', text: '排队中' },
-  failed: { shape: 'xbox', tone: 'fail', text: '失败' },
-  skipped: { shape: 'dash', tone: 'mut', text: '跳过' },
-};
+import { rich, t, withText } from '../../i18n';
+import { W } from '../strings';
+const WP = W.provision;
+
+const PHASE_SHAPE: Readonly<Record<PhaseRowModel['status'], { shape: 'check' | 'spin' | 'ring' | 'retry' | 'clock' | 'xbox' | 'dash'; tone: string; readonly text: string }>> = withText(
+  {
+    done: { shape: 'check', tone: 'pass' },
+    running: { shape: 'spin', tone: 'pend' },
+    todo: { shape: 'ring', tone: 'faint' },
+    retrying: { shape: 'retry', tone: 'drift' },
+    queued: { shape: 'clock', tone: 'pend' },
+    failed: { shape: 'xbox', tone: 'fail' },
+    skipped: { shape: 'dash', tone: 'mut' },
+  } as const,
+  WP.phase,
+);
 
 export function ProvisionPanel({ onCancel }: { onCancel: () => void }) {
   const ws = useWorkspace();
@@ -59,26 +66,20 @@ function PreparingView({ onCancel }: { onCancel: () => void }) {
     for (const r of rows) {
       if (r.status !== 'done' || spoken.current.has(r.key)) continue;
       spoken.current.add(r.key);
-      const took = r.startedAt && r.endedAt ? `，用时 ${formatSpan(r.endedAt - r.startedAt)}` : '';
-      announce(`${r.title}已完成${took}`, { topic: 'provision-phase' });
+      const text = r.startedAt && r.endedAt ? t(WP.phaseDoneTook, { title: r.title, t: formatSpan(r.endedAt - r.startedAt) }) : t(WP.phaseDone, { title: r.title });
+      announce(text, { topic: 'provision-phase' });
     }
   }, [rows]);
   const [notif, setNotif] = useState<NotificationPermission | 'unsupported'>(() => (typeof Notification === 'undefined' ? 'unsupported' : Notification.permission));
   return (
-    <section className="rpane prov-pane" aria-label="准备进度" data-provision="">
+    <section className="rpane prov-pane" aria-label={WP.region} data-provision="">
       <div className="stack prov-body">
         <div className="row between">
-          <h2>正在准备实验环境</h2>
-          {cls ? (
-            <span className="small">
-              环境准备：{cls.name}（{pclass}）
-            </span>
-          ) : null}
+          <h2>{WP.title}</h2>
+          {cls ? <span className="small">{t(WP.class, { name: cls.name, cls: pclass })}</span> : null}
         </div>
-        <p className="small muted">
-          已用 <span className="mono">{formatCountdown(elapsed)}</span> · {cls?.note ?? '起始状态包含的资源决定准备时间。'}
-        </p>
-        <ol className="prov" aria-label="准备阶段">
+        <p className="small muted">{rich(WP.elapsed, { t: <span className="mono">{formatCountdown(elapsed)}</span>, note: cls?.note ?? WP.defaultNote })}</p>
+        <ol className="prov" aria-label={WP.phases}>
           {rows.map((r) => {
             const m = PHASE_SHAPE[r.status];
             const current = r.status === 'running' || r.status === 'retrying' || r.status === 'queued';
@@ -92,26 +93,26 @@ function PreparingView({ onCancel }: { onCancel: () => void }) {
                 <span className="pt">{r.title}</span>
                 <span className="tm mono small">{tm}</span>
                 {r.details.length ? <span className="pd">{r.details.map((d) => redact(d)).join(' · ')}</span> : null}
-                {r.status === 'queued' ? <span className="pd">运行器排队中（CodeBuild 并发已满）</span> : null}
+                {r.status === 'queued' ? <span className="pd">{WP.queued}</span> : null}
                 {r.slowHint ? <span className="pd">{r.slowHint}</span> : null}
-                {current && near ? <span className="pd">比通常更久。平台会在超时前自动停止并释放已创建的资源。</span> : null}
+                {current && near ? <span className="pd">{WP.slow}</span> : null}
               </li>
             );
           })}
         </ol>
         <div className="note">
           <Shape name="dot" />
-          <span>计费：环境创建开始即计费（{hourly ? `${formatRange(hourly, hourly.currency)}/小时，估算` : '估算见开始时的报价'}），倒计时从“就绪”开始。</span>
+          <span>{t(WP.billing, { estimate: hourly ? t(WP.billingHourly, { range: formatRange(hourly, hourly.currency) }) : WP.billingQuote })}</span>
         </div>
         <div className="note blue">
           <Shape name="clock" />
-          <span>可以离开这个页面：准备在后台进行。就绪后顶栏会提示，也会发送邮件（需已确认订阅）。浏览器通知只能尽力送达。</span>
+          <span>{WP.leave}</span>
         </div>
         <div className="row">
           {ws.learner && notif !== 'unsupported' ? (
             notif === 'granted' ? (
               <span className="small st pass">
-                <Shape name="check" /> 已开启浏览器通知
+                <Shape name="check" /> {WP.notifOn}
               </span>
             ) : (
               <Button
@@ -121,21 +122,21 @@ function PreparingView({ onCancel }: { onCancel: () => void }) {
                   try {
                     const p = await Notification.requestPermission();
                     setNotif(p);
-                    if (p === 'denied') announce('浏览器拒绝了通知，可以在浏览器设置中重新允许');
+                    if (p === 'denied') announce(WP.notifDenied);
                   } catch {
                     setNotif('denied');
                   }
                 }}
               >
-                开启浏览器通知
+                {WP.enableNotif}
               </Button>
             )
           ) : null}
-          {notif === 'denied' ? <span className="small muted">可以在浏览器设置中重新允许。</span> : null}
+          {notif === 'denied' ? <span className="small muted">{WP.reallow}</span> : null}
           <span className="spacer" />
           {ws.allowed.includes('cancel') ? (
             <Button size="sm" onClick={onCancel}>
-              取消…
+              {WP.cancel}
             </Button>
           ) : null}
         </div>
@@ -151,12 +152,13 @@ export function ReadyFlash() {
   const took = v.readyAt ? Date.parse(v.readyAt) - Date.parse(v.createdAt) : null;
   const total = v.deadlineAt && v.readyAt ? Date.parse(v.deadlineAt) - Date.parse(v.readyAt) : null;
   return (
-    <section className="rpane prov-pane" aria-label="准备进度">
+    <section className="rpane prov-pane" aria-label={WP.region}>
       <div className="resbar prov-ready" role="status">
         <Shape name="check" />
         <span>
-          环境已就绪{took !== null ? `（用时 ${formatCountdown(took)}）` : ''}
-          {total !== null ? `，倒计时 ${formatCountdown(total)} 已开始` : ''}
+          {WP.ready}
+          {took !== null ? t(WP.readyTook, { t: formatCountdown(took) }) : ''}
+          {total !== null ? t(WP.countdownStarted, { t: formatCountdown(total) }) : ''}
         </span>
       </div>
     </section>
@@ -172,36 +174,36 @@ function CompensationView() {
   const c = v.cleanup ?? null;
   const cancelled = v.endReason === 'CANCELLED' || !v.failure;
   return (
-    <section className="rpane prov-pane" aria-label={cancelled ? '取消进度' : '启动失败'} data-compensation="">
+    <section className="rpane prov-pane" aria-label={cancelled ? WP.cancelProgress : WP.startFailed} data-compensation="">
       <div className="stack prov-body">
-        <h2>{ended ? (cancelled ? '已取消实验' : '启动失败，已释放已创建的资源') : cancelled ? '正在取消：释放已创建的资源' : '启动失败：正在释放已创建的资源'}</h2>
+        <h2>{ended ? (cancelled ? WP.cancelled : WP.failedReleased) : cancelled ? WP.cancelling : WP.failedReleasing}</h2>
         {!cancelled ? <FailureSummary /> : null}
         <div className="box stack-8" aria-live="off">
           <span className="row">
             {ended ? (
               <span className="st pass">
                 <Shape name="check" />
-                <span className="t">已释放已创建的资源</span>
+                <span className="t">{WP.released}</span>
               </span>
             ) : (
               <span className="st pend">
                 <Shape name="spin" spin />
-                <span className="t">正在释放已创建的资源</span>
+                <span className="t">{WP.releasing}</span>
               </span>
             )}
-            {c && typeof c.total === 'number' ? <span className="small tnum">已删除 {c.deleted ?? 0}/{c.total}</span> : null}
+            {c && typeof c.total === 'number' ? <span className="small tnum">{t(WP.deleted, { n: c.deleted ?? 0, m: c.total })}</span> : null}
           </span>
         </div>
-        <p className="small muted">{ended ? '这次尝试不计入次数。准备期间产生的费用不会退回。' : '释放在后台进行，可以离开这个页面。释放完成前不能开始新的实验。'}</p>
+        <p className="small muted">{ended ? WP.endedNote : WP.releasingNote}</p>
         <div className="row">
           {ws.learner && ended ? (
             <Button variant="primary" onClick={() => navigate(`/labs/${v.labId}?start=1`)}>
-              重新开始
+              {WP.restart}
             </Button>
           ) : null}
-          <Button onClick={() => navigate(`/sessions/${ws.sid}/end`)}>查看回收进度</Button>
+          <Button onClick={() => navigate(`/sessions/${ws.sid}/end`)}>{WP.viewReclaim}</Button>
           <Button variant="ghost" onClick={() => navigate('/labs')}>
-            回到卡片目录
+            {WP.backToCatalog}
           </Button>
         </div>
       </div>
@@ -237,7 +239,7 @@ export function FailurePanel() {
   const [diagOpen, setDiagOpen] = useState(false);
   const diag = diagnosticsText(ws.sid, f);
   return (
-    <section className="rpane prov-pane" aria-label="启动失败" data-failure={f.code ?? 'UNKNOWN'}>
+    <section className="rpane prov-pane" aria-label={WP.startFailed} data-failure={f.code ?? 'UNKNOWN'}>
       <div className="stack prov-body">
         <div className="vres bad">
           <Shape name="xbox" />
@@ -251,7 +253,7 @@ export function FailurePanel() {
         {cmd ? <CommandBlock text={cmd} runsOn="local" copyOnly /> : null}
         {lines.length ? (
           <details className="disc">
-            <summary>诊断信息</summary>
+            <summary>{WP.diagnostics}</summary>
             <ul className="small mono mlist">
               {lines.map((l, i) => (
                 <li key={i}>{redact(l)}</li>
@@ -260,69 +262,69 @@ export function FailurePanel() {
           </details>
         ) : null}
         <div className="stack-4">
-          <b className="small">补偿回收</b>
+          <b className="small">{WP.compensation}</b>
           {cf ? (
             <span className="small">
               <span className="st fail">
                 <Shape name="tri" />
-                <span className="t">有资源未释放</span>
+                <span className="t">{WP.notReleased}</span>
               </span>{' '}
               <Button size="sm" onClick={() => navigate(`/sessions/${ws.sid}/end#manual`)}>
-                查看清单
+                {WP.viewList}
               </Button>
             </span>
           ) : v.state === 'FAILED' || v.state === 'ENDED' ? (
             <span className="small st pass">
               <Shape name="check" />
-              <span className="t">已释放已创建的资源</span>
+              <span className="t">{WP.released}</span>
             </span>
           ) : (
             <span className="small st pend">
               <Shape name="spin" spin />
-              <span className="t">正在释放已创建的资源</span>
+              <span className="t">{WP.releasing}</span>
             </span>
           )}
         </div>
         <div className="row">
           {ws.learner && meta.actions.includes('restart') ? (
             <Button variant="primary" onClick={() => navigate(`/labs/${v.labId}?start=1`)}>
-              重新开始
+              {WP.restart}
             </Button>
           ) : null}
-          {ws.learner && meta.actions.includes('fresh') ? <Button onClick={() => navigate(`/labs/${v.labId}?start=1`)}>全新开始</Button> : null}
-          {meta.actions.includes('current') ? <Button onClick={() => navigate('/sessions')}>查看当前实验</Button> : null}
+          {ws.learner && meta.actions.includes('fresh') ? <Button onClick={() => navigate(`/labs/${v.labId}?start=1`)}>{WP.fresh}</Button> : null}
+          {meta.actions.includes('current') ? <Button onClick={() => navigate('/sessions')}>{WP.viewCurrent}</Button> : null}
           <Button icon="copy" onClick={() => setDiagOpen(true)}>
-            复制诊断信息
+            {WP.copyDiag}
           </Button>
         </div>
-        <p className="small muted">这次尝试不计入次数。重新开始会回到简介页并打开开始对话框（必须重新报价）。</p>
+        <p className="small muted">{WP.restartNote}</p>
       </div>
       {diagOpen ? (
         <Dialog
           open
           onClose={() => setDiagOpen(false)}
-          title="复制诊断信息"
+          title={WP.copyDiag}
           size="narrow"
           footer={
             <>
               <button type="button" className="btn" onClick={() => setDiagOpen(false)}>
-                取消
+                {WP.cancelDialog}
               </button>
               <button
                 type="button"
                 className="btn primary"
                 onClick={async () => {
                   setDiagOpen(false);
-                  announce((await copyText(diag)) ? '已复制诊断信息' : '无法访问剪贴板');
+                  announce((await copyText(diag)) ? WP.copiedDiag : WP.clipboardDenied);
                 }}
               >
                 <Icon name="copy" />
-                复制原文
+                {WP.copyRaw}
               </button>
             </>
           }
         >
-          <p className="small">诊断信息包含 AWS 账号 ID、资源 ARN 等原文，便于排查；分享给他人前请自行打码。</p>
+          <p className="small">{WP.diagWarning}</p>
           <pre className="mono small evjson">{redact(diag)}</pre>
         </Dialog>
       ) : null}

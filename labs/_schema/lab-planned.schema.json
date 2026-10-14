@@ -41,14 +41,28 @@
       ]
     },
     "service": {
-      "type": "string",
-      "minLength": 3,
-      "maxLength": 40
+      "anyOf": [
+        {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 40
+        },
+        {
+          "$ref": "#/$defs/l10n"
+        }
+      ]
     },
     "function": {
-      "type": "string",
-      "minLength": 2,
-      "maxLength": 20
+      "anyOf": [
+        {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 20
+        },
+        {
+          "$ref": "#/$defs/l10n"
+        }
+      ]
     },
     "version": {
       "$ref": "#/$defs/semver"
@@ -57,22 +71,50 @@
       "const": "planned"
     },
     "title": {
-      "type": "string",
-      "minLength": 2,
-      "maxLength": 48
+      "anyOf": [
+        {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 48
+        },
+        {
+          "$ref": "#/$defs/l10n"
+        }
+      ]
     },
     "subtitle": {
-      "type": "string",
-      "maxLength": 60
+      "anyOf": [
+        {
+          "type": "string",
+          "maxLength": 60
+        },
+        {
+          "$ref": "#/$defs/l10n"
+        }
+      ]
     },
     "summary": {
-      "type": "string",
-      "minLength": 10,
-      "maxLength": 200
+      "anyOf": [
+        {
+          "type": "string",
+          "minLength": 10,
+          "maxLength": 200
+        },
+        {
+          "$ref": "#/$defs/l10n"
+        }
+      ]
     },
     "story": {
-      "type": "string",
-      "maxLength": 1200
+      "anyOf": [
+        {
+          "type": "string",
+          "maxLength": 1200
+        },
+        {
+          "$ref": "#/$defs/l10n"
+        }
+      ]
     },
     "scenario": {
       "type": "object",
@@ -82,24 +124,45 @@
       ],
       "properties": {
         "question": {
-          "type": "string",
-          "minLength": 20,
-          "maxLength": 400
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 20,
+              "maxLength": 400
+            },
+            {
+              "$ref": "#/$defs/l10n"
+            }
+          ]
         },
         "constraints": {
           "type": "array",
           "maxItems": 6,
           "items": {
-            "type": "string",
-            "maxLength": 80
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 80
+              },
+              {
+                "$ref": "#/$defs/l10n"
+              }
+            ]
           }
         },
         "antiPatterns": {
           "type": "array",
           "maxItems": 6,
           "items": {
-            "type": "string",
-            "maxLength": 120
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 120
+              },
+              {
+                "$ref": "#/$defs/l10n"
+              }
+            ]
           }
         }
       }
@@ -116,8 +179,15 @@
         ],
         "properties": {
           "text": {
-            "type": "string",
-            "maxLength": 80
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 80
+              },
+              {
+                "$ref": "#/$defs/l10n"
+              }
+            ]
           },
           "domain": {
             "$ref": "#/$defs/saaDomain"
@@ -184,8 +254,15 @@
           "maximum": 72
         },
         "reason": {
-          "type": "string",
-          "maxLength": 120
+          "anyOf": [
+            {
+              "type": "string",
+              "maxLength": 120
+            },
+            {
+              "$ref": "#/$defs/l10n"
+            }
+          ]
         }
       }
     },
@@ -234,8 +311,15 @@
             "$ref": "#/$defs/serviceId"
           },
           "name": {
-            "type": "string",
-            "maxLength": 60
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 60
+              },
+              {
+                "$ref": "#/$defs/l10n"
+              }
+            ]
           },
           "role": {
             "enum": [
@@ -344,8 +428,15 @@
         "knowledge": {
           "type": "array",
           "items": {
-            "type": "string",
-            "maxLength": 60
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 60
+              },
+              {
+                "$ref": "#/$defs/l10n"
+              }
+            ]
           }
         }
       }
@@ -448,8 +539,15 @@
                 ]
               },
               "resource": {
-                "type": "string",
-                "maxLength": 80
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "maxLength": 80
+                  },
+                  {
+                    "$ref": "#/$defs/l10n"
+                  }
+                ]
               },
               "preexisting": {
                 "enum": [
@@ -467,8 +565,15 @@
                 ]
               },
               "note": {
-                "type": "string",
-                "maxLength": 200
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "maxLength": 200
+                  },
+                  {
+                    "$ref": "#/$defs/l10n"
+                  }
+                ]
               }
             }
           }
@@ -513,13 +618,27 @@
       ],
       "properties": {
         "title": {
-          "type": "string",
-          "minLength": 2,
-          "maxLength": 8
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 2,
+              "maxLength": 8
+            },
+            {
+              "$ref": "#/$defs/l10n"
+            }
+          ]
         },
         "short": {
-          "type": "string",
-          "maxLength": 6
+          "anyOf": [
+            {
+              "type": "string",
+              "maxLength": 6
+            },
+            {
+              "$ref": "#/$defs/l10n"
+            }
+          ]
         },
         "icon": {
           "type": "string",
@@ -584,12 +703,26 @@
             }
           },
           "title": {
-            "type": "string",
-            "maxLength": 40
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 40
+              },
+              {
+                "$ref": "#/$defs/l10n"
+              }
+            ]
           },
           "confirm": {
-            "type": "string",
-            "maxLength": 200
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200
+              },
+              {
+                "$ref": "#/$defs/l10n"
+              }
+            ]
           },
           "optional": {
             "type": "boolean",
@@ -629,8 +762,15 @@
           "default": false
         },
         "title": {
-          "type": "string",
-          "maxLength": 40
+          "anyOf": [
+            {
+              "type": "string",
+              "maxLength": 40
+            },
+            {
+              "$ref": "#/$defs/l10n"
+            }
+          ]
         },
         "maxManualChecks": {
           "type": "integer",
@@ -700,6 +840,37 @@
     }
   ],
   "$defs": {
+    "l10n": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "zh-CN"
+      ],
+      "properties": {
+        "zh-CN": {
+          "type": "string",
+          "minLength": 1
+        },
+        "ja": {
+          "type": "string",
+          "minLength": 1
+        },
+        "en": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "text": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "$ref": "#/$defs/l10n"
+        }
+      ]
+    },
     "cardId": {
       "type": "string",
       "pattern": "^(svc|sc)-[a-z0-9]+(-[a-z0-9]+)*$",
@@ -858,9 +1029,16 @@
           ]
         },
         "reason": {
-          "type": "string",
-          "minLength": 4,
-          "maxLength": 240
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 4,
+              "maxLength": 240
+            },
+            {
+              "$ref": "#/$defs/l10n"
+            }
+          ]
         }
       },
       "allOf": [
@@ -1022,8 +1200,15 @@
             "$ref": "#/$defs/moduleId"
           },
           "reason": {
-            "type": "string",
-            "maxLength": 200
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200
+              },
+              {
+                "$ref": "#/$defs/l10n"
+              }
+            ]
           }
         }
       }
@@ -1061,8 +1246,15 @@
           }
         },
         "reason": {
-          "type": "string",
-          "maxLength": 400
+          "anyOf": [
+            {
+              "type": "string",
+              "maxLength": 400
+            },
+            {
+              "$ref": "#/$defs/l10n"
+            }
+          ]
         }
       }
     },
@@ -1085,8 +1277,15 @@
           }
         },
         "title": {
-          "type": "string",
-          "maxLength": 40
+          "anyOf": [
+            {
+              "type": "string",
+              "maxLength": 40
+            },
+            {
+              "$ref": "#/$defs/l10n"
+            }
+          ]
         },
         "select": {
           "enum": [
@@ -1117,8 +1316,15 @@
           }
         },
         "reason": {
-          "type": "string",
-          "maxLength": 240
+          "anyOf": [
+            {
+              "type": "string",
+              "maxLength": 240
+            },
+            {
+              "$ref": "#/$defs/l10n"
+            }
+          ]
         }
       },
       "if": {
@@ -1181,8 +1387,15 @@
       ],
       "properties": {
         "label": {
-          "type": "string",
-          "maxLength": 24
+          "anyOf": [
+            {
+              "type": "string",
+              "maxLength": 24
+            },
+            {
+              "$ref": "#/$defs/l10n"
+            }
+          ]
         },
         "from": {
           "enum": [
@@ -1202,8 +1415,15 @@
           "type": "string"
         },
         "help": {
-          "type": "string",
-          "maxLength": 200
+          "anyOf": [
+            {
+              "type": "string",
+              "maxLength": 200
+            },
+            {
+              "$ref": "#/$defs/l10n"
+            }
+          ]
         }
       },
       "if": {
@@ -1252,8 +1472,15 @@
           "type": "array",
           "maxItems": 6,
           "items": {
-            "type": "string",
-            "maxLength": 40
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 40
+              },
+              {
+                "$ref": "#/$defs/l10n"
+              }
+            ]
           }
         },
         "basis": {
@@ -1266,8 +1493,15 @@
         "assumptions": {
           "type": "array",
           "items": {
-            "type": "string",
-            "maxLength": 200
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200
+              },
+              {
+                "$ref": "#/$defs/l10n"
+              }
+            ]
           }
         }
       }
@@ -1290,7 +1524,14 @@
               ]
             },
             "note": {
-              "type": "string"
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "$ref": "#/$defs/l10n"
+                }
+              ]
             }
           }
         },
@@ -1352,8 +1593,15 @@
               "default": true
             },
             "note": {
-              "type": "string",
-              "maxLength": 200
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 200
+                },
+                {
+                  "$ref": "#/$defs/l10n"
+                }
+              ]
             }
           },
           "allOf": [
@@ -1401,8 +1649,15 @@
           ]
         },
         "title": {
-          "type": "string",
-          "maxLength": 60
+          "anyOf": [
+            {
+              "type": "string",
+              "maxLength": 60
+            },
+            {
+              "$ref": "#/$defs/l10n"
+            }
+          ]
         },
         "manual": {
           "type": "string",
@@ -1428,8 +1683,15 @@
               ],
               "properties": {
                 "reason": {
-                  "type": "string",
-                  "maxLength": 120
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "maxLength": 120
+                    },
+                    {
+                      "$ref": "#/$defs/l10n"
+                    }
+                  ]
                 },
                 "when": {
                   "$ref": "#/$defs/expr"
@@ -1512,7 +1774,14 @@
               }
             },
             "note": {
-              "type": "string"
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "$ref": "#/$defs/l10n"
+                }
+              ]
             }
           }
         },
@@ -1534,8 +1803,15 @@
               "maximum": 60
             },
             "text": {
-              "type": "string",
-              "maxLength": 120
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 120
+                },
+                {
+                  "$ref": "#/$defs/l10n"
+                }
+              ]
             }
           }
         },
@@ -1561,8 +1837,15 @@
               "maximum": 30
             },
             "reason": {
-              "type": "string",
-              "maxLength": 120
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 120
+                },
+                {
+                  "$ref": "#/$defs/l10n"
+                }
+              ]
             }
           }
         },
@@ -1764,8 +2047,15 @@
               ]
             },
             "title": {
-              "type": "string",
-              "maxLength": 24
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 24
+                },
+                {
+                  "$ref": "#/$defs/l10n"
+                }
+              ]
             },
             "requires": {
               "type": "object",
@@ -2003,8 +2293,15 @@
       ],
       "properties": {
         "summary": {
-          "type": "string",
-          "maxLength": 400
+          "anyOf": [
+            {
+              "type": "string",
+              "maxLength": 400
+            },
+            {
+              "$ref": "#/$defs/l10n"
+            }
+          ]
         },
         "autoReclaim": {
           "const": true
@@ -2012,7 +2309,14 @@
         "dataRisk": {
           "type": "array",
           "items": {
-            "type": "string"
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "$ref": "#/$defs/l10n"
+              }
+            ]
           }
         },
         "learnerCreatedHints": {
@@ -2030,8 +2334,15 @@
                 "pattern": "^AWS::[A-Za-z0-9]+::[A-Za-z0-9]+$"
               },
               "how": {
-                "type": "string",
-                "maxLength": 200
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "maxLength": 200
+                  },
+                  {
+                    "$ref": "#/$defs/l10n"
+                  }
+                ]
               }
             }
           }
@@ -2088,8 +2399,15 @@
                     "type": "string"
                   },
                   "title": {
-                    "type": "string",
-                    "maxLength": 60
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "maxLength": 60
+                      },
+                      {
+                        "$ref": "#/$defs/l10n"
+                      }
+                    ]
                   },
                   "domain": {
                     "$ref": "#/$defs/saaDomain"
@@ -2126,13 +2444,13 @@
                 ],
                 "properties": {
                   "a": {
-                    "type": "string"
+                    "$ref": "#/$defs/text"
                   },
                   "b": {
-                    "type": "string"
+                    "$ref": "#/$defs/text"
                   },
                   "rule": {
-                    "type": "string"
+                    "$ref": "#/$defs/text"
                   }
                 }
               }

@@ -8,7 +8,7 @@ import { useLocation } from 'react-router-dom';
 import type { PendingRequest } from '../api/client';
 import { useGlobalErrors, useServices } from '../app/context';
 import { loginRedirect } from '../app/guards';
-import { zhCN } from '../i18n/zh-CN';
+import { msg } from '../i18n';
 import { ssGet, ssSet } from '../lib/storage';
 import { Button, Dialog } from '../ui';
 
@@ -33,7 +33,7 @@ export function GlobalDialogs() {
   const state = useGlobalErrors();
   const loc = useLocation();
   const here = `${loc.pathname}${loc.search}${loc.hash}`;
-  const p = zhCN.p13;
+  const p = msg.p13;
   const relogin = (reason: 'expired' | 'reauth') => {
     if (auth.mode === 'cognito') void auth.beginLogin(here);
     else window.location.assign(loginRedirect(here, reason));
@@ -63,7 +63,7 @@ export function GlobalDialogs() {
         footer={
           <>
             <button type="button" className="btn" data-cancel="" onClick={() => errors.set({ reauth: null })}>
-              {zhCN.app.cancel}
+              {msg.app.cancel}
             </button>
             <Button
               variant="primary"

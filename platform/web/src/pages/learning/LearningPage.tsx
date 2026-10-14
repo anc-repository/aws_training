@@ -10,7 +10,7 @@ import { useMemo, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth, useServices, useSessionEvents } from '../../app/context';
 import { useGlobalStatus } from '../../app/globalStatus';
-import { t } from '../../i18n/zh-CN';
+import { msg, t } from '../../i18n';
 import { announce } from '../../lib/announce';
 import { formatDate, formatSpan } from '../../lib/format';
 import { CostTierMark, DataTable, Drawer, EmptyState, ErrorPanel, SessionStatePill, Shape, Skeleton, type Column } from '../../ui';
@@ -192,7 +192,8 @@ export default function LearningPage() {
                 {rc ? (
                   <div className="small">
                     {LS.tracks.next}
-                    <Link to={`/labs/${rc.id}`}>{rc.id}</Link> · {DIFFICULTY_TEXT[rc.difficulty]} · 约 {rc.estimatedMinutes} 分钟 ·{' '}
+                    <Link to={`/labs/${rc.id}`}>{rc.id}</Link> · {DIFFICULTY_TEXT[rc.difficulty]}
+                    {t(msg.frame.about, { n: rc.estimatedMinutes })}{' '}
                     <CostTierMark tier={rc.costTier.required} withOptional={rc.costTier.withOptional} />
                   </div>
                 ) : null}

@@ -4,6 +4,7 @@
  */
 import { COST_TIER_META, type CostTier } from './semantics';
 
+import { msg, t } from '../i18n';
 export interface CostTierMarkProps {
   tier: CostTier;
   withOptional?: CostTier | null;
@@ -14,12 +15,12 @@ export interface CostTierMarkProps {
 export function CostTierMark({ tier, withOptional, sources }: CostTierMarkProps) {
   const m = COST_TIER_META[tier];
   const opt = withOptional && withOptional !== tier ? COST_TIER_META[withOptional] : null;
-  const label = `费用档位${m.text}${opt ? `（选做 → ${opt.text}）` : ''}`;
-  const tip = `${sources ? `主要计费来源：${sources}。` : ''}具体金额在开始前按当前价格计算。`;
+  const label = `${t(msg.ui.costTier.label, { tier: m.text })}${opt ? t(msg.ui.costTier.optional, { tier: opt.text }) : ''}`;
+  const tip = `${sources ? t(msg.ui.costTier.sources, { list: sources }) : ''}${msg.ui.costTier.tip}`;
   return (
     <span className="cost" title={tip} aria-label={label} data-tier={tier}>
       {m.symbol} {m.text}
-      {opt ? `（选做 → ${opt.text}）` : null}
+      {opt ? t(msg.ui.costTier.optional, { tier: opt.text }) : null}
     </span>
   );
 }

@@ -1,0 +1,87 @@
+/**
+ * en（English）：命名空间 pages。由 `npm run i18n:sync` 按 zh-CN 词典维护结构：
+ * 只填写引号内的译文（空字符串 = 未翻译，运行时按 en → en → zh-CN 回退）；行尾注释是 zh-CN 原文。
+ * 术语与风格见 ../glossary.md（不翻译 AWS 服务名、CLI 命令、代码、资源名、API 路径、环境变量）。
+ */
+import type { Dict } from '../dict';
+import type zh from '../zh-CN/pages';
+
+export default {
+  card: {
+    overviewHeading: {
+      background: 'Background', // 背景
+      why: 'Why combine them', // 为什么组合在一起
+      experiments: 'Comparison experiments', // 对比实验预告
+      platform: 'Platform mode notes', // 平台模式说明
+    },
+    crumbs: '', // 面包屑
+    tierHigh: '', // $$$ 高
+    tierMedium: '', // $$ 中
+    optionalMark: '', // （可选）
+    listSep: '', // ；
+    nameSep: '', // 、
+    defaultVariant: '', // 默认
+    trackRole: '', // （{stage}，{role}）
+    roleRequired: '', // 必修
+    roleGroup: '', // 选修组
+    roleOptional: '', // 可选
+    extraModules: '', // 额外模块
+    hours: '', // {n} 小时
+    optionalLine: '', // （选做）
+  },
+  tracks: {
+    revokeReason: {
+      superseded: '', // 被新证书取代
+      'learner-request': '', // 持有人申请
+      'content-defect': '', // 内容缺陷
+      misissued: '', // 误签
+      'key-compromise': '', // 密钥泄露
+      'dependency-revoked': '', // 所依据的证书已被吊销
+    },
+    crumbs: '', // 面包屑
+    pending: '', // {n} 张：{list}
+    listSep: '', // 、
+  },
+  labs: {
+    cost: {
+      low: '', // $ 低
+      medium: '', // $$ 中
+      high: '', // $$$ 高
+    },
+    inProgress: '', // 进行中
+    search: '', // 搜索“{q}”
+    facet: '', // {label}：{values}
+    listSep: '', // 、
+    recommend: '', // {label}：
+    recCard: '', // （{difficulty} · 约 {n} 分钟 · {cost}）
+    readingProgress: '', // 正在读取学习进度…
+    currentTrack: '', // 当前路径：
+    nextRec: '', // 下一张推荐：
+    about: '', //  · 约 {n} 分钟
+    trackDone: '', // 这条路径的必修卡片都已完成
+    canClaim: '', // ，可以领取证书
+    period: '', // 。
+    topic: '', // 考点：{text}
+    minutes: '', // {n} 分钟
+    badgeAria: '', // 徽章：{title}，{state}
+    old: '', // 旧
+    base: '', // 基础
+    category: '', // {id} {label}
+    scenarioCredits: '', // {label} {n} 张
+    hours: '', // {n} 小时
+  },
+  manualExport: {
+    title: '', // # ATL 待人工处理清单
+    exportedAt: '', // 导出时间：{t}
+    count: '', // 共 {n} 项。处理后在平台的“待人工处理清单”中点“我已处理，重新核对”。
+    arn: '', // - ARN：{v}
+    region: '', // - 区域：{v}
+    severity: '', // - 严重级别：{v}
+    billing: '', // - 计费方式：{v}
+    session: '', // - 会话：{v}
+    sessionLab: '', // - 会话：{v}（{lab}）
+    console: '', // - 控制台：{v}
+    note: '', // - 说明：{v}
+    nonNegative: '', // 请填写非负整数
+  },
+} satisfies Dict<typeof zh>;

@@ -11,6 +11,8 @@ import { findExperiment } from '../model/lab';
 import { ManualCommand } from './ManualCommand';
 import type { RenderEnv } from './Mdast';
 
+import { t } from '../../i18n';
+import { W } from '../strings';
 export function variantMeta(s: VariantStatus): StatusMeta {
   if (s === 'valid' || s === 'simulated' || s === 'invalid' || s === 'pending-crosscheck') return { ...VALIDITY_META[s], text: VARIANT_STATUS_TEXT[s] };
   if (s === 'none') return { text: VARIANT_STATUS_TEXT.none, shape: 'ring', tone: 'faint' };
@@ -32,11 +34,11 @@ export function ExperimentCard({ module, id, label }: { module: string; id: stri
     <div className="box stack-8 expcard" data-experiment={key}>
       <div className="row between">
         <b className="small">
-          对比实验 {key}
-          {exp?.required ? '（必做）' : exp ? '（选做）' : ''}
+          {t(W.expCard.title, { key })}
+          {exp?.required ? W.expCard.required : exp ? W.expCard.optional : ''}
         </b>
         <Button size="sm" onClick={() => wb.openExperiment(key)}>
-          查看对比
+          {W.expCard.view}
         </Button>
       </div>
       {cols.length ? (
@@ -49,7 +51,7 @@ export function ExperimentCard({ module, id, label }: { module: string; id: stri
           ))}
         </ul>
       ) : (
-        <p className="small muted">卡片没有声明这个实验。</p>
+        <p className="small muted">{W.expCard.notDeclared}</p>
       )}
       {ws.learner && exp ? (
         <ManualCommand node={{ type: 'code', lang: 'bash', attributes: { runsOn: 'workstation' }, value: runCommand(exp, cmdLabel) }} env={env} />

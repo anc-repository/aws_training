@@ -11,6 +11,7 @@ import { formatClock, formatUtcTitle } from '../lib/format';
 import { Shape } from './Shape';
 import { checkResultMeta, MANUAL_SUB_TEXT, SOURCE_META, type CheckResult, type ManualSub } from './semantics';
 
+import { msg, t } from '../i18n';
 export type Trust = 'high' | 'medium' | 'low';
 
 export interface SourceTagProps {
@@ -25,10 +26,10 @@ export function SourceTag({ source, sub, trust, unavailable }: SourceTagProps) {
   const m = SOURCE_META[source];
   const subText = sub ? MANUAL_SUB_TEXT[sub] : null;
   return (
-    <span className={unavailable ? 'src off' : 'src'} title={`判定来源：${m.text}${subText ? `（${subText}）` : ''}`} data-source={source}>
+    <span className={unavailable ? 'src off' : 'src'} title={subText ? t(msg.ui.check.sourceTitleSub, { source: m.text, sub: subText }) : t(msg.ui.check.sourceTitle, { source: m.text })} data-source={source}>
       <span aria-hidden="true">{m.symbol}</span> {m.text}
       {subText ? <span className="faint">·{subText}</span> : null}
-      {trust && trust !== 'high' ? <span className="faint">·{trust === 'medium' ? '中' : '低'}可信</span> : null}
+      {trust && trust !== 'high' ? <span className="faint">{trust === 'medium' ? msg.ui.check.trustMedium : msg.ui.check.trustLow}</span> : null}
     </span>
   );
 }
@@ -82,7 +83,7 @@ export function CheckResultRow({
   focusKey,
 }: CheckResultRowProps) {
   const m = checkResultMeta(result, reason);
-  const resultText = `${m.text}${stale ? '·过期' : ''}${result === 'error' && reason ? `（${reason}）` : ''}`;
+  const resultText = `${m.text}${stale ? msg.ui.check.stale : ''}${result === 'error' && reason ? t(msg.ui.check.withReason, { reason }) : ''}`;
   const onKey = (e: KeyboardEvent<HTMLDivElement>) => {
     if (onOpen && (e.key === 'Enter' || e.key === ' ')) {
       e.preventDefault();
@@ -103,7 +104,7 @@ export function CheckResultRow({
         <Shape name={m.shape} spin={m.spin} />
       </span>
       <span className="meta">
-        <span className="how">{how === 'manual' ? '手动' : '自动'}</span>
+        <span className="how">{how === 'manual' ? msg.ui.check.manual : msg.ui.check.auto}</span>
         <span className="srcc">
           <SourceTag source={source} sub={sourceSub} trust={trust} />
         </span>
@@ -115,22 +116,22 @@ export function CheckResultRow({
           <span className="rv">
             {' '}
             <Shape name="clock" />
-            等待助教复核
+            {msg.ui.check.reviewPending}
           </span>
         ) : review === 'approved' ? (
           <span className="rv">
             {' '}
             <Shape name="check" />
-            助教已复核
+            {msg.ui.check.reviewApproved}
           </span>
         ) : review === 'rejected' ? (
           <span className="rv">
             {' '}
             <Shape name="tri" />
-            助教已打回
+            {msg.ui.check.reviewRejected}
           </span>
         ) : null}
-        <span className="sr">，{resultText}</span>
+        <span className="sr">{t(msg.ui.check.srResult, { text: resultText })}</span>
       </span>
       <span className={['small', 'res', m.tone === 'fail' ? 'st fail' : stale ? 'st stale' : 'faint'].join(' ')} aria-hidden="true">
         {resultText}

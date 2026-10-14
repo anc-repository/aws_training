@@ -17,6 +17,12 @@ import { PlatformActionButton } from './PlatformAction';
 import { StepCheckPanel } from './StepCheckPanel';
 import { VarInputDirective } from './VariableStrip';
 
+import { t } from '../../i18n';
+import { W } from '../strings';
+import { manualUntranslated } from '../../i18n/content';
+import { UntranslatedIf } from '../../i18n/Untranslated';
+
+const WSC = W.step;
 export function stepStateOf(ws: ReturnType<typeof useWorkspace>, stepId: string): { state: StepState; at: string | null } {
   const p = ws.data.progress.data?.steps.find((s) => s.stepId === stepId);
   const r = ws.data.stepMap.get(stepId);
@@ -69,19 +75,25 @@ export function StepCard({ step, index }: { step: LabStep; index: number }) {
           {at ? <span className="faint"> · {formatClock(at)}</span> : null}
         </span>
         <span className="muted">
-          {step.estMinutes ? `约 ${step.estMinutes} 分钟 · ` : ''}
+          {step.estMinutes ? t(WSC.est, { n: step.estMinutes }) : ''}
           {STEP_TYPE_TEXT[step.type] ?? step.type}
-          {optional ? ' · 选做' : ''}
+          {optional ? WSC.optional : ''}
         </span>
       </div>
       <h2 id={`step-h-${step.id}`} tabIndex={-1} data-step-heading="">
         <span className="no">{index + 1}</span>
         {step.title}
+        <UntranslatedIf show={!!manual && manualUntranslated(manual)} />
       </h2>
       {step.startsBilling ? (
         <div className="note" role="note" data-billing="">
           <Shape name="dot" />
-          <span>从这一步开始{step.startsBilling.note ? `${step.startsBilling.note}` : '计费'}{step.startsBilling.pricingKeys?.length ? `（${step.startsBilling.pricingKeys.join('、')}）` : ''}。</span>
+          <span>
+            {t(WSC.billing, {
+              what: step.startsBilling.note ? `${step.startsBilling.note}` : WSC.billingDefault,
+              keys: step.startsBilling.pricingKeys?.length ? t(WSC.billingKeys, { list: step.startsBilling.pricingKeys.join(WSC.listSep) }) : '',
+            })}
+          </span>
         </div>
       ) : null}
       {eo ? (
@@ -89,14 +101,14 @@ export function StepCard({ step, index }: { step: LabStep; index: number }) {
           <div className="note" role="note" data-outage="open">
             <Shape name="hg" />
             <span>
-              预期中断：本步骤会暂时中断平台管理通道{eo.reason ? `（${eo.reason}）` : ''}。在 {formatClock(windowOpen.until)} 之前，实验机终端与本地检测不可用是正常现象，不计为失败；窗口结束后平台自动重试。
+              {t(WSC.outageOpen, { reason: eo.reason ? t(WSC.reasonParen, { reason: eo.reason }) : '', t: formatClock(windowOpen.until) })}
             </span>
           </div>
         ) : (
           <div className="note" role="note" data-outage="notice">
             <Shape name="hg" />
             <span>
-              本步骤会让管理通道暂时不可达（约 {eo.maxMinutes ?? '数'} 分钟）：检测会显示“通道不可达”，属预期，窗口结束后重新检测即可。
+              {t(WSC.outageNotice, { n: eo.maxMinutes ?? WSC.several })}
             </span>
           </div>
         )
@@ -106,18 +118,18 @@ export function StepCard({ step, index }: { step: LabStep; index: number }) {
           <Nodes nodes={manual.ast.children ?? []} env={env} />
         </div>
       ) : (
-        <p className="small muted">本步没有手册正文。</p>
+        <p className="small muted">{WSC.noBody}</p>
       )}
       {pitfalls.list.length ? (
         <details className="disc" data-pitfalls="" open={pitfalls.hit.length > 0 && (state === 'failed' || state === 'drifted') ? true : undefined}>
-          <summary>常见错误（{pitfalls.list.length}）</summary>
+          <summary>{t(WSC.pitfalls, { n: pitfalls.list.length })}</summary>
           <ul className="small mlist">
             {pitfalls.list.map((p) => (
               <li key={p.id} data-hit={pitfalls.hit.includes(p.id) ? '' : undefined}>
-                {pitfalls.hit.includes(p.id) ? <b>● 命中：</b> : null}
+                {pitfalls.hit.includes(p.id) ? <b>{WSC.hit}</b> : null}
                 <b>{p.title ?? p.id}</b>
-                {p.cause ? `：${p.cause}` : ''}
-                {p.fix ? <span className="muted"> 处理：{p.fix}</span> : null}
+                {p.cause ? t(WSC.cause, { cause: p.cause }) : ''}
+                {p.fix ? <span className="muted">{t(WSC.fix, { fix: p.fix })}</span> : null}
               </li>
             ))}
           </ul>
@@ -134,15 +146,15 @@ export function StepCard({ step, index }: { step: LabStep; index: number }) {
               setSkipBusy(true);
               try {
                 await api.call(state === 'skipped' ? 'unskipStep' : 'skipStep', { params: { sid: ws.sid, stepId: step.id }, body: state === 'skipped' ? undefined : {} });
-                announce(state === 'skipped' ? '已撤销跳过' : '已跳过本步');
+                announce(state === 'skipped' ? WSC.unskipped : WSC.skipped);
               } catch {
-                announce('操作没有完成，请稍后重试');
+                announce(WSC.failed);
               } finally {
                 setSkipBusy(false);
               }
             }}
           >
-            {state === 'skipped' ? '撤销跳过' : '跳过本步'}
+            {state === 'skipped' ? WSC.unskip : WSC.skip}
           </Button>
         </div>
       ) : null}
@@ -155,15 +167,15 @@ export function StepCard({ step, index }: { step: LabStep; index: number }) {
               setReadBusy(true);
               try {
                 await api.call('markStepRead', { params: { sid: ws.sid, stepId: step.id }, body: {} });
-                announce('已记录：本步已读');
+                announce(WSC.readDone);
               } catch {
-                announce('没能记录，请稍后重试');
+                announce(WSC.readFailed);
               } finally {
                 setReadBusy(false);
               }
             }}
           >
-            我已读完
+            {WSC.read}
           </Button>
         </div>
       ) : null}

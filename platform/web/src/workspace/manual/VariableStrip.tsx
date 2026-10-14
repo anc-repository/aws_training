@@ -14,6 +14,10 @@ import { Button, Icon } from '../../ui';
 import { useWorkspace } from '../context';
 import { changedKeys, variableChips, type VarChipModel } from '../model/vars';
 
+import { t } from '../../i18n';
+import { W } from '../strings';
+
+const WV = W.vars;
 export interface VariableStripHandle {
   reveal(names: readonly string[]): void;
 }
@@ -57,13 +61,13 @@ export function VariableStrip({ used, revealRef }: { used: ReadonlySet<string>; 
   const important = chips.filter((c) => c.ns === 'var' || used.has(c.key) || c.value === null);
   const shown = all ? chips : important.length ? important.slice(0, 8) : chips.slice(0, 4);
   return (
-    <div className="varstrip" aria-label="变量" ref={rootRef} data-varstrip="">
+    <div className="varstrip" aria-label={WV.label} ref={rootRef} data-varstrip="">
       {shown.map((c) => (
         <VariableChip key={c.key} chip={c} updated={!!updated[c.key]} flash={flash.includes(c.key)} />
       ))}
       {chips.length > shown.length || all ? (
         <button type="button" className="linkbtn vmore" aria-expanded={all} onClick={() => setAll((x) => !x)}>
-          {all ? '收起变量' : `全部变量（${chips.length}）`}
+          {all ? WV.collapse : t(WV.all, { n: chips.length })}
         </button>
       ) : null}
     </div>
@@ -73,19 +77,19 @@ export function VariableStrip({ used, revealRef }: { used: ReadonlySet<string>; 
 function VariableChip({ chip: c, updated, flash }: { chip: VarChipModel; updated: boolean; flash: boolean }) {
   const ws = useWorkspace();
   const [editing, setEditing] = useState(false);
-  const shownValue = c.value === null ? '未解析' : c.account ? (isMaskedAccountId(c.value) || /\*/.test(c.value) ? maskAccountId(c.value) : maskAccountId(c.value)) : redact(c.value);
+  const shownValue = c.value === null ? WV.unresolved : c.account ? (isMaskedAccountId(c.value) || /\*/.test(c.value) ? maskAccountId(c.value) : maskAccountId(c.value)) : redact(c.value);
   const cls = ['vchip', updated ? 'upd' : '', c.value === null ? 'unset' : '', flash ? 'flash' : ''].filter(Boolean).join(' ');
   return (
     <span className={cls} data-var={c.key} tabIndex={c.value === null ? -1 : undefined}>
       <span className="ns">{c.ns}</span>
       <span>{c.name}=</span>
-      <span className="v" title={c.value === null ? '未解析' : `${c.label}${c.value !== shownValue ? '（显示已打码）' : ''}`}>
+      <span className="v" title={c.value === null ? WV.unresolved : `${c.label}${c.value !== shownValue ? WV.masked : ''}`}>
         {shownValue}
       </span>
-      {updated ? <span className="small faint">已更新</span> : null}
+      {updated ? <span className="small faint">{WV.updated}</span> : null}
       {c.input && ws.learner && ws.live ? (
-        <button type="button" className="linkbtn small" onClick={() => setEditing(true)} aria-label={`编辑变量 ${c.label}`}>
-          编辑
+        <button type="button" className="linkbtn small" onClick={() => setEditing(true)} aria-label={t(WV.editLabel, { label: c.label })}>
+          {WV.edit}
         </button>
       ) : null}
       {editing && c.input ? <VarEditor name={c.name} label={c.label} value={c.value} pattern={c.input.pattern} example={c.input.example} onClose={() => setEditing(false)} /> : null}
@@ -124,7 +128,8 @@ export function VarEditor({
       return null;
     }
   }, [pattern]);
-  const validate = (x: string) => (re && !re.test(x) ? `格式不符合要求${example ? `，例如 ${example}` : ''}` : !x ? '请填写' : null);
+  const badFormat = example ? t(WV.badFormatExample, { example }) : WV.badFormat;
+  const validate = (x: string) => (re && !re.test(x) ? badFormat : !x ? WV.required : null);
   const save = async () => {
     const e = validate(v);
     setErr(e);
@@ -132,17 +137,17 @@ export function VarEditor({
     setBusy(true);
     try {
       await api.call('putVar', { params: { sid: ws.sid, name }, body: { value: v } });
-      announce(`已保存变量 ${label}`);
+      announce(t(WV.saved, { label }));
       await ws.data.vars.refresh();
       onClose?.();
     } catch (x) {
-      setErr(isApiError(x) && x.code === 'VALIDATION_FAILED' ? `格式不符合要求${example ? `，例如 ${example}` : ''}` : '没能保存，请稍后重试');
+      setErr(isApiError(x) && x.code === 'VALIDATION_FAILED' ? badFormat : WV.saveFailed);
     } finally {
       setBusy(false);
     }
   };
   return (
-    <span className={inline ? 'varin inline' : 'varin'} role="group" aria-label={`填写变量 ${label}`}>
+    <span className={inline ? 'varin inline' : 'varin'} role="group" aria-label={t(WV.fill, { label })}>
       <label className="sr" htmlFor={id}>
         {label}
       </label>
@@ -161,11 +166,11 @@ export function VarEditor({
         placeholder={example ?? undefined}
         disabled={!ws.learner || !ws.live}
       />
-      <Button size="sm" onClick={() => void save()} busy={busy} busyText="正在保存…" disabledReason={!ws.learner ? '你的角色不能填写变量' : !ws.live ? '实验就绪后可以填写' : null}>
-        保存
+      <Button size="sm" onClick={() => void save()} busy={busy} busyText={WV.saving} disabledReason={!ws.learner ? WV.roleDenied : !ws.live ? WV.afterReady : null}>
+        {WV.save}
       </Button>
       {onClose ? (
-        <button type="button" className="btn sm ghost icon" aria-label="取消编辑" onClick={onClose}>
+        <button type="button" className="btn sm ghost icon" aria-label={WV.cancelEdit} onClick={onClose}>
           <Icon name="x" />
         </button>
       ) : null}
@@ -188,7 +193,7 @@ export function VarInputDirective({ name }: { name: string }) {
   return (
     <div className="box inset stack-4 varinput" data-var-input={name}>
       <b className="small">{label}</b>
-      {value ? <span className="small mono">当前值：{redact(value)}</span> : <span className="small st fail">还没有填写</span>}
+      {value ? <span className="small mono">{t(WV.current, { v: redact(value) })}</span> : <span className="small st fail">{WV.empty}</span>}
       <VarEditor inline name={name} label={label} value={value} pattern={decl?.pattern ?? labDecl?.pattern ?? null} example={decl?.example ?? labDecl?.example ?? null} />
     </div>
   );

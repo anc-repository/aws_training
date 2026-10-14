@@ -3,6 +3,9 @@ import { formatClock, formatUtcTitle } from '../../lib/format';
 import { Status } from '../../ui';
 import type { RescanItem } from './rescan';
 
+import { msg, rich, t } from '../../i18n';
+
+const R = msg.end.rescan;
 const META = {
   pending: { shape: 'ring', tone: 'faint' },
   due: { shape: 'clock', tone: 'pend' },
@@ -15,27 +18,31 @@ export function RescanTimeline({ items }: { items: readonly RescanItem[] }) {
   if (!items.length) return null;
   return (
     <section className="sec" aria-labelledby="rescan-h" data-section="rescan">
-      <h2 id="rescan-h">复扫时间线</h2>
+      <h2 id="rescan-h">{R.title}</h2>
       <ol className="timeline">
         {items.map((r) => {
           const m = META[r.status];
           const text =
             r.status === 'done'
-              ? `完成${r.doneAt ? ` ${formatClock(r.doneAt)}` : ''}`
+              ? r.doneAt
+                ? t(R.doneAt, { t: formatClock(r.doneAt) })
+                : R.done
               : r.status === 'found'
-                ? `发现残留${r.doneAt ? ` ${formatClock(r.doneAt)}` : ''}`
+                ? r.doneAt
+                  ? t(R.foundAt, { t: formatClock(r.doneAt) })
+                  : R.found
                 : r.status === 'running'
-                  ? '进行中'
+                  ? R.running
                   : r.status === 'due'
-                    ? `已到计划时间 ${formatClock(r.at)}`
-                    : `计划 ${formatClock(r.at)}`;
+                    ? t(R.due, { t: formatClock(r.at) })
+                    : t(R.planned, { t: formatClock(r.at) });
           return (
             <li key={r.index} data-rescan={r.index} data-status={r.status}>
               <span className="t" title={formatUtcTitle(r.at)}>
                 {r.offset || formatClock(r.at)}
               </span>
               <span className="what">
-                复扫 {r.index} · <Status meta={{ text, shape: m.shape, tone: m.tone }} />
+                {rich(R.item, { n: r.index, status: <Status meta={{ text, shape: m.shape, tone: m.tone }} /> })}
               </span>
             </li>
           );

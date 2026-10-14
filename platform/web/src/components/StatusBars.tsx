@@ -5,7 +5,7 @@
 import { useConnectivity, useServices, useSessionSync } from '../app/context';
 import { useGlobalStatus } from '../app/globalStatus';
 import { NO_SESSION_POLL_MS, viewIntervalMs } from '../api/sessionSync';
-import { t, zhCN } from '../i18n/zh-CN';
+import { msg, t } from '../i18n';
 import { Shape } from '../ui';
 
 export function OfflineBar() {
@@ -14,7 +14,7 @@ export function OfflineBar() {
   return (
     <div className="offline no-print" role="status">
       <Shape name="xbox" />
-      <span>{zhCN.p13.offline}</span>
+      <span>{msg.p13.offline}</span>
     </div>
   );
 }
@@ -25,12 +25,12 @@ export function FooterStatus() {
   const { current } = useSessionSync();
   const { platform, catalog } = useGlobalStatus();
   const ms = current ? viewIntervalMs(current, { nowMs: clock.now(), allHidden: false, solo: false, explicit: false }) : NO_SESSION_POLL_MS;
-  const f = zhCN.footer;
+  const f = msg.footer;
   const skew = clock.skewMinutes;
   return (
     <footer className="foot">
       <span>ATL {platform.data?.version ?? ''}</span>
-      {catalog?.catalogVersion ? <span>目录 {catalog.catalogVersion}</span> : null}
+      {catalog?.catalogVersion ? <span>{t(msg.frame.footerCatalog, { v: catalog.catalogVersion })}</span> : null}
       {platform.data?.region ? <span className="mono">{platform.data.region}</span> : null}
       {c.offline ? (
         <span className="st fail">

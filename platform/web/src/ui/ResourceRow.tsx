@@ -15,6 +15,7 @@ import { Icon } from './Icon';
 import { Status } from './Status';
 import { BILLING_TEXT, CLEANUP_STATE_META, SEVERITY_META } from './semantics';
 
+import { msg, rich, t } from '../i18n';
 export interface ResourceRowData {
   resourceKey: string;
   resourceType: string;
@@ -57,7 +58,7 @@ export function ResourceRow({ resource: r, variant = 'reclaim', slowHint, verify
   const show = (s: string) => (unmasked ? s : redact(s));
   const type = r.resourceType || r.type || '';
   const name = nameOf(r);
-  const state = verifying ? { text: '核对中', shape: 'clock' as const, tone: 'pend' as const } : CLEANUP_STATE_META[r.cleanupState];
+  const state = verifying ? { text: msg.ui.resource.verifying, shape: 'clock' as const, tone: 'pend' as const } : CLEANUP_STATE_META[r.cleanupState];
   if (variant === 'manual') return <ManualItemCard resource={r} verifying={verifying} unmasked={unmasked} onResolve={onResolve} onRetry={onRetry} />;
   return (
     <div className={variant === 'compact' ? 'resrow compact' : 'resrow'} tabIndex={0} data-resource={r.resourceKey} data-state={r.cleanupState}>
@@ -109,41 +110,37 @@ export function ManualItemCard({ resource: r, verifying, unmasked, onResolve, on
           <b>{show(name)}</b>
         </span>
         {r.region ? <span className="small faint">{r.region}</span> : null}
-        {verifying ? <Status meta={{ text: '核对中', shape: 'clock', tone: 'pend' }} /> : resolved ? <Status meta={CLEANUP_STATE_META.RESOLVED_BY_LEARNER} /> : null}
+        {verifying ? <Status meta={{ text: msg.ui.resource.verifying, shape: 'clock', tone: 'pend' }} /> : resolved ? <Status meta={CLEANUP_STATE_META.RESOLVED_BY_LEARNER} /> : null}
       </div>
       <div className="small">
-        {r.reason ? <>原因：{r.reason} · </> : null}
-        {r.discoveredBy ? <>来源：{r.discoveredBy} · </> : null}
-        {r.creatorSessionName ? (
-          <>
-            创建者会话名 <span className="mono">{r.creatorSessionName}</span> ·{' '}
-          </>
-        ) : null}
-        {r.attempts != null ? <>已尝试 {r.attempts} 次</> : null}
-        {r.lastAttemptAt ? <> · 最后尝试 {formatDate(r.lastAttemptAt)}</> : null}
+        {r.reason ? t(msg.ui.resource.reason, { v: r.reason }) : null}
+        {r.discoveredBy ? t(msg.ui.resource.source, { v: r.discoveredBy }) : null}
+        {r.creatorSessionName ? rich(msg.ui.resource.creator, { name: <span className="mono">{r.creatorSessionName}</span> }) : null}
+        {r.attempts != null ? t(msg.ui.resource.attempts, { n: r.attempts }) : null}
+        {r.lastAttemptAt ? t(msg.ui.resource.lastAttempt, { t: formatDate(r.lastAttemptAt) }) : null}
       </div>
       {hint?.consoleUrl ? (
         <div className="small">
-          控制台{' '}
+          {msg.ui.resource.console}{' '}
           <a href={hint.consoleUrl} target="_blank" rel="noopener noreferrer">
-            在 AWS 控制台中打开 <Icon name="ext" />
-            <span className="sr">（新标签页）</span>
+            {msg.ui.resource.openConsole} <Icon name="ext" />
+            <span className="sr">{msg.app.newTab}</span>
           </a>
-          （以你自己的 AWS 登录打开，平台不签发新的联合登录）
+          {msg.ui.resource.ownLogin}
         </div>
       ) : null}
-      {hint?.cli ? <CommandBlock text={hint.cli} runsOn="local" copyOnly label={`${type} 的清理命令`} /> : null}
+      {hint?.cli ? <CommandBlock text={hint.cli} runsOn="local" copyOnly label={t(msg.ui.resource.cleanupCommand, { type })} /> : null}
       {hint?.note ? <p className="small muted">{hint.note}</p> : null}
       {!resolved && (onResolve || onRetry) ? (
         <div className="row">
           {onResolve ? (
-            <Button size="sm" busy={verifying} busyText="正在核对…" onClick={onResolve} aria-label={`我已处理 ${show(name)}，重新核对`}>
-              我已处理，重新核对
+            <Button size="sm" busy={verifying} busyText={msg.ui.resource.verifyingBusy} onClick={onResolve} aria-label={t(msg.ui.resource.resolveLabel, { name: show(name) })}>
+              {msg.ui.resource.resolve}
             </Button>
           ) : null}
           {onRetry ? (
-            <Button size="sm" variant="ghost" onClick={onRetry} aria-label={`重试回收 ${show(name)}`}>
-              重试回收
+            <Button size="sm" variant="ghost" onClick={onRetry} aria-label={t(msg.ui.resource.retryLabel, { name: show(name) })}>
+              {msg.ui.resource.retry}
             </Button>
           ) : null}
         </div>

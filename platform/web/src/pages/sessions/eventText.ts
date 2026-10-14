@@ -9,18 +9,13 @@ import { redact } from '../../lib/redact';
 import { ATTEMPT_STATUS_META, BUDGET_META, SESSION_STATE_META, STEP_STATE_META, VALIDITY_META, type AttemptStatus, type ExperimentValidity, type StepState } from '../../ui';
 import { BADGE_LEVEL_TEXT, discoveredByText, endReasonText } from './sessionText';
 
+import { t } from '../../i18n';
+import { SN } from './strings';
 export type EventCategory = 'state' | 'phase' | 'ops' | 'workspace' | 'checks' | 'reclaim' | 'env' | 'other';
 
-export const CATEGORY_TEXT: Readonly<Record<EventCategory, string>> = {
-  state: '状态、延长与保留',
-  phase: '阶段与进度',
-  ops: '平台动作',
-  workspace: '终端与控制台',
-  checks: '检测、提交与成果',
-  reclaim: '回收',
-  env: '环境与预算',
-  other: '其他',
-};
+const E = SN.events;
+
+export const CATEGORY_TEXT: Readonly<Record<EventCategory, string>> = E.category;
 
 export function categoryOf(type: string): EventCategory {
   if (type === 'session.phase_changed' || type === 'session.progress') return 'phase';
@@ -33,34 +28,10 @@ export function categoryOf(type: string): EventCategory {
   return 'other';
 }
 
-const PHASE_TEXT: Readonly<Record<string, string>> = {
-  'start.validate': '校验',
-  'start.lock': '占用环境',
-  'start.preflight': '预检',
-  'provision.base': '基础环境',
-  'provision.resume': '恢复保留的环境',
-  'provision.workstation': '工作台',
-  'provision.profile': '起始状态',
-  'provision.extra-stack': '附加栈',
-  'provision.ssm': '连接',
-  'provision.wire': '接入',
-  'provision.health': '健康检查',
-  'provision.ready': '就绪',
-  'end.stop-start': '停止开始流程',
-  'end.disarm': '停止倒计时',
-  'end.revoke': '收回访问',
-  'end.finalize': '最终复核',
-  'end.seal': '报告快照',
-  'end.workstation-down': '删除工作台',
-  'end.suspend': '进入节省模式',
-  'clean.destroy': '拆除环境栈',
-  'clean.reclaim': '回收',
-  'clean.verify': '校验',
-  'clean.conclude': '结论',
-};
+const PHASE_TEXT: Readonly<Record<string, string>> = E.phase;
 
-const PHASE_STATUS_TEXT: Readonly<Record<string, string>> = { QUEUED: '排队中', RUNNING: '进行中', RETRYING: '重试中', DONE: '完成', FAILED: '失败', SKIPPED: '跳过' };
-const PASS_MODE_TEXT: Readonly<Record<string, string>> = { PRIMARY: '主回收', RESCAN: '复扫', RETRY: '重试', UNINSTALL: '卸载' };
+const PHASE_STATUS_TEXT: Readonly<Record<string, string>> = E.phaseStatus;
+const PASS_MODE_TEXT: Readonly<Record<string, string>> = E.passMode;
 
 const s = (v: unknown): string | null => (typeof v === 'string' && v ? v : typeof v === 'number' ? String(v) : null);
 
@@ -72,119 +43,125 @@ function stateText(v: unknown): string {
 export function eventText(e: Pick<SessionEvent, 'type' | 'data'>): string {
   const d = (e.data ?? {}) as Record<string, unknown>;
   const type = String(e.type);
-  const res = s(d.resourceType) ?? s(d.type) ?? '资源';
+  const res = s(d.resourceType) ?? s(d.type) ?? E.resource;
+  const paren = (text: string) => t(E.paren, { text });
   switch (type) {
     case 'session.requested':
-      return `已受理${s(d.quoteId) ? `（报价 ${s(d.quoteId)!.slice(0, 6)}…` : ''}${s(d.startProfile) ? `${s(d.quoteId) ? '，' : '（'}起始档位 ${s(d.startProfile)}` : ''}${s(d.quoteId) || s(d.startProfile) ? '）' : ''}`;
+    {
+      const parts = [s(d.quoteId) ? t(E.requestedQuote, { id: s(d.quoteId)!.slice(0, 6) }) : null, s(d.startProfile) ? t(E.requestedProfile, { name: s(d.startProfile) }) : null].filter((x): x is string => !!x);
+      return `${E.requested}${parts.length ? paren(parts.join(E.sep)) : ''}`;
+    }
     case 'session.state_changed':
       return `${stateText(d.from)} → ${stateText(d.to)}`;
     case 'session.phase_changed': {
       const ph = s(d.phase) ?? s(d.name);
-      return `阶段 ${ph ? (PHASE_TEXT[ph] ?? '其他') : '—'}：${PHASE_STATUS_TEXT[s(d.status) ?? ''] ?? '更新'}${s(d.detail) ? ` · ${redact(s(d.detail)!)}` : ''}`;
+      return `${t(E.phaseLine, { phase: ph ? (PHASE_TEXT[ph] ?? E.phaseOther) : '—', status: PHASE_STATUS_TEXT[s(d.status) ?? ''] ?? E.phaseUpdate })}${s(d.detail) ? t(E.detailTail, { detail: redact(s(d.detail)!) }) : ''}`;
     }
     case 'session.progress': {
-      const msg = s(d.message) ?? s(d.line);
-      if (msg) return `进度：${redact(msg)}`;
+      const line = s(d.message) ?? s(d.line);
+      if (line) return t(E.progressMsg, { text: redact(line) });
       const mod = s(d.module) ?? s(d.moduleId);
-      return mod ? `进度：模块 ${mod}${s(d.status) ? ` ${s(d.status)}` : ''}` : '进度更新';
+      return mod ? (s(d.status) ? t(E.progressModuleStatus, { module: mod, status: s(d.status) }) : t(E.progressModule, { module: mod })) : E.progressUpdate;
     }
     case 'session.expiry_warning':
-      return `到期提醒${s(d.minutesLeft) ?? s(d.minutes) ? `：剩余 ${s(d.minutesLeft) ?? s(d.minutes)} 分钟` : ''}`;
+      return s(d.minutesLeft) ?? s(d.minutes) ? t(E.expiryWarningMin, { n: s(d.minutesLeft) ?? s(d.minutes) }) : E.expiryWarning;
     case 'session.extended':
-      return `延长 ${s(d.minutes) ?? '?'} 分钟${s(d.deadlineAt) ? `（到 ${formatClock(s(d.deadlineAt)!)}）` : ''}`;
+      return s(d.deadlineAt) ? t(E.extendedTo, { n: s(d.minutes) ?? '?', t: formatClock(s(d.deadlineAt)!) }) : t(E.extended, { n: s(d.minutes) ?? '?' });
     case 'session.end_requested':
-      return `请求结束（${endReasonText(s(d.reason))}）`;
+      return t(E.endRequested, { reason: endReasonText(s(d.reason)) });
     case 'session.access_revoked':
-      return '收回访问：终端断开，控制台与工作台凭证吊销';
+      return E.accessRevoked;
     case 'session.keep_started':
-      return `开始保留环境${s(d.until) ? `（至 ${formatClock(s(d.until)!)}）` : ''}`;
+      return s(d.until) ? t(E.keepStartedUntil, { t: formatClock(s(d.until)!) }) : E.keepStarted;
     case 'session.keep_extended':
-      return `延长保留${s(d.until) ? `（至 ${formatClock(s(d.until)!)}）` : ''}`;
+      return s(d.until) ? t(E.keepExtendedUntil, { t: formatClock(s(d.until)!) }) : E.keepExtended;
     case 'session.keep_expiry_warning':
-      return '保留的环境即将自动释放';
+      return E.keepExpiryWarning;
     case 'session.handed_over':
-      return '环境已交接给新的会话';
+      return E.handedOver;
     case 'session.outage_window_changed':
-      return s(d.until) ? `预期中断窗口打开（至 ${formatClock(s(d.until)!)}）` : '预期中断窗口结束';
+      return s(d.until) ? t(E.outageOpen, { t: formatClock(s(d.until)!) }) : E.outageClosed;
     case 'env.degraded':
-      return `环境异常${s(d.detail) ? `：${redact(s(d.detail)!)}` : ''}`;
+      return s(d.detail) ? t(E.envDegradedDetail, { detail: redact(s(d.detail)!) }) : E.envDegraded;
     case 'env.recovered':
-      return '环境已恢复';
+      return E.envRecovered;
     case 'budget.state_changed': {
       const st = s(d.state);
-      return `预算状态：${st && st in BUDGET_META ? BUDGET_META[st as keyof typeof BUDGET_META].text : '更新'}`;
+      return t(E.budgetState, { state: st && st in BUDGET_META ? BUDGET_META[st as keyof typeof BUDGET_META].text : E.update });
     }
     case 'module_op.started':
     case 'module_op.succeeded':
     case 'module_op.failed': {
       const what = [s(d.op), s(d.moduleId) ?? s(d.module), s(d.actionId)].filter(Boolean).join(' ');
-      const verb = type.endsWith('started') ? '开始' : type.endsWith('succeeded') ? '成功' : '失败';
-      return `平台动作${what ? ` ${what}` : ''}：${verb}${type.endsWith('failed') && s(d.reason) ? `（${redact(s(d.reason)!)}）` : ''}`;
+      const verb = type.endsWith('started') ? E.opStarted : type.endsWith('succeeded') ? E.opSucceeded : E.opFailed;
+      return `${what ? t(E.opWhat, { what, verb }) : t(E.op, { verb })}${type.endsWith('failed') && s(d.reason) ? paren(redact(s(d.reason)!)) : ''}`;
     }
     case 'reclaim.pass_started':
-      return `回收第 ${s(d.passNo) ?? '?'} 轮开始（${PASS_MODE_TEXT[s(d.mode) ?? ''] ?? '回收'}）`;
+      return t(E.passStarted, { n: s(d.passNo) ?? '?', mode: PASS_MODE_TEXT[s(d.mode) ?? ''] ?? E.passDefault });
     case 'reclaim.pass_completed':
-      return `回收第 ${s(d.passNo) ?? '?'} 轮完成：删除 ${s(d.deleted) ?? 0} 项${Number(d.manual) > 0 ? `，需人工 ${s(d.manual)} 项` : ''}`;
+      return Number(d.manual) > 0
+        ? t(E.passCompletedManual, { n: s(d.passNo) ?? '?', deleted: s(d.deleted) ?? 0, manual: s(d.manual) })
+        : t(E.passCompleted, { n: s(d.passNo) ?? '?', deleted: s(d.deleted) ?? 0 });
     case 'reclaim.item_deleted':
-      return `已删除 ${res}`;
+      return t(E.itemDeleted, { res });
     case 'reclaim.item_manual':
-      return `需人工处理：${res}`;
+      return t(E.itemManual, { res });
     case 'resource.discovered':
-      return `发现资源 ${res}${discoveredByText(s(d.discoveredBy)) ? `（${discoveredByText(s(d.discoveredBy))}）` : ''}`;
+      return `${t(E.discovered, { res })}${discoveredByText(s(d.discoveredBy)) ? paren(discoveredByText(s(d.discoveredBy))!) : ''}`;
     case 'cleanup.completed':
-      return '回收完成';
+      return E.cleanupCompleted;
     case 'cleanup.failed':
-      return '释放未完成：有资源没能自动删除';
+      return E.cleanupFailed;
     case 'access_analyzer.finding':
-      return '外部访问分析：发现对外开放的资源';
+      return E.accessFinding;
     case 'check_run.completed': {
       const sum = (d.summary ?? {}) as Record<string, unknown>;
-      const parts = [Number(sum.pass) ? `${s(sum.pass)} 项通过` : null, Number(sum.fail) ? `${s(sum.fail)} 项未通过` : null].filter(Boolean);
-      return `检测完成${s(d.stepId) ? `（步骤 ${s(d.stepId)}）` : ''}${parts.length ? `：${parts.join('，')}` : ''}`;
+      const parts = [Number(sum.pass) ? t(E.checkPass, { n: s(sum.pass) }) : null, Number(sum.fail) ? t(E.checkFail, { n: s(sum.fail) }) : null].filter(Boolean);
+      return `${s(d.stepId) ? t(E.checkDoneStep, { step: s(d.stepId) }) : E.checkDone}${parts.length ? t(E.checkParts, { parts: parts.join(E.sep) }) : ''}`;
     }
     case 'step.state_changed': {
       const st = s(d.to) ?? s(d.state);
-      return `步骤 ${s(d.stepId) ?? '—'}：${st && st in STEP_STATE_META ? STEP_STATE_META[st as StepState].text : '状态变化'}`;
+      return t(E.stepState, { step: s(d.stepId) ?? '—', state: st && st in STEP_STATE_META ? STEP_STATE_META[st as StepState].text : E.stateChanged });
     }
     case 'step.drifted':
-      return `步骤 ${s(d.stepId) ?? '—'} 漂移`;
+      return t(E.stepDrifted, { step: s(d.stepId) ?? '—' });
     case 'attempt.state_changed': {
       const st = s(d.to) ?? s(d.status);
-      return `尝试：${st && st in ATTEMPT_STATUS_META ? ATTEMPT_STATUS_META[st as AttemptStatus].text : '状态变化'}`;
+      return t(E.attemptState, { state: st && st in ATTEMPT_STATUS_META ? ATTEMPT_STATUS_META[st as AttemptStatus].text : E.stateChanged });
     }
     case 'manual_confirmation.submitted':
-      return '提交手动确认';
+      return E.manualSubmitted;
     case 'manual_confirmation.reviewed':
-      return `助教复核：${s(d.decision) === 'reject' ? '打回' : '通过'}`;
+      return t(E.manualReviewed, { decision: s(d.decision) === 'reject' ? E.rejected : E.approved });
     case 'experiment_run.recorded':
-      return `实验运行已上传：${[s(d.module), s(d.experiment)].filter(Boolean).join('/')}${s(d.label) ? `（${s(d.label)}）` : ''}`;
+      return `${t(E.expRecorded, { name: [s(d.module), s(d.experiment)].filter(Boolean).join('/') })}${s(d.label) ? t(E.label, { label: s(d.label) }) : ''}`;
     case 'experiment_run.validated': {
       const v = s((d.validity as Record<string, unknown> | undefined)?.status) ?? s(d.status);
-      return `实验校验：${[s(d.module), s(d.experiment)].filter(Boolean).join('/')}${s(d.label) ? `（${s(d.label)}）` : ''} ${v && v in VALIDITY_META ? VALIDITY_META[v as ExperimentValidity].text : ''}`.trim();
+      return `${t(E.expValidated, { name: [s(d.module), s(d.experiment)].filter(Boolean).join('/') })}${s(d.label) ? t(E.label, { label: s(d.label) }) : ''} ${v && v in VALIDITY_META ? VALIDITY_META[v as ExperimentValidity].text : ''}`.trim();
     }
     case 'quiz_attempt.graded':
-      return '小测已判分（只记录）';
+      return E.quizGraded;
     case 'badge.earned':
-      return `获得徽章${s(d.level) ? `（${BADGE_LEVEL_TEXT[s(d.level)!] ?? s(d.level)}）` : ''}`;
+      return s(d.level) ? t(E.badgeEarnedLevel, { level: BADGE_LEVEL_TEXT[s(d.level)!] ?? s(d.level) }) : E.badgeEarned;
     case 'badge.withdrawn':
-      return '徽章被撤回';
+      return E.badgeWithdrawn;
     case 'mastery.regression':
-      return '服务掌握度：需要复习';
+      return E.masteryRegression;
     case 'track.completed':
-      return '学习路径的证书条件已满足';
+      return E.trackCompleted;
     case 'report.generated':
-      return `报告第 ${s(d.revision) ?? '?'} 版已生成`;
+      return t(E.reportGenerated, { n: s(d.revision) ?? '?' });
     case 'certificate.issued':
-      return '签发证书';
+      return E.certIssued;
     case 'certificate.revoked':
-      return '证书已吊销';
+      return E.certRevoked;
     case 'terminal.opened':
-      return `打开终端${s(d.target) ? `（${s(d.target) === 'lab' ? '实验机' : '工作台'}）` : ''}`;
+      return s(d.target) ? (s(d.target) === 'lab' ? E.terminalOpenedLab : E.terminalOpenedWs) : E.terminalOpened;
     case 'terminal.closed':
-      return '终端关闭';
+      return E.terminalClosed;
     case 'console_link.issued':
-      return '签发控制台登录';
+      return E.consoleIssued;
     default:
-      return type.startsWith('workspace.') ? '工作台操作' : '平台记录';
+      return type.startsWith('workspace.') ? E.workspaceOp : E.platformRecord;
   }
 }

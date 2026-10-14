@@ -4,6 +4,7 @@
  * 08 §9.2 #3 的写法是 `{ id, status: ok|warn|fail|unknown, message, fix{command?, url?} }`，两种都接受）。
  * 未知 id 显示服务端返回的说明（§9.2 #3 的降级）。
  */
+import { msg, withText } from '../../i18n/core';
 export interface PreflightItem {
   id: string;
   status: string;
@@ -26,12 +27,17 @@ export function verdictOf(i: PreflightItem): Verdict {
   return 'unknown';
 }
 
-export const VERDICT_META: Readonly<Record<Verdict, { text: string; shape: 'sq' | 'tri' | 'check' | 'q'; tone: 'fail' | 'drift' | 'pass' | 'needs' }>> = {
-  fix: { text: '需处理', shape: 'sq', tone: 'fail' },
-  warn: { text: '提示', shape: 'tri', tone: 'drift' },
-  pass: { text: '通过', shape: 'check', tone: 'pass' },
-  unknown: { text: '无法检测', shape: 'q', tone: 'needs' },
-};
+const PFT = msg.frame.preflight;
+
+export const VERDICT_META: Readonly<Record<Verdict, { readonly text: string; shape: 'sq' | 'tri' | 'check' | 'q'; tone: 'fail' | 'drift' | 'pass' | 'needs' }>> = withText(
+  {
+    fix: { shape: 'sq', tone: 'fail' },
+    warn: { shape: 'tri', tone: 'drift' },
+    pass: { shape: 'check', tone: 'pass' },
+    unknown: { shape: 'q', tone: 'needs' },
+  } as const,
+  PFT.verdict,
+);
 
 export interface PreflightText {
   /** 通过时的一句话（折叠行）。 */
@@ -48,38 +54,45 @@ export interface PreflightText {
   dangerCommand?: (region: string) => string;
 }
 
-const quotas = { label: '打开 Service Quotas', url: (r: string) => `https://console.aws.amazon.com/servicequotas/home?region=${encodeURIComponent(r)}` };
+const quotas = {
+  get label() {
+    return PFT.openQuotas;
+  },
+  url: (r: string) => `https://console.aws.amazon.com/servicequotas/home?region=${encodeURIComponent(r)}`,
+};
+
+type PreflightKey = keyof typeof PFT.items;
+const item = (key: PreflightKey, extra: Pick<PreflightText, 'link' | 'command' | 'dangerCommand'> = {}): PreflightText => ({
+  get ok() {
+    return PFT.items[key].ok;
+  },
+  get title() {
+    return PFT.items[key].title;
+  },
+  get body() {
+    return PFT.items[key].body;
+  },
+  ...extra,
+});
 
 export const PREFLIGHT_TEXT: Readonly<Record<string, PreflightText>> = {
-  region: { ok: '区域在已验证列表中', title: '区域不在已验证列表中', body: '部分卡片依赖的服务或实例类型在这个区域可能不可用（以官方文档为准）。' },
-  'default-vpc': {
-    ok: '默认 VPC 与默认子网',
-    title: '默认 VPC：这个区域中没有默认 VPC',
-    body: 'L0 实验机与工作台都放在默认 VPC 的公有子网中。请自己执行下面的命令（平台不会代为创建，也不会回收默认 VPC）：',
-    command: (r) => `aws ec2 create-default-vpc --region ${r}`,
-  },
-  'vcpu-quota': { ok: '按需实例 vCPU 配额', title: 'EC2 按需实例 vCPU 配额可能较低', body: '实验机与工作台同时运行；高费用卡片还会同时运行多台实例。', link: quotas },
-  'existing-trail': { ok: '没有已有的 CloudTrail trail', title: '账号已有 CloudTrail trail', body: 'svc-audit 等审计类卡片会以“只读接入”方式运行。' },
-  guardduty: { ok: '没有已启用的 GuardDuty', title: '账号已启用 GuardDuty', body: '威胁检测类卡片（svc-threat-detection、sc-threat-compliance）会以“只读接入”方式运行。' },
-  'config-recorder': { ok: '没有已有的 Config 记录器', title: '账号已有 AWS Config 记录器', body: '合规类卡片（svc-compliance、sc-security-baseline）会以“只读接入”方式运行。' },
-  inspector: { ok: 'Inspector 未激活', title: '账号已激活 Amazon Inspector', body: '漏洞扫描类卡片（svc-vuln-scan）会以“只读接入”方式运行。' },
-  'access-analyzer': { ok: '外部访问分析器', title: '账号已有外部访问分析器', body: '建议在下次更新平台栈时把 ExternalAccessAnalyzer 设为 existing。' },
-  'ses-sandbox': { ok: 'SES 已移出沙箱', title: 'SES 处于沙箱', body: '邮件类卡片（svc-email、sc-event-fanout）的收件人也要先验证。' },
-  organizations: { ok: '未检测到组织 SCP 限制（无法完全检测）', title: '账号属于 AWS Organizations，可能受 SCP 限制', body: '部分实验操作可能被组织的服务控制策略拒绝（无法完全检测）。' },
-  'codebuild-concurrency': { ok: 'CodeBuild 并发配额', title: 'CodeBuild 并发配额较低', body: '开始实验时可能出现排队。', link: quotas },
-  'lambda-concurrency': { ok: 'Lambda 并发配额', title: 'Lambda 并发配额较低', body: '开始实验时可能出现排队。', link: quotas },
-  'residual-stacks': {
-    ok: '没有同名资源冲突、没有残留的 cloudalbum-* 栈',
-    title: '账号中有残留的 cloudalbum-* 栈',
-    body: '请先列出它们，确认是自用模式留下的再删除（删除不可撤销）。',
+  region: item('region'),
+  'default-vpc': item('default-vpc', { command: (r) => `aws ec2 create-default-vpc --region ${r}` }),
+  'vcpu-quota': item('vcpu-quota', { link: quotas }),
+  'existing-trail': item('existing-trail'),
+  guardduty: item('guardduty'),
+  'config-recorder': item('config-recorder'),
+  inspector: item('inspector'),
+  'access-analyzer': item('access-analyzer'),
+  'ses-sandbox': item('ses-sandbox'),
+  organizations: item('organizations'),
+  'codebuild-concurrency': item('codebuild-concurrency', { link: quotas }),
+  'lambda-concurrency': item('lambda-concurrency', { link: quotas }),
+  'residual-stacks': item('residual-stacks', {
     command: (r) => `aws cloudformation list-stacks --region ${r} --stack-status-filter CREATE_COMPLETE UPDATE_COMPLETE ROLLBACK_COMPLETE --query "StackSummaries[?starts_with(StackName,'cloudalbum-')].StackName"`,
-    dangerCommand: (r) => `aws cloudformation delete-stack --region ${r} --stack-name <要删除的栈名>`,
-  },
-  'borrowable-compute': {
-    ok: '没有挂着高权限角色的计算资源',
-    title: '账号中有挂着高权限角色的计算资源',
-    body: '权限边界拦不住“借用已有资源”。强烈建议使用专门的练习账号。',
-  },
+    dangerCommand: (r) => `aws cloudformation delete-stack --region ${r} --stack-name ${PFT.stackNamePlaceholder}`,
+  }),
+  'borrowable-compute': item('borrowable-compute'),
 };
 
 export function preflightTitle(i: PreflightItem): string {

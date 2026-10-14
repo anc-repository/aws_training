@@ -13,6 +13,7 @@ import { isApiError, type ApiError } from '../../api/errors';
 import type { SessionView } from '../../api/types';
 import { useServices, useSessionSync } from '../../app/context';
 import { useGlobalStatus } from '../../app/globalStatus';
+import { contentUrl, fetchContentJson } from '../../i18n/content';
 
 export type LoadStatus = 'loading' | 'ok' | 'missing' | 'error';
 
@@ -163,15 +164,17 @@ export function clearStaticCache(): void {
 }
 
 export function fetchStaticJson<T>(url: string): Promise<T | null> {
-  let p = jsonCache.get(url);
+  // 按当前界面语言读取（09 §2.4）；缓存键是改写后的地址
+  const key = contentUrl(url);
+  let p = jsonCache.get(key);
   if (!p) {
-    p = fetch(url, { credentials: 'same-origin' })
-      .then((r) => (r.ok ? (r.json() as Promise<unknown>) : null))
+    p = fetchContentJson<unknown>(url)
+      .then((r) => (r.ok ? r.data : null))
       .catch(() => null);
-    jsonCache.set(url, p);
+    jsonCache.set(key, p);
     // 失败的请求不缓存，下次重新取
     void p.then((v) => {
-      if (v === null) jsonCache.delete(url);
+      if (v === null) jsonCache.delete(key);
     });
   }
   return p as Promise<T | null>;

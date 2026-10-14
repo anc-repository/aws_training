@@ -7,6 +7,7 @@ import type { SessionView } from '../../api/types';
 import type { ShapeName } from '../../ui';
 import type { Tone } from '../../ui/semantics';
 
+import { msg, withText } from '../../i18n';
 export type PhaseStatus = 'QUEUED' | 'RUNNING' | 'RETRYING' | 'DONE' | 'FAILED' | 'SKIPPED';
 export type StageStatus = 'todo' | 'queued' | 'running' | 'retrying' | 'done' | 'failed' | 'skipped';
 
@@ -18,26 +19,39 @@ export interface EndStageDef {
   optional?: boolean;
 }
 
+type StageKey = keyof typeof msg.end.stage;
+const stage = (id: StageKey, phases: readonly string[], optional?: boolean): EndStageDef => ({
+  id,
+  get title() {
+    return msg.end.stage[id];
+  },
+  phases,
+  ...(optional ? { optional } : {}),
+});
+
 export const END_STAGES: readonly EndStageDef[] = [
-  { id: 'stop', title: '停止倒计时', phases: ['end.stop-start', 'end.disarm'] },
-  { id: 'revoke', title: '收回访问', phases: ['end.revoke'] },
-  { id: 'finalize', title: '定稿报告', phases: ['end.finalize', 'end.seal'] },
-  { id: 'workstation', title: '删除工作台', phases: ['end.workstation-down'] },
-  { id: 'suspend', title: '进入节省模式', phases: ['end.suspend'], optional: true },
-  { id: 'destroy', title: '拆除环境栈', phases: ['clean.destroy'] },
-  { id: 'reclaim', title: '回收与校验', phases: ['clean.reclaim', 'clean.verify'] },
-  { id: 'conclude', title: '结论', phases: ['clean.conclude'] },
+  stage('stop', ['end.stop-start', 'end.disarm']),
+  stage('revoke', ['end.revoke']),
+  stage('finalize', ['end.finalize', 'end.seal']),
+  stage('workstation', ['end.workstation-down']),
+  stage('suspend', ['end.suspend'], true),
+  stage('destroy', ['clean.destroy']),
+  stage('reclaim', ['clean.reclaim', 'clean.verify']),
+  stage('conclude', ['clean.conclude']),
 ];
 
-export const STAGE_STATUS_META: Readonly<Record<StageStatus, { text: string; shape: ShapeName; tone: Tone; spin?: boolean }>> = {
-  todo: { text: '未开始', shape: 'ring', tone: 'faint' },
-  queued: { text: '排队中', shape: 'hg', tone: 'mut' },
-  running: { text: '进行中', shape: 'spin', tone: 'pend', spin: true },
-  retrying: { text: '重试中', shape: 'retry', tone: 'pend' },
-  done: { text: '完成', shape: 'check', tone: 'pass' },
-  failed: { text: '失败', shape: 'xbox', tone: 'fail' },
-  skipped: { text: '跳过', shape: 'dash', tone: 'mut' },
-};
+export const STAGE_STATUS_META: Readonly<Record<StageStatus, { readonly text: string; shape: ShapeName; tone: Tone; spin?: boolean }>> = withText(
+  {
+    todo: { shape: 'ring' as ShapeName, tone: 'faint' as Tone },
+    queued: { shape: 'hg' as ShapeName, tone: 'mut' as Tone },
+    running: { shape: 'spin' as ShapeName, tone: 'pend' as Tone, spin: true },
+    retrying: { shape: 'retry' as ShapeName, tone: 'pend' as Tone },
+    done: { shape: 'check' as ShapeName, tone: 'pass' as Tone },
+    failed: { shape: 'xbox' as ShapeName, tone: 'fail' as Tone },
+    skipped: { shape: 'dash' as ShapeName, tone: 'mut' as Tone },
+  },
+  msg.end.stageStatus,
+);
 
 export interface PhaseRecord {
   name: string;

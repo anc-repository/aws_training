@@ -7,6 +7,7 @@ import { useEffect, useRef, useState } from 'react';
 import { createXterm, terminalOptions } from './xterm';
 import type { TerminalController, XtermLike } from './controller';
 
+import { W } from '../strings';
 export interface TermHandle {
   term: XtermLike & { clear?(): void; getSelection?(): string; hasSelection?(): boolean; options: Record<string, unknown> };
   fit(): void;
@@ -140,7 +141,7 @@ export function TerminalView({ controller, label, fontSize, screenReaderMode, vi
   return (
     <div className="xterm-host" role="region" aria-label={label} data-term-host="">
       <div ref={ref} className="xterm-mount" />
-      {failed ? <p className="small term-fail">终端组件加载失败，请刷新页面。</p> : null}
+      {failed ? <p className="small term-fail">{W.terminal.loadFailed}</p> : null}
     </div>
   );
 }

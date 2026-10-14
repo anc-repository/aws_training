@@ -17,6 +17,7 @@ import { BADGE_LEVEL_TEXT, BADGE_STATUS_TEXT, COMPARE_REASON_TEXT, endReasonText
 import { redactDeep } from './publicRedact';
 import { shapeSvgString } from './shapes';
 
+import { getLocale, msg, setLocale, t, type Locale } from '../../i18n/core';
 /** atl.report/v1 中分享副本用到的部分（字段全部可选：上游版本不同也能渲染）。 */
 export interface ShareReport {
   schema?: string;
@@ -62,9 +63,11 @@ export interface ShareMeta {
   publishedAt: string;
   /** 有效期（ISO；null = 不过期）。 */
   expiresAt?: string | null;
+  /** 副本的语言（生成后是静态文件，不随读者切换）；省略时用当前语言。 */
+  lang?: Locale;
 }
 
-const NATURE = '这是由自托管 ATL 实验平台生成的脱敏报告副本，不是 AWS 官方认证。';
+const SH = msg.share;
 
 const pad = (n: number) => String(n).padStart(2, '0');
 
@@ -83,7 +86,13 @@ function st(meta: StatusMeta, text = meta.text): string {
   return `<span class="st ${meta.tone}">${shapeSvgString(meta.shape)}<span class="t">${escapeXml(text)}</span></span>`;
 }
 
-const UNKNOWN: StatusMeta = { text: '未记录', shape: 'ring', tone: 'faint' };
+const UNKNOWN: StatusMeta = {
+  get text() {
+    return SH.unknown;
+  },
+  shape: 'ring',
+  tone: 'faint',
+};
 const stepMeta = (s?: string) => (s && s in STEP_STATE_META ? STEP_STATE_META[s as StepState] : UNKNOWN);
 const checkMeta = (s?: string) => (s && s in CHECK_RESULT_META ? CHECK_RESULT_META[s as CheckResult] : UNKNOWN);
 const attemptMeta = (s?: string) => (s && s in ATTEMPT_STATUS_META ? ATTEMPT_STATUS_META[s as AttemptStatus] : UNKNOWN);
@@ -97,41 +106,47 @@ function summary(r: ShareReport): string {
   const o = r.outcome ?? {};
   const att = attemptMeta(o.attemptStatus);
   const badge = r.badge?.title
-    ? ` · 徽章“${e(r.badge.title)}”${r.badge.level ? ` · ${e(BADGE_LEVEL_TEXT[r.badge.level] ?? r.badge.level)}` : ''}${r.badge.status && r.badge.status !== 'valid' ? `（${e(BADGE_STATUS_TEXT[r.badge.status] ?? r.badge.status)}）` : ''}`
+    ? `${t(SH.badge, { title: e(r.badge.title) })}${r.badge.level ? ` · ${e(BADGE_LEVEL_TEXT[r.badge.level] ?? r.badge.level)}` : ''}${r.badge.status && r.badge.status !== 'valid' ? t(SH.paren, { text: e(BADGE_STATUS_TEXT[r.badge.status] ?? r.badge.status) }) : ''}`
     : '';
-  const t = r.timing ?? {};
+  const tm = r.timing ?? {};
   const s = r.session ?? {};
-  const total = typeof t.totalMinutes === 'number' ? formatSpan(t.totalMinutes * 60_000) : '—';
-  const active = typeof t.activeMinutes === 'number' ? `，有交互 ${formatSpan(t.activeMinutes * 60_000)}` : '';
-  const ext = typeof s.extensionsUsed === 'number' ? ` · 延长 ${s.extensionsUsed} 次` : '';
+  const total = typeof tm.totalMinutes === 'number' ? formatSpan(tm.totalMinutes * 60_000) : '—';
+  const active = typeof tm.activeMinutes === 'number' ? t(SH.active, { t: formatSpan(tm.activeMinutes * 60_000) }) : '';
+  const ext = typeof s.extensionsUsed === 'number' ? t(SH.extensions, { n: s.extensionsUsed }) : '';
   const c = o.checks ?? {};
   const trust = o.trustSummary;
   const cleanup = r.cleanup?.status ? REPORT_CLEANUP_TEXT[r.cleanup.status] ?? r.cleanup.status : '—';
   const tiles: [string, string][] = [
-    ['结论', `${st(att)}${badge}`],
-    ['用时', `共 ${e(total)}${e(active)}${e(ext)}`],
-    ['检查', `自动 ${e(c.auto ?? 0)} · 手动 ${e(c.manual ?? 0)} · 未通过 ${e(c.failed ?? 0)}${typeof o.driftEvents === 'number' && o.driftEvents ? ` · 漂移 ${e(o.driftEvents)} 次` : ''}${trust ? ` · 可信度：高 ${e(trust.high ?? 0)} · 中 ${e(trust.medium ?? 0)} · 低 ${e(trust.low ?? 0)}` : ''}`],
-    ['清理', e(cleanup)],
-    ['环境', `${s.environment?.reused ? '复用环境' : '全新环境'} · <span class="mono">${e(s.region)}</span> · 账号 ${e(s.accountIdMasked ?? '••••')}${r.lab?.startProfile?.name ? ` · 起始档位 <span class="mono">${e(r.lab.startProfile.name)}</span>` : ''}`],
-    ['结束', `${e(endReasonText(s.endReason))} · 就绪 ${e(utcStamp(s.readyAt))} → 结束 ${e(utcStamp(s.endedAt))}`],
+    [SH.conclusion, `${st(att)}${badge}`],
+    [SH.duration, `${e(t(SH.durationValue, { total }))}${e(active)}${e(ext)}`],
+    [
+      SH.checks,
+      `${e(t(SH.checksValue, { auto: c.auto ?? 0, manual: c.manual ?? 0, failed: c.failed ?? 0 }))}${typeof o.driftEvents === 'number' && o.driftEvents ? e(t(SH.drift, { n: o.driftEvents })) : ''}${trust ? e(t(SH.trust, { high: trust.high ?? 0, medium: trust.medium ?? 0, low: trust.low ?? 0 })) : ''}`,
+    ],
+    [SH.cleanup, e(cleanup)],
+    [
+      SH.environment,
+      `${s.environment?.reused ? SH.reused : SH.fresh} · <span class="mono">${e(s.region)}</span>${e(t(SH.account, { acct: s.accountIdMasked ?? '••••' }))}${r.lab?.startProfile?.name ? t(SH.startProfile, { name: `<span class="mono">${e(r.lab.startProfile.name)}</span>` }) : ''}`,
+    ],
+    [SH.end, e(t(SH.endValue, { reason: endReasonText(s.endReason), ready: utcStamp(s.readyAt), ended: utcStamp(s.endedAt) }))],
   ];
-  return `<section class="sec" aria-labelledby="h-sum"><h2 id="h-sum">摘要</h2><div class="statgrid">${tiles.map(([k, v]) => `<div class="stat"><span class="k">${k}</span><span class="v">${v}</span></div>`).join('')}</div></section>`;
+  return `<section class="sec" aria-labelledby="h-sum"><h2 id="h-sum">${e(SH.summary)}</h2><div class="statgrid">${tiles.map(([k, v]) => `<div class="stat"><span class="k">${k}</span><span class="v">${v}</span></div>`).join('')}</div></section>`;
 }
 
 function steps(r: ShareReport): string {
   const list = r.steps ?? [];
-  if (!list.length) return '<section class="sec" aria-labelledby="h-steps"><h2 id="h-steps">逐步证据</h2><p class="muted">没有步骤记录。</p></section>';
+  if (!list.length) return `<section class="sec" aria-labelledby="h-steps"><h2 id="h-steps">${e(SH.steps)}</h2><p class="muted">${e(SH.noSteps)}</p></section>`;
   const body = list
     .map((s, i) => {
       const meta = stepMeta(s.state);
       const rows = (s.checks ?? [])
         .map((c) => {
           const cm = checkMeta(c.effective);
-          const asserts = (c.keyAssertions ?? []).map((a) => `${a.ok ? '✓' : '✗'} ${e(a.label)}：期望 ${e(a.expected)} · 实际 ${e(a.actual)}`).join('<br>');
+          const asserts = (c.keyAssertions ?? []).map((a) => t(SH.assertion, { mark: a.ok ? '✓' : '✗', label: e(a.label), expected: e(a.expected), actual: e(a.actual) })).join('<br>');
           const notes = [
-            c.provenance && c.provenance !== 'this-session' ? '继承自交接链中的会话' : c.provenance === 'this-session' ? '本次完成' : '',
-            c.ownershipConfirmedLate ? '归属在会话结束后确认' : '',
-            c.manual?.observed ? `手动确认：看到的值 ${e(c.manual.observed)}` : '',
+            c.provenance && c.provenance !== 'this-session' ? e(SH.inherited) : c.provenance === 'this-session' ? e(SH.thisSession) : '',
+            c.ownershipConfirmedLate ? e(SH.ownershipLate) : '',
+            c.manual?.observed ? t(e(SH.manualObserved), { v: e(c.manual.observed) }) : '',
           ]
             .filter(Boolean)
             .join(' · ');
@@ -139,12 +154,12 @@ function steps(r: ShareReport): string {
         })
         .join('');
       const table = rows
-        ? `<div class="tbl-wrap"><table class="tbl"><thead><tr><th scope="col">结果</th><th scope="col">来源</th><th scope="col">检查与关键断言</th><th scope="col">证据摘要</th></tr></thead><tbody>${rows}</tbody></table></div>`
+        ? `<div class="tbl-wrap"><table class="tbl"><thead><tr><th scope="col">${e(SH.colResult)}</th><th scope="col">${e(SH.colSource)}</th><th scope="col">${e(SH.colCheck)}</th><th scope="col">${e(SH.colDigest)}</th></tr></thead><tbody>${rows}</tbody></table></div>`
         : '';
       return `<div class="step"><h3>${st(meta, '')}<span>${i + 1} ${e(s.title ?? s.stepId)}</span><span class="small muted">${e(s.type ?? '')} · ${escapeXml(meta.text)}</span></h3>${table}</div>`;
     })
     .join('');
-  return `<section class="sec" aria-labelledby="h-steps"><h2 id="h-steps">逐步证据</h2>${body}</section>`;
+  return `<section class="sec" aria-labelledby="h-steps"><h2 id="h-steps">${e(SH.steps)}</h2>${body}</section>`;
 }
 
 function roleOf(v?: string): VariantDecl['role'] {
@@ -153,7 +168,7 @@ function roleOf(v?: string): VariantDecl['role'] {
 
 function experiments(r: ShareReport): string {
   const list = r.experiments ?? [];
-  if (!list.length) return '<section class="sec" aria-labelledby="h-exp"><h2 id="h-exp">对比实验</h2><p class="muted">本卡片没有对比实验。</p></section>';
+  if (!list.length) return `<section class="sec" aria-labelledby="h-exp"><h2 id="h-exp">${e(SH.experiments)}</h2><p class="muted">${e(SH.noExperiments)}</p></section>`;
   const body = list
     .map((x, xi) => {
       const variants: VariantDecl[] = (x.variants ?? []).filter((v) => v.label).map((v) => ({ label: String(v.label), role: roleOf(v.role) }));
@@ -165,7 +180,7 @@ function experiments(r: ShareReport): string {
         values: m.values ?? {},
       }));
       const single = variants.length === 1;
-      const head = `<tr><th scope="col">指标</th>${variants.map((v) => `<th scope="col" class="num">${e(v.label)}</th>`).join('')}${single ? '' : '<th scope="col">差异</th>'}</tr>`;
+      const head = `<tr><th scope="col">${e(SH.colMetric)}</th>${variants.map((v) => `<th scope="col" class="num">${e(v.label)}</th>`).join('')}${single ? '' : `<th scope="col">${e(SH.colDelta)}</th>`}</tr>`;
       const base = variants.find((v) => v.role === 'baseline') ?? variants[0];
       const other = variants.find((v) => v !== base);
       const rows = metrics
@@ -177,28 +192,30 @@ function experiments(r: ShareReport): string {
         )
         .join('');
       const pairs = (x.pairs ?? [])
-        .map((p) => `<li>${e(p.a)} ↔ ${e(p.b)}：${p.comparable ? '可比' : `不可比（${e((p.reasons ?? []).map((c) => COMPARE_REASON_TEXT[c] ?? c).join('；'))}）`}${p.across?.length ? ' · 跨实例类型比较' : ''}</li>`)
+        .map((p) => `<li>${e(p.a)} ↔ ${e(p.b)}：${p.comparable ? e(SH.comparable) : e(t(SH.notComparable, { list: (p.reasons ?? []).map((c) => COMPARE_REASON_TEXT[c] ?? c).join(SH.reasonSep) }))}${p.across?.length ? e(SH.acrossTypes) : ''}</li>`)
         .join('');
       const bars = buildBarsChart(metrics, variants);
       const ladder = buildLadderChart(metrics, variants);
       return `<div class="exp"><h3>${e(x.module)} / ${e(x.experiment)}</h3>
-<p class="small muted">变体：${variants.map((v) => `${e(v.label)}（${e(v.role)}）`).join('、') || '—'}</p>
+<p class="small muted">${e(t(SH.variants, { list: variants.map((v) => t(SH.variantItem, { label: v.label, role: v.role })).join(SH.listSep) || '—' }))}</p>
 ${pairs ? `<ul class="small plain">${pairs}</ul>` : ''}
-${rows ? `<div class="tbl-wrap"><table class="tbl"><caption class="sr">${e(x.module)} / ${e(x.experiment)} 的指标</caption><thead>${head}</thead><tbody>${rows}</tbody></table></div>` : '<p class="muted small">没有可比较的指标。</p>'}
+${rows ? `<div class="tbl-wrap"><table class="tbl"><caption class="sr">${e(t(SH.metricsCaption, { name: `${x.module} / ${x.experiment}` }))}</caption><thead>${head}</thead><tbody>${rows}</tbody></table></div>` : `<p class="muted small">${e(SH.noMetrics)}</p>`}
 ${bars ? `<figure>${barsChartSvg(bars, `exp${xi}`)}</figure>` : ''}${ladder ? `<figure>${ladderChartSvg(ladder)}</figure>` : ''}</div>`;
     })
     .join('');
-  return `<section class="sec" aria-labelledby="h-exp"><h2 id="h-exp">对比实验</h2>${body}<p class="small muted">差异方向只说明变化，不代表好坏：启用托管服务后单次延迟变高也可能是正确结论。数值只来自实际记录。</p></section>`;
+  return `<section class="sec" aria-labelledby="h-exp"><h2 id="h-exp">${e(SH.experiments)}</h2>${body}<p class="small muted">${e(SH.directionNote)}</p></section>`;
 }
 
 function cleanup(r: ShareReport): string {
   const c = r.cleanup ?? {};
   const status = c.status ? REPORT_CLEANUP_TEXT[c.status] ?? c.status : '—';
   const pending = (c.pendingManual ?? [])
-    .map((p) => `<tr><td class="mono small">${e(p.resourceType)}</td><td class="mono small">${e(p.id)}</td><td>${e(p.severity === 'BLOCKING' ? '阻塞' : p.severity === 'REVIEW' ? '需复核' : p.severity === 'INFO' ? '信息' : p.severity)}</td><td>${e(p.reason)}</td></tr>`)
+    .map((p) => `<tr><td class="mono small">${e(p.resourceType)}</td><td class="mono small">${e(p.id)}</td><td>${e(p.severity && p.severity in SH.severity ? SH.severity[p.severity as keyof typeof SH.severity] : p.severity)}</td><td>${e(p.reason)}</td></tr>`)
     .join('');
-  return `<section class="sec" aria-labelledby="h-clean"><h2 id="h-clean">清理</h2><p>${e(status)}${typeof c.reclaimed === 'number' ? ` · 已回收 ${e(c.reclaimed)} 项` : ''}</p>${
-    pending ? `<div class="tbl-wrap"><table class="tbl"><thead><tr><th scope="col">类型</th><th scope="col">资源</th><th scope="col">级别</th><th scope="col">原因</th></tr></thead><tbody>${pending}</tbody></table></div>` : ''
+  return `<section class="sec" aria-labelledby="h-clean"><h2 id="h-clean">${e(SH.cleanup)}</h2><p>${e(status)}${typeof c.reclaimed === 'number' ? e(t(SH.reclaimed, { n: c.reclaimed })) : ''}</p>${
+    pending
+      ? `<div class="tbl-wrap"><table class="tbl"><thead><tr><th scope="col">${e(SH.colType)}</th><th scope="col">${e(SH.colResource)}</th><th scope="col">${e(SH.colLevel)}</th><th scope="col">${e(SH.colReason)}</th></tr></thead><tbody>${pending}</tbody></table></div>`
+      : ''
   }</section>`;
 }
 
@@ -267,12 +284,22 @@ export { redactDeep, redactText } from './publicRedact';
 
 /** 渲染分享副本（完整 HTML 文档）。 */
 export function renderShareHtml(input: ShareReport, meta: ShareMeta): string {
+  const previous = getLocale();
+  if (meta.lang && meta.lang !== previous) setLocale(meta.lang, { persist: false });
+  try {
+    return renderShareDocument(input, meta);
+  } finally {
+    if (meta.lang && meta.lang !== previous) setLocale(previous, { persist: false });
+  }
+}
+
+function renderShareDocument(input: ShareReport, meta: ShareMeta): string {
   const r = redactDeep(input, 'share');
   const lab = r.lab ?? {};
-  const title = `${lab.id ?? '实验'} · 实验报告（脱敏副本）`;
-  const expires = meta.expiresAt ? ` · 有效期至 ${e(utcStamp(meta.expiresAt))}` : ' · 不过期（平台卸载前有效）';
+  const title = t(SH.title, { id: lab.id ?? SH.lab });
+  const expires = meta.expiresAt ? t(SH.expiresAt, { t: e(utcStamp(meta.expiresAt)) }) : e(SH.noExpiry);
   return `<!doctype html>
-<html lang="zh-CN">
+<html lang="${getLocale()}">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -285,13 +312,13 @@ export function renderShareHtml(input: ShareReport, meta: ShareMeta): string {
 </head>
 <body>
 <main>
-<p class="nature" role="note">${NATURE}</p>
-<header><h1>${e(lab.id)} · ${e(lab.title)}</h1><p class="small muted">实验报告 · 第 ${e(r.revision ?? 1)} 版 · 报告生成于 ${e(utcStamp(r.generatedAt))} · 卡片版本 ${e(lab.version)} · 起始变体 ${e(lab.variant ?? 'default')}</p></header>
+<p class="nature" role="note">${e(SH.nature)}</p>
+<header><h1>${e(lab.id)} · ${e(lab.title)}</h1><p class="small muted">${t(e(SH.header), { rev: e(r.revision ?? 1), generated: e(utcStamp(r.generatedAt)), version: e(lab.version), variant: e(lab.variant ?? 'default') })}</p></header>
 ${summary(r)}
 ${steps(r)}
 ${experiments(r)}
 ${cleanup(r)}
-<footer><p>平台卸载后此链接失效 · 生成于 ${e(utcStamp(meta.publishedAt))}${expires}</p><p>本副本由自托管 AWS Training Lab 实例生成：账号 ID、IP、资源 ID 的中段、会话 id 与环境名已打码，不含手动确认备注。费用信息不在副本中，以 AWS 账单为准。</p></footer>
+<footer><p>${t(e(SH.footer1), { t: e(utcStamp(meta.publishedAt)), expires })}</p><p>${e(SH.footer2)}</p></footer>
 </main>
 </body>
 </html>

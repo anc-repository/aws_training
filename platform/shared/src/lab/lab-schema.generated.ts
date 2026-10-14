@@ -48,14 +48,28 @@ export const LAB_SCHEMA_V2: Readonly<Record<string, unknown>> = {
       ]
     },
     "service": {
-      "type": "string",
-      "minLength": 3,
-      "maxLength": 40
+      "anyOf": [
+        {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 40
+        },
+        {
+          "$ref": "#/$defs/l10n"
+        }
+      ]
     },
     "function": {
-      "type": "string",
-      "minLength": 2,
-      "maxLength": 20
+      "anyOf": [
+        {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 20
+        },
+        {
+          "$ref": "#/$defs/l10n"
+        }
+      ]
     },
     "version": {
       "$ref": "#/$defs/semver"
@@ -70,22 +84,50 @@ export const LAB_SCHEMA_V2: Readonly<Record<string, unknown>> = {
       "default": "draft"
     },
     "title": {
-      "type": "string",
-      "minLength": 2,
-      "maxLength": 48
+      "anyOf": [
+        {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 48
+        },
+        {
+          "$ref": "#/$defs/l10n"
+        }
+      ]
     },
     "subtitle": {
-      "type": "string",
-      "maxLength": 60
+      "anyOf": [
+        {
+          "type": "string",
+          "maxLength": 60
+        },
+        {
+          "$ref": "#/$defs/l10n"
+        }
+      ]
     },
     "summary": {
-      "type": "string",
-      "minLength": 10,
-      "maxLength": 200
+      "anyOf": [
+        {
+          "type": "string",
+          "minLength": 10,
+          "maxLength": 200
+        },
+        {
+          "$ref": "#/$defs/l10n"
+        }
+      ]
     },
     "story": {
-      "type": "string",
-      "maxLength": 1200
+      "anyOf": [
+        {
+          "type": "string",
+          "maxLength": 1200
+        },
+        {
+          "$ref": "#/$defs/l10n"
+        }
+      ]
     },
     "scenario": {
       "type": "object",
@@ -95,24 +137,45 @@ export const LAB_SCHEMA_V2: Readonly<Record<string, unknown>> = {
       ],
       "properties": {
         "question": {
-          "type": "string",
-          "minLength": 20,
-          "maxLength": 400
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 20,
+              "maxLength": 400
+            },
+            {
+              "$ref": "#/$defs/l10n"
+            }
+          ]
         },
         "constraints": {
           "type": "array",
           "maxItems": 6,
           "items": {
-            "type": "string",
-            "maxLength": 80
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 80
+              },
+              {
+                "$ref": "#/$defs/l10n"
+              }
+            ]
           }
         },
         "antiPatterns": {
           "type": "array",
           "maxItems": 6,
           "items": {
-            "type": "string",
-            "maxLength": 120
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 120
+              },
+              {
+                "$ref": "#/$defs/l10n"
+              }
+            ]
           }
         }
       }
@@ -129,8 +192,15 @@ export const LAB_SCHEMA_V2: Readonly<Record<string, unknown>> = {
         ],
         "properties": {
           "text": {
-            "type": "string",
-            "maxLength": 80
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 80
+              },
+              {
+                "$ref": "#/$defs/l10n"
+              }
+            ]
           },
           "domain": {
             "$ref": "#/$defs/saaDomain"
@@ -197,8 +267,15 @@ export const LAB_SCHEMA_V2: Readonly<Record<string, unknown>> = {
           "maximum": 72
         },
         "reason": {
-          "type": "string",
-          "maxLength": 120
+          "anyOf": [
+            {
+              "type": "string",
+              "maxLength": 120
+            },
+            {
+              "$ref": "#/$defs/l10n"
+            }
+          ]
         }
       }
     },
@@ -247,8 +324,15 @@ export const LAB_SCHEMA_V2: Readonly<Record<string, unknown>> = {
             "$ref": "#/$defs/serviceId"
           },
           "name": {
-            "type": "string",
-            "maxLength": 60
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 60
+              },
+              {
+                "$ref": "#/$defs/l10n"
+              }
+            ]
           },
           "role": {
             "enum": [
@@ -357,8 +441,15 @@ export const LAB_SCHEMA_V2: Readonly<Record<string, unknown>> = {
         "knowledge": {
           "type": "array",
           "items": {
-            "type": "string",
-            "maxLength": 60
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 60
+              },
+              {
+                "$ref": "#/$defs/l10n"
+              }
+            ]
           }
         }
       }
@@ -461,8 +552,15 @@ export const LAB_SCHEMA_V2: Readonly<Record<string, unknown>> = {
                 ]
               },
               "resource": {
-                "type": "string",
-                "maxLength": 80
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "maxLength": 80
+                  },
+                  {
+                    "$ref": "#/$defs/l10n"
+                  }
+                ]
               },
               "preexisting": {
                 "enum": [
@@ -480,8 +578,15 @@ export const LAB_SCHEMA_V2: Readonly<Record<string, unknown>> = {
                 ]
               },
               "note": {
-                "type": "string",
-                "maxLength": 200
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "maxLength": 200
+                  },
+                  {
+                    "$ref": "#/$defs/l10n"
+                  }
+                ]
               }
             }
           }
@@ -572,13 +677,27 @@ export const LAB_SCHEMA_V2: Readonly<Record<string, unknown>> = {
       ],
       "properties": {
         "title": {
-          "type": "string",
-          "minLength": 2,
-          "maxLength": 8
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 2,
+              "maxLength": 8
+            },
+            {
+              "$ref": "#/$defs/l10n"
+            }
+          ]
         },
         "short": {
-          "type": "string",
-          "maxLength": 6
+          "anyOf": [
+            {
+              "type": "string",
+              "maxLength": 6
+            },
+            {
+              "$ref": "#/$defs/l10n"
+            }
+          ]
         },
         "icon": {
           "type": "string",
@@ -663,12 +782,26 @@ export const LAB_SCHEMA_V2: Readonly<Record<string, unknown>> = {
             }
           },
           "title": {
-            "type": "string",
-            "maxLength": 40
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 40
+              },
+              {
+                "$ref": "#/$defs/l10n"
+              }
+            ]
           },
           "confirm": {
-            "type": "string",
-            "maxLength": 200
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200
+              },
+              {
+                "$ref": "#/$defs/l10n"
+              }
+            ]
           },
           "optional": {
             "type": "boolean",
@@ -708,8 +841,15 @@ export const LAB_SCHEMA_V2: Readonly<Record<string, unknown>> = {
           "default": false
         },
         "title": {
-          "type": "string",
-          "maxLength": 40
+          "anyOf": [
+            {
+              "type": "string",
+              "maxLength": 40
+            },
+            {
+              "$ref": "#/$defs/l10n"
+            }
+          ]
         },
         "maxManualChecks": {
           "type": "integer",
@@ -779,6 +919,37 @@ export const LAB_SCHEMA_V2: Readonly<Record<string, unknown>> = {
     }
   ],
   "$defs": {
+    "l10n": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "zh-CN"
+      ],
+      "properties": {
+        "zh-CN": {
+          "type": "string",
+          "minLength": 1
+        },
+        "ja": {
+          "type": "string",
+          "minLength": 1
+        },
+        "en": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "text": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "$ref": "#/$defs/l10n"
+        }
+      ]
+    },
     "cardId": {
       "type": "string",
       "pattern": "^(svc|sc)-[a-z0-9]+(-[a-z0-9]+)*$",
@@ -938,9 +1109,16 @@ export const LAB_SCHEMA_V2: Readonly<Record<string, unknown>> = {
           ]
         },
         "reason": {
-          "type": "string",
-          "minLength": 4,
-          "maxLength": 240
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 4,
+              "maxLength": 240
+            },
+            {
+              "$ref": "#/$defs/l10n"
+            }
+          ]
         }
       },
       "allOf": [
@@ -1102,8 +1280,15 @@ export const LAB_SCHEMA_V2: Readonly<Record<string, unknown>> = {
             "$ref": "#/$defs/moduleId"
           },
           "reason": {
-            "type": "string",
-            "maxLength": 200
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200
+              },
+              {
+                "$ref": "#/$defs/l10n"
+              }
+            ]
           }
         }
       }
@@ -1142,8 +1327,15 @@ export const LAB_SCHEMA_V2: Readonly<Record<string, unknown>> = {
           }
         },
         "reason": {
-          "type": "string",
-          "maxLength": 400
+          "anyOf": [
+            {
+              "type": "string",
+              "maxLength": 400
+            },
+            {
+              "$ref": "#/$defs/l10n"
+            }
+          ]
         }
       }
     },
@@ -1166,8 +1358,15 @@ export const LAB_SCHEMA_V2: Readonly<Record<string, unknown>> = {
           }
         },
         "title": {
-          "type": "string",
-          "maxLength": 40
+          "anyOf": [
+            {
+              "type": "string",
+              "maxLength": 40
+            },
+            {
+              "$ref": "#/$defs/l10n"
+            }
+          ]
         },
         "select": {
           "enum": [
@@ -1198,8 +1397,15 @@ export const LAB_SCHEMA_V2: Readonly<Record<string, unknown>> = {
           }
         },
         "reason": {
-          "type": "string",
-          "maxLength": 240
+          "anyOf": [
+            {
+              "type": "string",
+              "maxLength": 240
+            },
+            {
+              "$ref": "#/$defs/l10n"
+            }
+          ]
         }
       },
       "if": {
@@ -1263,8 +1469,15 @@ export const LAB_SCHEMA_V2: Readonly<Record<string, unknown>> = {
       ],
       "properties": {
         "label": {
-          "type": "string",
-          "maxLength": 24
+          "anyOf": [
+            {
+              "type": "string",
+              "maxLength": 24
+            },
+            {
+              "$ref": "#/$defs/l10n"
+            }
+          ]
         },
         "from": {
           "enum": [
@@ -1284,8 +1497,15 @@ export const LAB_SCHEMA_V2: Readonly<Record<string, unknown>> = {
           "type": "string"
         },
         "help": {
-          "type": "string",
-          "maxLength": 200
+          "anyOf": [
+            {
+              "type": "string",
+              "maxLength": 200
+            },
+            {
+              "$ref": "#/$defs/l10n"
+            }
+          ]
         }
       },
       "if": {
@@ -1335,8 +1555,15 @@ export const LAB_SCHEMA_V2: Readonly<Record<string, unknown>> = {
           "type": "array",
           "maxItems": 6,
           "items": {
-            "type": "string",
-            "maxLength": 40
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 40
+              },
+              {
+                "$ref": "#/$defs/l10n"
+              }
+            ]
           }
         },
         "basis": {
@@ -1349,8 +1576,15 @@ export const LAB_SCHEMA_V2: Readonly<Record<string, unknown>> = {
         "assumptions": {
           "type": "array",
           "items": {
-            "type": "string",
-            "maxLength": 200
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200
+              },
+              {
+                "$ref": "#/$defs/l10n"
+              }
+            ]
           }
         }
       }
@@ -1373,7 +1607,14 @@ export const LAB_SCHEMA_V2: Readonly<Record<string, unknown>> = {
               ]
             },
             "note": {
-              "type": "string"
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "$ref": "#/$defs/l10n"
+                }
+              ]
             }
           }
         },
@@ -1435,8 +1676,15 @@ export const LAB_SCHEMA_V2: Readonly<Record<string, unknown>> = {
               "default": true
             },
             "note": {
-              "type": "string",
-              "maxLength": 200
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 200
+                },
+                {
+                  "$ref": "#/$defs/l10n"
+                }
+              ]
             }
           },
           "allOf": [
@@ -1484,8 +1732,15 @@ export const LAB_SCHEMA_V2: Readonly<Record<string, unknown>> = {
           ]
         },
         "title": {
-          "type": "string",
-          "maxLength": 60
+          "anyOf": [
+            {
+              "type": "string",
+              "maxLength": 60
+            },
+            {
+              "$ref": "#/$defs/l10n"
+            }
+          ]
         },
         "manual": {
           "type": "string",
@@ -1511,8 +1766,15 @@ export const LAB_SCHEMA_V2: Readonly<Record<string, unknown>> = {
               ],
               "properties": {
                 "reason": {
-                  "type": "string",
-                  "maxLength": 120
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "maxLength": 120
+                    },
+                    {
+                      "$ref": "#/$defs/l10n"
+                    }
+                  ]
                 },
                 "when": {
                   "$ref": "#/$defs/expr"
@@ -1595,7 +1857,14 @@ export const LAB_SCHEMA_V2: Readonly<Record<string, unknown>> = {
               }
             },
             "note": {
-              "type": "string"
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "$ref": "#/$defs/l10n"
+                }
+              ]
             }
           }
         },
@@ -1617,8 +1886,15 @@ export const LAB_SCHEMA_V2: Readonly<Record<string, unknown>> = {
               "maximum": 60
             },
             "text": {
-              "type": "string",
-              "maxLength": 120
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 120
+                },
+                {
+                  "$ref": "#/$defs/l10n"
+                }
+              ]
             }
           }
         },
@@ -1644,8 +1920,15 @@ export const LAB_SCHEMA_V2: Readonly<Record<string, unknown>> = {
               "maximum": 30
             },
             "reason": {
-              "type": "string",
-              "maxLength": 120
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 120
+                },
+                {
+                  "$ref": "#/$defs/l10n"
+                }
+              ]
             }
           }
         },
@@ -1847,8 +2130,15 @@ export const LAB_SCHEMA_V2: Readonly<Record<string, unknown>> = {
               ]
             },
             "title": {
-              "type": "string",
-              "maxLength": 24
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 24
+                },
+                {
+                  "$ref": "#/$defs/l10n"
+                }
+              ]
             },
             "requires": {
               "type": "object",
@@ -2086,8 +2376,15 @@ export const LAB_SCHEMA_V2: Readonly<Record<string, unknown>> = {
       ],
       "properties": {
         "summary": {
-          "type": "string",
-          "maxLength": 400
+          "anyOf": [
+            {
+              "type": "string",
+              "maxLength": 400
+            },
+            {
+              "$ref": "#/$defs/l10n"
+            }
+          ]
         },
         "autoReclaim": {
           "const": true
@@ -2095,7 +2392,14 @@ export const LAB_SCHEMA_V2: Readonly<Record<string, unknown>> = {
         "dataRisk": {
           "type": "array",
           "items": {
-            "type": "string"
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "$ref": "#/$defs/l10n"
+              }
+            ]
           }
         },
         "learnerCreatedHints": {
@@ -2113,8 +2417,15 @@ export const LAB_SCHEMA_V2: Readonly<Record<string, unknown>> = {
                 "pattern": "^AWS::[A-Za-z0-9]+::[A-Za-z0-9]+$"
               },
               "how": {
-                "type": "string",
-                "maxLength": 200
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "maxLength": 200
+                  },
+                  {
+                    "$ref": "#/$defs/l10n"
+                  }
+                ]
               }
             }
           }
@@ -2171,8 +2482,15 @@ export const LAB_SCHEMA_V2: Readonly<Record<string, unknown>> = {
                     "type": "string"
                   },
                   "title": {
-                    "type": "string",
-                    "maxLength": 60
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "maxLength": 60
+                      },
+                      {
+                        "$ref": "#/$defs/l10n"
+                      }
+                    ]
                   },
                   "domain": {
                     "$ref": "#/$defs/saaDomain"
@@ -2209,13 +2527,13 @@ export const LAB_SCHEMA_V2: Readonly<Record<string, unknown>> = {
                 ],
                 "properties": {
                   "a": {
-                    "type": "string"
+                    "$ref": "#/$defs/text"
                   },
                   "b": {
-                    "type": "string"
+                    "$ref": "#/$defs/text"
                   },
                   "rule": {
-                    "type": "string"
+                    "$ref": "#/$defs/text"
                   }
                 }
               }

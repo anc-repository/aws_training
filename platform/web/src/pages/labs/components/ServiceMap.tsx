@@ -6,7 +6,7 @@
  * P02（服务地图视图）与 P10（服务掌握度页签）共用。
  */
 import { useMemo, useRef, useState, type KeyboardEvent } from 'react';
-import { t } from '../../../i18n/zh-CN';
+import { msg, t } from '../../../i18n';
 import { Drawer, Shape } from '../../../ui';
 import { categoryLabel, isDoneStatus, membershipOf, spatialNext, type Holder, type ProgressLike, type ServiceCellView } from '../model';
 import { BADGE_LEVEL_TEXT, MASTERY_META, S } from '../strings';
@@ -14,6 +14,8 @@ import type { CatalogCard, CatalogIndex, LabItem, ServiceMasteryView, Taxonomy }
 import { CardRowCompact } from './CardTile';
 import { ProgressRing, ServiceAbbr } from './Marks';
 import { Link } from 'react-router-dom';
+
+const PL = msg.pages.labs;
 
 export interface ServiceMapProps {
   cells: readonly ServiceCellView[];
@@ -76,7 +78,7 @@ export function ServiceMap({ cells, tax, mastery, progress, selected, onSelect, 
         {rows.map(({ cat, cells: rowCells }) => (
           <div key={cat.id} className="mrow" role="group" aria-label={categoryLabel(tax, cat.id)}>
             <span className="rl" aria-hidden="true">
-              {cat.id === 'base' ? '基础' : cat.id}
+              {cat.id === 'base' ? PL.base : cat.id}
             </span>
             <div className="cells">
               {rowCells.map((c) => {
@@ -178,7 +180,7 @@ export function ServiceCellPanel({ cell, index, cards, mastery, items, holder, o
             {mastery ? (
               <div className="small muted">
                 {S.map.panelSvcCard}：{mastery.serviceCard?.badgeLevel ? (BADGE_LEVEL_TEXT[mastery.serviceCard.badgeLevel] ?? mastery.serviceCard.badgeLevel) : S.card.badgeNone} ·{' '}
-                {S.map.panelCredited} {(mastery.scenarioCredits ?? []).length} 张
+                {t(PL.scenarioCredits, { label: S.map.panelCredited, n: (mastery.scenarioCredits ?? []).length })}
                 {mastery.quiz?.ratio != null ? ` · ${t(S.map.panelQuiz, { r: `${Math.round(mastery.quiz.ratio * 100)}%` })}` : ''}
               </div>
             ) : null}

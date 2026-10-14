@@ -12,7 +12,7 @@ import { Link, useLocation, useParams, useSearchParams } from 'react-router-dom'
 import { isApiError } from '../../api/errors';
 import { useAuth, useServices, useSessionSync } from '../../app/context';
 import { useGlobalStatus } from '../../app/globalStatus';
-import { t } from '../../i18n/zh-CN';
+import { msg, t } from '../../i18n';
 import { formatDate } from '../../lib/format';
 import { Button, CostTierMark, Dialog, EmptyState, ErrorPanel, SessionStatePill, Shape, Skeleton } from '../../ui';
 import '../labs/catalog.css';
@@ -28,6 +28,12 @@ import { StartDialog } from './StartDialog';
 import { startModel, type ResidualPolicy, type StartModel } from './startModel';
 import { SS } from './strings';
 
+import zhPages from '../../i18n/zh-CN/pages';
+import { untranslated } from '../../i18n/content';
+import { UntranslatedIf } from '../../i18n/Untranslated';
+
+const PC = msg.pages.card;
+const zhOverviewHeading = zhPages.card.overviewHeading;
 // ---------------------------------------------------------------------------------------------------------------
 // 开始区
 
@@ -400,11 +406,12 @@ export default function CardIntroPage() {
   const primary = card.services.find((s) => s.role === 'primary')?.id;
   const abbr = primary ? serviceOf(tax, primary)?.abbr : null;
   const overview = splitOverview(intro.data?.overview ?? null);
-  const section = (title: string) => overview.find((o) => o.title === title)?.nodes ?? null;
-  const background = section('背景');
-  const whyTogether = section('为什么组合在一起');
-  const expPreview = section('对比实验预告');
-  const platformNote = section('平台模式说明');
+  // 概览的小节按标题匹配：当前语言的标题或 zh-CN 源标题（内容的 overview.md 用词典 pages.card.overviewHeading 中的标题）
+  const section = (key: keyof typeof PC.overviewHeading) => overview.find((o) => o.title === PC.overviewHeading[key] || o.title === zhOverviewHeading[key])?.nodes ?? null;
+  const background = section('background');
+  const whyTogether = section('why');
+  const expPreview = section('experiments');
+  const platformNote = section('platform');
   const ext = intro.data?.timing?.extensions ?? { maxCount: 2, minutesEach: 30 };
   const retain = intro.data?.timing?.retain;
   const prereqCards = intro.data?.prerequisites?.cards ?? card.prerequisites ?? [];
@@ -431,7 +438,7 @@ export default function CardIntroPage() {
 
   return (
     <div className="stack-16" data-screen="P03" data-card={labId}>
-      <nav className="crumbs-nav" aria-label="面包屑">
+      <nav className="crumbs-nav" aria-label={PC.crumbs}>
         <ol>
           <li>
             <Link to="/labs">{S.catalog.title}</Link>
@@ -446,6 +453,7 @@ export default function CardIntroPage() {
           <div className="stack-4 grow">
             <h1 tabIndex={-1}>
               {card.title}
+              <UntranslatedIf show={untranslated(card, '/title') || untranslated(intro.data)} />
               {card.kind === 'scenario' && card.subtitle ? <span className="h1-sub">{card.subtitle}</span> : null}
             </h1>
             <span className="small muted">
@@ -536,7 +544,7 @@ export default function CardIntroPage() {
           </section>
           {whyTogether ? (
             <section className="sec" aria-labelledby="sec-why">
-              <h2 id="sec-why">为什么组合在一起</h2>
+              <h2 id="sec-why">{PC.overviewHeading.why}</h2>
               <MarkdownView nodes={whyTogether} />
             </section>
           ) : null}
@@ -565,7 +573,7 @@ export default function CardIntroPage() {
               </b>
               {card.mainDrivers?.length ? t(SS.sections.costSources, { list: card.mainDrivers.join(' · ') }) : SS.sections.costNone}
               {card.costTier.withOptional && card.costTier.withOptional !== card.costTier.required
-                ? t(SS.sections.costOptional, { tier: card.costTier.withOptional === 'high' ? '$$$ 高' : '$$ 中' })
+                ? t(SS.sections.costOptional, { tier: card.costTier.withOptional === 'high' ? PC.tierHigh : PC.tierMedium })
                 : ''}
             </p>
             <p className="small muted">{SS.sections.costKeep}</p>
@@ -600,7 +608,7 @@ export default function CardIntroPage() {
           ) : null}
           {platformNote ? (
             <section className="sec" aria-labelledby="sec-pm">
-              <h2 id="sec-pm">平台模式说明</h2>
+              <h2 id="sec-pm">{PC.overviewHeading.platform}</h2>
               <MarkdownView nodes={platformNote} />
             </section>
           ) : null}
@@ -646,7 +654,7 @@ export default function CardIntroPage() {
             ) : null}
             <div className="small">
               {SS.sections.inputs}
-              {inputs.length ? inputs.map((i) => `${INPUT_TEXT[i.id]?.need ?? i.id}${i.required ? '' : '（可选）'}`).join('；') : SS.sections.prereqNone}
+              {inputs.length ? inputs.map((i) => `${INPUT_TEXT[i.id]?.need ?? i.id}${i.required ? '' : PC.optionalMark}`).join(PC.listSep) : SS.sections.prereqNone}
             </div>
             <div className="small">
               {SS.sections.accountImpact}
@@ -665,7 +673,7 @@ export default function CardIntroPage() {
             </div>
             {learnerVariants.length ? (
               <div className="small muted">
-                {t(SS.sections.variants, { n: learnerVariants.length + 1, list: [(card.variants ?? []).find((v) => v.id === 'default')?.title ?? '默认', ...learnerVariants.map((v) => v.title ?? v.id)].join('、') })}
+                {t(SS.sections.variants, { n: learnerVariants.length + 1, list: [(card.variants ?? []).find((v) => v.id === 'default')?.title ?? PC.defaultVariant, ...learnerVariants.map((v) => v.title ?? v.id)].join(PC.nameSep) })}
               </div>
             ) : null}
             {preflightVariant ? <div className="small muted">{t(SS.sections.preflightVariant, { title: preflightVariant.title ?? preflightVariant.id })}</div> : null}
@@ -694,7 +702,8 @@ export default function CardIntroPage() {
                 ? tracks.map((m, i) => (
                     <span key={m.track.id}>
                       {i ? ' · ' : ''}
-                      <Link to={`/tracks/${m.track.id}`}>{m.track.title ?? m.track.id}</Link>（{m.stageTitle}，{m.role === 'required' ? '必修' : m.role === 'group' ? '选修组' : '可选'}）
+                      <Link to={`/tracks/${m.track.id}`}>{m.track.title ?? m.track.id}</Link>
+                      {t(PC.trackRole, { stage: m.stageTitle, role: m.role === 'required' ? PC.roleRequired : m.role === 'group' ? PC.roleGroup : PC.roleOptional })}
                     </span>
                   ))
                 : '—'}
@@ -706,7 +715,7 @@ export default function CardIntroPage() {
                     <span key={r.labId}>
                       {i ? ' · ' : ''}
                       {t(SS.sections.reuseItem, { labId: r.labId })}
-                      {r.warn ? t(SS.sections.reuseWarn, { mods: (r.extraModules ?? []).join('、') || '额外模块' }) : ''}
+                      {r.warn ? t(SS.sections.reuseWarn, { mods: (r.extraModules ?? []).join(PC.nameSep) || PC.extraModules }) : ''}
                     </span>
                   ))
                 : SS.sections.reuseNone}

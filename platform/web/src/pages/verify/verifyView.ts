@@ -5,6 +5,8 @@
 import { redactText } from '../share/publicRedact';
 import { certLabs, type CertLab, type CertPayload, type VerifyOutcome } from './verifyCore';
 
+import { t } from '../../i18n/text';
+import { VT } from './strings';
 export type VerifyTone = 'ok' | 'bad' | 'warn' | 'grey' | 'pend';
 export type VerifyShape = 'check' | 'xbox' | 'tri' | 'ring' | 'clock';
 
@@ -29,21 +31,12 @@ export interface ResultCard {
   retry: boolean;
 }
 
-export const REVOKE_REASON_TEXT: Readonly<Record<string, string>> = {
-  superseded: '被新证书取代',
-  'learner-request': '持有人申请',
-  'evidence-invalidated': '依据的证据被判无效',
-  'content-defect': '内容缺陷',
-  misissued: '误签',
-  'key-compromise': '密钥泄露',
-  'dependency-revoked': '所依据的旧版证书已被吊销',
-};
+export const REVOKE_REASON_TEXT: Readonly<Record<string, string>> = VT.revokeReason;
 
-export const BADGE_LEVEL_TEXT: Readonly<Record<string, string>> = {
-  verified: '已核验',
-  attested: '含手动',
-  'self-reported': '自述为主',
-};
+export const BADGE_LEVEL_TEXT: Readonly<Record<string, string>> = VT.badgeLevel;
+
+const R = VT.result;
+const D = VT.detail;
 
 const pad = (n: number) => String(n).padStart(2, '0');
 
@@ -64,23 +57,23 @@ export function utcTitle(iso: string | null | undefined): string {
 }
 
 export function revokeReasonText(reason: string | null | undefined): string {
-  if (!reason) return '未说明';
-  return REVOKE_REASON_TEXT[reason] ?? '其他原因';
+  if (!reason) return VT.unspecified;
+  return REVOKE_REASON_TEXT[reason] ?? VT.otherReason;
 }
 
 export function resultCard(r: PageResult): ResultCard {
   const base = { paste: false, retry: false };
   switch (r.kind) {
     case 'verifying':
-      return { ...base, id: 'verifying', tone: 'pend', shape: 'clock', title: '正在验证签名…', detail: '' };
+      return { ...base, id: 'verifying', tone: 'pend', shape: 'clock', title: R.verifying, detail: '' };
     case 'no-input':
-      return { ...base, id: 'no-input', tone: 'grey', shape: 'ring', title: '粘贴证书以验证', detail: '把持有人提供的证书（JWS）粘贴到下面，或选择证书文件。验证完全在你的浏览器中完成。', paste: true };
+      return { ...base, id: 'no-input', tone: 'grey', shape: 'ring', title: R.noInput, detail: R.noInputDetail, paste: true };
     case 'not-public':
-      return { ...base, id: 'not-public', tone: 'grey', shape: 'ring', title: '该证书未公开', detail: '请使用持有人提供的证书文件，或带 #jws= 的链接。', paste: true };
+      return { ...base, id: 'not-public', tone: 'grey', shape: 'ring', title: R.notPublic, detail: R.notPublicDetail, paste: true };
     case 'unsupported':
-      return { ...base, id: 'unsupported', tone: 'warn', shape: 'tri', title: '你的浏览器不支持本地验签', detail: '请换用新版浏览器，或使用离线验证包中的脚本。' };
+      return { ...base, id: 'unsupported', tone: 'warn', shape: 'tri', title: R.unsupported, detail: R.unsupportedDetail };
     case 'network':
-      return { ...base, id: 'network', tone: 'grey', shape: 'xbox', title: '无法读取公钥（网络错误）', detail: '', retry: true };
+      return { ...base, id: 'network', tone: 'grey', shape: 'xbox', title: R.network, detail: '', retry: true };
     case 'outcome':
       return outcomeCard(r.outcome, r.rollback);
   }
@@ -91,28 +84,28 @@ function outcomeCard(o: VerifyOutcome, rollback: { seen: number; got: number } |
   switch (o.status) {
     case 'valid':
       if (o.revocations.state === 'unavailable' || o.revocations.state === 'invalid') {
-        return { ...base, id: 'revocations-unavailable', tone: 'warn', shape: 'tri', title: '签名有效 · 无法确认吊销状态', detail: '吊销列表暂不可用。' };
+        return { ...base, id: 'revocations-unavailable', tone: 'warn', shape: 'tri', title: R.revUnavailable, detail: R.revUnavailableDetail };
       }
       if (rollback) {
-        return { ...base, id: 'revocations-rollback', tone: 'warn', shape: 'tri', title: '签名有效 · 吊销列表可能是旧版本', detail: `序号 ${rollback.got} < ${rollback.seen}（本浏览器见过更新的列表）。` };
+        return { ...base, id: 'revocations-rollback', tone: 'warn', shape: 'tri', title: R.revRollback, detail: t(R.revRollbackDetail, { got: rollback.got, seen: rollback.seen }) };
       }
-      return { ...base, id: 'valid', tone: 'ok', shape: 'check', title: '签名有效', detail: '' };
+      return { ...base, id: 'valid', tone: 'ok', shape: 'check', title: R.valid, detail: '' };
     case 'revoked': {
       const e = o.revocations.entry;
       const reason = e?.reason ?? null;
-      const tail = e?.revokedAt ? ` · 吊销于 ${formatDay(e.revokedAt)}` : '';
-      return { ...base, id: 'revoked', tone: 'bad', shape: 'xbox', title: '已吊销', detail: `原因：${revokeReasonText(reason)}${reason ? `（${reason}）` : ''}${tail}` };
+      const tail = e?.revokedAt ? t(R.revokedAt, { t: formatDay(e.revokedAt) }) : '';
+      return { ...base, id: 'revoked', tone: 'bad', shape: 'xbox', title: R.revoked, detail: `${t(R.revokedReason, { reason: revokeReasonText(reason) })}${reason ? t(R.revokedCode, { code: reason }) : ''}${tail}` };
     }
     case 'invalid-signature':
-      return { ...base, id: 'invalid-signature', tone: 'bad', shape: 'xbox', title: '签名无效', detail: '内容被修改，或不是本实例签发。' };
+      return { ...base, id: 'invalid-signature', tone: 'bad', shape: 'xbox', title: R.invalidSignature, detail: R.invalidSignatureDetail };
     case 'unknown-key':
-      return { ...base, id: 'unknown-key', tone: 'warn', shape: 'tri', title: '未知签名密钥', detail: '证书可能来自另一个 ATL 实例，或密钥已被移除。' };
+      return { ...base, id: 'unknown-key', tone: 'warn', shape: 'tri', title: R.unknownKey, detail: R.unknownKeyDetail };
     case 'key-not-valid':
-      return { ...base, id: 'key-not-valid', tone: 'bad', shape: 'xbox', title: '签发时间不在该密钥的有效期内', detail: '' };
+      return { ...base, id: 'key-not-valid', tone: 'bad', shape: 'xbox', title: R.keyNotValid, detail: '' };
     case 'origin-mismatch':
-      return { ...base, id: 'origin-mismatch', tone: 'bad', shape: 'xbox', title: '签发源不符', detail: '证书声明的签发实例与本站不一致。' };
+      return { ...base, id: 'origin-mismatch', tone: 'bad', shape: 'xbox', title: R.originMismatch, detail: R.originMismatchDetail };
     case 'malformed':
-      return { ...base, id: 'malformed', tone: 'bad', shape: 'xbox', title: '这不是有效的 ATL 证书', detail: '不是三段式 JWS、签名算法或类型不符，或证书内容的格式不符。', paste: true };
+      return { ...base, id: 'malformed', tone: 'bad', shape: 'xbox', title: R.malformed, detail: R.malformedDetail, paste: true };
   }
 }
 
@@ -144,23 +137,23 @@ export function detailRows(p: CertPayload, o: VerifyOutcome, rollback: { seen: n
   const scope = a.trackId ? `${red(a.trackId)}${a.trackVersion ? ` v${red(a.trackVersion)}` : ''}` : a.labId ? `${red(a.labId)}${a.labVersion ? ` v${red(a.labVersion)}` : ''}` : '';
   const ratio = pct(a.verifiedRatio ?? null);
   const rows: DetailRow[] = [
-    { label: '证书', value: `${red(p.certId)}${a.title ? ` · ${red(a.title)}` : ''}${scope ? `（${scope}）` : ''}`, mono: false },
+    { label: D.cert, value: `${red(p.certId)}${a.title ? ` · ${red(a.title)}` : ''}${scope ? t(D.scope, { scope }) : ''}`, mono: false },
     {
-      label: '持有人',
-      value: `${red(p.subject?.displayName) || '—'} · 签发于 ${formatDay(p.issuedAt)}${ratio ? ` · “已核验”占比 ${ratio}` : ''}`,
+      label: D.holder,
+      value: `${t(D.holderValue, { name: red(p.subject?.displayName) || '—', t: formatDay(p.issuedAt) })}${ratio ? t(D.ratio, { ratio }) : ''}`,
       title: utcTitle(p.issuedAt),
     },
     {
-      label: '签发实例',
-      value: `${red(p.issuer?.origin) || '—'} · 安装 ${short(red(p.issuer?.installId), 8)} · 公钥指纹 ${short(o.key?.kid ?? p.issuer?.kid, 8)}`,
-      title: o.key?.kid ? `公钥指纹（kid）：${o.key.kid}` : undefined,
+      label: D.issuer,
+      value: t(D.issuerValue, { origin: red(p.issuer?.origin) || '—', install: short(red(p.issuer?.installId), 8), kid: short(o.key?.kid ?? p.issuer?.kid, 8) }),
+      title: o.key?.kid ? t(D.kidTitle, { kid: o.key.kid }) : undefined,
     },
   ];
   let rev: string;
-  if (o.status === 'revoked') rev = `已吊销（列表序号 ${o.revocations.seq ?? '—'}，签名有效）`;
-  else if (o.revocations.state === 'checked') rev = rollback ? `可能是旧版本（序号 ${rollback.got} < ${rollback.seen}）` : `未吊销（列表序号 ${o.revocations.seq ?? '—'}，签名有效）`;
-  else rev = '无法确认（吊销列表暂不可用）';
-  rows.push({ label: '吊销列表', value: rev });
+  if (o.status === 'revoked') rev = t(D.revRevoked, { seq: o.revocations.seq ?? '—' });
+  else if (o.revocations.state === 'checked') rev = rollback ? t(D.revRollback, { got: rollback.got, seen: rollback.seen }) : t(D.revOk, { seq: o.revocations.seq ?? '—' });
+  else rev = D.revUnknown;
+  rows.push({ label: D.revocations, value: rev });
   return rows;
 }
 
@@ -176,8 +169,8 @@ export function labRows(p: CertPayload): LabRow[] {
     const red = (s: string | null | undefined) => redactText(s ?? '', 'standard');
     const parts = [`${red(l.labId)}${l.labVersion ? ` v${red(l.labVersion)}` : ''}`];
     if (l.badgeLevel) parts.push(BADGE_LEVEL_TEXT[l.badgeLevel] ?? red(l.badgeLevel));
-    if (l.checks) parts.push(`自动 ${l.checks.auto ?? 0} / 手动 ${l.checks.manual ?? 0}`);
-    parts.push(l.reportDigest ? `报告摘要 ${l.reportDigest.slice(0, 15)}…` : '没有报告摘要');
+    if (l.checks) parts.push(t(D.checks, { auto: l.checks.auto ?? 0, manual: l.checks.manual ?? 0 }));
+    parts.push(l.reportDigest ? t(D.digest, { d: l.reportDigest.slice(0, 15) }) : D.noDigest);
     return { labId: l.labId, text: parts.join(' · '), digest: l.reportDigest ?? null };
   });
 }

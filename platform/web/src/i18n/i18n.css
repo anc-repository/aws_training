@@ -1,0 +1,9 @@
+/* 语言切换器与“未翻译”标记（09 §1）。只用设计 token；CSP style-src 'self'：随包发布的样式表。 */
+.lang-switch{display:inline-flex; align-items:center; gap:4px; min-width:0; color:var(--text-2)}
+.lang-switch svg{flex:none}
+.lang-switch select{min-height:32px; max-width:7.5em; border:1px solid var(--border-strong); border-radius:4px; background:var(--surface);
+  color:var(--text); padding:2px 6px; font:inherit; font-size:13px}
+@media (pointer:coarse){.lang-switch select{min-height:44px}}
+.pub-lang{display:flex; justify-content:flex-end; padding:8px var(--gutter, 16px) 0}
+.untranslated{display:inline-block; margin-inline-start:6px; padding:0 4px; border:1px dashed var(--border-strong); border-radius:4px;
+  color:var(--text-3, var(--text-2)); font-size:11px; font-weight:400; line-height:16px; vertical-align:middle; white-space:nowrap}

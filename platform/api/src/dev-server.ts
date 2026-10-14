@@ -33,7 +33,10 @@ import {
   isSessionState,
   Keys,
   matchRoute,
+  negotiateLang,
   newEnvId,
+  resolveLocalized,
+  SOURCE_LANG,
   stateUri,
   TAG_KEYS,
   WebKeys,
@@ -174,13 +177,24 @@ export function createDevApp(rt: DevRuntime, opts: DevAppOptions = {}): express.
         .catch((e: unknown) => res.status(500).json({ error: String(e) }));
     });
   }
+  // content languages (09-i18n-and-visual.md §2): `/content/<v>/<lang>/…` is served as published (404 when the release has
+  // no such file; the web then reads the root). A root path with `?lang=` or `Accept-Language` (ja / en) is answered
+  // with the translated document when there is one, else the zh-CN root document (`content-language` says which).
   app.get(/^\/content\//, (req, res) => {
-    const key = decodeURIComponent(new URL(req.originalUrl, 'http://x').pathname).slice(1);
-    rt.objects
-      .get(rt.env.buckets.web, key)
-      .then((b) => {
+    const url = new URL(req.originalUrl, 'http://x');
+    const key = decodeURIComponent(url.pathname).slice(1);
+    const m = /^(content\/[^/]+\/)(?!(?:ja|en|zh-CN)\/)(.+\.json)$/.exec(key);
+    const lang = m ? negotiateLang(url.searchParams.get('lang'), req.get('accept-language'), SOURCE_LANG) : SOURCE_LANG;
+    const translated = m && lang !== SOURCE_LANG ? `${m[1]}${lang}/${m[2]}` : null;
+    (translated ? rt.objects.get(rt.env.buckets.web, translated) : Promise.resolve(null))
+      .then(async (t) => {
+        const b = t ?? (await rt.objects.get(rt.env.buckets.web, key));
         if (!b) return res.status(404).end();
         res.setHeader('content-type', key.endsWith('.json') ? 'application/json; charset=utf-8' : 'application/octet-stream');
+        if (m) {
+          res.setHeader('vary', 'accept-language');
+          res.setHeader('content-language', t ? lang : SOURCE_LANG);
+        }
         return res.end(Buffer.from(b));
       })
       .catch(() => res.status(400).end());
@@ -464,11 +478,12 @@ export async function seedDevCatalog(deps: FunctionDeps, labsDir: string, catalo
   for (const d of fs.readdirSync(labsDir, { withFileTypes: true })) {
     const file = path.join(labsDir, d.name, 'lab.yaml');
     if (!d.isDirectory() || d.name.startsWith('_') || !fs.existsSync(file)) continue;
-    const lab = readYaml(file) as Record<string, unknown> & { id: string };
+    // the fallback release has no translations: localized texts (09 §2) are resolved to zh-CN
+    const lab = resolveLocalized(readYaml(file), SOURCE_LANG) as Record<string, unknown> & { id: string };
     await deps.ports.objects.put(web, `${prefix}labs/${lab.id}.json`, JSON.stringify(lab), { contentType: 'application/json' });
     const quizFile = path.join(labsDir, d.name, 'quiz.yaml');
     if (fs.existsSync(quizFile)) {
-      await deps.ports.objects.put(deps.env.buckets.artifacts, `releases/${catalogVersion}/private/quiz/${lab.id}.json`, JSON.stringify(readYaml(quizFile)), { contentType: 'application/json' });
+      await deps.ports.objects.put(deps.env.buckets.artifacts, `releases/${catalogVersion}/private/quiz/${lab.id}.json`, JSON.stringify(resolveLocalized(readYaml(quizFile), SOURCE_LANG)), { contentType: 'application/json' });
     }
     const cost = (lab.cost ?? {}) as { tier?: string; tierWithOptional?: string };
     cards.push({
@@ -489,7 +504,7 @@ export async function seedDevCatalog(deps: FunctionDeps, labsDir: string, catalo
   }
   const tracksDir = path.join(labsDir, '_tracks');
   const tracks = fs.existsSync(tracksDir)
-    ? fs.readdirSync(tracksDir).filter((f) => f.endsWith('.yaml')).map((f) => readYaml(path.join(tracksDir, f)) as Record<string, unknown>)
+    ? fs.readdirSync(tracksDir).filter((f) => f.endsWith('.yaml')).map((f) => resolveLocalized(readYaml(path.join(tracksDir, f)), SOURCE_LANG) as Record<string, unknown>)
     : [];
   const catalogFile = path.join(labsDir, '_catalog', 'catalog.yaml');
   const generated = fs.existsSync(catalogFile) ? (readYaml(catalogFile) as Record<string, unknown>) : null;

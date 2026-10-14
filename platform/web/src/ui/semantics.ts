@@ -13,6 +13,9 @@ import type {
 } from '@atl/shared';
 import type { ShapeName } from './Shape';
 
+import { msg, withText } from '../i18n/core';
+
+const T = msg.ui.semantics;
 /** `.st.<tone>` 文字色调（components.css）。 */
 export type Tone = 'pass' | 'fail' | 'pend' | 'drift' | 'manual' | 'needs' | 'err' | 'stale' | 'lock' | 'mut' | 'faint' | 'live' | 'kept';
 
@@ -37,20 +40,23 @@ export interface SessionStateMeta extends StatusMeta {
   spill: 'u-prep' | 'u-live' | 'u1' | 'u2' | 'u4' | 'u-wind' | 'u-kept' | 'u-fail';
 }
 
-export const SESSION_STATE_META: Readonly<Record<DisplaySessionState, SessionStateMeta>> = {
-  REQUESTED: { text: '正在校验', shape: 'clock', tone: 'pend', pill: 'p-req', spill: 'u-prep' },
-  PROVISIONING: { text: '正在准备环境', shape: 'clock', tone: 'pend', pill: 'p-prep', spill: 'u-prep', spin: true },
-  READY: { text: '环境已就绪', shape: 'dot', tone: 'live', pill: 'p-live', spill: 'u-live' },
-  RUNNING: { text: '实验中', shape: 'dot', tone: 'live', pill: 'p-live', spill: 'u-live' },
-  EXPIRING: { text: '即将到期', shape: 'tri', tone: 'drift', pill: 'p-warn', spill: 'u1' },
-  OVERDUE: { text: '已到期 · 正在结束', shape: 'hg', tone: 'mut', pill: 'p-wind', spill: 'u4' },
-  ENDING: { text: '正在结束', shape: 'hg', tone: 'mut', pill: 'p-wind', spill: 'u-wind' },
-  CLEANING: { text: '正在释放资源', shape: 'hg', tone: 'mut', pill: 'p-wind', spill: 'u-wind' },
-  KEPT: { text: '环境保留中', shape: 'dia', tone: 'kept', pill: 'p-kept', spill: 'u-kept' },
-  ENDED: { text: '已结束', shape: 'sq', tone: 'mut', pill: 'p-ended', spill: 'u-wind' },
-  FAILED: { text: '启动失败', shape: 'xbox', tone: 'fail', pill: 'p-fail', spill: 'u-fail' },
-  CLEANUP_FAILED: { text: '释放未完成', shape: 'tri', tone: 'fail', pill: 'p-cf', spill: 'u-fail' },
-};
+export const SESSION_STATE_META: Readonly<Record<DisplaySessionState, SessionStateMeta>> = withText(
+  {
+    REQUESTED: { shape: 'clock', tone: 'pend', pill: 'p-req', spill: 'u-prep' },
+    PROVISIONING: { shape: 'clock', tone: 'pend', pill: 'p-prep', spill: 'u-prep', spin: true },
+    READY: { shape: 'dot', tone: 'live', pill: 'p-live', spill: 'u-live' },
+    RUNNING: { shape: 'dot', tone: 'live', pill: 'p-live', spill: 'u-live' },
+    EXPIRING: { shape: 'tri', tone: 'drift', pill: 'p-warn', spill: 'u1' },
+    OVERDUE: { shape: 'hg', tone: 'mut', pill: 'p-wind', spill: 'u4' },
+    ENDING: { shape: 'hg', tone: 'mut', pill: 'p-wind', spill: 'u-wind' },
+    CLEANING: { shape: 'hg', tone: 'mut', pill: 'p-wind', spill: 'u-wind' },
+    KEPT: { shape: 'dia', tone: 'kept', pill: 'p-kept', spill: 'u-kept' },
+    ENDED: { shape: 'sq', tone: 'mut', pill: 'p-ended', spill: 'u-wind' },
+    FAILED: { shape: 'xbox', tone: 'fail', pill: 'p-fail', spill: 'u-fail' },
+    CLEANUP_FAILED: { shape: 'tri', tone: 'fail', pill: 'p-cf', spill: 'u-fail' },
+  },
+  T.sessionState,
+);
 
 export const COUNTDOWN_STATES: readonly SessionState[] = ['READY', 'RUNNING', 'EXPIRING'];
 export const PREPARING_STATES: readonly SessionState[] = ['REQUESTED', 'PROVISIONING'];
@@ -86,12 +92,20 @@ export interface UrgencyMeta {
   announce: string | null;
 }
 
+const urgency = (shape: ShapeName, cls: UrgencyMeta['cls'], key: 'U1' | 'U2' | 'U3' | 'U4' | null): UrgencyMeta => ({
+  shape,
+  cls,
+  get announce() {
+    return key ? T.urgencyAnnounce[key] : null;
+  },
+});
+
 export const URGENCY_META: Readonly<Record<Urgency, UrgencyMeta>> = {
-  U0: { shape: 'clock', cls: 'u0', announce: null },
-  U1: { shape: 'tri', cls: 'u1', announce: '实验剩余 15 分钟' },
-  U2: { shape: 'sq', cls: 'u2', announce: '实验剩余 5 分钟' },
-  U3: { shape: 'sq', cls: 'u3', announce: '实验剩余 1 分钟' },
-  U4: { shape: 'hg', cls: 'u4', announce: '实验时间已到，正在结束' },
+  U0: urgency('clock', 'u0', null),
+  U1: urgency('tri', 'u1', 'U1'),
+  U2: urgency('sq', 'u2', 'U2'),
+  U3: urgency('sq', 'u3', 'U3'),
+  U4: urgency('hg', 'u4', 'U4'),
 };
 
 /** 保留环境的提醒等级（§6.4 K1 / K2）：K0 > 60 分钟、K1 ≤ 60 分钟、K2 ≤ 15 分钟。 */
@@ -119,123 +133,144 @@ export type CheckResult =
   | 'manual'
   | 'manual_evidence';
 
-export const CHECK_RESULT_META: Readonly<Record<CheckResult, StatusMeta>> = {
-  not_run: { text: '未检测', shape: 'ring', tone: 'faint' },
-  queued: { text: '排队中', shape: 'clock', tone: 'pend' },
-  running: { text: '核验中', shape: 'spin', tone: 'pend', spin: true },
-  pass: { text: '通过', shape: 'check', tone: 'pass' },
-  fail: { text: '未通过', shape: 'xbox', tone: 'fail' },
-  pending: { text: '等待中', shape: 'clock', tone: 'pend' },
-  error: { text: '检测器出错', shape: 'wrench', tone: 'err' },
-  unavailable: { text: '无法检测', shape: 'q', tone: 'needs' },
-  skipped: { text: '不适用', shape: 'dash', tone: 'mut' },
-  needs_manual: { text: '待手动确认', shape: 'q', tone: 'needs' },
-  manual: { text: '已手动确认', shape: 'man', tone: 'manual' },
-  manual_evidence: { text: '已手动确认（带证据）', shape: 'manp', tone: 'manual' },
-};
+export const CHECK_RESULT_META: Readonly<Record<CheckResult, StatusMeta>> = withText(
+  {
+    not_run: { shape: 'ring', tone: 'faint' },
+    queued: { shape: 'clock', tone: 'pend' },
+    running: { shape: 'spin', tone: 'pend', spin: true },
+    pass: { shape: 'check', tone: 'pass' },
+    fail: { shape: 'xbox', tone: 'fail' },
+    pending: { shape: 'clock', tone: 'pend' },
+    error: { shape: 'wrench', tone: 'err' },
+    unavailable: { shape: 'q', tone: 'needs' },
+    skipped: { shape: 'dash', tone: 'mut' },
+    needs_manual: { shape: 'q', tone: 'needs' },
+    manual: { shape: 'man', tone: 'manual' },
+    manual_evidence: { shape: 'manp', tone: 'manual' },
+  },
+  T.checkResult,
+);
 
 /** 带原因码的特例：`pending/OWNERSHIP_PENDING`、`unavailable/EXPECTED_OUTAGE`；`error/CHANNEL_DOWN` 与预期中断同一文案（§9.2 #20）。 */
 export function checkResultMeta(result: CheckResult, reason?: string | null): StatusMeta {
-  if (result === 'pending' && reason === 'OWNERSHIP_PENDING') return { text: '归属确认中', shape: 'clock', tone: 'pend' };
-  if (result === 'unavailable' && reason === 'EXPECTED_OUTAGE') return { text: '预期中断', shape: 'hg', tone: 'mut' };
+  if (result === 'pending' && reason === 'OWNERSHIP_PENDING') return { text: T.checkResultSpecial.ownershipPending, shape: 'clock', tone: 'pend' };
+  if (result === 'unavailable' && reason === 'EXPECTED_OUTAGE') return { text: T.checkResultSpecial.expectedOutage, shape: 'hg', tone: 'mut' };
   return CHECK_RESULT_META[result];
 }
 
 // ---------------------------------------------------------------------------------------------------------------
 // 判定来源（08 §5.3 SourceTag；删除 ui-design 的 client 来源，04 D-5）
 
-export const SOURCE_META: Readonly<Record<CheckSource, { symbol: string; text: string }>> = {
-  LOCAL: { symbol: '◇', text: '本地' },
-  PROBE: { symbol: '○', text: '探针' },
-  AWS: { symbol: '□', text: 'AWS' },
-  EXP: { symbol: '△', text: '实验' },
-  MANUAL: { symbol: '⬚', text: '手动' },
-};
+export const SOURCE_META: Readonly<Record<CheckSource, { symbol: string; text: string }>> = withText(
+  {
+    LOCAL: { symbol: '◇' },
+    PROBE: { symbol: '○' },
+    AWS: { symbol: '□' },
+    EXP: { symbol: '△' },
+    MANUAL: { symbol: '⬚' },
+  },
+  T.source,
+);
 
 export type ManualSub = 'native' | 'degraded' | 'evidence';
-export const MANUAL_SUB_TEXT: Readonly<Record<ManualSub, string>> = { native: '原生', degraded: '降级', evidence: '带证据' };
+export const MANUAL_SUB_TEXT: Readonly<Record<ManualSub, string>> = T.manualSub;
 
 // ---------------------------------------------------------------------------------------------------------------
 // 步骤（04 §8.3）与尝试（04 §8.4）
 
 export type StepState = 'locked' | 'available' | 'verifying' | 'failed' | 'error' | 'needs_manual' | 'done' | 'done_manual' | 'drifted' | 'skipped';
 
-export const STEP_STATE_META: Readonly<Record<StepState, StatusMeta>> = {
-  locked: { text: '未解锁', shape: 'lock', tone: 'lock' },
-  available: { text: '可开始', shape: 'ring', tone: 'mut' },
-  verifying: { text: '核验中', shape: 'clock', tone: 'pend' },
-  failed: { text: '未通过', shape: 'xbox', tone: 'fail' },
-  error: { text: '检测器出错', shape: 'wrench', tone: 'err' },
-  needs_manual: { text: '待手动确认', shape: 'q', tone: 'needs' },
-  done: { text: '已达成', shape: 'check', tone: 'pass' },
-  done_manual: { text: '已达成（含手动）', shape: 'man', tone: 'manual' },
-  drifted: { text: '漂移', shape: 'tri', tone: 'drift' },
-  skipped: { text: '已跳过', shape: 'dash', tone: 'mut' },
-};
+export const STEP_STATE_META: Readonly<Record<StepState, StatusMeta>> = withText(
+  {
+    locked: { shape: 'lock', tone: 'lock' },
+    available: { shape: 'ring', tone: 'mut' },
+    verifying: { shape: 'clock', tone: 'pend' },
+    failed: { shape: 'xbox', tone: 'fail' },
+    error: { shape: 'wrench', tone: 'err' },
+    needs_manual: { shape: 'q', tone: 'needs' },
+    done: { shape: 'check', tone: 'pass' },
+    done_manual: { shape: 'man', tone: 'manual' },
+    drifted: { shape: 'tri', tone: 'drift' },
+    skipped: { shape: 'dash', tone: 'mut' },
+  },
+  T.stepState,
+);
 
 export type AttemptStatus = 'active' | 'verifying' | 'completed' | 'completed_manual' | 'incomplete' | 'unverified' | 'void';
 
-export const ATTEMPT_STATUS_META: Readonly<Record<AttemptStatus, StatusMeta>> = {
-  active: { text: '进行中', shape: 'clock', tone: 'pend' },
-  verifying: { text: '最终复核中', shape: 'clock', tone: 'pend' },
-  completed: { text: '已完成（全自动）', shape: 'check', tone: 'pass' },
-  completed_manual: { text: '已完成（含手动）', shape: 'man', tone: 'manual' },
-  incomplete: { text: '未完成', shape: 'half', tone: 'mut' },
-  unverified: { text: '未能核验', shape: 'q', tone: 'needs' },
-  void: { text: '不计入', shape: 'dash', tone: 'faint' },
-};
+export const ATTEMPT_STATUS_META: Readonly<Record<AttemptStatus, StatusMeta>> = withText(
+  {
+    active: { shape: 'clock', tone: 'pend' },
+    verifying: { shape: 'clock', tone: 'pend' },
+    completed: { shape: 'check', tone: 'pass' },
+    completed_manual: { shape: 'man', tone: 'manual' },
+    incomplete: { shape: 'half', tone: 'mut' },
+    unverified: { shape: 'q', tone: 'needs' },
+    void: { shape: 'dash', tone: 'faint' },
+  },
+  T.attemptStatus,
+);
 
 // ---------------------------------------------------------------------------------------------------------------
 // 资源清理（01 §7.3）、严重级别、计费方式
 
-export const CLEANUP_STATE_META: Readonly<Record<CleanupState, StatusMeta>> = {
-  TRACKED: { text: '跟踪中', shape: 'ring', tone: 'mut' },
-  DELETING: { text: '删除中', shape: 'clock', tone: 'pend' },
-  DELETED: { text: '已删除', shape: 'check', tone: 'pass' },
-  RETAINED: { text: '保留', shape: 'dia', tone: 'kept' },
-  REVIEW: { text: '需复核', shape: 'tri', tone: 'drift' },
-  MANUAL_REQUIRED: { text: '需人工处理', shape: 'sq', tone: 'fail' },
-  RESOLVED_BY_LEARNER: { text: '你已处理', shape: 'check', tone: 'pass' },
-  FAILED: { text: '失败', shape: 'xbox', tone: 'fail' },
-};
+export const CLEANUP_STATE_META: Readonly<Record<CleanupState, StatusMeta>> = withText(
+  {
+    TRACKED: { shape: 'ring', tone: 'mut' },
+    DELETING: { shape: 'clock', tone: 'pend' },
+    DELETED: { shape: 'check', tone: 'pass' },
+    RETAINED: { shape: 'dia', tone: 'kept' },
+    REVIEW: { shape: 'tri', tone: 'drift' },
+    MANUAL_REQUIRED: { shape: 'sq', tone: 'fail' },
+    RESOLVED_BY_LEARNER: { shape: 'check', tone: 'pass' },
+    FAILED: { shape: 'xbox', tone: 'fail' },
+  },
+  T.cleanupState,
+);
 
-export const SEVERITY_META: Readonly<Record<ResourceSeverity, StatusMeta>> = {
-  BLOCKING: { text: '阻塞', shape: 'sq', tone: 'fail' },
-  REVIEW: { text: '需复核', shape: 'tri', tone: 'drift' },
-  INFO: { text: '信息', shape: 'dot', tone: 'mut' },
-};
+export const SEVERITY_META: Readonly<Record<ResourceSeverity, StatusMeta>> = withText(
+  {
+    BLOCKING: { shape: 'sq', tone: 'fail' },
+    REVIEW: { shape: 'tri', tone: 'drift' },
+    INFO: { shape: 'dot', tone: 'mut' },
+  },
+  T.severity,
+);
 
-export const BILLING_TEXT: Readonly<Record<ResourceBilling, string>> = {
-  hourly: '按小时',
-  storage: '按存储量',
-  monthly: '按月',
-  usage: '按用量',
-  none: '不计费',
-};
+export const BILLING_TEXT: Readonly<Record<ResourceBilling, string>> = T.billing;
 
 // ---------------------------------------------------------------------------------------------------------------
 // 实验有效性、预算、费用档位
 
 export type ExperimentValidity = 'valid' | 'simulated' | 'pending-crosscheck' | 'invalid';
 
-export const VALIDITY_META: Readonly<Record<ExperimentValidity, StatusMeta>> = {
-  valid: { text: '有效', shape: 'dot', tone: 'pass' },
-  simulated: { text: '模拟基线', shape: 'half', tone: 'stale' },
-  'pending-crosscheck': { text: '交叉校验中', shape: 'clock', tone: 'pend' },
-  invalid: { text: '无效', shape: 'xbox', tone: 'fail' },
-};
+export const VALIDITY_META: Readonly<Record<ExperimentValidity, StatusMeta>> = withText(
+  {
+    valid: { shape: 'dot', tone: 'pass' },
+    simulated: { shape: 'half', tone: 'stale' },
+    'pending-crosscheck': { shape: 'clock', tone: 'pend' },
+    invalid: { shape: 'xbox', tone: 'fail' },
+  },
+  T.validity,
+);
 
-export const BUDGET_META: Readonly<Record<BudgetState, StatusMeta>> = {
-  OK: { text: '正常', shape: 'dot', tone: 'pass' },
-  WARN: { text: '接近', shape: 'tri', tone: 'drift' },
-  EXCEEDED: { text: '超限', shape: 'sq', tone: 'fail' },
-};
+export const BUDGET_META: Readonly<Record<BudgetState, StatusMeta>> = withText(
+  {
+    OK: { shape: 'dot', tone: 'pass' },
+    WARN: { shape: 'tri', tone: 'drift' },
+    EXCEEDED: { shape: 'sq', tone: 'fail' },
+  },
+  T.budget,
+);
 
 export type CostTier = 'low' | 'medium' | 'high';
 
 /** 费用档位只用等宽 `$` 数量 + 文字，颜色统一 --text-2，不用红绿（08 §6.6、05 §2.8）。 */
-export const COST_TIER_META: Readonly<Record<CostTier, { symbol: string; text: string }>> = {
-  low: { symbol: '$', text: '低' },
-  medium: { symbol: '$$', text: '中' },
-  high: { symbol: '$$$', text: '高' },
-};
+export const COST_TIER_META: Readonly<Record<CostTier, { symbol: string; text: string }>> = withText(
+  {
+    low: { symbol: '$' },
+    medium: { symbol: '$$' },
+    high: { symbol: '$$$' },
+  },
+  T.costTier,
+);

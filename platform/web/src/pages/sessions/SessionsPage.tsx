@@ -19,6 +19,8 @@ import { cardTitle, useCatalogIndex } from './data';
 import './pages.css';
 import { endReasonText } from './sessionText';
 
+import { t } from '../../i18n';
+import { SN } from './strings';
 export interface SessionListItem {
   sessionId: string;
   labId: string;
@@ -39,25 +41,20 @@ interface SessionsPage {
   next: string | null;
 }
 
-export const RANGES = [
-  ['7', '最近 7 天'],
-  ['30', '最近 30 天'],
-  ['90', '最近 90 天'],
-  ['all', '全部'],
-] as const;
+export const RANGES = ['7', '30', '90', 'all'] as const;
 
 export function cleanupCell(s: SessionListItem, role: 'L' | 'A' | 'O' | null): { text: string; shape: 'check' | 'tri' | 'clock' | 'dia' | 'dash'; tone: 'pass' | 'drift' | 'fail' | 'pend' | 'kept' | 'faint' } {
   switch (s.state) {
     case 'CLEANUP_FAILED':
-      return role === 'O' ? { text: '释放未完成', shape: 'tri', tone: 'fail' } : { text: `${s.cleanup?.manual ?? s.cleanup?.failed ?? 0} 项待处理`, shape: 'tri', tone: 'drift' };
+      return role === 'O' ? { text: SN.list.cleanupFailed, shape: 'tri', tone: 'fail' } : { text: t(SN.list.pendingItems, { n: s.cleanup?.manual ?? s.cleanup?.failed ?? 0 }), shape: 'tri', tone: 'drift' };
     case 'ENDING':
     case 'CLEANING':
-      return { text: '进行中', shape: 'clock', tone: 'pend' };
+      return { text: SN.list.inProgress, shape: 'clock', tone: 'pend' };
     case 'KEPT':
-      return { text: '保留中', shape: 'dia', tone: 'kept' };
+      return { text: SN.list.kept, shape: 'dia', tone: 'kept' };
     case 'ENDED':
     case 'FAILED':
-      return { text: '已释放', shape: 'check', tone: 'pass' };
+      return { text: SN.list.released, shape: 'check', tone: 'pass' };
     default:
       return { text: '—', shape: 'dash', tone: 'faint' };
   }
@@ -153,7 +150,7 @@ export default function SessionsPage() {
   const columns: Column<SessionListItem>[] = [
     {
       key: 'createdAt',
-      header: '开始时间',
+      header: SN.list.colStarted,
       render: (s) => (
         <span className="tnum nowrap" title={formatUtcTitle(s.createdAt)}>
           {formatDate(s.createdAt, now)}
@@ -163,7 +160,7 @@ export default function SessionsPage() {
     },
     {
       key: 'lab',
-      header: '卡片',
+      header: SN.list.colCard,
       render: (s) => (
         <span>
           <Link className="mono" to={`/labs/${encodeURIComponent(s.labId)}`} onClick={(e) => e.stopPropagation()}>
@@ -174,71 +171,71 @@ export default function SessionsPage() {
       ),
       sortValue: (s) => s.labId,
     },
-    { key: 'state', header: '状态', render: (s) => <SessionStatePill state={s.state} size="sm" /> },
-    { key: 'endReason', header: '结束原因', render: (s) => <span className="small">{endReasonText(s.endReason)}</span> },
+    { key: 'state', header: SN.list.colState, render: (s) => <SessionStatePill state={s.state} size="sm" /> },
+    { key: 'endReason', header: SN.list.colEndReason, render: (s) => <span className="small">{endReasonText(s.endReason)}</span> },
     {
       key: 'attempt',
-      header: '尝试结果',
+      header: SN.list.colAttempt,
       render: () => (
         <span className="small faint">
-          —<span className="sr">（在会话详情中查看）</span>
+          —<span className="sr">{SN.list.seeDetail}</span>
         </span>
       ),
     },
-    { key: 'duration', header: '用时', numeric: true, render: (s) => durationOf(s, now), sortValue: (s) => s.durationMinutes ?? -1 },
+    { key: 'duration', header: SN.list.colDuration, numeric: true, render: (s) => durationOf(s, now), sortValue: (s) => s.durationMinutes ?? -1 },
     {
       key: 'cost',
-      header: '估算费用',
+      header: SN.list.colCost,
       render: () => (
         <span className="small faint">
-          —<span className="sr">（在会话详情中查看）</span>
+          —<span className="sr">{SN.list.seeDetail}</span>
         </span>
       ),
     },
-    { key: 'cleanup', header: '清理', render: (s) => <Status meta={cleanupCell(s, role)} /> },
+    { key: 'cleanup', header: SN.list.colCleanup, render: (s) => <Status meta={cleanupCell(s, role)} /> },
   ];
 
   return (
     <div className="stack-16" data-screen="P11">
       <div className="ph">
         <div className="ttl">
-          <h1 tabIndex={-1}>我的实验</h1>
-          {role !== 'L' ? <span className="sub">学员的实验记录（只读）</span> : null}
+          <h1 tabIndex={-1}>{SN.list.title}</h1>
+          {role !== 'L' ? <span className="sub">{SN.list.readOnlySub}</span> : null}
         </div>
         <span className="acts">
           <Button size="sm" icon="refresh" onClick={() => setReload((x) => x + 1)}>
-            刷新
+            {SN.list.refresh}
           </Button>
         </span>
       </div>
 
       <div className="box stack-4" data-section="overview">
-        <b>概览（最近 30 天）</b>
+        <b>{SN.list.overview}</b>
         <span className="small">
-          会话 {recent.length} · 已结束 {ended} · 实验时长合计 {formatSpan(totalMinutes * 60_000)} · 估算费用：在各会话详情中查看
+          {t(SN.list.overviewLine, { n: recent.length, ended, total: formatSpan(totalMinutes * 60_000) })}
         </span>
         {role !== 'O' ? (
           <span className="small">
-            待人工处理 {openManual.length} 项
-            {openManual.length ? `（${openManual.filter((m) => m.billing === 'hourly').length} 项按小时计费）` : ''}
+            {t(SN.list.manualPending, { n: openManual.length })}
+            {openManual.length ? t(SN.list.manualHourly, { n: openManual.filter((m) => m.billing === 'hourly').length }) : ''}
             {openManual.length ? (
               <>
                 {' '}
-                <Link to="/resources/manual">查看</Link>
+                <Link to="/resources/manual">{SN.list.view}</Link>
               </>
             ) : null}{' '}
-            · 保留中的环境：{kept ? '有' : '无'}
+            {t(SN.list.keptEnv, { v: kept ? SN.list.yes : SN.list.no })}
           </span>
         ) : null}
       </div>
 
-      <div className="filters" role="group" aria-label="筛选">
+      <div className="filters" role="group" aria-label={SN.list.filters}>
         <span className="fi">
           <label className="small muted" htmlFor="sf-state">
-            状态
+            {SN.list.state}
           </label>
           <select id="sf-state" className="input" value={state} onChange={(e) => setParam('state', e.target.value)}>
-            <option value="">全部</option>
+            <option value="">{SN.list.all}</option>
             {SESSION_STATES.map((s) => (
               <option key={s} value={s}>
                 {SESSION_STATE_META[s].text}
@@ -248,10 +245,10 @@ export default function SessionsPage() {
         </span>
         <span className="fi">
           <label className="small muted" htmlFor="sf-lab">
-            卡片
+            {SN.list.card}
           </label>
           <select id="sf-lab" className="input" value={labId} onChange={(e) => setParam('labId', e.target.value)}>
-            <option value="">全部</option>
+            <option value="">{SN.list.all}</option>
             {labOptions.map((id) => (
               <option key={id} value={id}>
                 {id}
@@ -261,12 +258,12 @@ export default function SessionsPage() {
         </span>
         <span className="fi">
           <label className="small muted" htmlFor="sf-range">
-            时间
+            {SN.list.time}
           </label>
           <select id="sf-range" className="input" value={range} onChange={(e) => setParam('range', e.target.value === '30' ? '' : e.target.value)}>
-            {RANGES.map(([v, t]) => (
+            {RANGES.map((v) => (
               <option key={v} value={v}>
-                {t}
+                {SN.list.range[v]}
               </option>
             ))}
           </select>
@@ -274,49 +271,49 @@ export default function SessionsPage() {
       </div>
 
       {status === 'loading' ? (
-        <Skeleton lines={5} block label="正在读取实验记录" />
+        <Skeleton lines={5} block label={SN.list.loading} />
       ) : status === 'error' ? (
-        <InlineProblem error={error} onRetry={() => setReload((x) => x + 1)} title="我的实验" />
+        <InlineProblem error={error} onRetry={() => setReload((x) => x + 1)} title={SN.list.title} />
       ) : !items.length && !state && !labId ? (
         <EmptyState
-          title="还没有实验记录。"
+          title={SN.list.emptyTitle}
           action={
             <Link className="btn primary" to="/labs">
-              去卡片目录开始第一张 →
+              {SN.list.toCatalog}
             </Link>
           }
         />
       ) : !visible.length ? (
         <EmptyState
-          title="没有符合条件的会话。"
+          title={SN.list.noMatch}
           action={
             <button type="button" className="btn" onClick={() => setSearch(new URLSearchParams(), { replace: true })}>
-              清除筛选
+              {SN.list.clearFilters}
             </button>
           }
         >
-          {next ? '较早的记录还没有加载，可以先加载更多。' : null}
+          {next ? SN.list.olderNotLoaded : null}
         </EmptyState>
       ) : (
-        <DataTable columns={columns} rows={visible} rowKey={(s) => s.sessionId} caption="我的实验会话" cardify onRowClick={(s) => navigate(`/sessions/${s.sessionId}`)} />
+        <DataTable columns={columns} rows={visible} rowKey={(s) => s.sessionId} caption={SN.list.caption} cardify onRowClick={(s) => navigate(`/sessions/${s.sessionId}`)} />
       )}
 
       {status === 'ok' && next ? (
         <div className="row">
-          <Button onClick={() => void loadMore()} busy={loadingMore} busyText="正在加载…">
-            加载更多
+          <Button onClick={() => void loadMore()} busy={loadingMore} busyText={SN.list.loadingMore}>
+            {SN.list.loadMore}
           </Button>
           {moreError ? (
             <span className="small">
-              加载失败 ·{' '}
+              {SN.list.loadFailed}{' '}
               <button type="button" className="linkbtn" onClick={() => void loadMore()}>
-                重试
+                {SN.list.retry}
               </button>
             </span>
           ) : null}
         </div>
       ) : null}
-      <p className="small faint">刚结束的会话可能晚几秒出现在列表中，可以点“刷新”。行可聚焦，按 Enter 打开会话详情。</p>
+      <p className="small faint">{SN.list.footnote}</p>
     </div>
   );
 }

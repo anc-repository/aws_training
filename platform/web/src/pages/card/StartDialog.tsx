@@ -14,7 +14,7 @@ import { isApiError } from '../../api/errors';
 import type { SessionView } from '../../api/types';
 import { useServices } from '../../app/context';
 import { useGlobalStatus } from '../../app/globalStatus';
-import { t } from '../../i18n/zh-CN';
+import { msg, t } from '../../i18n';
 import { formatCountdown } from '../../lib/format';
 import { redact } from '../../lib/redact';
 import { ssGet, ssSet } from '../../lib/storage';
@@ -379,7 +379,7 @@ export function StartDialog(p: StartDialogProps) {
             {learnerVariants.length ? (
               <div className="radio-row" role="radiogroup" aria-label={SS.dialog.variant}>
                 <span className="flabel">{SS.dialog.variant}</span>
-                {[{ id: 'default', title: (card.variants ?? []).find((v) => v.id === 'default')?.title ?? '默认' }, ...learnerVariants].map((v) => (
+                {[{ id: 'default', title: (card.variants ?? []).find((v) => v.id === 'default')?.title ?? msg.pages.card.defaultVariant }, ...learnerVariants].map((v) => (
                   <label key={v.id}>
                     <input type="radio" name="sd-variant" value={v.id} checked={variant === v.id} onChange={() => setVariant(v.id)} />
                     {v.title ?? v.id}
@@ -418,7 +418,7 @@ export function StartDialog(p: StartDialogProps) {
                     );
                   }
                   return (
-                    <Field key={d.id} label={`${meta.label}${d.required ? '' : '（可选）'}`} hint={meta.hint} error={err}>
+                    <Field key={d.id} label={`${meta.label}${d.required ? '' : msg.pages.card.optionalMark}`} hint={meta.hint} error={err}>
                       <input
                         className="input"
                         value={inputs[d.id] ?? ''}
@@ -549,7 +549,7 @@ export function StartDialog(p: StartDialogProps) {
               {SS.dialog.time}
             </h3>
             <p className="small">
-              {t(SS.dialog.timeText, { limit: `${(limitMin / 60).toFixed(1).replace(/\.0$/, '')} 小时`, n: ext.maxCount, m: ext.minutesEach })}
+              {t(SS.dialog.timeText, { limit: t(msg.pages.card.hours, { n: (limitMin / 60).toFixed(1).replace(/\.0$/, '') }), n: ext.maxCount, m: ext.minutesEach })}
               {typeof readyIdle === 'number' ? t(SS.dialog.timeIdle, { idle: readyIdle }) : ''}。
               <br />
               {t(SS.dialog.timeProvision, { t: PROVISION_TEXT[card.provisionClass] ?? card.provisionClass, c: card.provisionClass })}

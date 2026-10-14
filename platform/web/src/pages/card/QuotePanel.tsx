@@ -8,6 +8,7 @@ import { BILLING_TEXT } from '../../ui';
 import { SS } from './strings';
 import type { CostQuote } from '../labs/types';
 
+import { msg } from '../../i18n';
 export function QuotePanel({ quote, options }: { quote: CostQuote; options: QuoteRowsOptions }) {
   const rows = quoteRows(quote, options);
   const cur = quote.currency ?? 'USD';
@@ -42,7 +43,7 @@ export function QuotePanel({ quote, options }: { quote: CostQuote; options: Quot
             <li key={i}>
               {lineText(l)}
               {l.billing ? ` · ${(BILLING_TEXT as Record<string, string>)[l.billing] ?? l.billing}` : ''}
-              {l.optional ? '（选做）' : ''}
+              {l.optional ? msg.pages.card.optionalLine : ''}
               {l.unknown ? SS.quote.unknownMark : ''}
             </li>
           ))}

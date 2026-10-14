@@ -20,6 +20,10 @@ import { BadgeGlyph, type BadgeState } from './BadgeGlyph';
 import { BADGE_LEVEL_META, pct, revokeReasonText, TRACK_CERT_META, type TrackCertState } from './certText';
 import { ClaimDialog, issuedCertId, type IssuedCert } from './ClaimDialog';
 
+import { t as tr } from '../../i18n';
+import { CT } from './strings';
+
+const CL = CT.list;
 export interface CertificateItem {
   certId: string;
   scope?: 'track' | 'lab';
@@ -75,7 +79,7 @@ export function badgeState(b: LabBadge | null | undefined): BadgeState {
 }
 
 export function badgeStateText(s: BadgeState): string {
-  return s === 'none' ? '未获得' : s === 'pending' ? '核验中' : s === 'withdrawn' ? '已撤回' : (BADGE_LEVEL_META[s]?.text ?? s);
+  return s === 'none' ? CL.none : s === 'pending' ? CL.pending : s === 'withdrawn' ? CL.withdrawn : (BADGE_LEVEL_META[s]?.text ?? s);
 }
 
 const CATEGORY_ORDER = ['base', 'A', 'B', 'C', 'D', 'E', 'F', 'scenario'];
@@ -168,9 +172,9 @@ export default function CertificatesPage() {
     return CATEGORY_ORDER.filter((k) => g.has(k)).map((k) => [k, g.get(k)!] as const);
   }, [cards]);
   const catLabel = (k: string) => {
-    if (k === 'scenario') return '场景';
+    if (k === 'scenario') return CL.scenario;
     const label = index?.taxonomy?.categories?.find((c) => c.id === k)?.label;
-    return k === 'base' ? (label ?? '基础') : label ? `${k} ${label}` : k;
+    return k === 'base' ? (label ?? CL.base) : label ? tr(CL.catLabel, { id: k, label }) : k;
   };
   const selected = badge ? cards.find((c) => c.id === badge) : null;
   const selectedBadge = badge ? badgeOf(badge) : null;
@@ -179,42 +183,42 @@ export default function CertificatesPage() {
     <div className="stack-16" data-screen="P09">
       <div className="ph">
         <div className="ttl">
-          <h1 tabIndex={-1}>证书与徽章</h1>
-          {role !== 'L' ? <span className="sub">学员{progress.data?.subject?.displayName ? ` ${progress.data.subject.displayName}` : ''}的证书与徽章（只读）</span> : null}
+          <h1 tabIndex={-1}>{CL.title}</h1>
+          {role !== 'L' ? <span className="sub">{progress.data?.subject?.displayName ? tr(CL.readOnlySubNamed, { name: progress.data.subject.displayName }) : CL.readOnlySub}</span> : null}
         </div>
-        <nav className="tabs acts" aria-label="证书与徽章">
+        <nav className="tabs acts" aria-label={CL.title}>
           <Link to="/certificates" aria-current={tab === 'tracks' ? 'page' : undefined} replace>
-            路径证书
+            {CL.trackCerts}
           </Link>
           <Link to="/certificates?tab=badges" aria-current={tab === 'badges' ? 'page' : undefined} replace>
-            卡片徽章
+            {CL.cardBadges}
           </Link>
         </nav>
       </div>
       <div className="note">
         <Icon name="shield" />
-        <span>证书由你自己的 ATL 实例签发，是自托管平台的完成证明，不是 AWS 官方认证，也不代表任何 AWS 认证资格。</span>
+        <span>{CL.notice}</span>
       </div>
       {replay.error ? <InlineProblem error={replay.error} /> : null}
 
       {tab === 'tracks' ? (
         <section className="sec" aria-labelledby="ct-h" data-section="tracks">
-          <h2 id="ct-h">路径证书</h2>
+          <h2 id="ct-h">{CL.trackCerts}</h2>
           {tracks.status === 'error' && !tracks.loaded ? (
-            <InlineProblem error={tracks.error} onRetry={refresh} title="路径证书" />
+            <InlineProblem error={tracks.error} onRetry={refresh} title={CL.trackCerts} />
           ) : !tracks.loaded || !certs.loaded ? (
-            <Skeleton lines={6} label="正在读取路径证书" />
+            <Skeleton lines={6} label={CL.readingTracks} />
           ) : (
             <div className="tbl-wrap cardify">
               <table className="tbl">
-                <caption className="sr">路径证书</caption>
+                <caption className="sr">{CL.trackCerts}</caption>
                 <thead>
                   <tr>
-                    <th scope="col">证书</th>
-                    <th scope="col">状态</th>
-                    <th scope="col">条件</th>
+                    <th scope="col">{CL.colCert}</th>
+                    <th scope="col">{CL.colState}</th>
+                    <th scope="col">{CL.colCond}</th>
                     <th scope="col">
-                      <span className="sr">操作</span>
+                      <span className="sr">{CL.colActions}</span>
                     </th>
                   </tr>
                 </thead>
@@ -225,56 +229,56 @@ export default function CertificatesPage() {
                     const pending = (d?.certificate?.reasons ?? []).filter((r) => (r as { code?: string }).code === 'BADGE_PENDING').length;
                     return (
                       <tr key={t.id} data-track={t.id} data-state={state}>
-                        <td data-label="证书">
+                        <td data-label={CL.colCert}>
                           <b>{t.certificate?.title ?? t.title ?? t.id}</b>
                           <span className="small mono faint block-line">{t.id}</span>
                         </td>
-                        <td data-label="状态">
+                        <td data-label={CL.colState}>
                           <Status meta={TRACK_CERT_META[state]} />
                           {valid ? (
                             <span className="small block-line">
-                              <span className="mono">{valid.certId}</span> · {valid.issuedAt ? formatDate(valid.issuedAt, now) : ''} · {valid.public ? '已公开' : '未公开'}
+                              <span className="mono">{valid.certId}</span> · {valid.issuedAt ? formatDate(valid.issuedAt, now) : ''} · {valid.public ? CL.public : CL.notPublic}
                             </span>
                           ) : null}
                           {revoked ? <span className="small block-line">{revokeReasonText(revoked.revokeReason)}</span> : null}
                           {history.length ? (
                             <details className="disc small">
-                              <summary>历史证书（{history.length}）</summary>
+                              <summary>{tr(CL.history, { n: history.length })}</summary>
                               <ul>
                                 {history.map((h) => (
                                   <li key={h.certId}>
                                     <Link className="mono" to={`/certificates/${h.certId}`}>
                                       {h.certId}
                                     </Link>{' '}
-                                    · {h.status === 'revoked' ? `已吊销（${revokeReasonText(h.revokeReason)}）` : '有效'}
+                                    · {h.status === 'revoked' ? tr(CL.revokedReason, { reason: revokeReasonText(h.revokeReason) }) : CL.valid}
                                   </li>
                                 ))}
                               </ul>
                             </details>
                           ) : null}
                         </td>
-                        <td className="small" data-label="条件">
-                          必修 {p?.requiredDone ?? t.progress?.requiredDone ?? '—'}/{p?.requiredTotal ?? t.progress?.requiredTotal ?? '—'}
-                          {p?.groups?.length ? ` · 选修组 ${groupsDone}/${p.groups.length}` : ''}
-                          {p && p.verifiedRatio != null ? ` · 已核验 ${pct(p.verifiedRatio)}（需 ≥ ${pct(t.completion?.minAutoRatio ?? 0.8)}）` : ''}
-                          {pending ? <span className="block-line">{pending} 张徽章核验中，结束后才能计入</span> : null}
+                        <td className="small" data-label={CL.colCond}>
+                          {tr(CL.required, { done: p?.requiredDone ?? t.progress?.requiredDone ?? '—', total: p?.requiredTotal ?? t.progress?.requiredTotal ?? '—' })}
+                          {p?.groups?.length ? tr(CL.groups, { done: groupsDone, total: p.groups.length }) : ''}
+                          {p && p.verifiedRatio != null ? tr(CL.ratio, { ratio: pct(p.verifiedRatio), min: pct(t.completion?.minAutoRatio ?? 0.8) }) : ''}
+                          {pending ? <span className="block-line">{tr(CL.pendingBadges, { n: pending })}</span> : null}
                         </td>
-                        <td data-label="操作">
+                        <td data-label={CL.colActions}>
                           {valid ? (
                             <Link className="btn sm" to={`/certificates/${valid.certId}`}>
-                              查看
+                              {CL.view}
                             </Link>
                           ) : state === 'eligible' && L ? (
                             <Button size="sm" variant="primary" onClick={() => setClaim(t)}>
-                              领取…
+                              {CL.claim}
                             </Button>
                           ) : revoked ? (
                             <Link className="btn sm" to={`/certificates/${revoked.certId}`}>
-                              查看
+                              {CL.view}
                             </Link>
                           ) : (
                             <Link className="btn sm" to={`/tracks/${t.id}`}>
-                              路径
+                              {CL.track}
                             </Link>
                           )}
                         </td>
@@ -285,35 +289,35 @@ export default function CertificatesPage() {
               </table>
             </div>
           )}
-          {certs.status === 'error' && !certs.loaded ? <InlineProblem error={certs.error} onRetry={refresh} title="我的证书" /> : null}
+          {certs.status === 'error' && !certs.loaded ? <InlineProblem error={certs.error} onRetry={refresh} title={CL.myCerts} /> : null}
         </section>
       ) : (
         <section className="sec" aria-labelledby="cb-h" data-section="badges">
           <h2 id="cb-h">
-            卡片徽章 · {earned} / {cards.length || '—'}
+            {tr(CL.badgesCount, { earned, total: cards.length || '—' })}
             <span className="aside">
               <label className="chk">
                 <input type="checkbox" checked={onlyEarned} onChange={(e) => setOnlyEarned(e.target.checked)} />
-                <span>只看已获得</span>
+                <span>{CL.onlyEarned}</span>
               </label>
             </span>
           </h2>
           {progress.status === 'error' && !progress.loaded ? (
-            <InlineProblem error={progress.error} onRetry={refresh} title="卡片徽章" />
+            <InlineProblem error={progress.error} onRetry={refresh} title={CL.cardBadges} />
           ) : !progress.loaded || !index ? (
-            <Skeleton lines={4} label="正在读取徽章" />
+            <Skeleton lines={4} label={CL.readingBadges} />
           ) : earned === 0 && onlyEarned ? (
             <EmptyState
-              title="完成第一张卡片即获得徽章。"
+              title={CL.firstBadge}
               action={
                 <Link className="btn" to="/labs/svc-ec2">
-                  从 svc-ec2 开始 →
+                  {CL.startEc2}
                 </Link>
               }
             />
           ) : (
             <div className="badgewall">
-              {earned === 0 ? <p className="small muted">完成第一张卡片即获得徽章。</p> : null}
+              {earned === 0 ? <p className="small muted">{CL.firstBadge}</p> : null}
               {groups.map(([k, list]) => {
                 const shown = list.filter((c) => !onlyEarned || badgeOf(c.id));
                 if (!shown.length) return null;
@@ -325,7 +329,7 @@ export default function CertificatesPage() {
                         const st = badgeState(badgeOf(c.id));
                         const title = typeof c.badge === 'object' ? c.badge?.title : typeof c.badge === 'string' ? c.badge : c.id;
                         return (
-                          <button key={c.id} type="button" className={st === 'none' ? 'bw-item off' : 'bw-item'} onClick={() => setBadge(c.id)} aria-label={`徽章：${title ?? c.id}，${badgeStateText(st)}`} data-badge={c.id}>
+                          <button key={c.id} type="button" className={st === 'none' ? 'bw-item off' : 'bw-item'} onClick={() => setBadge(c.id)} aria-label={tr(CL.badgeLabel, { title: title ?? c.id, state: badgeStateText(st) })} data-badge={c.id}>
                             <BadgeGlyph labId={c.id} kind={c.kind} category={c.category} state={st} />
                             <span className="bw-name">{title}</span>
                             <span className="xs faint">{badgeStateText(st)}</span>
@@ -342,7 +346,7 @@ export default function CertificatesPage() {
       )}
 
       {claim ? <ClaimDialog trackId={claim.id} title={claim.certificate?.title ?? claim.title ?? claim.id} onClose={() => setClaim(null)} labTitle={labTitle} /> : null}
-      <Drawer open={!!selected} onClose={() => setBadge(null)} title={`徽章 · ${selected ? ((typeof selected.badge === 'object' ? selected.badge?.title : selected.badge) ?? selected.id) : ''}`}>
+      <Drawer open={!!selected} onClose={() => setBadge(null)} title={tr(CL.badgeTitle, { title: selected ? ((typeof selected.badge === 'object' ? selected.badge?.title : selected.badge) ?? selected.id) : '' })}>
         {selected ? (
           <div className="stack-16">
             <div className="row">
@@ -354,41 +358,41 @@ export default function CertificatesPage() {
             </div>
             {selectedBadge ? (
               <dl className="kv">
-                <dt>等级</dt>
+                <dt>{CL.level}</dt>
                 <dd>{badgeStateText(badgeState(selectedBadge))}</dd>
-                <dt>证据分</dt>
+                <dt>{CL.evidenceScore}</dt>
                 <dd className="tnum">{typeof selectedBadge.evidenceScore === 'number' ? selectedBadge.evidenceScore.toFixed(2) : '—'}</dd>
-                <dt>获得时间</dt>
+                <dt>{CL.earnedAt}</dt>
                 <dd>{selectedBadge.earnedAt ? formatDate(selectedBadge.earnedAt, now) : '—'}</dd>
-                <dt>依据的尝试</dt>
+                <dt>{CL.attempt}</dt>
                 <dd>
                   {selectedBadge.attemptId ? (
                     <>
-                      <Link to={`/sessions/${selectedBadge.attemptId}/report`}>查看报告</Link> · <span className="mono">{selectedBadge.attemptId}</span>
+                      <Link to={`/sessions/${selectedBadge.attemptId}/report`}>{CL.viewReport}</Link> · <span className="mono">{selectedBadge.attemptId}</span>
                     </>
                   ) : (
                     '—'
                   )}
                 </dd>
-                <dt>起始变体</dt>
+                <dt>{CL.variant}</dt>
                 <dd className="mono">{selectedBadge.variant ?? 'default'}</dd>
-                <dt>内容版本</dt>
+                <dt>{CL.contentVersion}</dt>
                 <dd className="mono">
                   {selectedBadge.labVersion ?? '—'}
-                  {selectedBadge.catalogVersion ? ` · 目录 ${selectedBadge.catalogVersion}` : ''}
+                  {selectedBadge.catalogVersion ? tr(CL.catalogVersion, { v: selectedBadge.catalogVersion }) : ''}
                 </dd>
-                <dt>小测最好成绩</dt>
-                <dd>{selectedBadge.quiz?.bestScore != null ? `${selectedBadge.quiz.bestScore}（只记录）` : '尚未作答'}</dd>
+                <dt>{CL.quizBest}</dt>
+                <dd>{selectedBadge.quiz?.bestScore != null ? tr(CL.quizScore, { score: selectedBadge.quiz.bestScore }) : CL.quizNone}</dd>
               </dl>
             ) : (
               <>
-                <p>未获得。完成本卡片（最终复核通过）即获得徽章；小测成绩只记录，不影响徽章。</p>
+                <p>{CL.notEarned}</p>
                 <Link className="btn" to={`/labs/${selected.id}`}>
-                  打开卡片
+                  {CL.openCard}
                 </Link>
               </>
             )}
-            {selectedBadge?.status === 'withdrawn' ? <p className="small st fail">徽章已撤回：所依据的证据被判无效，请重做这张卡片。</p> : null}
+            {selectedBadge?.status === 'withdrawn' ? <p className="small st fail">{CL.withdrawnNote}</p> : null}
           </div>
         ) : null}
       </Drawer>

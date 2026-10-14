@@ -10,6 +10,7 @@ import type { CleanupState, ResourceBilling, ResourceSeverity } from '@atl/share
 import type { ResourceRowData } from '../../ui';
 import { discoveredByText, STAGES } from '../sessions/sessionText';
 
+import { msg } from '../../i18n';
 export interface LedgerItem extends ResourceRowData {
   stage: string;
   sessionId: string | null;
@@ -118,9 +119,10 @@ export function isOpen(r: Pick<LedgerItem, 'cleanupState'>): boolean {
 
 export function slowHint(r: Pick<LedgerItem, 'resourceType' | 'cleanupState'>): string | null {
   if (DONE.includes(r.cleanupState)) return null;
-  if (/CloudFront::Distribution/.test(r.resourceType)) return '正在禁用，部署完成后删除（通常较慢）';
-  if (/RDS::DB(Instance|Cluster)/.test(r.resourceType) && r.cleanupState === 'DELETING') return '删除较慢，通常需要数分钟以上';
-  if (/NatGateway/.test(r.resourceType) && r.cleanupState === 'DELETING') return '异步删除中';
-  if (/ElastiCache/.test(r.resourceType) && r.cleanupState === 'DELETING') return '删除较慢';
+  const H = msg.end.hint;
+  if (/CloudFront::Distribution/.test(r.resourceType)) return H.cloudfront;
+  if (/RDS::DB(Instance|Cluster)/.test(r.resourceType) && r.cleanupState === 'DELETING') return H.rds;
+  if (/NatGateway/.test(r.resourceType) && r.cleanupState === 'DELETING') return H.nat;
+  if (/ElastiCache/.test(r.resourceType) && r.cleanupState === 'DELETING') return H.elasticache;
   return null;
 }

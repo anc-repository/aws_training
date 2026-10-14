@@ -6,8 +6,10 @@
  */
 import { lazy, Suspense, useEffect, useRef, useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
+import { useAuth, useServices } from '../app/context';
 import { useGlobalStatus } from '../app/globalStatus';
-import { zhCN } from '../i18n/zh-CN';
+import { msg, type Locale } from '../i18n';
+import { LanguageSwitcher } from '../i18n/LanguageSwitcher';
 import { BrandMark, Disclosure, Drawer, Icon, Skeleton } from '../ui';
 import { AccountMenu } from './AccountMenu';
 import { SessionPill } from './SessionPill';
@@ -22,7 +24,7 @@ interface NavItem {
 }
 
 export function navItems(currentTrackId: string): NavItem[] {
-  const n = zhCN.nav;
+  const n = msg.nav;
   return [
     { to: '/labs', label: n.catalog, match: ['/labs'] },
     { to: `/tracks/${currentTrackId}`, label: n.track, match: ['/tracks'] },
@@ -50,7 +52,15 @@ function NavLinks({ items, onNavigate }: { items: NavItem[]; onNavigate?: () => 
 
 function ProgressDisclosure() {
   return (
-    <Disclosure className="hide-md" label={<>进度 <Icon name="chev" /></>} buttonClassName="btn sm">
+    <Disclosure
+      className="hide-md"
+      label={
+        <>
+          {msg.frame.bar.progress} <Icon name="chev" />
+        </>
+      }
+      buttonClassName="btn sm"
+    >
       {(close) => (
         <>
           <Suspense fallback={<Skeleton lines={2} />}>
@@ -58,10 +68,10 @@ function ProgressDisclosure() {
           </Suspense>
           <div className="row">
             <Link className="btn sm" to="/learning" onClick={close}>
-              我的学习 →
+              {msg.frame.bar.learning}
             </Link>
             <Link className="btn sm" to="/certificates" onClick={close}>
-              证书 →
+              {msg.frame.bar.certificates}
             </Link>
           </div>
         </>
@@ -70,8 +80,19 @@ function ProgressDisclosure() {
   );
 }
 
+/** 语言切换后：丢弃按语言缓存的 API 响应，并尽力同步到个人资料（09 §1.1；失败不影响切换）。 */
+function useLocaleSync(): (l: Locale) => void {
+  const { api } = useServices();
+  const auth = useAuth();
+  return (l) => {
+    api.invalidate();
+    if (auth.status === 'authenticated') void api.call('patchMe', { body: { locale: l } }).catch(() => undefined);
+  };
+}
+
 export function GlobalBar() {
   const { me } = useGlobalStatus();
+  const onLocale = useLocaleSync();
   const items = navItems(me?.currentTrackId ?? 'saa-main');
   const [drawer, setDrawer] = useState(false);
   const ref = useRef<HTMLElement>(null);
@@ -82,13 +103,13 @@ export function GlobalBar() {
     ro.observe(el);
     return () => ro.disconnect();
   }, []);
-  const n = zhCN.nav;
+  const n = msg.nav;
   return (
     <header className="gbar" ref={ref}>
-      <Link className="brand" to="/labs" title={zhCN.app.fullName}>
+      <Link className="brand" to="/labs" title={msg.app.fullName}>
         <BrandMark />
-        <span className="bname">{zhCN.app.name}</span>
-        <span className="unofficial">{zhCN.app.unofficial}</span>
+        <span className="bname">{msg.app.name}</span>
+        <span className="unofficial">{msg.app.unofficial}</span>
       </Link>
       <nav className="gnav" aria-label={n.label}>
         <NavLinks items={items} />
@@ -96,6 +117,7 @@ export function GlobalBar() {
       <div className="right">
         <SessionPill />
         <ProgressDisclosure />
+        <LanguageSwitcher onChanged={onLocale} />
         <AccountMenu />
         <button type="button" className="btn sm icon menu-btn" aria-label={n.openMenu} aria-expanded={drawer} onClick={() => setDrawer(true)}>
           <Icon name="menu" />

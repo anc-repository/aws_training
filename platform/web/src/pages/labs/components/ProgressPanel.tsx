@@ -11,6 +11,9 @@ import { progressMap, useCatalog, useHolder, useLabs } from '../data';
 import { recommendNext, trackSummary } from '../model';
 import { TrackHead } from './TrackView';
 
+import { msg, t } from '../../../i18n';
+
+const PL = msg.pages.labs;
 export default function ProgressPanel({ onNavigate }: { onNavigate?: () => void }) {
   const status = useGlobalStatus();
   const { index, cards } = useCatalog();
@@ -21,12 +24,12 @@ export default function ProgressPanel({ onNavigate }: { onNavigate?: () => void 
   const track = index?.tracks.find((x) => x.id === currentTrackId) ?? index?.tracks[0] ?? null;
   const summary = useMemo(() => (track ? trackSummary(track, progress, holder?.labId) : null), [track, progress, holder]);
   const rec = useMemo(() => recommendNext(track, progress, holder, cards), [track, progress, holder, cards]);
-  if (!track || !summary || (!labs.data && !labs.error)) return <Skeleton lines={3} label="正在读取学习进度…" />;
+  if (!track || !summary || (!labs.data && !labs.error)) return <Skeleton lines={3} label={PL.readingProgress} />;
   const recCard = rec ? (cards.get(rec.labId) ?? null) : null;
   return (
     <div className="stack-8 progress-panel" data-progress-panel="">
       <b>
-        当前路径：
+        {PL.currentTrack}
         <Link to={`/tracks/${track.id}`} onClick={onNavigate}>
           {track.title ?? track.id}
         </Link>
@@ -34,14 +37,18 @@ export default function ProgressPanel({ onNavigate }: { onNavigate?: () => void 
       <TrackHead track={track} summary={summary} cert={summary.eligible ? 'eligible' : 'not-yet'} canSetCurrent={false} isCurrent busy={false} onSetCurrent={() => undefined} />
       {recCard ? (
         <span className="small">
-          下一张推荐：
+          {PL.nextRec}
           <Link to={`/labs/${recCard.id}`} onClick={onNavigate}>
             {recCard.id}
           </Link>{' '}
-          · 约 {recCard.estimatedMinutes} 分钟
+          {t(PL.about, { n: recCard.estimatedMinutes })}
         </span>
       ) : summary.completed ? (
-        <span className="small">这条路径的必修卡片都已完成{summary.eligible ? '，可以领取证书' : ''}。</span>
+        <span className="small">
+          {PL.trackDone}
+          {summary.eligible ? PL.canClaim : ''}
+          {PL.period}
+        </span>
       ) : null}
     </div>
   );

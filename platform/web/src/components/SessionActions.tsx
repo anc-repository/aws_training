@@ -5,7 +5,7 @@
  */
 import { createContext, useCallback, useContext, useMemo, useState, type ComponentType, type ReactNode } from 'react';
 import { Dialog } from '../ui';
-import { zhCN } from '../i18n/zh-CN';
+import { msg } from '../i18n';
 
 export type SessionActionKind = 'cancel' | 'extend' | 'end';
 
@@ -22,7 +22,7 @@ interface Ctx {
 
 const SessionActionsContext = createContext<Ctx>({ open: () => undefined });
 
-const TITLES: Record<SessionActionKind, string> = { cancel: '取消实验', extend: '延长实验', end: '结束实验' };
+const TITLES: Readonly<Record<SessionActionKind, string>> = msg.frame.actions;
 
 function StubDialog({ kind, onClose }: { kind: SessionActionKind; onClose: () => void }) {
   return (
@@ -33,11 +33,11 @@ function StubDialog({ kind, onClose }: { kind: SessionActionKind; onClose: () =>
       size="narrow"
       footer={
         <button type="button" className="btn" onClick={onClose}>
-          {zhCN.app.close}
+          {msg.app.close}
         </button>
       }
     >
-      <p>{zhCN.app.todo}</p>
+      <p>{msg.app.todo}</p>
     </Dialog>
   );
 }

@@ -46,6 +46,8 @@ export const STORAGE_KEYS = {
   theme: 'atl.theme.v1',
   /** 单键快捷键开关（localStorage，§3.8） */
   shortcuts: 'atl.shortcuts.v1',
+  /** 界面语言 ja | en | zh-CN（localStorage，09 §1；没有时为日语） */
+  locale: 'atl.locale.v1',
   /** 首次设置完成（回写前的降级，§2.4 表 1 第 6 条、§9.2 #4） */
   onboarded: 'atl.onboarded.v1',
   /** 已关闭的横幅（sessionStorage，§3.6：只在当前标签页内有效） */

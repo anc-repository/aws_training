@@ -16,6 +16,10 @@ import { useWorkspace } from '../context';
 import { formatRange, quoteHourly, scaleRange, type QuoteView } from '../model/cost';
 import { EXTEND_REASON_TEXT, extendBlock, extendSummary, quoteRemainingMs } from '../model/expiry';
 
+import { t } from '../../i18n';
+import { W } from '../strings';
+
+const WX = W.extend;
 export function ExtendDialog({ onClose }: { onClose: () => void }) {
   const ws = useWorkspace();
   const { api, sync } = useServices();
@@ -39,7 +43,7 @@ export function ExtendDialog({ onClose }: { onClose: () => void }) {
       setQuote(r.data);
       op.current = api.operation('extendSession');
     } catch (e) {
-      setQuoteErr(isApiError(e) ? (e.code === 'EXTENSION_LIMIT' ? '延长次数或累计时长已用完。' : (e.detail ?? e.title)) : '没能计算费用，请重试。');
+      setQuoteErr(isApiError(e) ? (e.code === 'EXTENSION_LIMIT' ? WX.limit : (e.detail ?? e.title)) : WX.quoteFailed);
     }
   }, [api, ws.sid, minutes]);
 
@@ -73,24 +77,24 @@ export function ExtendDialog({ onClose }: { onClose: () => void }) {
       if (r.data?.sessionId) sync.applyView(r.data);
       else void sync.refreshView(ws.sid);
       const at = r.data?.deadlineAt ?? (deadlineAfter ? new Date(deadlineAfter).toISOString() : null);
-      announce(at ? `已延长到 ${formatClock(at)}` : '已延长');
+      announce(at ? t(WX.extendedTo, { t: formatClock(at) }) : WX.extended);
       onClose();
     } catch (e) {
       const code = isApiError(e) ? e.code : null;
       if (code === 'QUOTE_EXPIRED' || code === 'QUOTE_MISMATCH') {
-        setError('费用报价已失效，已重新计算，请重新确认。');
+        setError(WX.quoteExpired);
         setAck(false);
         void requote();
       } else if (code === 'PRECONDITION_FAILED') {
-        setError('截止时间刚刚变化（可能在另一个标签页延长过），已刷新。');
+        setError(WX.precondition);
         void sync.refreshView(ws.sid);
       } else if (code === 'SESSION_EXPIRING_OR_ENDED') {
-        setError('已经到期，无法延长。');
+        setError(WX.expired);
         void sync.refreshView(ws.sid);
-      } else if (code === 'EXTENSION_LIMIT') setError('延长次数或累计时长已用完。');
-      else if (code === 'BUDGET_BLOCKED') setError('本月费用已超过预算，按设置不能延长。');
-      else if (code === 'PLATFORM_UNINSTALLING') setError('平台正在卸载，不能延长。');
-      else setError(isApiError(e) ? (e.detail ?? e.title) : '延长没有完成，可以重试（重试不会重复延长）。');
+      } else if (code === 'EXTENSION_LIMIT') setError(WX.limit);
+      else if (code === 'BUDGET_BLOCKED') setError(WX.budget);
+      else if (code === 'PLATFORM_UNINSTALLING') setError(WX.uninstalling);
+      else setError(isApiError(e) ? (e.detail ?? e.title) : WX.retryable);
     } finally {
       setBusy(false);
     }
@@ -100,20 +104,20 @@ export function ExtendDialog({ onClose }: { onClose: () => void }) {
     <Dialog
       open
       onClose={onClose}
-      title={`延长 ${minutes} 分钟`}
+      title={t(WX.title, { n: minutes })}
       dismissible={!busy}
       footer={
         <>
           <button type="button" className="btn" onClick={onClose} disabled={busy}>
-            取消
+            {WX.cancel}
           </button>
           {block ? null : expired ? (
             <Button variant="primary" onClick={() => void requote()}>
-              重新计算费用
+              {WX.recompute}
             </Button>
           ) : (
-            <Button variant="primary" onClick={() => void submit()} disabled={!canSubmit} busy={busy} busyText="正在延长…" data-extend-submit="">
-              延长 {minutes} 分钟
+            <Button variant="primary" onClick={() => void submit()} disabled={!canSubmit} busy={busy} busyText={WX.extending} data-extend-submit="">
+              {t(WX.title, { n: minutes })}
             </Button>
           )}
         </>
@@ -132,43 +136,43 @@ export function ExtendDialog({ onClose }: { onClose: () => void }) {
               <p className="small st fail" role="alert">
                 {quoteErr}{' '}
                 <button type="button" className="linkbtn" onClick={() => void requote()}>
-                  重试
+                  {WX.retry}
                 </button>
               </p>
             ) : !quote ? (
               <div role="status">
-                <Skeleton lines={2} label="正在计算费用…" />
+                <Skeleton lines={2} label={WX.computing} />
               </div>
             ) : (
               <div className="stack-4" data-quote="">
                 {hourly ? (
                   <span>
-                    费用（估算 · 按当前环境实际启用的资源）：{formatRange(hourly, currency)}/小时 × {minutes / 60} 小时 ≈ {formatRange(scaleRange(hourly, minutes / 60), currency).replace(/^≈ /, '')}
+                    {t(WX.cost, { hourly: formatRange(hourly, currency), h: minutes / 60, total: formatRange(scaleRange(hourly, minutes / 60), currency).replace(/^≈ /, '') })}
                   </span>
                 ) : (
-                  <span>费用（估算）：每小时单价暂不可得，无法估算这次延长的费用；延长期间资源照常按实际用量计费。</span>
+                  <span>{WX.costUnknown}</span>
                 )}
-                {quote.incomplete?.length ? <span className="small muted">部分单价不可得（{quote.incomplete.length} 项“未知”），估算不完整。</span> : null}
+                {quote.incomplete?.length ? <span className="small muted">{t(WX.incomplete, { n: quote.incomplete.length })}</span> : null}
                 <span className="small muted">
-                  取价时间 {quote.priceAsOf ? formatDate(quote.priceAsOf, ws.now()) : '未提供'} · 以 AWS 官方定价与账单为准
-                  {qLeft !== null ? (expired ? ' · 报价已失效' : ` · 报价 ${formatCountdown(qLeft)} 后失效`) : ''}
+                  {t(WX.priceAsOf, { t: quote.priceAsOf ? formatDate(quote.priceAsOf, ws.now()) : WX.notProvided })}
+                  {qLeft !== null ? (expired ? WX.quoteExpiredShort : t(WX.quoteExpiresIn, { t: formatCountdown(qLeft) })) : ''}
                 </span>
               </div>
             )}
             {ws.guard.budgetWarn ? (
               <div className="note amber">
                 <Shape name="tri" />
-                <span>本月费用已接近预算。</span>
+                <span>{WX.budgetWarn}</span>
               </div>
             ) : null}
             <label className="row">
               <input type="checkbox" checked={ack} onChange={(e) => setAck(e.target.checked)} />
-              我了解延长期间资源继续计费
+              {WX.ack}
             </label>
             {ws.guard.budgetWarn ? (
               <label className="row">
                 <input type="checkbox" checked={ackBudget} onChange={(e) => setAckBudget(e.target.checked)} />
-                我知道本月费用已接近预算
+                {WX.ackBudget}
               </label>
             ) : null}
           </>

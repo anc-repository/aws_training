@@ -13,7 +13,7 @@ import { useGlobalStatus } from '../../app/globalStatus';
 import { pillTarget } from '../../app/sessionRouting';
 import { getThemePref, setThemePref, type ThemePref } from '../../app/theme';
 import { RoleDeniedPage } from '../../components/ErrorPages';
-import { t, zhCN } from '../../i18n/zh-CN';
+import { msg, t } from '../../i18n';
 import { formatDate } from '../../lib/format';
 import { lsGet, lsSet, STORAGE_KEYS } from '../../lib/storage';
 import { BUDGET_META, Button, CommandBlock, Dialog, ErrorPanel, Field, SESSION_STATE_META, Shape, Skeleton } from '../../ui';
@@ -410,7 +410,7 @@ function ContentTab({ readOnly }: { readOnly: boolean }) {
         footer={
           <>
             <Button onClick={() => setOpen(false)} data-cancel="">
-              {zhCN.app.cancel}
+              {msg.app.cancel}
             </Button>
             <Button variant="danger-solid" busy={busy} busyText={ST.content.busy} onClick={() => void mark()}>
               {ST.content.confirm}
@@ -447,7 +447,7 @@ function UpgradeTab({ readOnly }: { readOnly: boolean }) {
   const hasUpdate = !!latest && latest !== p.version;
   const active = current && !['ENDED', 'FAILED'].includes(current.state) ? current : null;
   const target = latest ?? 'vX.Y.Z';
-  const changeSet = `aws cloudformation create-change-set --stack-name atl --change-set-name atl-${target.replace(/[^A-Za-z0-9-]/g, '-')} \\\n  --template-url ${p.update?.templateUrl ?? ST.upgrade.templatePlaceholder} --capabilities CAPABILITY_NAMED_IAM \\\n  --parameters ParameterKey=ReleaseVersion,ParameterValue=${target} …（其余参数 UsePreviousValue=true）`;
+  const changeSet = `aws cloudformation create-change-set --stack-name atl --change-set-name atl-${target.replace(/[^A-Za-z0-9-]/g, '-')} \\\n  --template-url ${p.update?.templateUrl ?? ST.upgrade.templatePlaceholder} --capabilities CAPABILITY_NAMED_IAM \\\n  --parameters ParameterKey=ReleaseVersion,ParameterValue=${target} ${msg.frame.otherParams}`;
   return (
     <div className="stack-16" data-tab="upgrade">
       <p>
@@ -461,7 +461,7 @@ function UpgradeTab({ readOnly }: { readOnly: boolean }) {
               <>
                 （
                 <a href={p.update.notesUrl} target="_blank" rel="noopener noreferrer">
-                  {ST.upgrade.notes} ↗<span className="sr">{zhCN.app.newTab}</span>
+                  {ST.upgrade.notes} ↗<span className="sr">{msg.app.newTab}</span>
                 </a>
                 ）
               </>
@@ -506,7 +506,7 @@ function UpgradeTab({ readOnly }: { readOnly: boolean }) {
           <span>
             {ST.upgrade.step2}{' '}
             <a href={`https://console.aws.amazon.com/cloudformation/home?region=${encodeURIComponent(p.region)}`} target="_blank" rel="noopener noreferrer">
-              {ST.upgrade.openCfn} ↗<span className="sr">{zhCN.app.newTab}</span>
+              {ST.upgrade.openCfn} ↗<span className="sr">{msg.app.newTab}</span>
             </a>
           </span>
           <CommandBlock text={changeSet} runsOn="local" copyOnly />

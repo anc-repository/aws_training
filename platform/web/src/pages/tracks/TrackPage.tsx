@@ -9,7 +9,7 @@ import { useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { useAuth, useServices } from '../../app/context';
 import { useGlobalStatus } from '../../app/globalStatus';
-import { t } from '../../i18n/zh-CN';
+import { msg, t } from '../../i18n';
 import { announce } from '../../lib/announce';
 import { formatDate } from '../../lib/format';
 import { Button, EmptyState, ErrorPanel, Shape, Skeleton } from '../../ui';
@@ -21,14 +21,7 @@ import { S } from '../labs/strings';
 import type { CertificateItem, LabItem, TrackDetailView } from '../labs/types';
 import { ClaimCertificateDialog, reasonsText } from './ClaimCertificateDialog';
 
-const REVOKE_REASON: Readonly<Record<string, string>> = {
-  superseded: '被新证书取代',
-  'learner-request': '持有人申请',
-  'content-defect': '内容缺陷',
-  misissued: '误签',
-  'key-compromise': '密钥泄露',
-  'dependency-revoked': '所依据的证书已被吊销',
-};
+const REVOKE_REASON: Readonly<Record<string, string>> = msg.pages.tracks.revokeReason;
 
 function CondState({ ok, text, warn }: { ok: boolean; text: string; warn?: boolean }) {
   return (
@@ -108,7 +101,7 @@ export default function TrackPage() {
 
   return (
     <div className="stack-16" data-screen="P02-T" data-track={track.id}>
-      <nav className="crumbs-nav" aria-label="面包屑">
+      <nav className="crumbs-nav" aria-label={msg.pages.tracks.crumbs}>
         <ol>
           <li>
             <Link to={`/labs?view=tracks&track=${encodeURIComponent(track.id)}`}>{S.catalog.viewTracks}</Link>
@@ -179,7 +172,7 @@ export default function TrackPage() {
               </tr>
               <tr>
                 <td>{S.track.condPending}</td>
-                <td>{pendingIds.length ? `${pendingIds.length} 张：${pendingIds.join('、')}` : S.track.none}</td>
+                <td>{pendingIds.length ? t(msg.pages.tracks.pending, { n: pendingIds.length, list: pendingIds.join(msg.pages.tracks.listSep) }) : S.track.none}</td>
               </tr>
             </tbody>
           </table>

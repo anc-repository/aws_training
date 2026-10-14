@@ -11,6 +11,9 @@ import { redactText } from '../share/publicRedact';
 import { CERT_ID_RE, checkReportFile, supportsLocalVerify, verifyCertificate, type Jwks, type VerifyOutcome } from './verifyCore';
 import { detailRows, labRows, resultCard, showsPayload, type PageResult, type VerifyShape } from './verifyView';
 
+import { t } from '../../i18n/text';
+import type { Locale } from '../../i18n/locale';
+import { pickVerifyLocale, setVerifyLocale, VT } from './strings';
 export const JWKS_PATH = '/.well-known/atl/jwks.json';
 export const REVOCATIONS_PATH = '/public/revocations.jws';
 export const certPath = (certId: string) => `/public/certs/${certId}.jws`;
@@ -239,7 +242,7 @@ export function render(env: Pick<VerifyEnv, 'doc' | 'subtle'>, r: PageResult): v
   const rows = labRows(p);
   if (labs && list) {
     list.replaceChildren();
-    setText(doc, 'vlabs-title', `包含的卡片（${rows.length}）`);
+    setText(doc, 'vlabs-title', t(VT.page.labsCount, { n: rows.length }));
     rows.forEach((row, i) => {
       const li = doc.createElement('li');
       li.className = 'vlab';
@@ -255,7 +258,7 @@ export function render(env: Pick<VerifyEnv, 'doc' | 'subtle'>, r: PageResult): v
       input.id = `vlab-file-${i}`;
       input.setAttribute('aria-describedby', `vlab-res-${i}`);
       const lt = doc.createElement('span');
-      lt.textContent = '核对报告文件…';
+      lt.textContent = VT.page.checkReport;
       label.append(input, lt);
       const res = doc.createElement('span');
       res.className = 'vlab-res small';
@@ -265,20 +268,20 @@ export function render(env: Pick<VerifyEnv, 'doc' | 'subtle'>, r: PageResult): v
         const f = input.files?.[0];
         if (!f || !env.subtle) return;
         res.className = 'vlab-res small pend';
-        res.textContent = '正在计算摘要…';
+        res.textContent = VT.page.computing;
         void readFileText(f).then(async (txt) => {
           const c = await checkReportFile(env.subtle!, p, txt, row.labId);
           const name = redactText(f.name, 'standard');
           if (c.result === 'consistent') {
             res.className = 'vlab-res small ok';
-            res.textContent = `报告一致：文件 ${name} 的摘要与证书中的报告摘要相同。文件未上传。`;
+            res.textContent = t(VT.page.match, { name });
           } else if (c.result === 'invalid') {
             res.className = 'vlab-res small bad';
-            res.textContent = `文件 ${name} 不是报告 JSON。`;
+            res.textContent = t(VT.page.notReport, { name });
           } else {
             res.className = 'vlab-res small bad';
-            const other = c.labId && c.labId !== row.labId ? `（文件中的报告属于 ${redactText(c.labId, 'standard')}）` : '';
-            res.textContent = `报告不一致：文件 ${name} 的摘要 ${(c.digest ?? '—').slice(0, 19)}… 与证书中的 ${(row.digest ?? '—').slice(0, 19)}… 不同${other}。文件未上传。`;
+            const other = c.labId && c.labId !== row.labId ? t(VT.page.otherLab, { labId: redactText(c.labId, 'standard') }) : '';
+            res.textContent = t(VT.page.mismatch, { name, got: (c.digest ?? '—').slice(0, 19), want: (row.digest ?? '—').slice(0, 19), other });
           }
         });
       });
@@ -321,7 +324,7 @@ export function mount(env: VerifyEnv): { run: (pasted?: string | null) => Promis
     e.preventDefault();
     const v = byId<HTMLTextAreaElement>(doc, 'vjws')?.value ?? '';
     if (!v.trim()) {
-      setText(doc, 'vpaste-err', '请先粘贴证书（JWS），或选择证书文件。');
+      setText(doc, 'vpaste-err', VT.page.pasteFirst);
       setHidden(doc, 'vpaste-err', false);
       return;
     }
@@ -342,9 +345,36 @@ export function mount(env: VerifyEnv): { run: (pasted?: string | null) => Promis
   return { run };
 }
 
+/**
+ * 静态 HTML 的多语言（09 §1.8）：带 `data-i18n="<key>"` 的元素换成 `VT.static[key]`；`<html lang>`、标题与语言链接
+ * （`?lang=` 保留 #jws= 片段）随所选语言。没有脚本时页面保持 zh-CN 源文案。
+ */
+export function localizeStatic(doc: Document, loc: Locale, hash = ''): void {
+  doc.documentElement.lang = loc;
+  doc.title = VT.static.docTitle;
+  for (const el of Array.from(doc.querySelectorAll<HTMLElement>('[data-i18n]'))) {
+    const key = el.dataset.i18n as keyof typeof VT.static;
+    const text = VT.static[key];
+    if (typeof text === 'string') el.textContent = text;
+  }
+  const nav = doc.getElementById('vlang');
+  if (nav) {
+    nav.setAttribute('aria-label', VT.static.language);
+    for (const a of Array.from(nav.querySelectorAll<HTMLAnchorElement>('a[data-lang]'))) {
+      const l = a.dataset.lang ?? '';
+      a.href = `?lang=${encodeURIComponent(l)}${hash}`;
+      if (l === loc) a.setAttribute('aria-current', 'true');
+      else a.removeAttribute('aria-current');
+    }
+  }
+}
+
 /** 浏览器入口：用真实的 fetch、crypto.subtle 与 localStorage。 */
 export function boot(): void {
   const doc = document;
+  const loc = pickVerifyLocale(window.location.search);
+  setVerifyLocale(loc);
+  localizeStatic(doc, loc, window.location.hash);
   const env: VerifyEnv = {
     doc,
     location: window.location,

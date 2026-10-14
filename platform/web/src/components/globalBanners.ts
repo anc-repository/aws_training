@@ -4,7 +4,7 @@
  */
 import type { GuardrailsView, ManualResourcesView, PlatformView, SessionView } from '../api/types';
 import type { Role } from '../auth/jwt';
-import { t, zhCN } from '../i18n/zh-CN';
+import { msg, t } from '../i18n';
 import { formatClock, formatDate } from '../lib/format';
 import type { BannerTone, ShapeName } from '../ui';
 
@@ -44,7 +44,7 @@ const LIVE = ['READY', 'RUNNING', 'EXPIRING'];
 
 export function computeGlobalBanners(i: BannerInput): GlobalBanner[] {
   const out: GlobalBanner[] = [];
-  const b = zhCN.banners;
+  const b = msg.banners;
   const uninstalling = i.platform?.mode === 'UNINSTALLING' || i.guardrails?.uninstalling === true;
   // 1 平台卸载中
   if (uninstalling) {
@@ -56,7 +56,9 @@ export function computeGlobalBanners(i: BannerInput): GlobalBanner[] {
     if (open.some((m) => m.severity === 'BLOCKING')) {
       const first = open.find((m) => m.labId || m.sessionCreatedAt) ?? open[0]!;
       const what = first.labId
-        ? `${first.labId}${first.sessionCreatedAt ? `（${formatDate(first.sessionCreatedAt, i.nowMs)} 的实验）` : ''}`
+        ? first.sessionCreatedAt
+          ? t(msg.frame.residualOf, { labId: first.labId, t: formatDate(first.sessionCreatedAt, i.nowMs) })
+          : first.labId
         : b.residualPrevious;
       const hourly = open.filter((m) => m.billing === 'hourly').length;
       out.push({

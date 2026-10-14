@@ -2,8 +2,9 @@
  * Catalog, tracks, quotes and quizzes (01 §8.2 “目录、学习路径与报价”, “小测”; 05 §8.8; 04 §3.2.11).
  */
 import { randomInt } from 'node:crypto';
-import { AtlError, eventSourceOf, isCardId, newUlid } from '@atl/shared';
+import { AtlError, eventSourceOf, isCardId, negotiateLang, newUlid, SOURCE_LANG, type ContentLang } from '@atl/shared';
 import { created, ok, withEtag } from '../http/responses.js';
+import { header } from '../http/types.js';
 import type { RouteHandlers } from '../http/router.js';
 import { parseBody, z } from '../http/validate.js';
 import { stripKeys, type Item, type SessionItem } from '../repositories/index.js';
@@ -51,11 +52,23 @@ function environmentStrip(st: Awaited<ReturnType<typeof loadPlatformState>>): Re
   };
 }
 
+/**
+ * Content language of a request (09-i18n-and-visual.md §2, I4): `?lang=` first, then `Accept-Language`, else zh-CN (the
+ * source). Only learner-facing texts follow it; the documents that drive sessions and checks are always the root ones.
+ */
+export function contentLang(ctx: ApiContext): ContentLang {
+  return negotiateLang(ctx.req.query.lang, header(ctx.req.event, 'accept-language'), SOURCE_LANG);
+}
+
 export function catalogRoutes(ext: ApiExtensions): RouteHandlers {
   return {
     getCatalog: wrap(ext, async (ctx) => {
       const [rel, cfg] = await Promise.all([ctx.catalog.requireCurrent(), ctx.repos.platform.config()]);
       const v = rel.catalogVersion;
+      const languages = await ctx.catalog.languages(v);
+      const requested = contentLang(ctx);
+      const lang = languages.includes(requested) ? requested : SOURCE_LANG;
+      const base = lang === SOURCE_LANG ? `/content/${v}/` : `/content/${v}/${lang}/`;
       return withEtag(
         ctx.req.event,
         {
@@ -63,13 +76,15 @@ export function catalogRoutes(ext: ApiExtensions): RouteHandlers {
           contentDigest: rel.contentDigest ?? null,
           publishedAt: rel.publishedAt ?? null,
           defective: rel.defective ?? null,
-          indexUrl: `/content/${v}/catalog/index.json`,
-          cardIntroUrlTemplate: `/content/${v}/catalog/cards/{labId}.json`,
-          labUrlTemplate: `/content/${v}/labs/{labId}.json`,
+          indexUrl: `${base}catalog/index.json`,
+          cardIntroUrlTemplate: `${base}catalog/cards/{labId}.json`,
+          labUrlTemplate: `${base}labs/{labId}.json`,
+          contentLang: lang,
+          languages,
           region: cfg?.region ?? ctx.deps.env.region,
           drRegion: cfg?.drRegion ?? '',
         },
-        { etag: `"${v}"`, cacheControl: 'private, max-age=60' },
+        { etag: lang === SOURCE_LANG ? `"${v}"` : `"${v}-${lang}"`, cacheControl: 'private, max-age=60' },
       );
     }),
 
@@ -168,7 +183,7 @@ export function catalogRoutes(ext: ApiExtensions): RouteHandlers {
 
     listTracks: wrap(ext, async (ctx) => {
       const rel = await ctx.catalog.requireCurrent();
-      const [idx, progress] = await Promise.all([ctx.catalog.index(rel.catalogVersion), progressRecords(ctx, await subjectSub(ctx))]);
+      const [idx, progress] = await Promise.all([ctx.catalog.index(rel.catalogVersion, contentLang(ctx)), progressRecords(ctx, await subjectSub(ctx))]);
       const defective = await defectiveVersions(ctx, rel.catalogVersion);
       return ok({
         catalogVersion: rel.catalogVersion,
@@ -183,7 +198,7 @@ export function catalogRoutes(ext: ApiExtensions): RouteHandlers {
       const rel = await ctx.catalog.requireCurrent();
       const sub = await subjectSub(ctx);
       const [idx, progress, certs] = await Promise.all([
-        ctx.catalog.index(rel.catalogVersion),
+        ctx.catalog.index(rel.catalogVersion, contentLang(ctx)),
         progressRecords(ctx, sub),
         sub ? ctx.repos.certificates.listByUser(sub) : Promise.resolve([]),
       ]);
@@ -241,9 +256,15 @@ async function findQuizAttempt(ctx: ApiContext, sub: string, attemptId: string):
 }
 
 async function bankFor(ctx: ApiContext, labId: string, catalogVersion: string): Promise<QuizBank> {
-  const bank = await ctx.catalog.quizBank(labId, catalogVersion);
+  const bank = await ctx.catalog.quizBank(labId, catalogVersion, contentLang(ctx));
   if (!bank?.questions?.length) throw new AtlError('NOT_FOUND', `card ${labId} has no quiz in content release ${catalogVersion}`);
   return bank;
+}
+
+/** A question of a translated bank that shows another language somewhere (stem, options or explanation). */
+function untranslatedQuestion(bank: QuizBank, id: string): boolean {
+  const i = bank.questions.findIndex((q) => q.id === id);
+  return i >= 0 && (bank.i18n?.fallback ?? []).some((p) => p.startsWith(`/questions/${i}/`));
 }
 
 function quizRoutes(ext: ApiExtensions): RouteHandlers {
@@ -272,6 +293,7 @@ function quizRoutes(ext: ApiExtensions): RouteHandlers {
         attemptId,
         labId: lab.id,
         deadlineAt,
+        ...(bank.i18n ? { i18n: { lang: bank.i18n.lang, untranslated: picked.filter((q) => untranslatedQuestion(bank, q.id)).map((q) => q.id) } } : {}),
         questions: picked.map((q, i) => ({
           id: q.id,
           type: q.type,

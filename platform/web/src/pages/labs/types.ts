@@ -460,6 +460,8 @@ export interface QuizAttemptStart {
   labId: string;
   deadlineAt?: string | null;
   questions: QuizQuestion[];
+  /** 题库按语言（09 §2）：请求的语言，以及显示了其他语言的题目 */
+  i18n?: { lang: string; untranslated?: string[] };
 }
 
 export interface QuizResult {

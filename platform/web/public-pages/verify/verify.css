@@ -117,3 +117,6 @@ textarea.input{min-height:88px; resize:vertical; font-size:12.5px; overflow-wrap
   #vpaste,.btn,.linkbtn,.skip{display:none!important}
   .pubcard{border-color:#999}
 }
+/* 语言链接（09 §1.8） */
+.vlang{display:flex; gap:6px; justify-content:center; flex-wrap:wrap; margin:8px 0 0}
+.vlang a[aria-current]{font-weight:600; text-decoration:none}

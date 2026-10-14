@@ -8,6 +8,8 @@
 import { useRef, useState, type KeyboardEvent, type PointerEvent } from 'react';
 import { dragTo, keyStep, splitBounds } from '../model/layout';
 
+import { t } from '../../i18n';
+import { W } from '../strings';
 export interface SplitterProps {
   pct: number;
   collapsed: boolean;
@@ -57,11 +59,11 @@ export function Splitter({ pct, collapsed, width, onChange, onReset, container }
       role="separator"
       aria-orientation="vertical"
       aria-controls="mpane"
-      aria-label="调整手册宽度"
+      aria-label={W.splitter.label}
       aria-valuenow={now}
       aria-valuemin={Math.round(b.minPct)}
       aria-valuemax={Math.round(b.maxPct)}
-      aria-valuetext={collapsed ? '手册已折叠' : `手册宽度 ${now}%`}
+      aria-valuetext={collapsed ? W.splitter.collapsed : t(W.splitter.width, { n: now })}
       tabIndex={0}
       onPointerDown={onDown}
       onPointerMove={onMove}

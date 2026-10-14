@@ -13,7 +13,7 @@ import { isApiError, type ApiError } from '../../api/errors';
 import type { ManualResource } from '../../api/types';
 import { useAuth, useServices, useSessionSync } from '../../app/context';
 import { useGlobalStatus } from '../../app/globalStatus';
-import { t, zhCN } from '../../i18n/zh-CN';
+import { msg, t } from '../../i18n';
 import { formatClock, formatDate } from '../../lib/format';
 import { redact } from '../../lib/redact';
 import { Button, DataTable, Dialog, EmptyState, ErrorPanel, Field, SESSION_STATE_META, Shape, Skeleton, type Column } from '../../ui';
@@ -175,7 +175,7 @@ interface Member {
   createdAt?: string | null;
 }
 
-const ROLE_NAME: Readonly<Record<string, string>> = { learner: zhCN.roles.L, assistant: zhCN.roles.A, observer: zhCN.roles.O };
+const ROLE_NAME: Readonly<Record<string, string>> = { learner: msg.roles.L, assistant: msg.roles.A, observer: msg.roles.O };
 
 export function MembersTab({ readOnly }: { readOnly: boolean }) {
   const { api, clock } = useServices();
@@ -240,8 +240,8 @@ export function MembersTab({ readOnly }: { readOnly: boolean }) {
             </Field>
             <Field label={ST.members.inviteRole}>
               <select className="input auto" value={role} onChange={(e) => setRole(e.target.value as 'assistant' | 'observer')}>
-                <option value="assistant">{zhCN.roles.A}</option>
-                <option value="observer">{zhCN.roles.O}</option>
+                <option value="assistant">{msg.roles.A}</option>
+                <option value="observer">{msg.roles.O}</option>
               </select>
             </Field>
             <Button busy={inviteState.busy} busyText={ST.members.inviting} onClick={() => void invite()}>
@@ -266,7 +266,7 @@ export function MembersTab({ readOnly }: { readOnly: boolean }) {
         footer={
           <>
             <Button onClick={() => setRemoving(null)} data-cancel="">
-              {zhCN.app.cancel}
+              {msg.app.cancel}
             </Button>
             <Button variant="danger-solid" busy={removeState.busy} onClick={() => void remove()}>
               {ST.members.remove}
@@ -587,7 +587,7 @@ export function UninstallTab() {
             <p>
               {ST.uninstall.s3Text}{' '}
               <a href={`https://console.aws.amazon.com/cloudformation/home?region=${encodeURIComponent(status.platform.data?.region ?? '')}`} target="_blank" rel="noopener noreferrer">
-                {ST.upgrade.openCfn} ↗<span className="sr">{zhCN.app.newTab}</span>
+                {ST.upgrade.openCfn} ↗<span className="sr">{msg.app.newTab}</span>
               </a>
             </p>
             <div className="note amber">

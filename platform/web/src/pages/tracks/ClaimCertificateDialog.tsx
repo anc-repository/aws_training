@@ -8,7 +8,7 @@ import { useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { isApiError } from '../../api/errors';
 import { useServices } from '../../app/context';
-import { t, zhCN } from '../../i18n/zh-CN';
+import { msg, t } from '../../i18n';
 import { Button, Dialog, Field, Shape } from '../../ui';
 import { S } from '../labs/strings';
 
@@ -86,7 +86,7 @@ export function ClaimCertificateDialog({ trackId, certTitle, defaultName, onClos
       footer={
         <>
           <Button onClick={onClose} disabled={busy}>
-            {zhCN.app.cancel}
+            {msg.app.cancel}
           </Button>
           <Button variant="primary" busy={busy} busyText={S.claim.busy} onClick={() => void submit()}>
             {S.claim.submit}

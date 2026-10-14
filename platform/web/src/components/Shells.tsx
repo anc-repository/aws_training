@@ -12,7 +12,8 @@ import { useAuth, useServices, useSessionSync } from '../app/context';
 import { evaluateAccess, evaluateRoute } from '../app/guards';
 import { useGlobalStatus } from '../app/globalStatus';
 import type { Role } from '../auth/jwt';
-import { zhCN } from '../i18n/zh-CN';
+import { msg } from '../i18n';
+import { LanguageSwitcher } from '../i18n/LanguageSwitcher';
 import { ssGet, ssSet } from '../lib/storage';
 import { BannerStack, Icon, LiveRegion, Skeleton, type BannerSpec } from '../ui';
 import { ErrorBoundary, NoRolePage, PlatformUnavailablePage, RoleDeniedPage } from './ErrorPages';
@@ -109,7 +110,7 @@ function AppChrome() {
   return (
     <div className="shell atl-shell">
       <a className="skip" href="#main">
-        {zhCN.app.skipToMain}
+        {msg.app.skipToMain}
       </a>
       <GlobalBar />
       <OfflineBar />
@@ -136,7 +137,7 @@ function WorkspaceChrome() {
   return (
     <div className="ws-root">
       <a className="skip" href="#main">
-        {zhCN.app.skipToMain}
+        {msg.app.skipToMain}
       </a>
       <OfflineBar />
       <main id="main" className="ws" tabIndex={-1}>
@@ -221,11 +222,11 @@ function OnboardingNotice() {
   if (hidden) return null;
   return (
     <div className="note blue no-print" role="note" data-onboarding-notice="">
-      <span className="spacer">首次设置还没有完成：可以先继续实验，之后在 设置 › 平台 中重看。</span>
+      <span className="spacer">{msg.frame.onboarding}</span>
       <button
         type="button"
         className="btn sm ghost icon"
-        aria-label={zhCN.banners.dismiss}
+        aria-label={msg.banners.dismiss}
         onClick={() => {
           ssSet('atl.onboarding-notice.v1', true);
           setHidden(true);
@@ -240,6 +241,9 @@ function OnboardingNotice() {
 export function PublicShell() {
   return (
     <div className="shell">
+      <div className="pub-lang">
+        <LanguageSwitcher />
+      </div>
       <main id="main" className="pub" tabIndex={-1}>
         <Suspense fallback={<Skeleton lines={3} />}>
           <Outlet />

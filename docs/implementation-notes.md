@@ -3420,3 +3420,39 @@ cfn-lint 1.57.2（`D:/workspace/.tools/cfnlint-venv`）与 `scripts/module --dry
 
 需要别人配合：页面接入（目录卡片、简介页、手册、报告与学习，见 09 V9）；i18n 框架在根部包 `VisualI18nProvider`（可选）并决定
 `visual.fn.*` 是否改由术语表 / 主词典提供；`platform/web/package.json` 增加 `gen:glyphs`（与 CI 的 `--check`）；08-ui-design.md 顶部指向 09 的说明（I7）。
+
+## i18n-prep-i18n
+
+多语言基础设施（I1～I5、I7 的多语言部分）：界面词典与运行时（ja 默认、en、zh-CN）、全部页面文案迁入词典、Intl 格式化、
+回退与“未翻訳”标记、`i18n:sync` / `i18n:check`；内容侧 lab.yaml v2 等文件的本地化对象、`manual/<lang>/`、按语言的
+lint / build / catalog、API 与 dev-server 的语言协商。规格见 docs/platform/09-i18n-and-visual.md「多语言」。
+
+有歧义时的取舍（都取最简单的做法）：
+
+| 问题 | 决定 |
+|---|---|
+| 用哪个 i18n 框架 | 自写的小运行时（不加依赖）：页面原本就从各目录 `strings.ts` 的常量取文案，`msg` 保持同一结构、切换时原地改写叶子，页面代码只换数据源；复数与格式化用 Intl |
+| 切换后怎样刷新界面 | `LocaleRoot` 以语言为 key 重新挂载应用（不整页刷新），API 缓存丢弃后按新语言重取 |
+| “同步到用户偏好 API” | 已登录时切换后尽力 `PATCH /me {locale}`；不回读（服务器默认值仍是 zh-CN，回读会破坏“第一次访问一律日语”），localStorage 为准。`PATCH /me` 的枚举加了 `ja`（platform/api/src/routes/platform.ts 一行） |
+| ja / en 的“空键” | 词典骨架里的空字符串 = 未翻译，运行时按回退链取值；`i18n:check` 默认把它算作失败，`--allow-empty` 只计数 |
+| 回退标记加在哪里 | 只加在内容（卡片标题、简介、手册步骤、小测题干）；界面文案的回退只在开发模式警告（否则未翻译期间到处是标记） |
+| 内容中哪些字段可以翻译 | 由 schema 决定：带 `$defs/l10n` 分支的字段（`textPatterns()` 从 schema 推出），不另列清单 |
+| 长度限制对哪种语言生效 | 只对 zh-CN（lint 先解析成 zh-CN 再校验）；ja / en 只要求非空 |
+| `i18n.fallback` 指针怎么算 | 同一语言渲染两遍（第二遍给回退值加不可见前缀），比较输出差异；派生字段也能标出，构建代码不必跟踪来源 |
+| 按语言的文件放哪里 | 根目录保持 zh-CN 不变（旧客户端、API 执行路径不受影响），ja / en 放 `content/<v>/<lang>/` 与 `private/quiz/<lang>/` |
+| API 用哪种语言的文档执行会话与检查 | 一律根目录（zh-CN）；语言只影响目录索引、学习路径与小测的文字 |
+| `manual/zh-CN/` | 也接受为源语言（与 `manual/` 二选一，两处都有同名文件是 I3 错误） |
+| 公开验证页（无 React 的独立包） | 页面自带 ja / en / zh-CN 的 verify 命名空间，`?lang=` → 已保存的选择 → ja；静态 HTML 用 `data-i18n` |
+| e2e 在哪种语言下跑 | 显式选 zh-CN：`scripts/e2e/platform_e2e.py` 的每个浏览器上下文写入 `atl.locale.v1`（断言用的是源文案）；公开页面顶部多了语言 `<select>`，登录步骤改用 `main select` |
+| `labs/_schema/*.json` | 由 `npm run labs:schema` 从修改后的 schema 重新生成并提交（编辑器校验需要接受本地化对象） |
+
+自测（2026-10-14）：`npm run build`、`npm run lint`（0 问题）、`npm test`（225 个文件 / 2776 个用例通过）、`npm run labs:lint`
+（56 张卡片 0 错误 0 警告）、`npm run labs:catalog -- --check`、`npm run i18n:check -- --allow-empty`（3482 键，ja / en 各译 15，
+结构问题 0）、`npm run labs:i18n`、`labs:build --out <临时目录>`（483 个文件，含 ja / en）、`npm run e2e:platform`（zh-CN，51 / 51 通过）。
+新增测试：`platform/web/src/i18n/i18n.test.tsx`、`platform/shared/test/l10n.test.ts`、`scripts/labs/test/i18n.test.ts`、
+`platform/api/test/content-i18n.test.ts`。
+
+需要别人配合：翻译界面词典（ja / en 各 3467 键，`i18n/ja|en/<ns>.ts`）与卡片内容（4281 个文本字段、231 个手册文件），按
+`platform/web/src/i18n/glossary.md`；服务器端生成的报告 / 分享 HTML（`platform/api/src/services/reports/html.ts`）与 API 错误
+`detail` 的本地化；`users.ts` 建档时的默认 `locale`（若要回读）；页面接入视觉组件时用 `useLocale()` / `<html lang>`；
+CloudAlbum 前端（`frontend/`）不在本轮。

@@ -6,7 +6,7 @@
  * 横幅的来源与优先级由全局框架计算（src/components/globalBanners.ts），这里只负责呈现。
  */
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
-import { t, zhCN } from '../i18n/zh-CN';
+import { msg, t } from '../i18n';
 import { ssGet, ssSet, STORAGE_KEYS } from '../lib/storage';
 import { Icon } from './Icon';
 import { Shape, type ShapeName } from './Shape';
@@ -46,7 +46,7 @@ export function Banner({ spec, onDismiss, announce }: BannerProps) {
       <div className="b-act">
         {spec.action}
         {closable ? (
-          <button type="button" className="btn sm ghost icon" aria-label={zhCN.banners.dismiss} onClick={onDismiss}>
+          <button type="button" className="btn sm ghost icon" aria-label={msg.banners.dismiss} onClick={onDismiss}>
             <Icon name="x" />
           </button>
         ) : null}
@@ -92,7 +92,7 @@ export function BannerStack({ banners, max = 2 }: BannerStackProps) {
     ssSet(STORAGE_KEYS.dismissedBanners, next);
   };
   return (
-    <div className="banners no-print" role="region" aria-label={zhCN.banners.region}>
+    <div className="banners no-print" role="region" aria-label={msg.banners.region}>
       {shown.map((b) => {
         const k = keyOf(b);
         const first = (b.tone === 'red' || b.tone === 'amber') && !announced.has(k);
@@ -100,7 +100,7 @@ export function BannerStack({ banners, max = 2 }: BannerStackProps) {
       })}
       {visible.length > max ? (
         <button type="button" className="linkbtn more-banners" aria-expanded={expanded} onClick={() => setExpanded((v) => !v)}>
-          {expanded ? zhCN.banners.collapse : t(zhCN.banners.more, { n: visible.length - max })}
+          {expanded ? msg.banners.collapse : t(msg.banners.more, { n: visible.length - max })}
         </button>
       ) : null}
     </div>

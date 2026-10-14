@@ -10,14 +10,14 @@ import { Navigate, useNavigate, useSearchParams } from 'react-router-dom';
 import type { CognitoGroup } from '@atl/shared';
 import { useAuth, useServices } from '../../app/context';
 import { safeNext } from '../../auth/authService';
-import { zhCN } from '../../i18n/zh-CN';
+import { msg } from '../../i18n';
 import { BrandMark, Button, Field, Icon, Shape } from '../../ui';
 import './login.css';
 
 const REASON_TEXT: Readonly<Record<string, string>> = {
-  expired: zhCN.auth.reasonExpired,
-  reauth: zhCN.auth.reasonReauth,
-  'signed-out-elsewhere': zhCN.auth.reasonSignedOutElsewhere,
+  expired: msg.auth.reasonExpired,
+  reauth: msg.auth.reasonReauth,
+  'signed-out-elsewhere': msg.auth.reasonSignedOutElsewhere,
 };
 
 /** 公开页的登录卡片（08 P01 线框；原型 loginCard）。 */
@@ -28,9 +28,9 @@ export function LoginCard({ children }: { children: ReactNode }) {
         <div className="row between">
           <span className="brand">
             <BrandMark />
-            <span>{zhCN.app.name}</span>
+            <span>{msg.app.name}</span>
           </span>
-          <span className="tag">{zhCN.app.unofficial}</span>
+          <span className="tag">{msg.app.unofficial}</span>
         </div>
         {children}
       </div>
@@ -47,11 +47,11 @@ function DevLoginForm({ next }: { next: string }) {
   const [sub, setSub] = useState('u1');
   const [stale, setStale] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const a = zhCN.auth;
+  const a = msg.auth;
   const submit = (e: FormEvent) => {
     e.preventDefault();
     if (!SUB.test(sub)) {
-      setError('只能包含字母、数字、- 与 _（1～64 个字符）');
+      setError(msg.frame.login.devSubInvalid);
       return;
     }
     if (auth.devLogin(group, sub, { staleAuth: stale })) navigate(next, { replace: true });
@@ -62,9 +62,9 @@ function DevLoginForm({ next }: { next: string }) {
       <p className="small muted">{a.devHint}</p>
       <Field label={a.devGroup}>
         <select className="input" value={group} onChange={(e) => setGroup(e.target.value as CognitoGroup)}>
-          <option value="learner">learner（{zhCN.roles.L}）</option>
-          <option value="assistant">assistant（{zhCN.roles.A}）</option>
-          <option value="observer">observer（{zhCN.roles.O}）</option>
+          <option value="learner">learner（{msg.roles.L}）</option>
+          <option value="assistant">assistant（{msg.roles.A}）</option>
+          <option value="observer">observer（{msg.roles.O}）</option>
         </select>
       </Field>
       <Field label={a.devSub} error={error}>
@@ -89,7 +89,7 @@ export default function LoginPage() {
   const [failed, setFailed] = useState(false);
   const reason = search.get('reason');
   const next = safeNext(search.get('next'), '/');
-  const a = zhCN.auth;
+  const a = msg.auth;
   // 使用中过期（P13 #5）或需要最近登录（reauth）时停留在登录页
   if (snap.status === 'authenticated' && !snap.expired && reason !== 'reauth') return <Navigate to={next} replace />;
   return (
@@ -107,7 +107,7 @@ export default function LoginPage() {
           variant="primary"
           className="block"
           busy={busy}
-          busyText="正在跳转…"
+          busyText={msg.frame.login.redirecting}
           onClick={() => {
             setBusy(true);
             setFailed(false);

@@ -8,7 +8,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { ApiError } from '../../api/errors';
 import { useAuth } from '../../app/context';
-import { t, zhCN } from '../../i18n/zh-CN';
+import { msg, t } from '../../i18n';
 import { Button, ErrorPanel, Shape } from '../../ui';
 import { describeProblem } from './problems';
 
@@ -51,7 +51,7 @@ export function InlineProblem({ error, onRetry, onReady, overrides, title }: Inl
   if (p.kind === 'rate-limited') {
     return (
       <p className="small" role="status" data-problem="rate-limited">
-        {left && left > 0 ? t(zhCN.p13.rateLimited, { n: left }) : '可以重试了。'}
+        {left && left > 0 ? t(msg.p13.rateLimited, { n: left }) : msg.frame.notFound.canRetry}
       </p>
     );
   }
@@ -64,7 +64,7 @@ export function InlineProblem({ error, onRetry, onReady, overrides, title }: Inl
       <span className="spacer">{p.message}</span>
       {p.retry && onRetry ? (
         <Button size="sm" onClick={onRetry} icon="refresh">
-          {zhCN.app.retry}
+          {msg.app.retry}
         </Button>
       ) : null}
     </div>

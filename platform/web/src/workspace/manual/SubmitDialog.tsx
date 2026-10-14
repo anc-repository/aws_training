@@ -9,6 +9,10 @@ import { announce } from '../../lib/announce';
 import { Button, Dialog, Shape } from '../../ui';
 import { useWorkbench, useWorkspace } from '../context';
 
+import { t } from '../../i18n';
+import { W } from '../strings';
+
+const WSB = W.submit;
 export function SubmitDialog({ onClose }: { onClose: () => void }) {
   const ws = useWorkspace();
   const wb = useWorkbench();
@@ -23,7 +27,7 @@ export function SubmitDialog({ onClose }: { onClose: () => void }) {
     let alive = true;
     wb.checks.runScope('final-preview').then(
       (id) => alive && setPreviewId(id),
-      (e) => alive && setPreviewErr(isApiError(e) ? (e.detail ?? e.title) : '预检查没有完成'),
+      (e) => alive && setPreviewErr(isApiError(e) ? (e.detail ?? e.title) : WSB.previewFailed),
     );
     return () => {
       alive = false;
@@ -36,17 +40,17 @@ export function SubmitDialog({ onClose }: { onClose: () => void }) {
   const steps = ws.data.lab.data?.steps ?? [];
   const titleOf = (id: string) => {
     const i = steps.findIndex((s) => s.id === id);
-    return i >= 0 ? `步骤 ${i + 1}“${steps[i]!.title}”` : id;
+    return i >= 0 ? t(WSB.stepTitle, { n: i + 1, title: steps[i]!.title }) : id;
   };
   const submit = async () => {
     setBusy(true);
     setError(null);
     try {
       await api.call('submitSession', { params: { sid: ws.sid }, body: {} });
-      announce('已提交，平台正在做最终复核');
+      announce(WSB.submitted);
       onClose();
     } catch (e) {
-      setError(isApiError(e) ? (e.detail ?? e.title) : '提交失败，请稍后重试');
+      setError(isApiError(e) ? (e.detail ?? e.title) : WSB.failed);
     } finally {
       setBusy(false);
     }
@@ -55,40 +59,41 @@ export function SubmitDialog({ onClose }: { onClose: () => void }) {
     <Dialog
       open
       onClose={onClose}
-      title="提交实验"
+      title={WSB.title}
       footer={
         <>
           <button type="button" className="btn" onClick={onClose}>
-            取消
+            {WSB.cancel}
           </button>
-          <Button variant="primary" onClick={() => void submit()} busy={busy} busyText="正在提交…">
-            {p && p.missing.length ? '仍然提交（可能不通过）' : '提交'}
+          <Button variant="primary" onClick={() => void submit()} busy={busy} busyText={WSB.submitting}>
+            {p && p.missing.length ? WSB.submitAnyway : WSB.submit}
           </Button>
         </>
       }
     >
       <div className="stack">
-        <p>平台会对全部必需检查强制重测一次（最终复核），通过即完成并获得徽章。</p>
+        <p>{WSB.intro}</p>
         {previewing || (!previewId && !previewErr) ? (
           <p className="small muted" role="status">
-            <Shape name="spin" spin /> 正在生成预检查…
+            <Shape name="spin" spin /> {WSB.generating}
           </p>
         ) : null}
-        {previewErr ? <p className="small muted">预检查没有完成（{previewErr}），可以直接提交。</p> : null}
+        {previewErr ? <p className="small muted">{t(WSB.previewError, { error: previewErr })}</p> : null}
         {p ? (
           <div className="stack-4" data-precheck="">
             <span className="small">
-              当前预检查：必需步骤 {p.stepsDone}/{p.stepsTotal} 已达成{p.drifted.length ? ` · ${p.drifted.length} 项漂移` : ''}
+              {t(WSB.precheck, { done: p.stepsDone, total: p.stepsTotal })}
+              {p.drifted.length ? t(WSB.drifted, { n: p.drifted.length }) : ''}
             </span>
             {p.missing.length ? (
               <ul className="small mlist">
                 {p.missing.map((m) => (
-                  <li key={m}>还差：{titleOf(m)}</li>
+                  <li key={m}>{t(WSB.missing, { step: titleOf(m) })}</li>
                 ))}
               </ul>
             ) : (
               <span className="small st pass">
-                <Shape name="check" /> 必需步骤都已达成
+                <Shape name="check" /> {WSB.allDone}
               </span>
             )}
           </div>

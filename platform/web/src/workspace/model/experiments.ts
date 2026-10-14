@@ -9,6 +9,7 @@
 import { experimentLabels, type ExperimentDecl, type ExperimentLabel } from './lab';
 import type { ExperimentValidity } from '../../ui';
 
+import { msg } from '../../i18n';
 export interface ExperimentRunView {
   runId: string;
   sessionId?: string;
@@ -31,16 +32,9 @@ export interface ExperimentRunView {
 
 export type VariantStatus = 'none' | 'registered' | 'stale-registered' | ExperimentValidity | 'uploaded';
 
-export const REASON_TEXT: Readonly<Record<string, string>> = {
-  OUT_OF_WINDOW: '不在登记的时间窗内',
-  DRIVER_MISMATCH: '运行时驱动与该变体要求不符',
-  NOT_CORROBORATED: '服务端没有看到足够的请求',
-  PATH_RATIO: '路径占比不足',
-  TOO_FEW_SAMPLES: '样本不足',
-  OUTPUT_TRUNCATED: '输出被截断',
-  DELIVERY_MISMATCH: '投递位置与要求不符',
-  LABEL_NOT_IN_LAB: '变体不在卡片声明中',
-};
+const WE = msg.workspace.exp;
+
+export const REASON_TEXT: Readonly<Record<string, string>> = WE.reason;
 
 export function reasonText(code: string): string {
   return REASON_TEXT[code] ?? code;
@@ -58,16 +52,7 @@ export function variantStatus(run: ExperimentRunView | null, nowMs: number): Var
   return 'uploaded';
 }
 
-export const VARIANT_STATUS_TEXT: Readonly<Record<VariantStatus, string>> = {
-  none: '还没有记录',
-  registered: '运行中或未上传',
-  'stale-registered': '可能上传失败：请看工作台终端中运行器的输出',
-  uploaded: '已上传，等待校验',
-  'pending-crosscheck': '交叉校验中（服务端指标可能有数分钟延迟，稍后自动复核）',
-  valid: '有效',
-  simulated: '模拟基线（旁路补测）',
-  invalid: '无效',
-};
+export const VARIANT_STATUS_TEXT: Readonly<Record<VariantStatus, string>> = WE.variantStatus;
 
 /** 上传进度的四段（UploadStatusTrack）：已登记 → 已上传 → 交叉校验中 → 有效 / 模拟基线 / 无效；返回当前段的序号。 */
 export function trackIndex(s: VariantStatus): number {
@@ -144,11 +129,11 @@ export function deltaOf(a: number | null, b: number | null, label = ''): Delta {
   if (a === null || b === null) return { text: '—', dir: 'none' };
   const d = b - a;
   const base = Math.max(Math.abs(a), Math.abs(b));
-  if (base === 0 || Math.abs(d) / base < NOISE) return { text: '差异不明显', dir: 'same' };
+  if (base === 0 || Math.abs(d) / base < NOISE) return { text: WE.deltaSame, dir: 'same' };
   const down = d < 0;
-  let text = down ? '▼ 下降' : '▲ 上升';
-  if (/ms|毫秒|latency|ttfb/i.test(label)) text += down ? ' · 更快' : ' · 更慢';
-  else if (b === 0) text = '▼ 变为 0';
+  let text = down ? WE.deltaDown : WE.deltaUp;
+  if (/ms|毫秒|ミリ秒|latency|ttfb/i.test(label)) text += down ? WE.faster : WE.slower;
+  else if (b === 0) text = WE.toZero;
   return { text, dir: down ? 'down' : 'up' };
 }
 
@@ -200,11 +185,11 @@ export interface Comparability {
 export function comparability(a: ExperimentRunView | null, b: ExperimentRunView | null): Comparability {
   if (!a || !b) return { comparable: null, reasons: [] };
   const reasons: string[] = [];
-  if ((a.scenario ?? null) !== (b.scenario ?? null)) reasons.push('场景不一致');
-  if (JSON.stringify(a.params ?? {}) !== JSON.stringify(b.params ?? {})) reasons.push('参数不一致');
-  if ((a.environment?.instanceType ?? null) !== (b.environment?.instanceType ?? null)) reasons.push('实例类型不一致');
-  if ((a.variant?.cardVariant ?? null) !== (b.variant?.cardVariant ?? null)) reasons.push('起始变体不一致');
-  if (a.forced || b.forced) reasons.push('使用了强制运行');
+  if ((a.scenario ?? null) !== (b.scenario ?? null)) reasons.push(WE.cmpScenario);
+  if (JSON.stringify(a.params ?? {}) !== JSON.stringify(b.params ?? {})) reasons.push(WE.cmpParams);
+  if ((a.environment?.instanceType ?? null) !== (b.environment?.instanceType ?? null)) reasons.push(WE.cmpInstanceType);
+  if ((a.variant?.cardVariant ?? null) !== (b.variant?.cardVariant ?? null)) reasons.push(WE.cmpVariant);
+  if (a.forced || b.forced) reasons.push(WE.cmpForced);
   return { comparable: reasons.length === 0, reasons };
 }
 

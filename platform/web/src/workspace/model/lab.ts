@@ -5,6 +5,8 @@
  * 规划中（`status: planned`）的卡片没有 `steps` 与 `manuals`：工作台显示“手册内容缺失”的空态（P05 文案示例）。
  */
 
+import { msg } from '../../i18n';
+import { contentUrl, fetchContentJson } from '../../i18n/content';
 export type StepType = 'console' | 'cli' | 'script' | 'code' | 'observe' | 'experiment';
 export type PanelId = 'terminal-lab' | 'terminal-workstation' | 'console' | 'preview';
 export const PANELS: readonly PanelId[] = ['terminal-lab', 'terminal-workstation', 'console', 'preview'];
@@ -27,6 +29,8 @@ export interface MdNode {
 export interface ManualFile {
   frontMatter?: { step?: string; section?: string };
   ast: MdNode;
+  /** 这份手册实际的语言（按语言构建的内容才有；与界面语言不同时显示“未翻訳”标记，09 §2.4）。 */
+  lang?: string;
 }
 
 export type StepCheckRef = string | { ref: string; as?: string; required?: boolean };
@@ -167,14 +171,16 @@ const cache = new Map<string, Promise<unknown>>();
 
 /** 读取静态内容（同一 URL 在本标签页只取一次；失败的不缓存）。 */
 export function fetchContent<T>(url: string, fetchImpl: typeof fetch = (...a) => globalThis.fetch(...a)): Promise<T> {
-  const hit = cache.get(url);
+  // 按当前界面语言读取（09 §2.4）；缓存键是改写后的地址
+  const key = contentUrl(url);
+  const hit = cache.get(key);
   if (hit) return hit as Promise<T>;
-  const p = fetchImpl(url, { credentials: 'same-origin' }).then(async (r) => {
-    if (!r.ok) throw new Error(`content ${url}: HTTP ${r.status}`);
-    return (await r.json()) as T;
+  const p = fetchContentJson<T>(url, fetchImpl).then((r) => {
+    if (!r.ok) throw new Error(`content ${r.url}: HTTP ${r.status}`);
+    return r.data as T;
   });
-  cache.set(url, p);
-  p.catch(() => cache.delete(url));
+  cache.set(key, p);
+  p.catch(() => cache.delete(key));
   return p;
 }
 
@@ -234,22 +240,25 @@ export function findExperiment(lab: LabDoc | null, key: string): ExperimentDecl 
   return lab.experiments.find((e) => e.module === module && e.id === id) ?? null;
 }
 
-export const STEP_TYPE_TEXT: Readonly<Record<StepType, string>> = {
-  console: '控制台',
-  cli: 'CLI',
-  script: '脚本',
-  code: '代码',
-  observe: '观察',
-  experiment: '对比实验',
-};
+export const STEP_TYPE_TEXT: Readonly<Record<StepType, string>> = msg.workspace.labText.stepType;
 
 /**
  * 部署等级（02 §11.1）：定性说明（P04：没有历史耗时数据时只显示等级说明，§9.2 #10）与默认部署预算。
  * 预算只作内部上限（“接近部署预算”提示用 80%），界面不显示分钟数（08 P04 状态表）。
  */
-export const PROVISION_CLASS: Readonly<Record<string, { name: string; note: string; budgetMinutes: number }>> = {
-  A: { name: '较快', note: '本卡片的起始状态只有 L0 与快速创建的资源（A）。', budgetMinutes: 30 },
-  B: { name: '中等', note: '本卡片的起始状态包含 CloudFront、ALB、实例替换等较慢的资源（B）。', budgetMinutes: 45 },
-  C: { name: '较慢', note: '本卡片的起始状态包含 RDS 或 ElastiCache，通常需要较长时间（C）。', budgetMinutes: 90 },
-  D: { name: '很慢', note: '本卡片的起始状态包含 RDS / ElastiCache 与其他慢资源，通常需要很长时间（D）。', budgetMinutes: 120 },
+const provisionClass = (k: 'A' | 'B' | 'C' | 'D', budgetMinutes: number) => ({
+  get name() {
+    return msg.workspace.labText.provisionName[k];
+  },
+  get note() {
+    return msg.workspace.labText.provisionNote[k];
+  },
+  budgetMinutes,
+});
+
+export const PROVISION_CLASS: Readonly<Record<string, { readonly name: string; readonly note: string; budgetMinutes: number }>> = {
+  A: provisionClass('A', 30),
+  B: provisionClass('B', 45),
+  C: provisionClass('C', 90),
+  D: provisionClass('D', 120),
 };

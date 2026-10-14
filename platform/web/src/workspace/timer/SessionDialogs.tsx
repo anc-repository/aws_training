@@ -12,6 +12,10 @@ import { Button, Dialog, Shape } from '../../ui';
 import { useWorkspace } from '../context';
 import { schedulerDrift } from '../model/expiry';
 
+import { t } from '../../i18n';
+import { W } from '../strings';
+
+const WD = W.dialogs;
 /** 取消实验（P04）：`POST /sessions/{sid}/end {disposition: destroy, when: now}`；会话离开 REQUESTED / PROVISIONING 时自动关闭。 */
 export function CancelDialog({ onClose }: { onClose: () => void }) {
   const ws = useWorkspace();
@@ -30,7 +34,7 @@ export function CancelDialog({ onClose }: { onClose: () => void }) {
       const r = await op.current.run<SessionView>({ params: { sid: ws.sid }, body: { disposition: 'destroy', when: 'now' } });
       if (r.data?.sessionId) sync.applyView(r.data);
       else void sync.refreshView(ws.sid);
-      announce('正在取消实验');
+      announce(WD.cancelling);
       onClose();
     } catch (e) {
       if (isApiError(e) && (e.status === 409 || e.code === 'INVALID_STATE')) {
@@ -39,7 +43,7 @@ export function CancelDialog({ onClose }: { onClose: () => void }) {
         onClose();
         return;
       }
-      setError(isApiError(e) ? (e.detail ?? e.title) : '取消没有完成，可以重试。');
+      setError(isApiError(e) ? (e.detail ?? e.title) : WD.cancelFailed);
     } finally {
       setBusy(false);
     }
@@ -48,7 +52,7 @@ export function CancelDialog({ onClose }: { onClose: () => void }) {
     <Dialog
       open
       onClose={onClose}
-      title="取消实验"
+      title={WD.cancelTitle}
       size="narrow"
       alert
       initialFocus="[data-cancel]"
@@ -56,15 +60,15 @@ export function CancelDialog({ onClose }: { onClose: () => void }) {
       footer={
         <>
           <button type="button" className="btn" data-cancel="" onClick={onClose} disabled={busy}>
-            继续准备
+            {WD.keepPreparing}
           </button>
-          <Button variant="danger" onClick={() => void submit()} busy={busy} busyText="正在取消…" data-cancel-submit="">
-            取消实验
+          <Button variant="danger" onClick={() => void submit()} busy={busy} busyText={WD.cancellingBusy} data-cancel-submit="">
+            {WD.cancelTitle}
           </Button>
         </>
       }
     >
-      <p>{requested ? '尚未创建任何资源，取消不会产生费用。' : '取消后，已经创建的资源会被释放，可能需要一些时间。准备期间产生的费用不会退回。'}</p>
+      <p>{requested ? WD.cancelRequested : WD.cancelProvisioning}</p>
       {error ? (
         <p className="small st fail" role="alert">
           {error}
@@ -81,7 +85,7 @@ export function ExpiryDialog({ canExtend, onExtend, onClose }: { canExtend: bool
     <Dialog
       open
       onClose={onClose}
-      title="还剩 5 分钟"
+      title={WD.t5Title}
       size="narrow"
       initialFocus="[data-ack]"
       returnFocusTo={() => prev.current}
@@ -96,16 +100,16 @@ export function ExpiryDialog({ canExtend, onExtend, onClose }: { canExtend: bool
                 onExtend();
               }}
             >
-              延长 30 分钟
+              {WD.extend30}
             </button>
           ) : null}
           <button type="button" className="btn primary" data-ack="" onClick={onClose}>
-            知道了
+            {WD.gotIt}
           </button>
         </>
       }
     >
-      <p>还剩 5 分钟。正在运行的对比实验，请尽快让结果上传完成（结束时平台会接收在途上传）。</p>
+      <p>{WD.t5Body}</p>
     </Dialog>
   );
 }
@@ -120,29 +124,29 @@ export function ExpiredOverlay({ kind }: { kind: 'overdue' | 'revoking' }) {
   const primary = useRef<HTMLButtonElement>(null);
   useEffect(() => {
     primary.current?.focus();
-    announce(kind === 'overdue' ? '实验时间已到，相关对话框已关闭' : '实验已结束，正在收回访问并释放资源', { politeness: 'assertive' });
+    announce(kind === 'overdue' ? WD.overdueAnnounce : WD.endedAnnounce, { politeness: 'assertive' });
   }, [kind]);
   const drift = schedulerDrift(ws.view, ws.now());
   return (
     <div className="ws-ovl" role="alertdialog" aria-modal="true" aria-labelledby="ws-ovl-t" aria-describedby="ws-ovl-d" data-ws-overlay={kind}>
       <div className="ws-ovl-box stack-8">
         <h2 id="ws-ovl-t">
-          <Shape name="hg" /> {kind === 'overdue' ? '实验时间已到' : '实验已结束'}
+          <Shape name="hg" /> {kind === 'overdue' ? WD.overdueTitle : WD.endedTitle}
         </h2>
         <p id="ws-ovl-d">
-          {kind === 'overdue' ? '实验时间已到，正在收回访问并释放资源。' : '实验已结束，正在收回访问并释放资源。'}
-          {ws.view.deadlineAt && kind === 'overdue' ? `（${formatClock(ws.view.deadlineAt)} 到期）` : ''}
+          {kind === 'overdue' ? WD.overdueBody : WD.endedBody}
+          {ws.view.deadlineAt && kind === 'overdue' ? t(WD.expiredAt, { t: formatClock(ws.view.deadlineAt) }) : ''}
         </p>
-        {drift ? <p className="small muted">平台正在补触发到期处理（通常几分钟内）。</p> : null}
+        {drift ? <p className="small muted">{WD.drift}</p> : null}
         <div className="row">
           <button ref={primary} type="button" className="btn primary" onClick={() => navigate(`/sessions/${ws.sid}/end`)} data-ovl-primary="">
-            查看回收进度
+            {WD.viewReclaim}
           </button>
           {ws.view.readyAt ? (
-            <Button onClick={() => navigate(`/sessions/${ws.sid}/report`)}>查看报告</Button>
+            <Button onClick={() => navigate(`/sessions/${ws.sid}/report`)}>{WD.viewReport}</Button>
           ) : null}
           <Button variant="ghost" onClick={() => navigate('/labs')}>
-            回到卡片目录
+            {WD.backToCatalog}
           </Button>
         </div>
       </div>

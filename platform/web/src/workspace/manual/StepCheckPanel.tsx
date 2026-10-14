@@ -14,6 +14,10 @@ import type { CheckRunsResponse } from '../data/types';
 import { latestResults, runSummaryText, stepCheckRows, waitDelayMs, type CheckRowModel } from '../model/checks';
 import { checkLocalId, type LabStep } from '../model/lab';
 
+import { t } from '../../i18n';
+import { W } from '../strings';
+
+const WS = W.stepCheck;
 export function StepCheckPanel({ step, only }: { step: LabStep; only?: string }) {
   const ws = useWorkspace();
   const wb = useWorkbench();
@@ -58,12 +62,12 @@ export function StepCheckPanel({ step, only }: { step: LabStep; only?: string })
     runner.complete(d.runId);
     if (d.summary) {
       const s = d.summary;
-      announce(`本步检测完成：${s.pass ?? 0} 项通过${s.fail ? `，${s.fail} 项未通过` : ''}`, { topic: `check:${step.id}` });
+      announce(s.fail ? t(WS.doneFail, { pass: s.pass ?? 0, fail: s.fail }) : t(WS.done, { pass: s.pass ?? 0 }), { topic: `check:${step.id}` });
     }
   }, [lastEvt, step.id, runner, only]);
 
   const canRun = ws.role === 'L' || ws.role === 'A';
-  const runBlocked = ws.preparing ? '环境就绪后可用' : !ws.live ? '实验已结束，不能再检测' : null;
+  const runBlocked = ws.preparing ? WS.afterReady : !ws.live ? WS.ended : null;
   void rs;
   const onRun = (e: React.MouseEvent) => {
     if (e.shiftKey) wb.runLabCheck();
@@ -86,11 +90,11 @@ export function StepCheckPanel({ step, only }: { step: LabStep; only?: string })
       {!only ? (
         <div className="row between">
           <h3 id={`chk-h-${step.id}`} className="small">
-            本步检测
+            {WS.title}
           </h3>
           {canRun ? (
-            <Button size="sm" onClick={onRun} disabledReason={runBlocked} busy={inflight !== null} busyText="核验中…" data-run-check="">
-              检测
+            <Button size="sm" onClick={onRun} disabledReason={runBlocked} busy={inflight !== null} busyText={WS.verifying} data-run-check="">
+              {WS.run}
               <span className="kbd-hint">
                 {' '}
                 <kbd>⌃.</kbd>
@@ -101,7 +105,7 @@ export function StepCheckPanel({ step, only }: { step: LabStep; only?: string })
         </div>
       ) : (
         <h3 id={`chk-h-${step.id}${only}`} className="sr">
-          检查
+          {WS.checks}
         </h3>
       )}
       {drifted && !only ? (
@@ -109,7 +113,7 @@ export function StepCheckPanel({ step, only }: { step: LabStep; only?: string })
           <Shape name="tri" />
           <div className="stack-4">
             <span>
-              这一步曾于 {driftAt ? formatClock(driftAt) : '之前'} 通过，现在{badRows.length ? `“${badRows.map((r) => r.title).join('”“')}”` : '有检查'}未通过。
+              {t(WS.drift, { t: driftAt ? formatClock(driftAt) : WS.before, what: badRows.length ? t(WS.quoted, { list: badRows.map((r) => r.title).join(WS.quoteSep) }) : WS.someChecks })}
             </span>
             {ws.learner && ws.live ? (
               <div className="row">
@@ -121,10 +125,10 @@ export function StepCheckPanel({ step, only }: { step: LabStep; only?: string })
                       d.open = true;
                       d.scrollIntoView({ block: 'nearest' });
                       d.querySelector('summary')?.focus();
-                    } else announce('本步没有登记常见错误');
+                    } else announce(WS.noPitfalls);
                   }}
                 >
-                  排错
+                  {WS.troubleshoot}
                 </Button>
                 <Button
                   size="sm"
@@ -133,17 +137,17 @@ export function StepCheckPanel({ step, only }: { step: LabStep; only?: string })
                     setAcking(true);
                     try {
                       await api.call('ackDrift', { params: { sid: ws.sid, stepId: step.id }, body: {} });
-                      announce('已记录：这是有意的改动。提交时仍要求这一步通过。');
+                      announce(WS.ackDone);
                     } catch {
-                      announce('没能记录，请稍后重试');
+                      announce(WS.ackFailed);
                     } finally {
                       setAcking(false);
                     }
                   }}
                 >
-                  我是有意改动的
+                  {WS.intended}
                 </Button>
-                <span className="small muted">确认只关闭提醒，提交时仍要求通过。</span>
+                <span className="small muted">{WS.ackNote}</span>
               </div>
             ) : null}
           </div>
@@ -153,12 +157,12 @@ export function StepCheckPanel({ step, only }: { step: LabStep; only?: string })
         <div className={finished.exitCode === 0 ? 'note blue' : 'note amber'} role="status" data-suggest="">
           <Shape name={finished.exitCode === 0 ? 'check' : 'tri'} />
           <span>
-            {finished.exitCode === 0 ? '命令已完成（退出码 0）' : `命令失败（退出码 ${finished.exitCode ?? '未知'}）`}
+            {finished.exitCode === 0 ? WS.cmdOk : t(WS.cmdFailed, { code: finished.exitCode ?? WS.unknown })}
             {canRun && ws.live ? (
               <>
                 {' · '}
                 <button type="button" className="linkbtn" onClick={() => wb.runStepCheck(step.id)}>
-                  检测本步
+                  {WS.checkStep}
                 </button>
               </>
             ) : null}
@@ -172,9 +176,9 @@ export function StepCheckPanel({ step, only }: { step: LabStep; only?: string })
           ))}
         </div>
       ) : (
-        <p className="small muted">本步没有自动检查。</p>
+        <p className="small muted">{WS.noAuto}</p>
       )}
-      {stepResult?.state === 'failed' && !only ? <p className="small muted">未通过不会扣分：修好之后重新检测即可。最终以提交时的复核为准。</p> : null}
+      {stepResult?.state === 'failed' && !only ? <p className="small muted">{WS.failedNote}</p> : null}
       <WaitDriver rows={rows} stepId={step.id} />
     </section>
   );
@@ -204,12 +208,12 @@ function CheckLine({ row, stepId, startedAt }: { row: CheckRowModel; stepId: str
       />
       {row.canManual && ws.learner && ws.live ? (
         <div className="chk-act">
-          <button type="button" className="linkbtn small" onClick={() => wb.openManualConfirm(stepId, row.checkId)} aria-label={`手动确认：${row.title}`}>
-            手动确认…
+          <button type="button" className="linkbtn small" onClick={() => wb.openManualConfirm(stepId, row.checkId)} aria-label={t(WS.manualLabel, { title: row.title })}>
+            {WS.manual}
           </button>
         </div>
       ) : null}
-      {row.review === 'rejected' && row.reviewComment ? <p className="small muted chk-act">助教评语：{row.reviewComment}</p> : null}
+      {row.review === 'rejected' && row.reviewComment ? <p className="small muted chk-act">{t(WS.reviewComment, { text: row.reviewComment })}</p> : null}
     </div>
   );
 }
@@ -221,8 +225,8 @@ function WaitText({ row, startedAt }: { row: CheckRowModel; startedAt: string | 
   const typical = row.decl?.wait?.typicalMinutes;
   return (
     <span aria-live="off">
-      {since ? `已等待 ${formatCountdown(ws.now() - since)}` : '等待中'}
-      {typical ? ` · 通常需要约 ${typical} 分钟` : ''}
+      {since ? t(WS.waited, { t: formatCountdown(ws.now() - since) }) : WS.waiting}
+      {typical ? t(WS.typical, { n: typical }) : ''}
     </span>
   );
 }
@@ -264,7 +268,7 @@ function WaitDriver({ rows, stepId }: { rows: CheckRowModel[]; stepId: string })
   if (!can || nextAt === null) return null;
   return (
     <p className="small muted" aria-live="off" data-wait-next="">
-      <Shape name="clock" /> 等待型检查 · 下次检测 {formatCountdown(Math.max(0, nextAt - Date.now()))} 后
+      <Shape name="clock" /> {t(WS.nextCheck, { t: formatCountdown(Math.max(0, nextAt - Date.now())) })}
     </p>
   );
 }
