@@ -75,7 +75,17 @@ export class LocalL0Launcher {
     const env = lib.makeEnvDir({ name: `atl-${envName}`, port, base: { CLOUDALBUM_ENV: envName } });
     if (platform) LocalL0Launcher.writePlatformFiles(env.etc, envId, envName, platform);
     const proc = lib.startProcess('api', env, { root: env.root });
-    await lib.waitHealthy(env.baseUrl, proc, 90_000);
+    // Generous by default: on a busy dev machine (parallel builds / test runs) a cold api start can take minutes.
+    const readyTimeoutMs = Number(process.env.ATL_DEV_L0_READY_TIMEOUT_MS ?? 240_000);
+    try {
+      await lib.waitHealthy(env.baseUrl, proc, readyTimeoutMs);
+    } catch (e) {
+      let tail = '';
+      try { tail = fs.readFileSync(proc.log, 'utf8').split('\n').slice(-30).join('\n'); } catch { /* no log yet */ }
+      await proc.stop().catch(() => undefined);
+      const hint = `local L0 did not become ready within ${Math.round(readyTimeoutMs / 1000)} s; ATL_DEV_L0_READY_TIMEOUT_MS raises it`;
+      throw new Error(`${(e as Error).message.trim()} (${hint})${tail ? `\n--- api log (last lines) ---\n${tail}` : ''}`);
+    }
     if (platform) {
       const password = randomBytes(18).toString('base64url');
       const r = lib.cli(env.etc, ['admin:create', '--email', `atl-admin@${envName}.example.test`, '--password', password]);

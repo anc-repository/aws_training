@@ -50,7 +50,9 @@ function envFile(obj) {
 export function childEnv(extra = {}) {
   const env = {};
   for (const [k, v] of Object.entries(process.env)) {
-    if (/^AWS_/i.test(k) || /^CLOUDALBUM_/i.test(k) || k === 'NODE_ENV' || k === 'VITEST') continue;
+    // PORT / HOST come from the env dir (cloudalbum.env); an inherited PORT (e.g. a dev launcher's own port) would win over it
+    // and the api would listen on the wrong port while waitHealthy polls the assigned one.
+    if (/^AWS_/i.test(k) || /^CLOUDALBUM_/i.test(k) || k === 'NODE_ENV' || k === 'VITEST' || k === 'PORT' || k === 'HOST') continue;
     env[k] = v;
   }
   return { ...env, ...extra };
