@@ -5,10 +5,22 @@ id: svc-vuln-scan
 kind: service
 version: 0.1.0
 status: planned
-service: Amazon Inspector
-function: 漏洞扫描
-title: Amazon Inspector：漏洞扫描
-summary: 本机每天一次的 dnf 安全公告与 npm audit，对比 Amazon Inspector 对 EC2 的持续扫描与集中覆盖视图（Lambda、ECR 扫描作为讲解）。
+service:
+  zh-CN: Amazon Inspector
+  ja: Amazon Inspector
+  en: Amazon Inspector
+function:
+  zh-CN: 漏洞扫描
+  ja: 脆弱性スキャン
+  en: Vulnerability scanning
+title:
+  zh-CN: Amazon Inspector：漏洞扫描
+  ja: Amazon Inspector：脆弱性スキャン
+  en: "Amazon Inspector: vulnerability scanning"
+summary:
+  zh-CN: 本机每天一次的 dnf 安全公告与 npm audit，对比 Amazon Inspector 对 EC2 的持续扫描与集中覆盖视图（Lambda、ECR 扫描作为讲解）。
+  ja: ホスト上で 1 日 1 回実行する dnf のセキュリティアドバイザリと npm audit を、Amazon Inspector による EC2 の継続的なスキャンと一元的なカバレッジビューと比較します（Lambda と ECR のスキャンは解説のみ）。
+  en: Compare the host's once-a-day dnf security advisories and npm audit with Amazon Inspector's continuous EC2 scanning and central coverage view (Lambda and ECR scanning are explained only).
 difficulty: intermediate
 estimatedMinutes: 75
 timeLimitMinutes: 150
@@ -17,7 +29,13 @@ retain: {allowed: true, maxHours: 24}
 regions:
   supported: [ap-northeast-1]
 services:
-- {id: inspector, name: Amazon Inspector, role: primary, module: vuln-scan}
+- id: inspector
+  name:
+    zh-CN: Amazon Inspector
+    ja: Amazon Inspector
+    en: Amazon Inspector
+  role: primary
+  module: vuln-scan
 - {id: iam, role: context, module: iam}
 modules:
   target: [vuln-scan]
@@ -35,8 +53,16 @@ startProfile:
     kind: module
     basis: credential
     set: {IAM_CREDENTIALS: role}
-    reason: 平台约定除 svc-ec2、svc-iam 外起始状态都带实例角色（C3）
-  - {item: preview-direct-https, kind: platform, reason: 预览使用方案 B 的 Let's Encrypt IP 证书（03 §6.2）}
+    reason:
+      zh-CN: 平台约定除 svc-ec2、svc-iam 外起始状态都带实例角色（C3）
+      ja: プラットフォームの取り決めにより、svc-ec2 と svc-iam 以外の開始状態にはインスタンスロールが付いています（C3）
+      en: By platform convention, every start state except svc-ec2 and svc-iam includes an instance role (C3)
+  - item: preview-direct-https
+    kind: platform
+    reason:
+      zh-CN: 预览使用方案 B 的 Let's Encrypt IP 证书（03 §6.2）
+      ja: プレビューには方式 B の Let's Encrypt IP 証明書を使います（03 §6.2）
+      en: The preview uses the option B Let's Encrypt IP certificate (03 §6.2)
   platform:
     preview: {directHttps: 'on'}
 targetModules:
@@ -46,10 +72,24 @@ targetModules:
 expectedWarnings: []
 platform:
   accountImpact:
-  - {id: inspector-activation, scope: region, resource: Inspector 激活（本区域全部 EC2，含工作台）, revert: delete, note: 本会话激活的扫描类型回收时停用}
+  - id: inspector-activation
+    scope: region
+    resource:
+      zh-CN: Inspector 激活（本区域全部 EC2，含工作台）
+      ja: Inspector の有効化（このリージョンのすべての EC2、ワークベンチを含む）
+      en: Inspector activation (all EC2 in this Region, including the workbench)
+    revert: delete
+    note:
+      zh-CN: 本会话激活的扫描类型回收时停用
+      ja: このセッションで有効にしたスキャンタイプは回収時に無効化されます
+      en: Scan types this session activated are deactivated at reclaim
 cost: {tier: medium}
 provision: {class: A}
-badge: {title: 漏洞雷达}
+badge:
+  title:
+    zh-CN: 漏洞雷达
+    ja: 脆弱性レーダー
+    en: Vulnerability radar
 tracks: [saa-main, secure]
 saa:
   domains: [secure]

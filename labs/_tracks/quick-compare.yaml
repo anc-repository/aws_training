@@ -2,20 +2,52 @@
 schema: atl.track/v2
 id: quick-compare
 version: 1.0.0
-title: 点名对比快速路径
-summary: 七个服务的“有 vs 没有”：Cognito、SQS、CloudFront、Lambda、ElastiCache、S3、RDS
-audience: 已经熟悉 L0、只想看这七组对比的学员
+title:
+  zh-CN: 点名对比快速路径
+  ja: 指定サービスの比較クイックパス
+  en: Quick comparison path
+summary:
+  zh-CN: 七个服务的“有 vs 没有”：Cognito、SQS、CloudFront、Lambda、ElastiCache、S3、RDS
+  ja: 7 つのサービスの「ある場合 vs ない場合」：Cognito、SQS、CloudFront、Lambda、ElastiCache、S3、RDS
+  en: '"With vs without" for seven services: Cognito, SQS, CloudFront, Lambda, ElastiCache, S3 and RDS'
+audience:
+  zh-CN: 已经熟悉 L0、只想看这七组对比的学员
+  ja: L0 にはすでに慣れていて、この 7 つの比較だけを見たい受講者
+  en: Learners who already know L0 and only want these seven comparisons
 stages:
   - id: compare
-    title: 七项对比（按费用从低到高）
+    title:
+      zh-CN: 七项对比（按费用从低到高）
+      ja: 7 つの比較（費用の低い順）
+      en: Seven comparisons (from lowest to highest cost)
     items:
-      - { card: svc-ec2, role: optional, note: 熟悉 L0 可以跳过 }
+      - card: svc-ec2
+        role: optional
+        note:
+          zh-CN: 熟悉 L0 可以跳过
+          ja: L0 に慣れていればスキップできます
+          en: Skip it if you already know L0
       - { card: svc-storage, role: required }
       - { card: svc-cdn, role: required }
       - { card: svc-queue, role: required }
       - { card: svc-image-processing, role: required }
       - { card: svc-auth, role: required }
-      - { card: svc-cache, role: required, note: 按小时计费，做完立即结束 }
-      - { card: svc-database, role: required, note: 按小时计费，做完立即结束 }
+      - card: svc-cache
+        role: required
+        note:
+          zh-CN: 按小时计费，做完立即结束
+          ja: 時間課金です。終わったらすぐに終了してください
+          en: Billed hourly; end it as soon as you finish
+      - card: svc-database
+        role: required
+        note:
+          zh-CN: 按小时计费，做完立即结束
+          ja: 時間課金です。終わったらすぐに終了してください
+          en: Billed hourly; end it as soon as you finish
 completion: { allowManual: true, minAutoRatio: 0.8, excludeSelfReported: true }
-certificate: { enabled: true, title: 七项点名对比证书 }
+certificate:
+  enabled: true
+  title:
+    zh-CN: 七项点名对比证书
+    ja: 7 つの比較の修了証
+    en: Seven comparisons certificate

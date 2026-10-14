@@ -1,6 +1,9 @@
 checks:
   - id: exp-before
-    title: upload-burst 的 before（上传经过 EC2）有一条有效结果
+    title:
+      zh-CN: upload-burst 的 before（上传经过 EC2）有一条有效结果
+      ja: upload-burst の before（アップロードが EC2 を経由）に有効な結果が 1 件ある
+      en: upload-burst has one valid before result (uploads through EC2)
     type: experiment
     module: storage
     experiment: upload-burst
@@ -8,7 +11,10 @@ checks:
     accept: [valid]
 
   - id: exp-pair
-    title: upload-burst 的 before 与 after 都有效且可比
+    title:
+      zh-CN: upload-burst 的 before 与 after 都有效且可比
+      ja: upload-burst の before と after がどちらも有効で比較できる
+      en: upload-burst before and after are both valid and comparable
     type: experiment
     module: storage
     experiment: upload-burst
@@ -16,7 +22,10 @@ checks:
     accept: [valid]
 
   - id: exp-sidebyside
-    title: upload-sidebyside 有一条有效结果
+    title:
+      zh-CN: upload-sidebyside 有一条有效结果
+      ja: upload-sidebyside に有効な結果が 1 件ある
+      en: upload-sidebyside has one valid result
     type: experiment
     module: storage
     experiment: upload-sidebyside
@@ -24,7 +33,10 @@ checks:
     required: false
 
   - id: exp-ebs-growth
-    title: ebs-growth 有一条有效结果
+    title:
+      zh-CN: ebs-growth 有一条有效结果
+      ja: ebs-growth に有効な結果が 1 件ある
+      en: ebs-growth has one valid result
     type: experiment
     module: storage
     experiment: ebs-growth

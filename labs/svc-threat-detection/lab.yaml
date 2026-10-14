@@ -5,10 +5,22 @@ id: svc-threat-detection
 kind: service
 version: 0.1.0
 status: planned
-service: Amazon GuardDuty
-function: 威胁检测
-title: Amazon GuardDuty：威胁检测
-summary: 在主机内的 fail2ban 旁边启用 GuardDuty：用覆盖矩阵看清两者各自能发现什么、谁能阻断、谁不怕实例宕机。
+service:
+  zh-CN: Amazon GuardDuty
+  ja: Amazon GuardDuty
+  en: Amazon GuardDuty
+function:
+  zh-CN: 威胁检测
+  ja: 脅威検出
+  en: Threat detection
+title:
+  zh-CN: Amazon GuardDuty：威胁检测
+  ja: Amazon GuardDuty：脅威検出
+  en: "Amazon GuardDuty: threat detection"
+summary:
+  zh-CN: 在主机内的 fail2ban 旁边启用 GuardDuty：用覆盖矩阵看清两者各自能发现什么、谁能阻断、谁不怕实例宕机。
+  ja: ホスト内の fail2ban と並べて GuardDuty を有効にします。カバレッジマトリックスで、それぞれが何を検出できるか、どちらがブロックできるか、どちらがインスタンスの停止に影響されないかを整理します。
+  en: Turn on GuardDuty next to fail2ban on the host, and use a coverage matrix to see what each one can detect, which one can block, and which one survives an instance outage.
 difficulty: intermediate
 estimatedMinutes: 45
 timeLimitMinutes: 90
@@ -17,7 +29,13 @@ retain: {allowed: true, maxHours: 24}
 regions:
   supported: [ap-northeast-1]
 services:
-- {id: guardduty, name: Amazon GuardDuty, role: primary, module: threat-detection}
+- id: guardduty
+  name:
+    zh-CN: Amazon GuardDuty
+    ja: Amazon GuardDuty
+    en: Amazon GuardDuty
+  role: primary
+  module: threat-detection
 - {id: iam, role: context, module: iam}
 modules:
   target: [threat-detection]
@@ -38,8 +56,16 @@ startProfile:
     kind: module
     basis: credential
     set: {IAM_CREDENTIALS: role}
-    reason: 平台约定除 svc-ec2、svc-iam 外起始状态都带实例角色（C3）
-  - {item: preview-direct-https, kind: platform, reason: 预览使用方案 B 的 Let's Encrypt IP 证书（03 §6.2）}
+    reason:
+      zh-CN: 平台约定除 svc-ec2、svc-iam 外起始状态都带实例角色（C3）
+      ja: プラットフォームの取り決めにより、svc-ec2 と svc-iam 以外の開始状態にはインスタンスロールが付いています（C3）
+      en: By platform convention, every start state except svc-ec2 and svc-iam includes an instance role (C3)
+  - item: preview-direct-https
+    kind: platform
+    reason:
+      zh-CN: 预览使用方案 B 的 Let's Encrypt IP 证书（03 §6.2）
+      ja: プレビューには方式 B の Let's Encrypt IP 証明書を使います（03 §6.2）
+      en: The preview uses the option B Let's Encrypt IP certificate (03 §6.2)
   platform:
     preview: {directHttps: 'on'}
 targetModules:
@@ -47,10 +73,25 @@ targetModules:
 expectedWarnings: []
 platform:
   accountImpact:
-  - {id: guardduty-detector, scope: region, resource: GuardDuty 检测器, preexisting: adopt-readonly, revert: delete, note: 本会话创建的回收时删除}
+  - id: guardduty-detector
+    scope: region
+    resource:
+      zh-CN: GuardDuty 检测器
+      ja: GuardDuty ディテクター
+      en: GuardDuty detector
+    preexisting: adopt-readonly
+    revert: delete
+    note:
+      zh-CN: 本会话创建的回收时删除
+      ja: このセッションで作成したものは回収時に削除されます
+      en: Deleted at reclaim if this session created it
 cost: {tier: medium}
 provision: {class: A}
-badge: {title: 威胁瞭望}
+badge:
+  title:
+    zh-CN: 威胁瞭望
+    ja: 脅威の見張り役
+    en: Threat watch
 tracks: [saa-main, secure]
 saa:
   domains: [secure]

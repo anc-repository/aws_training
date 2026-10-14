@@ -7,14 +7,36 @@ questions:
     type: single
     kind: scenario
     services: [cloudwatch]
-    stem: 运维希望 EC2 实例内存使用率超过 90% 时告警，却在 CloudWatch 控制台的 AWS/EC2 命名空间里找不到内存指标。应该怎么做？
+    stem:
+      zh-CN: 运维希望 EC2 实例内存使用率超过 90% 时告警，却在 CloudWatch 控制台的 AWS/EC2 命名空间里找不到内存指标。应该怎么做？
+      ja: 運用チームは EC2 インスタンスのメモリ使用率が 90% を超えたらアラームを出したいのですが、CloudWatch コンソールの AWS/EC2 名前空間にメモリのメトリクスが見つかりません。どうすべきですか？
+      en: Operations wants an alarm when an EC2 instance's memory utilization exceeds 90%, but cannot find a memory metric in the AWS/EC2 namespace in the CloudWatch console. What should they do?
     options:
-      - { id: a, text: 为实例开启详细监控 }
-      - { id: b, text: 在实例上安装 CloudWatch Agent 采集 mem_used_percent，再对该指标创建告警 }
-      - { id: c, text: 启用 CloudTrail 并创建指标过滤器 }
-      - { id: d, text: 使用 AWS Compute Optimizer }
+      - id: a
+        text:
+          zh-CN: 为实例开启详细监控
+          ja: インスタンスの詳細モニタリングを有効にする
+          en: Turn on detailed monitoring for the instance
+      - id: b
+        text:
+          zh-CN: 在实例上安装 CloudWatch Agent 采集 mem_used_percent，再对该指标创建告警
+          ja: インスタンスに CloudWatch エージェントをインストールして mem_used_percent を収集し、そのメトリクスにアラームを作成する
+          en: Install the CloudWatch agent on the instance to collect mem_used_percent, then create an alarm on that metric
+      - id: c
+        text:
+          zh-CN: 启用 CloudTrail 并创建指标过滤器
+          ja: CloudTrail を有効にしてメトリクスフィルターを作成する
+          en: Turn on CloudTrail and create a metric filter
+      - id: d
+        text:
+          zh-CN: 使用 AWS Compute Optimizer
+          ja: AWS Compute Optimizer を使う
+          en: Use AWS Compute Optimizer
     answer: [b]
-    explain: EC2 只提供虚拟化层可见的指标（CPU、网络、磁盘 I/O、状态检查），内存与文件系统使用率必须由操作系统内的 Agent 上报；详细监控只提高粒度，不增加内存指标。
+    explain:
+      zh-CN: EC2 只提供虚拟化层可见的指标（CPU、网络、磁盘 I/O、状态检查），内存与文件系统使用率必须由操作系统内的 Agent 上报；详细监控只提高粒度，不增加内存指标。
+      ja: EC2 が提供するのは仮想化レイヤーから見えるメトリクス（CPU、ネットワーク、ディスク I/O、ステータスチェック）だけで、メモリとファイルシステムの使用率は OS 内のエージェントが送信する必要があります。詳細モニタリングは粒度を上げるだけで、メモリのメトリクスは増えません。
+      en: EC2 only provides metrics visible from the virtualization layer (CPU, network, disk I/O, status checks); memory and file system utilization must be sent by an agent inside the OS; detailed monitoring only increases resolution and adds no memory metric.
     relatesTo: mem-visibility
     difficulty: 1
   - id: monitoring-heartbeat-missing
@@ -22,14 +44,36 @@ questions:
     type: single
     kind: scenario
     services: [cloudwatch]
-    stem: 应用每分钟上报一次心跳自定义指标。实例停止后，心跳告警一直停留在 INSUFFICIENT_DATA，没有发出通知。应如何修改？
+    stem:
+      zh-CN: 应用每分钟上报一次心跳自定义指标。实例停止后，心跳告警一直停留在 INSUFFICIENT_DATA，没有发出通知。应如何修改？
+      ja: アプリは 1 分に 1 回ハートビートのカスタムメトリクスを送信しています。インスタンスを停止した後、ハートビートのアラームは INSUFFICIENT_DATA のままで、通知が送られませんでした。どう変更すべきですか？
+      en: The app sends a heartbeat custom metric once a minute. After the instance stops, the heartbeat alarm stays at INSUFFICIENT_DATA and sends no notification. What should you change?
     options:
-      - { id: a, text: 改为 10 秒的高分辨率指标 }
-      - { id: b, text: 把告警的 TreatMissingData 设为 breaching }
-      - { id: c, text: 改用复合告警 }
-      - { id: d, text: 为实例开启详细监控 }
+      - id: a
+        text:
+          zh-CN: 改为 10 秒的高分辨率指标
+          ja: 10 秒の高解像度メトリクスに変更する
+          en: Switch to a 10-second high-resolution metric
+      - id: b
+        text:
+          zh-CN: 把告警的 TreatMissingData 设为 breaching
+          ja: アラームの TreatMissingData を breaching にする
+          en: Set the alarm's TreatMissingData to breaching
+      - id: c
+        text:
+          zh-CN: 改用复合告警
+          ja: 複合アラームに変更する
+          en: Switch to a composite alarm
+      - id: d
+        text:
+          zh-CN: 为实例开启详细监控
+          ja: インスタンスの詳細モニタリングを有効にする
+          en: Turn on detailed monitoring for the instance
     answer: [b]
-    explain: TreatMissingData 默认是 missing，数据缺失时告警不会进入 ALARM；心跳类告警要把“缺数据”视为违规。其他选项都不改变缺数据时的判定。
+    explain:
+      zh-CN: TreatMissingData 默认是 missing，数据缺失时告警不会进入 ALARM；心跳类告警要把“缺数据”视为违规。其他选项都不改变缺数据时的判定。
+      ja: TreatMissingData のデフォルトは missing で、データが欠けてもアラームは ALARM になりません。ハートビート型のアラームでは「データがない」ことを違反として扱う必要があります。他の選択肢は、データ欠損時の判定を変えません。
+      en: TreatMissingData defaults to missing, so missing data does not put the alarm in ALARM; heartbeat-style alarms must treat "no data" as breaching. The other options do not change how missing data is judged.
     relatesTo: after-kill
     difficulty: 1
   - id: monitoring-recover-action
@@ -37,15 +81,41 @@ questions:
     type: multi
     kind: scenario
     services: [cloudwatch, ec2]
-    stem: 一台只使用 EBS 的 t3 实例偶发底层硬件故障。要求自动恢复实例并通知运维，同时不希望应用 5xx 升高触发恢复动作。应选择哪两项？
+    stem:
+      zh-CN: 一台只使用 EBS 的 t3 实例偶发底层硬件故障。要求自动恢复实例并通知运维，同时不希望应用 5xx 升高触发恢复动作。应选择哪两项？
+      ja: EBS だけを使う t3 インスタンスで、まれに基盤ハードウェアの障害が起きます。インスタンスを自動で復旧して運用担当に通知し、同時にアプリの 5xx の増加では復旧アクションを起動させたくありません。選ぶべきものを 2 つ選んでください。
+      en: An EBS-only t3 instance occasionally suffers underlying hardware failures. You want the instance recovered automatically and operations notified, without a rise in application 5xx triggering the recovery action. Which two should you choose?
     options:
-      - { id: a, text: 在 StatusCheckFailed_System 告警上配置 EC2 recover 动作 }
-      - { id: b, text: 让同一个告警同时通知 SNS 主题 }
-      - { id: c, text: 在复合告警上配置 recover 动作 }
-      - { id: d, text: 在 Http5xx 告警上配置 reboot 动作 }
-      - { id: e, text: 在 CPUUtilization 告警上配置 terminate 动作 }
+      - id: a
+        text:
+          zh-CN: 在 StatusCheckFailed_System 告警上配置 EC2 recover 动作
+          ja: StatusCheckFailed_System のアラームに EC2 の recover アクションを設定する
+          en: Configure the EC2 recover action on a StatusCheckFailed_System alarm
+      - id: b
+        text:
+          zh-CN: 让同一个告警同时通知 SNS 主题
+          ja: 同じアラームから SNS トピックにも通知する
+          en: Have the same alarm also notify an SNS topic
+      - id: c
+        text:
+          zh-CN: 在复合告警上配置 recover 动作
+          ja: 複合アラームに recover アクションを設定する
+          en: Configure the recover action on a composite alarm
+      - id: d
+        text:
+          zh-CN: 在 Http5xx 告警上配置 reboot 动作
+          ja: Http5xx のアラームに reboot アクションを設定する
+          en: Configure the reboot action on an Http5xx alarm
+      - id: e
+        text:
+          zh-CN: 在 CPUUtilization 告警上配置 terminate 动作
+          ja: CPUUtilization のアラームに terminate アクションを設定する
+          en: Configure the terminate action on a CPUUtilization alarm
     answer: [a, b]
-    explain: 系统状态检查失败对应 AWS 侧的硬件或宿主问题，recover 会在新硬件上恢复同一实例；复合告警只能执行通知类动作；D、E 会被应用层问题误触发。
+    explain:
+      zh-CN: 系统状态检查失败对应 AWS 侧的硬件或宿主问题，recover 会在新硬件上恢复同一实例；复合告警只能执行通知类动作；D、E 会被应用层问题误触发。
+      ja: システムステータスチェックの失敗は AWS 側のハードウェアやホストの問題に対応し、recover は同じインスタンスを新しいハードウェア上で復旧します。複合アラームは通知系のアクションしか実行できません。D と E はアプリ層の問題で誤って起動されます。
+      en: A failed system status check means a hardware or host problem on the AWS side, and recover restores the same instance on new hardware; composite alarms can only run notification actions; D and E would be triggered by application-level problems.
     relatesTo: enable
     difficulty: 2
   - id: monitoring-cardinality
@@ -53,14 +123,36 @@ questions:
     type: single
     kind: concept
     services: [cloudwatch]
-    stem: 开发者把 userId 作为自定义指标的维度上报请求耗时，月底 CloudWatch 费用明显上涨。最主要的原因是？
+    stem:
+      zh-CN: 开发者把 userId 作为自定义指标的维度上报请求耗时，月底 CloudWatch 费用明显上涨。最主要的原因是？
+      ja: 開発者が userId をカスタムメトリクスのディメンションにしてリクエストの所要時間を送信したところ、月末の CloudWatch の費用が大きく上がりました。主な原因はどれですか？
+      en: A developer sends request latency with userId as a custom metric dimension, and the CloudWatch bill rises sharply at month end. What is the main reason?
     options:
-      - { id: a, text: PutMetricData 请求次数增加 }
-      - { id: b, text: 每个不同的维度组合都是一个单独计费的自定义指标，高基数维度让指标数暴涨 }
-      - { id: c, text: 指标保留期变长 }
-      - { id: d, text: 告警的评估频率提高 }
+      - id: a
+        text:
+          zh-CN: PutMetricData 请求次数增加
+          ja: PutMetricData のリクエスト回数が増えた
+          en: More PutMetricData requests
+      - id: b
+        text:
+          zh-CN: 每个不同的维度组合都是一个单独计费的自定义指标，高基数维度让指标数暴涨
+          ja: 異なるディメンションの組み合わせごとに別々に課金されるカスタムメトリクスになり、カーディナリティの高いディメンションでメトリクス数が爆発的に増えた
+          en: Every distinct dimension combination is a separately billed custom metric, and a high-cardinality dimension makes the number of metrics explode
+      - id: c
+        text:
+          zh-CN: 指标保留期变长
+          ja: メトリクスの保持期間が長くなった
+          en: Longer metric retention
+      - id: d
+        text:
+          zh-CN: 告警的评估频率提高
+          ja: アラームの評価頻度が上がった
+          en: Alarms are evaluated more often
     answer: [b]
-    explain: 自定义指标按“指标名 + 维度组合”计数计费；userId、requestId 这类高基数字段只能放在日志或 EMF 属性里，不能当维度。
+    explain:
+      zh-CN: 自定义指标按“指标名 + 维度组合”计数计费；userId、requestId 这类高基数字段只能放在日志或 EMF 属性里，不能当维度。
+      ja: カスタムメトリクスは「メトリクス名 + ディメンションの組み合わせ」の数で課金されます。userId や requestId のようなカーディナリティの高いフィールドはログか EMF のプロパティに入れ、ディメンションにしてはいけません。
+      en: Custom metrics are counted and billed per "metric name + dimension combination"; high-cardinality fields like userId and requestId belong in logs or EMF properties, never in dimensions.
     relatesTo: enable
     difficulty: 2
   - id: monitoring-percentile
@@ -68,13 +160,35 @@ questions:
     type: single
     kind: concept
     services: [cloudwatch]
-    stem: 应用以统计集（StatisticValues：SampleCount、Sum、Min、Max）上报请求耗时，却无法对它创建 p95 告警。应该怎么改？
+    stem:
+      zh-CN: 应用以统计集（StatisticValues：SampleCount、Sum、Min、Max）上报请求耗时，却无法对它创建 p95 告警。应该怎么改？
+      ja: アプリはリクエストの所要時間を統計セット（StatisticValues：SampleCount、Sum、Min、Max）で送信していますが、p95 のアラームを作成できません。どう変えるべきですか？
+      en: "The app sends request latency as a statistic set (StatisticValues: SampleCount, Sum, Min, Max) but cannot create a p95 alarm on it. What should change?"
     options:
-      - { id: a, text: 把告警周期改为 1 分钟 }
-      - { id: b, text: 改为上报原始值（Values / Counts 数组）或逐条上报，CloudWatch 才能计算百分位 }
-      - { id: c, text: 开启详细监控 }
-      - { id: d, text: 改用复合告警 }
+      - id: a
+        text:
+          zh-CN: 把告警周期改为 1 分钟
+          ja: アラームの期間を 1 分にする
+          en: Set the alarm period to 1 minute
+      - id: b
+        text:
+          zh-CN: 改为上报原始值（Values / Counts 数组）或逐条上报，CloudWatch 才能计算百分位
+          ja: 生の値（Values / Counts の配列）か 1 件ずつの送信に変えれば、CloudWatch がパーセンタイルを計算できる
+          en: Send raw values (Values / Counts arrays) or individual data points so CloudWatch can compute percentiles
+      - id: c
+        text:
+          zh-CN: 开启详细监控
+          ja: 詳細モニタリングを有効にする
+          en: Turn on detailed monitoring
+      - id: d
+        text:
+          zh-CN: 改用复合告警
+          ja: 複合アラームに変更する
+          en: Switch to a composite alarm
     answer: [b]
-    explain: 统计集只保留汇总量，丢失了分布，算不出百分位；上报原始分布（Values / Counts）或 EMF 逐条记录才能用 p95、p99 这类扩展统计。
+    explain:
+      zh-CN: 统计集只保留汇总量，丢失了分布，算不出百分位；上报原始分布（Values / Counts）或 EMF 逐条记录才能用 p95、p99 这类扩展统计。
+      ja: 統計セットは集計値しか残さず分布が失われるため、パーセンタイルを計算できません。生の分布（Values / Counts）か EMF の 1 件ずつの記録を送れば、p95 や p99 などの拡張統計を使えます。
+      en: A statistic set only keeps aggregates and loses the distribution, so percentiles cannot be computed; send the raw distribution (Values / Counts) or individual EMF records to use extended statistics such as p95 and p99.
     relatesTo: after-alert
     difficulty: 2

@@ -5,10 +5,22 @@ id: svc-scheduler
 kind: service
 version: 0.1.0
 status: planned
-service: Amazon EventBridge Scheduler
-function: 不漏跑的定时任务
-title: Amazon EventBridge Scheduler：不漏跑的定时任务
-summary: 把 worker 里的 node-cron 换成 EventBridge Scheduler + 模块自带的 tick 队列，亲手制造一次“触发时刻 worker 不在线”，看 cron 漏跑、Scheduler 补跑。
+service:
+  zh-CN: Amazon EventBridge Scheduler
+  ja: Amazon EventBridge Scheduler
+  en: Amazon EventBridge Scheduler
+function:
+  zh-CN: 不漏跑的定时任务
+  ja: 取りこぼさない定期実行
+  en: Scheduled jobs that never miss a run
+title:
+  zh-CN: Amazon EventBridge Scheduler：不漏跑的定时任务
+  ja: Amazon EventBridge Scheduler：取りこぼさない定期実行
+  en: "Amazon EventBridge Scheduler: scheduled jobs that never miss a run"
+summary:
+  zh-CN: 把 worker 里的 node-cron 换成 EventBridge Scheduler + 模块自带的 tick 队列，亲手制造一次“触发时刻 worker 不在线”，看 cron 漏跑、Scheduler 补跑。
+  ja: worker 内の node-cron を EventBridge Scheduler とモジュール付属の tick キューに置き換えます。「実行時刻に worker がオフライン」という状況を自分で作り、cron が実行を取りこぼし、Scheduler が後から実行する様子を確かめます。
+  en: Replace node-cron inside the worker with EventBridge Scheduler and the module's own tick queue. Take the worker offline at the trigger time yourself and watch cron miss the run while Scheduler catches up.
 difficulty: beginner
 estimatedMinutes: 75
 timeLimitMinutes: 120
@@ -17,7 +29,13 @@ retain: {allowed: true, maxHours: 24}
 regions:
   supported: [ap-northeast-1]
 services:
-- {id: scheduler, name: Amazon EventBridge Scheduler, role: primary, module: scheduler}
+- id: scheduler
+  name:
+    zh-CN: Amazon EventBridge Scheduler
+    ja: Amazon EventBridge Scheduler
+    en: Amazon EventBridge Scheduler
+  role: primary
+  module: scheduler
 - {id: iam, role: context, module: iam}
 modules:
   target: [scheduler]
@@ -35,11 +53,19 @@ startProfile:
     kind: module
     basis: credential
     set: {IAM_CREDENTIALS: role}
-    reason: 平台约定除 svc-ec2、svc-iam 外起始状态都带实例角色（C3）
+    reason:
+      zh-CN: 平台约定除 svc-ec2、svc-iam 外起始状态都带实例角色（C3）
+      ja: プラットフォームの取り決めにより、svc-ec2 と svc-iam 以外の開始状態にはインスタンスロールが付いています（C3）
+      en: By platform convention, every start state except svc-ec2 and svc-iam includes an instance role (C3)
   - item: scheduler
     kind: local
     set: {SCHEDULER_COMPARE_HEARTBEAT: 'on'}
-  - {item: preview-direct-https, kind: platform, reason: 预览使用方案 B 的 Let's Encrypt IP 证书（03 §6.2）}
+  - item: preview-direct-https
+    kind: platform
+    reason:
+      zh-CN: 预览使用方案 B 的 Let's Encrypt IP 证书（03 §6.2）
+      ja: プレビューには方式 B の Let's Encrypt IP 証明書を使います（03 §6.2）
+      en: The preview uses the option B Let's Encrypt IP certificate (03 §6.2)
   platform:
     preview: {directHttps: 'on'}
 targetModules:
@@ -47,7 +73,11 @@ targetModules:
 expectedWarnings: []
 cost: {tier: low}
 provision: {class: A}
-badge: {title: 准时补跑}
+badge:
+  title:
+    zh-CN: 准时补跑
+    ja: 時間どおりに再実行
+    en: Catch-up runs
 tracks: [operations, saa-main, serverless]
 saa:
   domains: [resilient, performance]

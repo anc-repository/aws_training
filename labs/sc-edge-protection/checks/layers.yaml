@@ -1,26 +1,86 @@
 # 分层（第 10 步）：Shield 与 GuardDuty 只讲解、不启用，用原生手动确认（04 §5.2.6）记录学员的判断
 checks:
   - id: shield-scope
-    title: 本场景中哪些 DDoS 防护已经自动生效、哪些需要付费订阅
+    title:
+      zh-CN: 本场景中哪些 DDoS 防护已经自动生效、哪些需要付费订阅
+      ja: このシナリオでどの DDoS 対策がすでに自動で有効になっていて、どれが有料のサブスクリプションを必要とするか
+      en: Which DDoS protections are already on automatically in this scenario, and which need a paid subscription
     type: manual
     spec:
       where: { breadcrumb: [AWS WAF & Shield, Shield, 概览], region: global }
       observed:
-        question: 完成本卡后，这个分配受到哪些 DDoS 防护？
+        question:
+          zh-CN: 完成本卡后，这个分配受到哪些 DDoS 防护？
+          ja: このカードを終えた後、このディストリビューションはどの DDoS 対策で保護されていますか？
+          en: After this card, which DDoS protections cover this distribution?
         options:
-          - { value: standard, label: Shield Standard 已自动生效；Shield Advanced 需要单独按年订阅（本卡不订阅）, expected: true }
-          - { value: none, label: 没有任何 DDoS 防护，必须订阅 Shield Advanced, fixHint: Shield Standard 对所有 CloudFront 分配自动生效、不另收费，防常见的网络层与传输层攻击 }
-          - { value: advanced, label: 关联 Web ACL 后自动获得 Shield Advanced, fixHint: Shield Advanced 需要按年订阅；WAF 与 Shield Advanced 是两个独立的服务 }
-    explain: 撞库是七层滥用，靠 WAF 的速率规则与托管规则（必要时 Bot Control）；Shield Advanced 解决的是大规模 DDoS 的响应（DRT）与扩容费用保护。
+          - value: standard
+            label:
+              zh-CN: Shield Standard 已自动生效；Shield Advanced 需要单独按年订阅（本卡不订阅）
+              ja: Shield Standard はすでに自動で有効。Shield Advanced は別途年単位のサブスクリプションが必要（このカードではサブスクライブしない）
+              en: Shield Standard is already on automatically; Shield Advanced needs a separate annual subscription (not subscribed in this card)
+            expected: true
+          - value: none
+            label:
+              zh-CN: 没有任何 DDoS 防护，必须订阅 Shield Advanced
+              ja: DDoS 対策は何もなく、Shield Advanced をサブスクライブしなければならない
+              en: There is no DDoS protection at all, and Shield Advanced must be subscribed
+            fixHint:
+              zh-CN: Shield Standard 对所有 CloudFront 分配自动生效、不另收费，防常见的网络层与传输层攻击
+              ja: Shield Standard はすべての CloudFront ディストリビューションに自動で適用され、追加料金なしで一般的なネットワーク層とトランスポート層の攻撃を防ぎます
+              en: Shield Standard applies automatically to every CloudFront distribution at no extra charge, protecting against common network and transport layer attacks
+          - value: advanced
+            label:
+              zh-CN: 关联 Web ACL 后自动获得 Shield Advanced
+              ja: Web ACL を関連付けると自動で Shield Advanced が付く
+              en: Associating a Web ACL automatically adds Shield Advanced
+            fixHint:
+              zh-CN: Shield Advanced 需要按年订阅；WAF 与 Shield Advanced 是两个独立的服务
+              ja: Shield Advanced には年単位のサブスクリプションが必要です。WAF と Shield Advanced は別々のサービスです
+              en: Shield Advanced needs an annual subscription; WAF and Shield Advanced are separate services
+    explain:
+      zh-CN: 撞库是七层滥用，靠 WAF 的速率规则与托管规则（必要时 Bot Control）；Shield Advanced 解决的是大规模 DDoS 的响应（DRT）与扩容费用保护。
+      ja: クレデンシャルスタッフィングはレイヤー 7 の悪用で、WAF のレートベースのルールとマネージドルール（必要なら Bot Control）で対処します。Shield Advanced が解決するのは大規模な DDoS への対応（DRT）とスケールアウトの費用の保護です。
+      en: Credential stuffing is layer 7 abuse, handled by WAF rate-based rules and managed rules (Bot Control if needed); Shield Advanced addresses the response to large-scale DDoS (DRT) and protection against scaling costs.
 
   - id: guardduty-layer
-    title: GuardDuty 在这个场景里能做什么、不能做什么
+    title:
+      zh-CN: GuardDuty 在这个场景里能做什么、不能做什么
+      ja: このシナリオで GuardDuty にできること、できないこと
+      en: What GuardDuty can and cannot do in this scenario
     type: manual
     spec:
       observed:
-        question: 第 2、9 步的 SQL 注入与扫描载荷，GuardDuty 会怎样处理？
+        question:
+          zh-CN: 第 2、9 步的 SQL 注入与扫描载荷，GuardDuty 会怎样处理？
+          ja: ステップ 2、9 の SQL インジェクションとスキャンのペイロードを、GuardDuty はどう扱いますか？
+          en: How does GuardDuty handle the SQL injection and scanning payloads from steps 2 and 9?
         options:
-          - { value: not-http, label: 不分析 HTTP 内容，也不阻断；它看的是 CloudTrail、VPC 流日志与 DNS 日志里的异常行为, expected: true }
-          - { value: blocks, label: 识别并阻断 SQL 注入, fixHint: GuardDuty 只产生发现（finding），自动响应要借助 EventBridge 等；七层阻断是 WAF 的工作 }
-          - { value: needs-agent, label: 必须先在 EC2 上装代理才能看到这些请求, fixHint: 基础检测不需要代理（运行时监控是可选的保护计划），但无论如何都不检查 HTTP 请求体 }
-    explain: threat-detection 模块本版尚未实现，本卡不启用 GuardDuty；它补的是“实例被入侵后对外的异常行为”，与 WAF 的七层过滤互补而不重叠。
+          - value: not-http
+            label:
+              zh-CN: 不分析 HTTP 内容，也不阻断；它看的是 CloudTrail、VPC 流日志与 DNS 日志里的异常行为
+              ja: HTTP の内容は分析せず、ブロックもしない。見ているのは CloudTrail、VPC フローログ、DNS ログの異常な振る舞い
+              en: It neither analyzes HTTP content nor blocks; it looks for anomalous behavior in CloudTrail, VPC Flow Logs and DNS logs
+            expected: true
+          - value: blocks
+            label:
+              zh-CN: 识别并阻断 SQL 注入
+              ja: SQL インジェクションを識別してブロックする
+              en: It recognizes and blocks SQL injection
+            fixHint:
+              zh-CN: GuardDuty 只产生发现（finding），自动响应要借助 EventBridge 等；七层阻断是 WAF 的工作
+              ja: GuardDuty は検出結果（finding）を生成するだけで、自動対応には EventBridge などを使います。レイヤー 7 のブロックは WAF の仕事です
+              en: GuardDuty only produces findings, and automated response needs EventBridge and the like; layer 7 blocking is WAF's job
+          - value: needs-agent
+            label:
+              zh-CN: 必须先在 EC2 上装代理才能看到这些请求
+              ja: これらのリクエストを見るには、まず EC2 にエージェントをインストールしなければならない
+              en: An agent must first be installed on EC2 to see these requests
+            fixHint:
+              zh-CN: 基础检测不需要代理（运行时监控是可选的保护计划），但无论如何都不检查 HTTP 请求体
+              ja: 基本的な検出にエージェントは不要です（Runtime Monitoring は任意の保護プラン）。ただし、いずれにしても HTTP のリクエストボディは検査しません
+              en: Basic detection needs no agent (Runtime Monitoring is an optional protection plan), but in no case does it inspect HTTP request bodies
+    explain:
+      zh-CN: threat-detection 模块本版尚未实现，本卡不启用 GuardDuty；它补的是“实例被入侵后对外的异常行为”，与 WAF 的七层过滤互补而不重叠。
+      ja: threat-detection モジュールはこのバージョンではまだ実装されておらず、このカードでは GuardDuty を有効にしません。GuardDuty が補うのは「インスタンスが侵害された後の外向きの異常な振る舞い」で、WAF のレイヤー 7 のフィルタリングとは補完し合い、重なりません。
+      en: The threat-detection module is not implemented in this version, so this card does not enable GuardDuty; it covers "anomalous outbound behavior after an instance is compromised", complementing WAF's layer 7 filtering without overlapping it.

@@ -5,12 +5,27 @@ id: sc-ha-web
 kind: scenario
 version: 0.1.0
 status: planned
-title: 高可用 Web 层
-subtitle: ALB + Auto Scaling + S3 或 EFS + RDS Multi-AZ
-summary: 从“一台手工维护的 EC2”走到“跨两个 AZ、坏了自动替换、负载高了自动扩容”的无状态机群，数据层由 S3 与 RDS Multi-AZ 承担；扩展练习用黄金 AMI 缩短扩容时间
-story: 相册的日活翻了几倍。现在的 EC2 只有一台：每次发布重启都会有几秒 502；上个月一次底层硬件故障让全站停了四十分钟；晚高峰 CPU 打满时只能停机换更大的实例。业务方给出的目标是：单台实例故障或发布时用户无感；晚高峰自动扩容、深夜自动缩回；数据库主节点故障时自动切换。数据库已经迁到了 RDS（Multi-AZ），照片在
-  S3，现在轮到 Web 层。
-scenario: {question: 一个 Web 应用运行在单台 EC2 上，数据库在同一台实例里。要求：任意单个 AZ 故障时应用仍可用；负载变化时自动调整容量；改造尽量少。哪个方案最合适？}
+title:
+  zh-CN: 高可用 Web 层
+  ja: 高可用性 Web 層
+  en: Highly available web tier
+subtitle:
+  zh-CN: ALB + Auto Scaling + S3 或 EFS + RDS Multi-AZ
+  ja: ALB + Auto Scaling + S3 または EFS + RDS Multi-AZ
+  en: ALB + Auto Scaling + S3 or EFS + RDS Multi-AZ
+summary:
+  zh-CN: 从“一台手工维护的 EC2”走到“跨两个 AZ、坏了自动替换、负载高了自动扩容”的无状态机群，数据层由 S3 与 RDS Multi-AZ 承担；扩展练习用黄金 AMI 缩短扩容时间
+  ja: 「手作業で管理する 1 台の EC2」から、「2 つの AZ にまたがり、壊れたら自動で置き換わり、負荷が高まれば自動でスケールアウトする」ステートレスなインスタンス群へ進みます。データ層は S3 と RDS Multi-AZ が担います。発展課題ではゴールデン AMI でスケールアウトの時間を短縮します
+  en: Go from one hand-maintained EC2 instance to a stateless fleet that spans two AZs, replaces broken instances automatically and scales out under load, with S3 and RDS Multi-AZ carrying the data tier; the extension exercise uses a golden AMI to shorten scale-out time
+story:
+  zh-CN: 相册的日活翻了几倍。现在的 EC2 只有一台：每次发布重启都会有几秒 502；上个月一次底层硬件故障让全站停了四十分钟；晚高峰 CPU 打满时只能停机换更大的实例。业务方给出的目标是：单台实例故障或发布时用户无感；晚高峰自动扩容、深夜自动缩回；数据库主节点故障时自动切换。数据库已经迁到了 RDS（Multi-AZ），照片在 S3，现在轮到 Web 层。
+  ja: アルバムのデイリーアクティブユーザーが数倍に増えました。現在 EC2 は 1 台だけで、リリースのたびに再起動で数秒間 502 になります。先月は基盤ハードウェアの故障でサイト全体が 40 分間停止しました。夜のピークに CPU が張り付いても、停止してより大きなインスタンスに替えるしかありません。事業部門の目標は次のとおりです。1 台のインスタンスの故障やリリースをユーザーが意識しないこと。夜のピークに自動でスケールアウトし、深夜に自動でスケールインすること。データベースのプライマリが故障したら自動でフェイルオーバーすること。データベースはすでに RDS（Multi-AZ）に移行し、写真は S3 にあります。次は Web 層の番です。
+  en: "Daily active users of the album have grown several times over. There is only one EC2 instance: every release restart causes a few seconds of 502; last month an underlying hardware failure took the whole site down for forty minutes; when CPU maxes out at the evening peak, the only option is to stop the instance and switch to a bigger one. The business goals: users do not notice a single instance failing or a release; capacity scales out automatically at the evening peak and back in late at night; the database fails over automatically when the primary fails. The database has already moved to RDS (Multi-AZ) and the photos are in S3 — now it is the web tier's turn."
+scenario:
+  question:
+    zh-CN: 一个 Web 应用运行在单台 EC2 上，数据库在同一台实例里。要求：任意单个 AZ 故障时应用仍可用；负载变化时自动调整容量；改造尽量少。哪个方案最合适？
+    ja: ある Web アプリケーションは 1 台の EC2 で動いており、データベースも同じインスタンス内にあります。要件は、どの 1 つの AZ が故障してもアプリケーションが利用できること、負荷の変化に応じて容量を自動調整すること、改修をできるだけ少なくすることです。最も適切な構成はどれですか？
+    en: "A web application runs on a single EC2 instance, with the database on the same instance. Requirements: the application stays available if any single AZ fails, capacity adjusts automatically to load, and changes are kept to a minimum. Which design is most suitable?"
 difficulty: advanced
 estimatedMinutes: 150
 timeLimitMinutes: 240
@@ -42,7 +57,10 @@ startProfile:
     kind: module
     basis: credential
     set: {IAM_CREDENTIALS: role}
-    reason: 平台约定除 svc-ec2、svc-iam 外起始状态都带实例角色（C3）
+    reason:
+      zh-CN: 平台约定除 svc-ec2、svc-iam 外起始状态都带实例角色（C3）
+      ja: プラットフォームの取り決めにより、svc-ec2 と svc-iam 以外の開始状態にはインスタンスロールが付いています（C3）
+      en: By platform convention, every start state except svc-ec2 and svc-iam includes an instance role (C3)
   - item: storage
     kind: module
     basis: closure
@@ -57,10 +75,18 @@ startProfile:
   platform:
     preview: {directHttps: 'off'}
   branches:
-    ASG-001: {choose: storage, reason: 与 l8-ha 一致；EFS 做法见 efs 变体}
+    ASG-001:
+      choose: storage
+      reason:
+        zh-CN: 与 l8-ha 一致；EFS 做法见 efs 变体
+        ja: l8-ha と同じです。EFS を使う方法は efs バリアントを参照してください
+        en: Same as l8-ha; see the efs variant for the EFS approach
   variants:
   - id: efs
-    title: 用 EFS 作共享存储
+    title:
+      zh-CN: 用 EFS 作共享存储
+      ja: 共有ストレージに EFS を使う
+      en: Use EFS as shared storage
     select: learner
     provisions:
     - *id001
@@ -76,8 +102,16 @@ startProfile:
       set: {DB_DRIVER: postgres}
       params: {MultiAz: true}
     branches:
-      ASG-001: {choose: shared-fs, reason: 对照 S3 与 EFS 两种共享存储}
-    reason: 共享存储换成 EFS，其余相同
+      ASG-001:
+        choose: shared-fs
+        reason:
+          zh-CN: 对照 S3 与 EFS 两种共享存储
+          ja: S3 と EFS の 2 種類の共有ストレージを比較します
+          en: Compares the two kinds of shared storage, S3 and EFS
+    reason:
+      zh-CN: 共享存储换成 EFS，其余相同
+      ja: 共有ストレージを EFS に替え、それ以外は同じです
+      en: Shared storage switched to EFS; everything else is the same
 targetModules:
 - {id: load-balancer, driver: alb}
 - id: autoscaling
@@ -87,7 +121,15 @@ targetModules:
 expectedWarnings: [SEC-002, ASG-009, ASG-010, ASG-011, ASG-012, ASG-013]
 cost: {tier: high}
 provision: {class: C}
-badge: {title: 高可用 Web, short: 高可用}
+badge:
+  title:
+    zh-CN: 高可用 Web
+    ja: 高可用性 Web
+    en: Highly available web
+  short:
+    zh-CN: 高可用
+    ja: 高可用性
+    en: High availability
 tracks: [resilient, saa-main]
 saa:
   domains: [resilient, performance, cost]

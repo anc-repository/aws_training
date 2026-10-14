@@ -11,33 +11,112 @@ id: svc-monitoring
 kind: service
 version: 1.0.0
 status: beta
-service: Amazon CloudWatch
-function: 指标、告警与仪表板
-title: Amazon CloudWatch：指标、告警与仪表板
-subtitle: worker 内的本地评估器 → AWS 侧评估的告警 + SNS
-summary: 让告警与实例解耦：指标双写到 CloudWatch，Agent 补上内存与磁盘，告警在 AWS 侧评估并经 SNS 送达——实例停了也能报警。
-story: |
-  L0 的告警由 worker 进程里的评估器判断，通知走站内信与 outbox：评估器和被监控的应用在同一台机器上，进程或实例一挂，告警也跟着沉默；
-  EC2 默认也没有内存指标。这张卡片让同样的指标再批量上报一份到 CloudWatch，Agent 补上内存与磁盘，告警由 AWS 侧评估、经模块自带的
-  SNS 主题发邮件——停掉服务甚至停掉实例，心跳告警照样会响。
+service:
+  zh-CN: Amazon CloudWatch
+  ja: Amazon CloudWatch
+  en: Amazon CloudWatch
+function:
+  zh-CN: 指标、告警与仪表板
+  ja: メトリクス、アラーム、ダッシュボード
+  en: Metrics, alarms and dashboards
+title:
+  zh-CN: Amazon CloudWatch：指标、告警与仪表板
+  ja: Amazon CloudWatch：メトリクス、アラーム、ダッシュボード
+  en: "Amazon CloudWatch: metrics, alarms and dashboards"
+subtitle:
+  zh-CN: worker 内的本地评估器 → AWS 侧评估的告警 + SNS
+  ja: worker 内のローカル評価器 → AWS 側で評価するアラーム + SNS
+  en: Local evaluator inside the worker → alarms evaluated on the AWS side + SNS
+summary:
+  zh-CN: 让告警与实例解耦：指标双写到 CloudWatch，Agent 补上内存与磁盘，告警在 AWS 侧评估并经 SNS 送达——实例停了也能报警。
+  ja: アラームをインスタンスから切り離します。メトリクスを CloudWatch にも二重に書き込み、エージェントでメモリとディスクを補い、アラームを AWS 側で評価して SNS で届けます。インスタンスが止まってもアラームが鳴ります。
+  en: "Decouple alarms from the instance: double-write metrics to CloudWatch, fill in memory and disk with the agent, and evaluate alarms on the AWS side with SNS delivery — alarms still fire when the instance stops."
+story:
+  zh-CN: |
+    L0 的告警由 worker 进程里的评估器判断，通知走站内信与 outbox：评估器和被监控的应用在同一台机器上，进程或实例一挂，告警也跟着沉默；
+    EC2 默认也没有内存指标。这张卡片让同样的指标再批量上报一份到 CloudWatch，Agent 补上内存与磁盘，告警由 AWS 侧评估、经模块自带的
+    SNS 主题发邮件——停掉服务甚至停掉实例，心跳告警照样会响。
+  ja: |
+    L0 のアラームは worker プロセス内の評価器が判定し、通知はサイト内メッセージと outbox で行います。評価器は監視対象のアプリと同じマシン上にあるため、プロセスやインスタンスが落ちるとアラームも一緒に沈黙します。
+    EC2 にはデフォルトでメモリのメトリクスもありません。このカードでは同じメトリクスを CloudWatch にもまとめて送り、エージェントでメモリとディスクを補います。アラームは AWS 側で評価され、モジュール付属の
+    SNS トピックでメールが届きます。サービスを止めても、インスタンスを止めても、ハートビートのアラームは鳴ります。
+  en: |
+    At L0, alarms are decided by an evaluator inside the worker process and notifications go to in-app messages and the outbox: the evaluator runs on the same machine as the app it watches, so when the process or instance dies, the alarms go silent with it;
+    EC2 also has no memory metric by default. This card also batch-sends the same metrics to CloudWatch, fills in memory and disk with the agent, and evaluates alarms on the AWS side, emailing through the module's own
+    SNS topic — stop the services or even the instance, and the heartbeat alarm still goes off.
 objectives:
-  - { text: 用心跳缺失告警（TreatMissingData=breaching）发现进程与实例死亡, domain: resilient, relatesTo: after-kill }
-  - { text: 说清 EC2 默认指标与 CloudWatch Agent 指标的边界, domain: performance, relatesTo: mem-visibility }
-  - { text: 看懂告警的周期、M of N、指标数学与复合告警, domain: resilient, relatesTo: after-alert }
-  - { text: 理解自定义指标的维度基数决定费用, domain: cost, relatesTo: enable }
+  - text:
+      zh-CN: 用心跳缺失告警（TreatMissingData=breaching）发现进程与实例死亡
+      ja: ハートビート欠損のアラーム（TreatMissingData=breaching）でプロセスとインスタンスの停止を検知する
+      en: Detect dead processes and instances with a missing-heartbeat alarm (TreatMissingData=breaching)
+    domain: resilient
+    relatesTo: after-kill
+  - text:
+      zh-CN: 说清 EC2 默认指标与 CloudWatch Agent 指标的边界
+      ja: EC2 のデフォルトのメトリクスと CloudWatch エージェントのメトリクスの境界を説明できる
+      en: Explain the boundary between default EC2 metrics and CloudWatch agent metrics
+    domain: performance
+    relatesTo: mem-visibility
+  - text:
+      zh-CN: 看懂告警的周期、M of N、指标数学与复合告警
+      ja: アラームの期間、M of N、メトリクス計算、複合アラームを読み解く
+      en: Understand alarm periods, M of N, metric math and composite alarms
+    domain: resilient
+    relatesTo: after-alert
+  - text:
+      zh-CN: 理解自定义指标的维度基数决定费用
+      ja: カスタムメトリクスのディメンションのカーディナリティが費用を決めることを理解する
+      en: Understand that the cardinality of custom metric dimensions drives cost
+    domain: cost
+    relatesTo: enable
 difficulty: beginner
 estimatedMinutes: 75
 timeLimitMinutes: 120
 extensions: { maxCount: 2, minutesEach: 30 }
-retain: { allowed: true, maxHours: 24, reason: 告警与仪表板按月折算、指标按用量计费；保留后可以在 sc-observability 中继续 }
+retain:
+  allowed: true
+  maxHours: 24
+  reason:
+    zh-CN: 告警与仪表板按月折算、指标按用量计费；保留后可以在 sc-observability 中继续
+    ja: アラームとダッシュボードは月額を時間換算、メトリクスは使用量課金です。保持すれば sc-observability で続きから使えます
+    en: Alarms and dashboards are prorated monthly, metrics billed by usage; if you keep the environment, you can continue in sc-observability
 regions:
   supported: [ap-northeast-1]
 services:
-  - { id: cloudwatch, name: Amazon CloudWatch, role: primary, module: monitoring }
-  - { id: sns, name: Amazon SNS（模块自带 ops-alarms 主题）, role: supporting, module: monitoring }
-  - { id: iam, name: AWS IAM（实例角色）, role: context, module: iam }
-  - { id: ec2, name: Amazon EC2（状态检查、CPU 积分）, role: observed, module: ec2 }
-  - { id: ssm-session-manager, name: AWS Systems Manager Session Manager（平台管理通道）, role: observed }
+  - id: cloudwatch
+    name:
+      zh-CN: Amazon CloudWatch
+      ja: Amazon CloudWatch
+      en: Amazon CloudWatch
+    role: primary
+    module: monitoring
+  - id: sns
+    name:
+      zh-CN: Amazon SNS（模块自带 ops-alarms 主题）
+      ja: Amazon SNS（モジュール付属の ops-alarms トピック）
+      en: Amazon SNS (the module's own ops-alarms topic)
+    role: supporting
+    module: monitoring
+  - id: iam
+    name:
+      zh-CN: AWS IAM（实例角色）
+      ja: AWS IAM（インスタンスロール）
+      en: AWS IAM (instance role)
+    role: context
+    module: iam
+  - id: ec2
+    name:
+      zh-CN: Amazon EC2（状态检查、CPU 积分）
+      ja: Amazon EC2（ステータスチェック、CPU クレジット）
+      en: Amazon EC2 (status checks, CPU credits)
+    role: observed
+    module: ec2
+  - id: ssm-session-manager
+    name:
+      zh-CN: AWS Systems Manager Session Manager（平台管理通道）
+      ja: AWS Systems Manager Session Manager（プラットフォームの管理チャネル）
+      en: AWS Systems Manager Session Manager (platform management channel)
+    role: observed
 modules: { target: [monitoring], start: [iam], context: [], related: [logging, tracing] }
 prerequisites:
   cards:
@@ -46,19 +125,60 @@ prerequisites:
     - { id: sc-observability, kind: soft }
   learnerInputs:
     - { id: notify-email }
-  knowledge: [告警阈值与百分位（p95）的含义, systemd 服务]
+  knowledge:
+    - zh-CN: 告警阈值与百分位（p95）的含义
+      ja: アラームのしきい値とパーセンタイル（p95）の意味
+      en: What alarm thresholds and percentiles (p95) mean
+    - zh-CN: systemd 服务
+      ja: systemd サービス
+      en: systemd services
 
 startProfile:
   provisions:
-    - { item: iam, kind: module, basis: credential, set: { IAM_CREDENTIALS: role },
-        reason: 平台约定除 svc-ec2、svc-iam 外起始状态都带实例角色（C3）；monitoring 本身也是 credentials required，Agent 只用实例角色 }
-    - { item: featureFlags.lab.faults, kind: runtime, value: true, reason: mem-visibility 要经共享故障注入占用内存（type mem） }
-    - { item: mgmt-channel, kind: platform, reason: 实验机挂只含 AmazonSSMManagedInstanceCore 的 CloudAlbumAppRole，是平台的管理通道，不是应用权限 }
-    - { item: workstation, kind: platform, reason: 每个会话一台工作台，用于运行 scripts/module、AWS CLI 与对比实验 }
-    - { item: check-bundle, kind: platform, reason: 检查包随 CloudAlbum 发布包安装在实验机的 /opt/atl（06 PM-04） }
-    - { item: preview-direct-https, kind: platform, reason: 预览使用方案 B 的 Let's Encrypt IP 证书（03 §6.2）；本卡不涉及 tls，保持开启 }
+    - item: iam
+      kind: module
+      basis: credential
+      set: { IAM_CREDENTIALS: role }
+      reason:
+        zh-CN: 平台约定除 svc-ec2、svc-iam 外起始状态都带实例角色（C3）；monitoring 本身也是 credentials required，Agent 只用实例角色
+        ja: プラットフォームの取り決めにより、svc-ec2 と svc-iam 以外の開始状態にはインスタンスロールが付いています（C3）。monitoring 自体も credentials required で、エージェントはインスタンスロールだけを使います
+        en: By platform convention, every start state except svc-ec2 and svc-iam includes an instance role (C3); monitoring itself is also credentials required, and the agent only uses the instance role
+    - item: featureFlags.lab.faults
+      kind: runtime
+      value: true
+      reason:
+        zh-CN: mem-visibility 要经共享故障注入占用内存（type mem）
+        ja: mem-visibility では共有の障害注入でメモリを占有します（type mem）
+        en: mem-visibility occupies memory through the shared fault injection (type mem)
+    - item: mgmt-channel
+      kind: platform
+      reason:
+        zh-CN: 实验机挂只含 AmazonSSMManagedInstanceCore 的 CloudAlbumAppRole，是平台的管理通道，不是应用权限
+        ja: ラボ用インスタンスには AmazonSSMManagedInstanceCore だけを含む CloudAlbumAppRole が付いています。これはプラットフォームの管理チャネルであり、アプリの権限ではありません
+        en: The lab instance carries CloudAlbumAppRole with only AmazonSSMManagedInstanceCore. It is the platform's management channel, not an app permission
+    - item: workstation
+      kind: platform
+      reason:
+        zh-CN: 每个会话一台工作台，用于运行 scripts/module、AWS CLI 与对比实验
+        ja: セッションごとに 1 台のワークベンチがあり、scripts/module、AWS CLI、比較実験の実行に使います
+        en: Each session has one workbench for running scripts/module, the AWS CLI and comparison experiments
+    - item: check-bundle
+      kind: platform
+      reason:
+        zh-CN: 检查包随 CloudAlbum 发布包安装在实验机的 /opt/atl（06 PM-04）
+        ja: チェックパッケージは CloudAlbum のリリースパッケージとともにラボ用インスタンスの /opt/atl にインストールされます（06 PM-04）
+        en: The check package is installed with the CloudAlbum release package in /opt/atl on the lab instance (06 PM-04)
+    - item: preview-direct-https
+      kind: platform
+      reason:
+        zh-CN: 预览使用方案 B 的 Let's Encrypt IP 证书（03 §6.2）；本卡不涉及 tls，保持开启
+        ja: プレビューには方式 B の Let's Encrypt IP 証明書を使います（03 §6.2）。このカードは tls に関係しないため、有効のままにします
+        en: The preview uses the option B Let's Encrypt IP certificate (03 §6.2); this card does not involve tls, so it stays on
   platform: { preview: { directHttps: 'on' } }
-  reason: monitoring 的 requires 为空；起始状态是 L0 + 实例角色 + 故障注入热键（档位 atl/svc-monitoring/default）。LabMetricsStore 与本地评估器在 L0 就在运行
+  reason:
+    zh-CN: monitoring 的 requires 为空；起始状态是 L0 + 实例角色 + 故障注入热键（档位 atl/svc-monitoring/default）。LabMetricsStore 与本地评估器在 L0 就在运行
+    ja: monitoring の requires は空です。開始状態は L0 ＋インスタンスロール＋障害注入のホットキーです（プロファイル atl/svc-monitoring/default）。LabMetricsStore とローカル評価器は L0 から動いています
+    en: monitoring has no requires; the start state is L0 plus the instance role plus the fault injection hot key (profile atl/svc-monitoring/default). LabMetricsStore and the local evaluator already run at L0
 targetModules:
   - { id: monitoring, driver: cloudwatch, fromDriver: local, params: { AlertEmail: '{{ learner.inputs.notify-email }}', Mode: putmetricdata, DetailedMonitoring: 'false' },
       wireStep: enable, adoptsExisting: false }
@@ -69,31 +189,101 @@ platform:
 provision: { class: A }
 
 variables:
-  alarmTopicArn: { label: ops-alarms 主题 ARN, from: derived, fillFrom: stack.monitoring.EnvMetricsCwAlarmTopicArn }
-  dashboardName: { label: 仪表板名称, from: derived, fillFrom: stack.monitoring.EnvMetricsCwDashboard }
-  heartbeatAlarm: { label: 心跳告警名称, from: derived, fillFrom: stack.monitoring.InfoHeartbeatAlarmName }
+  alarmTopicArn:
+    label:
+      zh-CN: ops-alarms 主题 ARN
+      ja: ops-alarms トピックの ARN
+      en: ops-alarms topic ARN
+    from: derived
+    fillFrom: stack.monitoring.EnvMetricsCwAlarmTopicArn
+  dashboardName:
+    label:
+      zh-CN: 仪表板名称
+      ja: ダッシュボード名
+      en: Dashboard name
+    from: derived
+    fillFrom: stack.monitoring.EnvMetricsCwDashboard
+  heartbeatAlarm:
+    label:
+      zh-CN: 心跳告警名称
+      ja: ハートビートのアラーム名
+      en: Heartbeat alarm name
+    from: derived
+    fillFrom: stack.monitoring.InfoHeartbeatAlarmName
 
 cost:
   currency: USD
   tier: low
-  mainDrivers: [自定义指标数（维度组合）, 告警数, GetMetricData 等 API 调用]
+  mainDrivers:
+    - zh-CN: 自定义指标数（维度组合）
+      ja: カスタムメトリクスの数（ディメンションの組み合わせ）
+      en: Number of custom metrics (dimension combinations)
+    - zh-CN: 告警数
+      ja: アラームの数
+      en: Number of alarms
+    - zh-CN: GetMetricData 等 API 调用
+      ja: GetMetricData などの API 呼び出し
+      en: API calls such as GetMetricData
   basis:
-    - { ref: start-profile, note: 实验机 EC2、EBS（根卷与数据卷）、公网 IPv4 }
-    - { ref: workstation, note: 工作台 EC2、EBS、公网 IPv4 }
-    - { key: cw-metrics, pricingKey: cloudwatch.metrics, billing: monthly, quantity: 30, unit: Metrics, source: target, whenRetained: true,
-        note: 白名单维度下约几十个自定义指标（CloudAlbum/App 与 CWAgent），按月折算到小时 }
-    - { key: cw-alarms, pricingKey: cloudwatch.alarms, billing: monthly, quantity: 11, unit: Alarms, source: target, whenRetained: true,
-        note: 标准告警约 10 个 + 1 个复合告警（复合告警单价不同） }
-    - { key: sns-requests, pricingKey: sns.requests, billing: usage, quantity: 1, unit: requests, assumedUsagePerHour: 20, source: target,
-        whenRetained: true, note: 告警通知邮件；学习规模通常在免费额度内 }
+    - ref: start-profile
+      note:
+        zh-CN: 实验机 EC2、EBS（根卷与数据卷）、公网 IPv4
+        ja: ラボ用インスタンスの EC2、EBS（ルートボリュームとデータボリューム）、パブリック IPv4
+        en: Lab instance EC2, EBS (root and data volumes) and public IPv4
+    - ref: workstation
+      note:
+        zh-CN: 工作台 EC2、EBS、公网 IPv4
+        ja: ワークベンチの EC2、EBS、パブリック IPv4
+        en: Workbench EC2, EBS and public IPv4
+    - key: cw-metrics
+      pricingKey: cloudwatch.metrics
+      billing: monthly
+      quantity: 30
+      unit: Metrics
+      source: target
+      whenRetained: true
+      note:
+        zh-CN: 白名单维度下约几十个自定义指标（CloudAlbum/App 与 CWAgent），按月折算到小时
+        ja: 許可リストのディメンションで約数十個のカスタムメトリクス（CloudAlbum/App と CWAgent）。月額を時間に換算
+        en: A few dozen custom metrics with allow-listed dimensions (CloudAlbum/App and CWAgent), prorated from monthly to hourly
+    - key: cw-alarms
+      pricingKey: cloudwatch.alarms
+      billing: monthly
+      quantity: 11
+      unit: Alarms
+      source: target
+      whenRetained: true
+      note:
+        zh-CN: 标准告警约 10 个 + 1 个复合告警（复合告警单价不同）
+        ja: 標準アラーム約 10 個 + 複合アラーム 1 個（複合アラームは単価が異なります）
+        en: About 10 standard alarms + 1 composite alarm (composite alarms are priced differently)
+    - key: sns-requests
+      pricingKey: sns.requests
+      billing: usage
+      quantity: 1
+      unit: requests
+      assumedUsagePerHour: 20
+      source: target
+      whenRetained: true
+      note:
+        zh-CN: 告警通知邮件；学习规模通常在免费额度内
+        ja: アラーム通知のメール。学習規模なら通常は無料利用枠に収まります
+        en: Alarm notification emails; learning scale usually stays within the free tier
   assumptions:
-    - 基础监控与状态检查指标免费；选做的详细监控按实例另计；Agent 本身免费；单价以官方定价为准
-    - 已上报的自定义指标无法删除，停止上报后按保留策略自然过期，不再计费
+    - zh-CN: 基础监控与状态检查指标免费；选做的详细监控按实例另计；Agent 本身免费；单价以官方定价为准
+      ja: 基本モニタリングとステータスチェックのメトリクスは無料です。任意の詳細モニタリングはインスタンスごとに別料金です。エージェント自体は無料です。正確な単価は公式の料金表を確認してください
+      en: Basic monitoring and status check metrics are free; the optional detailed monitoring is charged per instance; the agent itself is free; check the official pricing for unit prices
+    - zh-CN: 已上报的自定义指标无法删除，停止上报后按保留策略自然过期，不再计费
+      ja: 送信済みのカスタムメトリクスは削除できません。送信を止めれば保持ポリシーに従って自然に失効し、課金も止まります
+      en: Custom metrics already sent cannot be deleted; once you stop sending, they expire naturally under the retention policy and stop being billed
 
 steps:
   - id: orient
     type: observe
-    title: 起始状态：本地评估器与 10 秒样本，没有 Agent
+    title:
+      zh-CN: 起始状态：本地评估器与 10 秒样本，没有 Agent
+      ja: 開始状態：ローカル評価器と 10 秒間隔のサンプル、エージェントなし
+      en: "Start state: local evaluator and 10-second samples, no agent"
     manual: manual/10-orient.md
     panel: preview
     estMinutes: 5
@@ -101,7 +291,10 @@ steps:
 
   - id: baseline-alert
     type: experiment
-    title: 记录 before：同一批 5xx，本地评估器多久告警
+    title:
+      zh-CN: 记录 before：同一批 5xx，本地评估器多久告警
+      ja: before を記録：同じ 5xx で、ローカル評価器がアラームを出すまでの時間
+      en: "Record before: with the same 5xx, how long the local evaluator takes to alarm"
     manual: manual/20-baseline-alert.md
     experiment: { module: monitoring, id: time-to-alert, label: before }
     panel: terminal-workstation
@@ -110,7 +303,10 @@ steps:
 
   - id: baseline-kill
     type: experiment
-    title: 记录 before：停掉 api 与 worker，本地评估器随之沉默
+    title:
+      zh-CN: 记录 before：停掉 api 与 worker，本地评估器随之沉默
+      ja: before を記録：api と worker を止めると、ローカル評価器も沈黙する
+      en: "Record before: stop the api and worker, and the local evaluator goes silent too"
     manual: manual/25-baseline-kill.md
     experiment: { module: monitoring, id: kill-test, label: before }
     requires: { steps: [baseline-alert] }
@@ -121,29 +317,56 @@ steps:
   - id: enable
     type: script
     wire: true
-    title: 接入 CloudWatch：告警、仪表板、ops-alarms 主题与 Agent
+    title:
+      zh-CN: 接入 CloudWatch：告警、仪表板、ops-alarms 主题与 Agent
+      ja: CloudWatch を組み込む：アラーム、ダッシュボード、ops-alarms トピック、エージェント
+      en: "Wire in CloudWatch: alarms, dashboard, ops-alarms topic and agent"
     manual: manual/30-enable.md
     methods: [script]
     requires: { steps: [baseline-kill] }
     panel: terminal-workstation
     estMinutes: 12
-    startsBilling: { class: usage, pricingKeys: [cloudwatch.metrics, cloudwatch.alarms, sns.requests], note: 自定义指标与告警按月折算，API 调用按量 }
-    wait: { typicalMinutes: 5, maxMinutes: 15, text: 部署栈、安装 Agent、重启 api 与 worker；然后到邮箱确认 SNS 订阅 }
+    startsBilling:
+      class: usage
+      pricingKeys: [cloudwatch.metrics, cloudwatch.alarms, sns.requests]
+      note:
+        zh-CN: 自定义指标与告警按月折算，API 调用按量
+        ja: カスタムメトリクスとアラームは月額を時間換算、API 呼び出しは使用量課金
+        en: Custom metrics and alarms prorated monthly; API calls billed by usage
+    wait:
+      typicalMinutes: 5
+      maxMinutes: 15
+      text:
+        zh-CN: 部署栈、安装 Agent、重启 api 与 worker；然后到邮箱确认 SNS 订阅
+        ja: スタックをデプロイし、エージェントをインストールし、api と worker を再起動します。その後メールボックスで SNS のサブスクリプションを確認します
+        en: Deploy the stack, install the agent, restart the api and worker; then confirm the SNS subscription in your mailbox
     checks: [monitoring-wired, metric-traffic, app-metrics-published, agent-active, monitoring-module-state, heartbeat-alarm]
 
   - id: confirm-subscription
     type: observe
-    title: 在邮箱中确认 SNS 订阅
+    title:
+      zh-CN: 在邮箱中确认 SNS 订阅
+      ja: メールボックスで SNS のサブスクリプションを確認する
+      en: Confirm the SNS subscription in your mailbox
     manual: manual/35-confirm-subscription.md
     requires: { steps: [enable] }
     panel: preview
     estMinutes: 5
-    wait: { typicalMinutes: 2, maxMinutes: 15, text: 确认邮件可能落在垃圾邮件箱 }
+    wait:
+      typicalMinutes: 2
+      maxMinutes: 15
+      text:
+        zh-CN: 确认邮件可能落在垃圾邮件箱
+        ja: 確認メールは迷惑メールフォルダーに入っていることがあります
+        en: The confirmation email may be in the spam folder
     checks: [subscription-confirmed, subscription-confirmed-manual]
 
   - id: after-alert
     type: experiment
-    title: 记录 after：本地与 CloudWatch 并排计时
+    title:
+      zh-CN: 记录 after：本地与 CloudWatch 并排计时
+      ja: after を記録：ローカルと CloudWatch を並べて計時
+      en: "Record after: time the local side and CloudWatch side by side"
     manual: manual/40-after-alert.md
     experiment: { module: monitoring, id: time-to-alert, label: after }
     requires: { steps: [confirm-subscription] }
@@ -153,7 +376,10 @@ steps:
 
   - id: after-kill
     type: experiment
-    title: 记录 after：停服务后心跳告警进入 ALARM 并经 SNS 送达
+    title:
+      zh-CN: 记录 after：停服务后心跳告警进入 ALARM 并经 SNS 送达
+      ja: after を記録：サービスを止めた後、ハートビートのアラームが ALARM になり SNS で届く
+      en: "Record after: after stopping the services, the heartbeat alarm goes to ALARM and is delivered through SNS"
     manual: manual/45-after-kill.md
     experiment: { module: monitoring, id: kill-test, label: after }
     requires: { steps: [after-alert] }
@@ -163,19 +389,35 @@ steps:
 
   - id: stop-instance
     type: experiment
-    title: （选做）停止实验机：状态检查与心跳告警照样触发
+    title:
+      zh-CN: （选做）停止实验机：状态检查与心跳告警照样触发
+      ja: （任意）ラボ用インスタンスを停止：ステータスチェックとハートビートのアラームは同様に発火する
+      en: "(Optional) Stop the lab instance: status checks and the heartbeat alarm still fire"
     manual: manual/50-stop-instance.md
-    optional: { reason: 停实例会让管理通道暂时离线，作为附加观察 }
+    optional:
+      reason:
+        zh-CN: 停实例会让管理通道暂时离线，作为附加观察
+        ja: インスタンスを止めると管理チャネルが一時的にオフラインになるため、追加の観察として扱います
+        en: Stopping the instance takes the management channel offline for a while, so this is an extra observation
     experiment: { module: monitoring, id: kill-test, label: stop-instance }
     requires: { steps: [after-kill] }
     panel: terminal-workstation
     estMinutes: 12
-    expectedOutage: { channel: lab, maxMinutes: 10, reason: kill-test 的停实例阶段会停止并重新启动实验机 }
+    expectedOutage:
+      channel: lab
+      maxMinutes: 10
+      reason:
+        zh-CN: kill-test 的停实例阶段会停止并重新启动实验机
+        ja: kill-test のインスタンス停止フェーズでは、ラボ用インスタンスを停止してから再び起動します
+        en: The instance-stop phase of kill-test stops the lab instance and starts it again
     checks: [ { ref: exp-stop-instance, required: false } ]
 
   - id: mem-visibility
     type: observe
-    title: 内存可见性：AWS/EC2 没有内存指标，CWAgent 有
+    title:
+      zh-CN: 内存可见性：AWS/EC2 没有内存指标，CWAgent 有
+      ja: メモリの可視性：AWS/EC2 にはメモリのメトリクスがなく、CWAgent にはある
+      en: "Memory visibility: AWS/EC2 has no memory metric, CWAgent does"
     manual: manual/60-mem-visibility.md
     requires: { steps: [enable] }
     panel: terminal-workstation
@@ -184,9 +426,16 @@ steps:
 
   - id: resolution
     type: experiment
-    title: （选做）粒度：基础监控与详细监控下的同一段 CPU 尖峰
+    title:
+      zh-CN: （选做）粒度：基础监控与详细监控下的同一段 CPU 尖峰
+      ja: （任意）粒度：基本モニタリングと詳細モニタリングでの同じ CPU スパイク
+      en: "(Optional) Resolution: the same CPU spike under basic and detailed monitoring"
     manual: manual/70-resolution.md
-    optional: { reason: 详细监控按实例另计费用 }
+    optional:
+      reason:
+        zh-CN: 详细监控按实例另计费用
+        ja: 詳細モニタリングはインスタンスごとに別料金です
+        en: Detailed monitoring is charged per instance
     experiment: { module: monitoring, id: resolution, label: after }
     requires: { steps: [enable] }
     panel: terminal-workstation
@@ -215,7 +464,13 @@ experiments:
     labels:
       - { id: before, role: baseline, requires: { monitoring: local } }
       - { id: after, role: treatment, requires: { monitoring: cloudwatch } }
-      - { id: stop-instance, role: single, title: 停止实验机, requires: { monitoring: cloudwatch } }
+      - id: stop-instance
+        role: single
+        title:
+          zh-CN: 停止实验机
+          ja: ラボ用インスタンスを停止
+          en: Stop the lab instance
+        requires: { monitoring: cloudwatch }
     pairs: [[before, after]]
     requiredLabels: [before, after]
     required: true
@@ -239,13 +494,24 @@ experiments:
     corroborateWith: [monitoring-wired]
 
 quiz: { file: quiz.yaml, draw: 3 }
-badge: { title: 实例倒下也报警, icon: assets/badge.svg }
+badge:
+  title:
+    zh-CN: 实例倒下也报警
+    ja: インスタンスが倒れてもアラーム
+    en: Alarms that outlive the instance
+  icon: assets/badge.svg
 tracks: [operations, resilient, saa-main]
 
 cleanup:
-  summary: 结束实验后，平台删除本次会话的 monitoring 栈（告警、仪表板、ops-alarms 主题与订阅随之删除）并移除 Agent 片段。已经上报的自定义指标无法删除，停止上报后按保留策略自然过期。
+  summary:
+    zh-CN: 结束实验后，平台删除本次会话的 monitoring 栈（告警、仪表板、ops-alarms 主题与订阅随之删除）并移除 Agent 片段。已经上报的自定义指标无法删除，停止上报后按保留策略自然过期。
+    ja: ラボの終了後、プラットフォームがこのセッションの monitoring スタックを削除し（アラーム、ダッシュボード、ops-alarms トピックとサブスクリプションも一緒に削除されます）、エージェントの設定断片を取り除きます。送信済みのカスタムメトリクスは削除できず、送信を止めれば保持ポリシーに従って自然に失効します。
+    en: When the lab ends, the platform deletes this session's monitoring stack (alarms, dashboard, the ops-alarms topic and its subscriptions go with it) and removes the agent snippet. Custom metrics already sent cannot be deleted; once sending stops they expire naturally under the retention policy.
   autoReclaim: true
-  dataRisk: [没有业务数据；告警邮件留在你的邮箱中，无需处理]
+  dataRisk:
+    - zh-CN: 没有业务数据；告警邮件留在你的邮箱中，无需处理
+      ja: 業務データはありません。アラームのメールはメールボックスに残ります。対応は不要です
+      en: No business data; alarm emails stay in your mailbox, nothing to do
   learnerCreatedHints: []
   verify:
     - monitoring-topic-gone
@@ -253,14 +519,71 @@ cleanup:
 saa:
   domains: [resilient, performance, cost]
   topics:
-    - { id: heartbeat-breaching, title: 心跳缺失告警与 TreatMissingData=breaching, domain: resilient, relatesTo: after-kill }
-    - { id: agent-metrics, title: EC2 没有内存与磁盘使用率，需要 CloudWatch Agent, domain: performance, relatesTo: mem-visibility }
-    - { id: alarm-actions, title: 告警动作：SNS、EC2 recover / reboot、Auto Scaling, domain: resilient, relatesTo: enable }
-    - { id: metric-cardinality, title: 自定义指标的维度与基数决定指标数与费用, domain: cost, relatesTo: enable }
+    - id: heartbeat-breaching
+      title:
+        zh-CN: 心跳缺失告警与 TreatMissingData=breaching
+        ja: ハートビート欠損のアラームと TreatMissingData=breaching
+        en: Missing-heartbeat alarms and TreatMissingData=breaching
+      domain: resilient
+      relatesTo: after-kill
+    - id: agent-metrics
+      title:
+        zh-CN: EC2 没有内存与磁盘使用率，需要 CloudWatch Agent
+        ja: EC2 にはメモリとディスクの使用率がなく、CloudWatch エージェントが必要
+        en: EC2 has no memory or disk utilization; you need the CloudWatch agent
+      domain: performance
+      relatesTo: mem-visibility
+    - id: alarm-actions
+      title:
+        zh-CN: 告警动作：SNS、EC2 recover / reboot、Auto Scaling
+        ja: アラームのアクション：SNS、EC2 の recover / reboot、Auto Scaling
+        en: "Alarm actions: SNS, EC2 recover / reboot and Auto Scaling"
+      domain: resilient
+      relatesTo: enable
+    - id: metric-cardinality
+      title:
+        zh-CN: 自定义指标的维度与基数决定指标数与费用
+        ja: カスタムメトリクスのディメンションとカーディナリティがメトリクス数と費用を決める
+        en: Custom metric dimensions and cardinality decide the number of metrics and the cost
+      domain: cost
+      relatesTo: enable
   confusables:
-    - { a: CloudWatch, b: CloudTrail, rule: CloudWatch 回答“系统现在健康吗”（性能与告警）；CloudTrail 回答“谁调用了哪个 AWS API”（审计） }
-    - { a: 基础监控, b: 详细监控, rule: 基础监控 5 分钟一个点且免费；详细监控 1 分钟一个点、按实例计费；两者都没有内存指标 }
-    - { a: 指标告警, b: 复合告警, rule: 只有指标告警能执行 EC2 动作（recover / reboot）；复合告警只能发通知 }
+    - a:
+        zh-CN: CloudWatch
+        ja: CloudWatch
+        en: CloudWatch
+      b:
+        zh-CN: CloudTrail
+        ja: CloudTrail
+        en: CloudTrail
+      rule:
+        zh-CN: CloudWatch 回答“系统现在健康吗”（性能与告警）；CloudTrail 回答“谁调用了哪个 AWS API”（审计）
+        ja: CloudWatch は「システムは今健全か」（パフォーマンスとアラーム）に答え、CloudTrail は「誰がどの AWS API を呼び出したか」（監査）に答えます
+        en: CloudWatch answers "is the system healthy right now" (performance and alarms); CloudTrail answers "who called which AWS API" (auditing)
+    - a:
+        zh-CN: 基础监控
+        ja: 基本モニタリング
+        en: Basic monitoring
+      b:
+        zh-CN: 详细监控
+        ja: 詳細モニタリング
+        en: Detailed monitoring
+      rule:
+        zh-CN: 基础监控 5 分钟一个点且免费；详细监控 1 分钟一个点、按实例计费；两者都没有内存指标
+        ja: 基本モニタリングは 5 分に 1 点で無料、詳細モニタリングは 1 分に 1 点でインスタンスごとに課金されます。どちらにもメモリのメトリクスはありません
+        en: Basic monitoring has one point per 5 minutes and is free; detailed monitoring has one point per minute and is billed per instance; neither has a memory metric
+    - a:
+        zh-CN: 指标告警
+        ja: メトリクスアラーム
+        en: Metric alarm
+      b:
+        zh-CN: 复合告警
+        ja: 複合アラーム
+        en: Composite alarm
+      rule:
+        zh-CN: 只有指标告警能执行 EC2 动作（recover / reboot）；复合告警只能发通知
+        ja: EC2 のアクション（recover / reboot）を実行できるのはメトリクスアラームだけです。複合アラームは通知しかできません
+        en: Only metric alarms can run EC2 actions (recover / reboot); composite alarms can only notify
 
 tags: [monitoring, cloudwatch, alarms, sns, observability]
 

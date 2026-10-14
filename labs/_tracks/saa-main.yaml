@@ -2,14 +2,29 @@
 schema: atl.track/v2
 id: saa-main
 version: 1.0.0
-title: SAA 主线
-summary: 按原 Lab 0～25 的顺序系统学习：从一台 EC2 出发，逐个服务亲手对比“有”与“没有”，最后做成本复盘。
-audience: 备考 SAA-C03、希望系统学完全部服务的学员
+title:
+  zh-CN: SAA 主线
+  ja: SAA メインパス
+  en: SAA main path
+summary:
+  zh-CN: 按原 Lab 0～25 的顺序系统学习：从一台 EC2 出发，逐个服务亲手对比“有”与“没有”，最后做成本复盘。
+  ja: 旧 Lab 0～25 の順序で体系的に学びます。1 台の EC2 から始め、サービスごとに「ある場合」と「ない場合」を実際に比較し、最後にコストを振り返ります。
+  en: 'Learn systematically in the order of the original Labs 0–25: start from a single EC2 instance, compare "with" and "without" yourself for each service, and finish with a cost review.'
+audience:
+  zh-CN: 备考 SAA-C03、希望系统学完全部服务的学员
+  ja: SAA-C03 の受験に向けて、すべてのサービスを体系的に学びたい受講者
+  en: Learners preparing for SAA-C03 who want to work through every service systematically
 stages:
   - id: s1-base
-    title: 基线与运维
+    title:
+      zh-CN: 基线与运维
+      ja: ベースラインと運用
+      en: Baseline and operations
     legacyLabs: [0, 1, 2, 3]
-    note: 开始本路径前（或至少在 svc-cost 前一到两天）执行平台动作 cost-activate-tags
+    note:
+      zh-CN: 开始本路径前（或至少在 svc-cost 前一到两天）执行平台动作 cost-activate-tags
+      ja: このパスを始める前に（遅くとも svc-cost の 1～2 日前に）プラットフォーム操作 cost-activate-tags を実行してください
+      en: Run the platform action cost-activate-tags before starting this path (or at least one or two days before svc-cost)
     items:
       - { card: svc-ec2, role: required, legacyLab: 0 }
       - { card: svc-iam, role: required, legacyLab: 1 }
@@ -18,84 +33,211 @@ stages:
       - { card: svc-logging, role: required, legacyLab: 3 }
       - { card: svc-monitoring, role: required, legacyLab: 3 }
   - id: s2-edge
-    title: 存储与边缘
+    title:
+      zh-CN: 存储与边缘
+      ja: ストレージとエッジ
+      en: Storage and edge
     legacyLabs: [4, 5, 6, 7]
     items:
       - { card: svc-storage, role: required, legacyLab: 4 }
       - { card: svc-cdn, role: required, legacyLab: 5 }
-      - { card: svc-dns, role: optional, legacyLab: 6, note: 需要域名 }
-      - { card: svc-tls, role: optional, legacyLab: 6, note: 需要域名 }
+      - card: svc-dns
+        role: optional
+        legacyLab: 6
+        note:
+          zh-CN: 需要域名
+          ja: ドメイン名が必要です
+          en: Needs a domain name
+      - card: svc-tls
+        role: optional
+        legacyLab: 6
+        note:
+          zh-CN: 需要域名
+          ja: ドメイン名が必要です
+          en: Needs a domain name
       - { card: svc-waf, role: required, legacyLab: 7 }
-      - { group: s2-scenario, title: 阶段综合, pick: 1, cards: [sc-edge-protection, sc-static-acceleration] }
+      - group: s2-scenario
+        title:
+          zh-CN: 阶段综合
+          ja: ステージのまとめ
+          en: Stage capstone
+        pick: 1
+        cards: [sc-edge-protection, sc-static-acceleration]
   - id: s3-identity
-    title: 身份与消息
+    title:
+      zh-CN: 身份与消息
+      ja: ID とメッセージング
+      en: Identity and messaging
     legacyLabs: [8, 9]
     items:
       - { card: svc-auth, role: required, legacyLab: 8 }
       - { card: svc-identity-pool, role: required, legacyLab: 8 }
       - { card: svc-notification, role: required, legacyLab: 9 }
       - { card: svc-email, role: required, legacyLab: 9 }
-      - { group: s3-scenario, title: 阶段综合, pick: 1, cards: [sc-user-identity, sc-event-fanout] }
+      - group: s3-scenario
+        title:
+          zh-CN: 阶段综合
+          ja: ステージのまとめ
+          en: Stage capstone
+        pick: 1
+        cards: [sc-user-identity, sc-event-fanout]
   - id: s4-async
-    title: 异步与事件
+    title:
+      zh-CN: 异步与事件
+      ja: 非同期とイベント
+      en: Async and events
     legacyLabs: [10, 11, 12]
     items:
       - { card: svc-queue, role: required, legacyLab: 10 }
       - { card: svc-image-processing, role: required, legacyLab: 11 }
       - { card: svc-tagging, role: required, legacyLab: 11 }
-      - { card: svc-workflow, role: optional, legacyLab: 11, note: 原 Lab 11 的扩展 }
+      - card: svc-workflow
+        role: optional
+        legacyLab: 11
+        note:
+          zh-CN: 原 Lab 11 的扩展
+          ja: 旧 Lab 11 の発展
+          en: An extension of the original Lab 11
       - { card: svc-scheduler, role: required, legacyLab: 12 }
-      - { group: s4-scenario, title: 阶段综合, pick: 1, cards: [sc-decoupling, sc-image-pipeline] }
+      - group: s4-scenario
+        title:
+          zh-CN: 阶段综合
+          ja: ステージのまとめ
+          en: Stage capstone
+        pick: 1
+        cards: [sc-decoupling, sc-image-pipeline]
   - id: s5-protect
-    title: 数据保护
+    title:
+      zh-CN: 数据保护
+      ja: データ保護
+      en: Data protection
     legacyLabs: [13]
     items:
       - { card: svc-kms, role: required, legacyLab: 13 }
       - { card: svc-secrets, role: required, legacyLab: 13 }
       - { card: svc-config, role: required, legacyLab: 13 }
   - id: s6-network-data
-    title: 网络与数据
+    title:
+      zh-CN: 网络与数据
+      ja: ネットワークとデータ
+      en: Network and data
     legacyLabs: [14, 15, 16, 18]
-    note: 含按小时计费的资源，建议一张卡片做完立即结束，不要保留环境过夜
+    note:
+      zh-CN: 含按小时计费的资源，建议一张卡片做完立即结束，不要保留环境过夜
+      ja: 時間課金のリソースを含みます。1 枚のカードを終えたらすぐに終了し、環境を夜通し保持しないことをお勧めします
+      en: Includes hourly-billed resources; end each card as soon as you finish it and do not keep the environment overnight
     items:
       - { card: svc-network, role: required, legacyLab: 14 }
       - { card: svc-database, role: required, legacyLab: 15 }
-      - { card: svc-db-proxy, role: optional, legacyLab: 15, note: 原 Lab 15 的扩展 }
+      - card: svc-db-proxy
+        role: optional
+        legacyLab: 15
+        note:
+          zh-CN: 原 Lab 15 的扩展
+          ja: 旧 Lab 15 の発展
+          en: An extension of the original Lab 15
       - { card: svc-cache, role: required, legacyLab: 16 }
       - { card: svc-analytics, role: required, legacyLab: 18 }
-      - { group: s6-scenario, title: 阶段综合, pick: 1, cards: [sc-db-performance, sc-analytics] }
+      - group: s6-scenario
+        title:
+          zh-CN: 阶段综合
+          ja: ステージのまとめ
+          en: Stage capstone
+        pick: 1
+        cards: [sc-db-performance, sc-analytics]
   - id: s7-serverless
-    title: Serverless
+    title:
+      zh-CN: Serverless
+      ja: Serverless
+      en: Serverless
     legacyLabs: [17]
     items:
       - { card: svc-social-store, role: required, legacyLab: 17 }
       - { card: svc-social-api, role: required, legacyLab: 17 }
       - { card: sc-serverless-api, role: required, legacyLab: 17 }
   - id: s8-ha
-    title: 高可用与私有化
+    title:
+      zh-CN: 高可用与私有化
+      ja: 高可用性とプライベート化
+      en: High availability and private networking
     legacyLabs: [19, 20, 21]
-    note: 含按小时计费的资源，建议一张卡片做完立即结束
+    note:
+      zh-CN: 含按小时计费的资源，建议一张卡片做完立即结束
+      ja: 時間課金のリソースを含みます。1 枚のカードを終えたらすぐに終了することをお勧めします
+      en: Includes hourly-billed resources; end each card as soon as you finish it
     items:
       - { card: svc-load-balancer, role: required, legacyLab: 19 }
       - { card: sc-private-network, role: required, legacyLab: 20 }
       - { card: svc-autoscaling, role: required, legacyLab: 21 }
-      - { card: sc-ha-web, role: optional, legacyLab: 21, note: 推荐；与 svc-autoscaling 重叠、费用高，但最接近考试的高可用题 }
-      - { card: svc-shared-fs, role: optional, legacyLab: 21, note: 原 Lab 21 的 EFS 变体 }
-      - { card: svc-ami, role: optional, legacyLab: 21, note: 原 Lab 21 的扩展 }
+      - card: sc-ha-web
+        role: optional
+        legacyLab: 21
+        note:
+          zh-CN: 推荐；与 svc-autoscaling 重叠、费用高，但最接近考试的高可用题
+          ja: 推奨。svc-autoscaling と重なり費用も高めですが、試験の高可用性の問題に最も近い内容です
+          en: Recommended; it overlaps with svc-autoscaling and costs more, but it is the closest to the exam's high-availability questions
+      - card: svc-shared-fs
+        role: optional
+        legacyLab: 21
+        note:
+          zh-CN: 原 Lab 21 的 EFS 变体
+          ja: 旧 Lab 21 の EFS 版
+          en: The EFS variant of the original Lab 21
+      - card: svc-ami
+        role: optional
+        legacyLab: 21
+        note:
+          zh-CN: 原 Lab 21 的扩展
+          ja: 旧 Lab 21 の発展
+          en: An extension of the original Lab 21
   - id: s9-ops
-    title: 可观测、审计与恢复
+    title:
+      zh-CN: 可观测、审计与恢复
+      ja: オブザーバビリティ、監査、復旧
+      en: Observability, auditing and recovery
     legacyLabs: [22, 23, 24, 25]
     items:
       - { card: svc-tracing, role: required, legacyLab: 22 }
       - { card: svc-audit, role: required, legacyLab: 23 }
       - { card: svc-threat-detection, role: required, legacyLab: 23 }
       - { card: svc-backup, role: required, legacyLab: 24 }
-      - { card: svc-compliance, role: optional, legacyLab: 25, note: 原 Lab 25 本就可选 }
-      - { card: svc-vuln-scan, role: optional, legacyLab: 25, note: 原 Lab 25 本就可选 }
-      - { group: s9-scenario, title: 阶段综合, pick: 1, cards: [sc-observability, sc-security-baseline, sc-threat-compliance, sc-backup-dr] }
+      - card: svc-compliance
+        role: optional
+        legacyLab: 25
+        note:
+          zh-CN: 原 Lab 25 本就可选
+          ja: 旧 Lab 25 でも任意でした
+          en: Already optional in the original Lab 25
+      - card: svc-vuln-scan
+        role: optional
+        legacyLab: 25
+        note:
+          zh-CN: 原 Lab 25 本就可选
+          ja: 旧 Lab 25 でも任意でした
+          en: Already optional in the original Lab 25
+      - group: s9-scenario
+        title:
+          zh-CN: 阶段综合
+          ja: ステージのまとめ
+          en: Stage capstone
+        pick: 1
+        cards: [sc-observability, sc-security-baseline, sc-threat-compliance, sc-backup-dr]
   - id: s10-capstone
-    title: 结业
+    title:
+      zh-CN: 结业
+      ja: 修了
+      en: Capstone
     items:
-      - { card: sc-cost-optimization, role: required, note: 利用此前各次实验在账号中留下的账单数据做跨会话复盘 }
+      - card: sc-cost-optimization
+        role: required
+        note:
+          zh-CN: 利用此前各次实验在账号中留下的账单数据做跨会话复盘
+          ja: これまでのラボでアカウントに残った請求データを使い、セッションをまたいで振り返ります
+          en: Uses the billing data left in the account by your earlier labs for a review across sessions
 completion: { allowManual: true, minAutoRatio: 0.7, excludeSelfReported: true }
-certificate: { enabled: true, title: SAA 主线结业证书 }
+certificate:
+  enabled: true
+  title:
+    zh-CN: SAA 主线结业证书
+    ja: SAA メインパス修了証
+    en: SAA main path certificate

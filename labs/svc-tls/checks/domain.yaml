@@ -1,17 +1,29 @@
 # 域名准备：A 记录（人工前置）与回退分支的外部 DNS 本地档
 checks:
   - id: domain-a-record
-    title: 你的域名已有 A 记录指向实验机
+    title:
+      zh-CN: 你的域名已有 A 记录指向实验机
+      ja: あなたのドメインに、ラボ用インスタンスを指す A レコードがある
+      en: Your domain has an A record pointing at the lab instance
     type: manual
     spec:
-      confirm: 我已在自己的 DNS 中为 {{ learner.inputs.domain }} 添加 A 记录 → {{ target.publicIp }}（回退分支在第 4 步改为 CNAME 到分配）
+      confirm:
+        zh-CN: 我已在自己的 DNS 中为 {{ learner.inputs.domain }} 添加 A 记录 → {{ target.publicIp }}（回退分支在第 4 步改为 CNAME 到分配）
+        ja: 自分の DNS で {{ learner.inputs.domain }} の A レコード → {{ target.publicIp }} を追加しました（フォールバックの分岐ではステップ 4 でディストリビューションへの CNAME に変更します）
+        en: I added an A record {{ learner.inputs.domain }} → {{ target.publicIp }} in my own DNS (the fallback branch changes it to a CNAME to the distribution in step 4)
       input:
         label: dig +short {{ learner.inputs.domain }} @8.8.8.8 的输出
         pattern: '^[0-9.\s]{7,200}$'
-    explain: ACM 不能为 IP 或 amazonaws.com 名称签发证书，浏览器也要靠这条记录找到实验机；域名是你的前置输入（04 §3.2.3 规则 6）。
+    explain:
+      zh-CN: ACM 不能为 IP 或 amazonaws.com 名称签发证书，浏览器也要靠这条记录找到实验机；域名是你的前置输入（04 §3.2.3 规则 6）。
+      ja: ACM は IP や amazonaws.com の名前には証明書を発行できず、ブラウザーもこのレコードを頼りにラボ用インスタンスを見つけます。ドメイン名はあなたが事前に入力するものです（04 §3.2.3 ルール 6）。
+      en: ACM cannot issue certificates for IPs or amazonaws.com names, and browsers rely on this record to find the lab instance; the domain is your prerequisite input (04 §3.2.3 rule 6).
 
   - id: dns-external-env
-    title: 回退分支：dns 本地档写的是外部 DNS
+    title:
+      zh-CN: 回退分支：dns 本地档写的是外部 DNS
+      ja: フォールバックの分岐：dns のローカル階層に外部 DNS が書き込まれている
+      en: "Fallback branch: the dns local tier is set to external DNS"
     type: local
     on: lab
     checkId: env-key
@@ -19,16 +31,37 @@ checks:
     when: "session.variant == 'acme-off'"
     drift: { policy: must-hold }
     assert:
-      - { path: $.value, op: eq, value: external, label: DNS_PROVIDER }
-    explain: DEP-005 ③：TLS_ACME=off 时 tls 需要 dns 或外部 DNS；缺少它第 4 步重启时会以退出码 78 拒绝启动。
+      - path: $.value
+        op: eq
+        value: external
+        label:
+          zh-CN: DNS_PROVIDER
+          ja: DNS_PROVIDER
+          en: DNS_PROVIDER
+    explain:
+      zh-CN: DEP-005 ③：TLS_ACME=off 时 tls 需要 dns 或外部 DNS；缺少它第 4 步重启时会以退出码 78 拒绝启动。
+      ja: DEP-005 ③：TLS_ACME=off のとき、tls には dns または外部 DNS が必要です。これがないと、ステップ 4 の再起動時に終了コード 78 で起動が拒否されます。
+      en: "DEP-005 ③: with TLS_ACME=off, tls needs dns or external DNS; without it, the restart in step 4 refuses to start with exit code 78."
     reproduce: { run: 'sudo grep -E "^(DNS_PROVIDER|APP_BASE_URL)=" /etc/cloudalbum/modules.d/dns.env', runsOn: lab }
 
   - id: cap-dns-external
-    title: 回退分支：capabilities 中 dns 为本地档 external
+    title:
+      zh-CN: 回退分支：capabilities 中 dns 为本地档 external
+      ja: フォールバックの分岐：capabilities の dns がローカル階層 external
+      en: "Fallback branch: dns in capabilities is the local tier external"
     type: capability
     module: dns
     when: "session.variant == 'acme-off'"
     drift: { policy: must-hold }
     assert:
-      - { path: $.driver, op: eq, value: external, label: 驱动 }
-    explain: 外部 DNS 是本地档：不部署 AWS 资源，不写 MODULE_DNS=on；APP_BASE_URL 改为你的域名。
+      - path: $.driver
+        op: eq
+        value: external
+        label:
+          zh-CN: 驱动
+          ja: ドライバー
+          en: Driver
+    explain:
+      zh-CN: 外部 DNS 是本地档：不部署 AWS 资源，不写 MODULE_DNS=on；APP_BASE_URL 改为你的域名。
+      ja: 外部 DNS はローカル階層です。AWS のリソースはデプロイせず、MODULE_DNS=on も書き込みません。APP_BASE_URL はあなたのドメインに変わります。
+      en: "External DNS is a local tier: no AWS resources are deployed and MODULE_DNS=on is not written; APP_BASE_URL changes to your domain."

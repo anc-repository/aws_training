@@ -3,32 +3,71 @@
 checks:
   # ---- 起始状态（before 一律 once）
   - id: monitoring-local-baseline
-    title: 起始状态：monitoring 是本地实现（LabMetricsStore + worker 内评估器）
+    title:
+      zh-CN: 起始状态：monitoring 是本地实现（LabMetricsStore + worker 内评估器）
+      ja: 開始状態：monitoring はローカル実装（LabMetricsStore + worker 内の評価器）
+      en: "Start state: monitoring is the local implementation (LabMetricsStore + the evaluator in the worker)"
     type: capability
     module: monitoring
     drift: { policy: once }
     assert:
-      - { path: $.driver, op: eq, value: local, label: 驱动 }
-      - { path: $.status, op: eq, value: 'off', label: 模块状态（本地实现） }
-      - { path: $.localHealth, op: eq, value: ok, label: 本地实现健康 }
-    explain: 本地实现的健康在 localHealth：LabMetricsStore 能落库、本地评估器在运行（超过两个周期没有评估会变为 degraded）。
+      - path: $.driver
+        op: eq
+        value: local
+        label:
+          zh-CN: 驱动
+          ja: ドライバー
+          en: Driver
+      - path: $.status
+        op: eq
+        value: 'off'
+        label:
+          zh-CN: 模块状态（本地实现）
+          ja: モジュールの状態（ローカル実装）
+          en: Module status (local implementation)
+      - path: $.localHealth
+        op: eq
+        value: ok
+        label:
+          zh-CN: 本地实现健康
+          ja: ローカル実装が正常
+          en: Local implementation healthy
+    explain:
+      zh-CN: 本地实现的健康在 localHealth：LabMetricsStore 能落库、本地评估器在运行（超过两个周期没有评估会变为 degraded）。
+      ja: ローカル実装の健全性は localHealth にあります。LabMetricsStore がデータベースに書き込めること、ローカル評価器が動いていること（2 周期を超えて評価がないと degraded になります）。
+      en: "The local implementation's health is in localHealth: LabMetricsStore can write to the database and the local evaluator is running (it turns degraded after more than two periods without an evaluation)."
     reproduce: { run: 'curl -s http://127.0.0.1/api/capabilities | jq ".modules.monitoring | {driver, status, localHealth, detail}"', runsOn: lab }
 
   - id: agent-absent-baseline
-    title: 起始状态：实验机上没有运行 CloudWatch Agent（L0 不安装）
+    title:
+      zh-CN: 起始状态：实验机上没有运行 CloudWatch Agent（L0 不安装）
+      ja: 開始状態：ラボ用インスタンスで CloudWatch エージェントは動いていない（L0 ではインストールしない）
+      en: "Start state: the CloudWatch agent is not running on the lab instance (L0 does not install it)"
     type: local
     on: lab
     checkId: systemd-unit
     args: { unit: amazon-cloudwatch-agent }
     drift: { policy: once }
     assert:
-      - { path: $.active, op: neq, value: active, label: Agent 状态 }
-    explain: L0 的 User Data 不安装 Agent，保持“只有 EC2”时的纯净；启用 monitoring 时由 hostSetup 安装并投放片段。
+      - path: $.active
+        op: neq
+        value: active
+        label:
+          zh-CN: Agent 状态
+          ja: エージェントの状態
+          en: Agent status
+    explain:
+      zh-CN: L0 的 User Data 不安装 Agent，保持“只有 EC2”时的纯净；启用 monitoring 时由 hostSetup 安装并投放片段。
+      ja: L0 の User Data はエージェントをインストールせず、「EC2 だけ」のクリーンな状態を保ちます。monitoring を有効にすると hostSetup がインストールし、設定断片を配置します。
+      en: L0's User Data does not install the agent, keeping the "EC2 only" state clean; enabling monitoring has hostSetup install it and drop in the snippet.
     reproduce: { run: 'systemctl is-active amazon-cloudwatch-agent || true', runsOn: lab }
 
   # ---- 接入
   - id: monitoring-wired
-    title: monitoring 已切换到 CloudWatch（订阅确认前可以等待）
+    title:
+      zh-CN: monitoring 已切换到 CloudWatch（订阅确认前可以等待）
+      ja: monitoring が CloudWatch に切り替わった（サブスクリプションの確認前は待機でよい）
+      en: monitoring has switched to CloudWatch (waiting is fine before the subscription is confirmed)
     type: capability
     module: monitoring
     wait: { typicalMinutes: 3, maxMinutes: 15 }
@@ -37,33 +76,79 @@ checks:
       - { path: $.detail, op: contains, value: 订阅未确认 }
     drift: { policy: must-hold, monitor: true }
     assert:
-      - { path: $.driver, op: eq, value: cloudwatch, label: 驱动 }
-      - { path: $, op: healthy, label: 状态正常（本卡 expectedWarnings 为空） }
-    explain: 订阅未确认时探针为 degraded（detail 含“订阅未确认”），这是等待而不是失败；确认后应为 ok。Agent 未运行、上报落后也会是 degraded。
+      - path: $.driver
+        op: eq
+        value: cloudwatch
+        label:
+          zh-CN: 驱动
+          ja: ドライバー
+          en: Driver
+      - path: $
+        op: healthy
+        label:
+          zh-CN: 状态正常（本卡 expectedWarnings 为空）
+          ja: 状態が正常（このカードの expectedWarnings は空）
+          en: Healthy (this card's expectedWarnings is empty)
+    explain:
+      zh-CN: 订阅未确认时探针为 degraded（detail 含“订阅未确认”），这是等待而不是失败；确认后应为 ok。Agent 未运行、上报落后也会是 degraded。
+      ja: サブスクリプションが未確認のとき、プローブは degraded（detail に「订阅未确认」（サブスクリプション未確認）を含む）になります。これは失敗ではなく待機で、確認後は ok になるはずです。エージェントが動いていない、送信が遅れている場合も degraded になります。
+      en: While the subscription is unconfirmed the probe is degraded (detail contains "订阅未确认", subscription not confirmed); that is waiting, not failure, and it should become ok after confirmation. A stopped agent or lagging uploads also make it degraded.
     reproduce: { run: 'curl -s http://127.0.0.1/api/capabilities | jq ".modules.monitoring | {driver, status, detail}"', runsOn: lab }
     pitfalls: [subscription-pending]
 
   - id: monitoring-healthy
-    title: monitoring 为 CloudWatch 且状态正常（Agent 运行、订阅已确认）
+    title:
+      zh-CN: monitoring 为 CloudWatch 且状态正常（Agent 运行、订阅已确认）
+      ja: monitoring が CloudWatch で状態が正常（エージェントが動作し、サブスクリプションが確認済み）
+      en: monitoring is CloudWatch and healthy (agent running, subscription confirmed)
     type: capability
     module: monitoring
     drift: { policy: must-hold }
     assert:
-      - { path: $.driver, op: eq, value: cloudwatch, label: 驱动 }
-      - { path: $, op: healthy, label: 状态正常 }
-    explain: 最终复核要求 ok：上报正常、Agent 在运行、ops-alarms 主题没有待确认的订阅。
+      - path: $.driver
+        op: eq
+        value: cloudwatch
+        label:
+          zh-CN: 驱动
+          ja: ドライバー
+          en: Driver
+      - path: $
+        op: healthy
+        label:
+          zh-CN: 状态正常
+          ja: 状態が正常
+          en: Healthy
+    explain:
+      zh-CN: 最终复核要求 ok：上报正常、Agent 在运行、ops-alarms 主题没有待确认的订阅。
+      ja: 最終確認では ok が必要です。送信が正常で、エージェントが動いていて、ops-alarms トピックに確認待ちのサブスクリプションがないこと。
+      en: "The final review requires ok: uploads are normal, the agent is running, and the ops-alarms topic has no pending subscriptions."
 
   - id: monitoring-present
-    title: 应用可达，capabilities 中有 monitoring（实验时间窗的佐证）
+    title:
+      zh-CN: 应用可达，capabilities 中有 monitoring（实验时间窗的佐证）
+      ja: アプリに到達でき、capabilities に monitoring がある（実験の時間帯の裏付け）
+      en: The app is reachable and capabilities includes monitoring (corroborating the experiment time window)
     type: capability
     module: monitoring
     drift: { policy: once }
     assert:
-      - { path: $.driver, op: in, value: [local, cloudwatch], label: 驱动 }
-    explain: kill-test 是功能型实验（validity functional），用这条检查佐证实验时间窗内应用与 monitoring 处于预期状态。
+      - path: $.driver
+        op: in
+        value: [local, cloudwatch]
+        label:
+          zh-CN: 驱动
+          ja: ドライバー
+          en: Driver
+    explain:
+      zh-CN: kill-test 是功能型实验（validity functional），用这条检查佐证实验时间窗内应用与 monitoring 处于预期状态。
+      ja: kill-test は機能型の実験（validity functional）で、このチェックで実験の時間帯にアプリと monitoring が想定どおりの状態だったことを裏付けます。
+      en: kill-test is a functional experiment (validity functional); this check corroborates that the app and monitoring were in the expected state during the experiment window.
 
   - id: agent-active
-    title: CloudWatch Agent 在实验机上运行
+    title:
+      zh-CN: CloudWatch Agent 在实验机上运行
+      ja: CloudWatch エージェントがラボ用インスタンスで動作している
+      en: The CloudWatch agent is running on the lab instance
     type: local
     on: lab
     checkId: systemd-unit
@@ -72,35 +157,74 @@ checks:
     wait: { typicalMinutes: 2, maxMinutes: 10 }
     drift: { policy: must-hold }
     assert:
-      - { path: $.active, op: eq, value: active, label: Agent 状态 }
-    explain: hostSetup 安装 amazon-cloudwatch-agent，把 monitoring 片段（内存、磁盘）以 cloudalbum-monitoring.json 追加进 Agent；Agent 只用实例角色的凭证。
+      - path: $.active
+        op: eq
+        value: active
+        label:
+          zh-CN: Agent 状态
+          ja: エージェントの状態
+          en: Agent status
+    explain:
+      zh-CN: hostSetup 安装 amazon-cloudwatch-agent，把 monitoring 片段（内存、磁盘）以 cloudalbum-monitoring.json 追加进 Agent；Agent 只用实例角色的凭证。
+      ja: hostSetup が amazon-cloudwatch-agent をインストールし、monitoring の設定断片（メモリ、ディスク）を cloudalbum-monitoring.json としてエージェントに追加します。エージェントはインスタンスロールの認証情報だけを使います。
+      en: hostSetup installs amazon-cloudwatch-agent and appends the monitoring snippet (memory, disk) to the agent as cloudalbum-monitoring.json; the agent only uses the instance role's credentials.
     reproduce: { run: 'systemctl status amazon-cloudwatch-agent --no-pager | head -5', runsOn: lab }
 
   - id: monitoring-module-state
-    title: modules.state.json 记录 monitoring 已启用（cloudwatch）
+    title:
+      zh-CN: modules.state.json 记录 monitoring 已启用（cloudwatch）
+      ja: modules.state.json に monitoring が有効（cloudwatch）と記録されている
+      en: modules.state.json records monitoring as enabled (cloudwatch)
     type: local
     on: lab
     checkId: module-state
     args: { module: monitoring }
     drift: { policy: must-hold }
     assert:
-      - { path: $.modules.monitoring.enabled, op: eq, value: true, label: 已启用 }
-      - { path: $.modules.monitoring.driver, op: eq, value: cloudwatch, label: 驱动 }
+      - path: $.modules.monitoring.enabled
+        op: eq
+        value: true
+        label:
+          zh-CN: 已启用
+          ja: 有効
+          en: Enabled
+      - path: $.modules.monitoring.driver
+        op: eq
+        value: cloudwatch
+        label:
+          zh-CN: 驱动
+          ja: ドライバー
+          en: Driver
     reproduce: { run: 'sudo cloudalbum module-state --module monitoring --json', runsOn: lab }
 
   - id: metric-traffic
-    title: 一次真实请求经过应用（计入 Requests 与 Latency）
+    title:
+      zh-CN: 一次真实请求经过应用（计入 Requests 与 Latency）
+      ja: 実際のリクエストが 1 件アプリを通った（Requests と Latency に計上される）
+      en: A real request went through the app (counted in Requests and Latency)
     type: local
     on: lab
     checkId: http-probe
     args: { target: self, path: '/api/health/live?atlprobe={{ sample.nonce }}', method: GET }
     drift: { policy: once }
     assert:
-      - { path: '$.responses[0].status', op: eq, value: 200, label: 状态码 }
-    explain: monitoring 不出现在 X-CloudAlbum-Path 中；接入的证据是应用随后把请求与心跳批量上报到 CloudWatch（下一项）。
+      - path: '$.responses[0].status'
+        op: eq
+        value: 200
+        label:
+          zh-CN: 状态码
+          ja: ステータスコード
+          en: Status code
+    explain:
+      zh-CN: monitoring 不出现在 X-CloudAlbum-Path 中；接入的证据是应用随后把请求与心跳批量上报到 CloudWatch（下一项）。
+      ja: monitoring は X-CloudAlbum-Path には現れません。組み込みの証拠は、アプリがその後リクエストとハートビートを CloudWatch にまとめて送ることです（次の項目）。
+      en: monitoring does not appear in X-CloudAlbum-Path; the evidence of wiring is that the app then batch-sends requests and heartbeats to CloudWatch (next item).
 
   - id: app-metrics-published
-    title: 应用把自定义指标上报到了 CloudAlbum/App（心跳与请求数）
+    title:
+      zh-CN: 应用把自定义指标上报到了 CloudAlbum/App（心跳与请求数）
+      ja: アプリがカスタムメトリクスを CloudAlbum/App に送信した（ハートビートとリクエスト数）
+      en: The app sent custom metrics to CloudAlbum/App (heartbeat and request count)
     type: aws-readonly
     service: cloudwatch
     action: ListMetrics
@@ -112,20 +236,56 @@ checks:
       - { path: $.Metrics, op: len_eq, value: 0 }
     drift: { policy: once }
     assert:
-      - { path: $.Metrics, where: { MetricName: AppHeartbeat }, op: len_gte, value: 1, label: AppHeartbeat }
-      - { path: $.Metrics, where: { MetricName: Requests }, op: len_gte, value: 1, label: Requests }
-    explain: 服务端证据：命名空间 CloudAlbum/App 中出现了应用每 60 秒批量 PutMetricData 的指标（新指标要一两分钟才能列出）。命名空间里的指标不是“资源”，没有归属可言；本账号里只有本会话的实验机在写这个命名空间。
+      - path: $.Metrics
+        where: { MetricName: AppHeartbeat }
+        op: len_gte
+        value: 1
+        label:
+          zh-CN: AppHeartbeat
+          ja: AppHeartbeat
+          en: AppHeartbeat
+      - path: $.Metrics
+        where: { MetricName: Requests }
+        op: len_gte
+        value: 1
+        label:
+          zh-CN: Requests
+          ja: Requests
+          en: Requests
+    explain:
+      zh-CN: 服务端证据：命名空间 CloudAlbum/App 中出现了应用每 60 秒批量 PutMetricData 的指标（新指标要一两分钟才能列出）。命名空间里的指标不是“资源”，没有归属可言；本账号里只有本会话的实验机在写这个命名空间。
+      ja: サーバー側の証拠：名前空間 CloudAlbum/App に、アプリが 60 秒ごとにまとめて PutMetricData したメトリクスが現れます（新しいメトリクスが一覧に出るまで 1～2 分かかります）。名前空間内のメトリクスは「リソース」ではないため、所有という概念はありません。このアカウントでこの名前空間に書き込んでいるのは、このセッションのラボ用インスタンスだけです。
+      en: "Server-side evidence: the namespace CloudAlbum/App contains the metrics the app batch-sends with PutMetricData every 60 seconds (new metrics take a minute or two to be listed). Metrics in a namespace are not \"resources\" and have no ownership; in this account only this session's lab instance writes to this namespace."
     reproduce: { run: 'aws cloudwatch list-metrics --namespace CloudAlbum/App --query "Metrics[].MetricName" --output text', runsOn: workstation }
     manualFallback:
       where: { breadcrumb: [CloudWatch, 指标, 所有指标, 自定义命名空间, CloudAlbum/App], region: app }
       observed:
-        question: CloudAlbum/App 下能看到 AppHeartbeat 与 Requests 吗？
+        question:
+          zh-CN: CloudAlbum/App 下能看到 AppHeartbeat 与 Requests 吗？
+          ja: CloudAlbum/App の下に AppHeartbeat と Requests が見えますか？
+          en: Can you see AppHeartbeat and Requests under CloudAlbum/App?
         options:
-          - { value: both, label: 都能看到, expected: true }
-          - { value: none, label: 看不到命名空间, fixHint: 应用每 60 秒批量上报一次，新指标要一两分钟才出现；monitoring 的 detail 会显示最近一次上报成功的时间 }
+          - value: both
+            label:
+              zh-CN: 都能看到
+              ja: どちらも見える
+              en: Both are there
+            expected: true
+          - value: none
+            label:
+              zh-CN: 看不到命名空间
+              ja: 名前空間が見えない
+              en: The namespace is not there
+            fixHint:
+              zh-CN: 应用每 60 秒批量上报一次，新指标要一两分钟才出现；monitoring 的 detail 会显示最近一次上报成功的时间
+              ja: アプリは 60 秒ごとにまとめて送信し、新しいメトリクスが現れるまで 1～2 分かかります。monitoring の detail に最後に送信が成功した時刻が表示されます
+              en: The app sends a batch every 60 seconds and new metrics take a minute or two to appear; monitoring's detail shows the time of the last successful upload
 
   - id: heartbeat-alarm
-    title: 本会话的 app-heartbeat 告警把缺失数据视为违规，并有告警动作
+    title:
+      zh-CN: 本会话的 app-heartbeat 告警把缺失数据视为违规，并有告警动作
+      ja: このセッションの app-heartbeat アラームは欠損データを違反として扱い、アラームのアクションがある
+      en: This session's app-heartbeat alarm treats missing data as breaching and has an alarm action
     type: aws-readonly
     service: cloudwatch
     action: DescribeAlarms
@@ -134,24 +294,70 @@ checks:
     ownership: { resource: '{{$.MetricAlarms[0].AlarmArn}}', mode: session, createdAfter: session.readyAt }
     drift: { policy: must-hold }
     assert:
-      - { path: $.MetricAlarms, op: len_eq, value: 1, label: 告警存在 }
-      - { path: '$.MetricAlarms[0].TreatMissingData', op: eq, value: breaching, label: 缺失数据视为违规 }
-      - { path: '$.MetricAlarms[0].AlarmActions', op: len_gte, value: 1, label: 告警动作 }
-      - { path: '$.MetricAlarms[0].AlarmActions[0]', op: eq, value: '{{ var.alarmTopicArn }}', label: 发到本会话的 ops-alarms 主题 }
-    explain: 心跳告警是“实例倒下也报警”的关键：进程死亡或实例停止时没有数据点，breaching 让告警进入 ALARM 而不是停在 INSUFFICIENT_DATA。
+      - path: $.MetricAlarms
+        op: len_eq
+        value: 1
+        label:
+          zh-CN: 告警存在
+          ja: アラームが存在する
+          en: Alarm exists
+      - path: '$.MetricAlarms[0].TreatMissingData'
+        op: eq
+        value: breaching
+        label:
+          zh-CN: 缺失数据视为违规
+          ja: 欠損データを違反として扱う
+          en: Missing data treated as breaching
+      - path: '$.MetricAlarms[0].AlarmActions'
+        op: len_gte
+        value: 1
+        label:
+          zh-CN: 告警动作
+          ja: アラームのアクション
+          en: Alarm action
+      - path: '$.MetricAlarms[0].AlarmActions[0]'
+        op: eq
+        value: '{{ var.alarmTopicArn }}'
+        label:
+          zh-CN: 发到本会话的 ops-alarms 主题
+          ja: このセッションの ops-alarms トピックに送る
+          en: Sends to this session's ops-alarms topic
+    explain:
+      zh-CN: 心跳告警是“实例倒下也报警”的关键：进程死亡或实例停止时没有数据点，breaching 让告警进入 ALARM 而不是停在 INSUFFICIENT_DATA。
+      ja: ハートビートのアラームは「インスタンスが倒れてもアラーム」の鍵です。プロセスが死んだりインスタンスが停止したりするとデータポイントがなくなり、breaching によってアラームは INSUFFICIENT_DATA で止まらずに ALARM になります。
+      en: 'The heartbeat alarm is the key to "alarms that outlive the instance": when the process dies or the instance stops there are no data points, and breaching makes the alarm go to ALARM instead of stopping at INSUFFICIENT_DATA.'
     reproduce: { run: 'aws cloudwatch describe-alarms --alarm-names cloudalbum-{{ session.env }}-app-heartbeat --query "MetricAlarms[0].[StateValue,TreatMissingData,AlarmActions]"', runsOn: workstation }
     pitfalls: [missing-not-breaching]
     manualFallback:
       where: { breadcrumb: [CloudWatch, 告警, 'cloudalbum-{{ session.env }}-app-heartbeat', 详细信息], region: app }
       observed:
-        question: “缺失数据处理”一栏显示什么？
+        question:
+          zh-CN: “缺失数据处理”一栏显示什么？
+          ja: 「欠落データの処理」欄には何と表示されていますか？
+          en: What does the "Missing data treatment" field show?
         options:
-          - { value: breaching, label: 将缺失数据视为违规（breaching）, expected: true }
-          - { value: other, label: 其他, fixHint: 不要在控制台修改栈管理的告警；重新执行 scripts/module enable monitoring }
+          - value: breaching
+            label:
+              zh-CN: 将缺失数据视为违规（breaching）
+              ja: 欠落データを不正（しきい値を超えている）として処理（breaching）
+              en: Treat missing data as bad (breaching threshold)
+            expected: true
+          - value: other
+            label:
+              zh-CN: 其他
+              ja: その他
+              en: Something else
+            fixHint:
+              zh-CN: 不要在控制台修改栈管理的告警；重新执行 scripts/module enable monitoring
+              ja: スタックが管理するアラームをコンソールで変更しないでください。scripts/module enable monitoring を再実行してください
+              en: Do not change stack-managed alarms in the console; run scripts/module enable monitoring again
 
   # ---- 订阅
   - id: subscription-confirmed
-    title: ops-alarms 主题有已确认的订阅
+    title:
+      zh-CN: ops-alarms 主题有已确认的订阅
+      ja: ops-alarms トピックに確認済みのサブスクリプションがある
+      en: The ops-alarms topic has a confirmed subscription
     type: aws-readonly
     service: sns
     action: ListSubscriptionsByTopic
@@ -163,39 +369,101 @@ checks:
       - { path: $.Subscriptions, where: { SubscriptionArn: PendingConfirmation }, op: len_gte, value: 1 }
     drift: { policy: must-hold }
     assert:
-      - { path: $.Subscriptions, where: { SubscriptionArn: { op: startsWith, value: 'arn:' }, Protocol: email }, op: len_gte, value: 1, label: 已确认的邮件订阅 }
-    explain: 邮件订阅需要收件人点击确认链接才开始投递；确认前 SubscriptionArn 为 PendingConfirmation。
+      - path: $.Subscriptions
+        where: { SubscriptionArn: { op: startsWith, value: 'arn:' }, Protocol: email }
+        op: len_gte
+        value: 1
+        label:
+          zh-CN: 已确认的邮件订阅
+          ja: 確認済みのメールサブスクリプション
+          en: Confirmed email subscription
+    explain:
+      zh-CN: 邮件订阅需要收件人点击确认链接才开始投递；确认前 SubscriptionArn 为 PendingConfirmation。
+      ja: メールサブスクリプションは受信者が確認リンクをクリックして初めて配信が始まります。確認前の SubscriptionArn は PendingConfirmation です。
+      en: An email subscription only starts delivering after the recipient clicks the confirmation link; before that, SubscriptionArn is PendingConfirmation.
     reproduce: { run: 'aws sns list-subscriptions-by-topic --topic-arn "{{ var.alarmTopicArn }}" --query "Subscriptions[].[Protocol,SubscriptionArn]"', runsOn: workstation }
     pitfalls: [subscription-pending]
     manualFallback:
       where: { breadcrumb: [SNS, 主题, 'cloudalbum-{{ session.env }}-ops-alarms', 订阅], region: app }
       observed:
-        question: 邮件订阅的状态是什么？
+        question:
+          zh-CN: 邮件订阅的状态是什么？
+          ja: メールサブスクリプションのステータスは何ですか？
+          en: What is the email subscription's status?
         options:
-          - { value: confirmed, label: 已确认, expected: true }
-          - { value: pending, label: 等待确认, fixHint: 到邮箱找 AWS Notification - Subscription Confirmation 邮件，点击确认链接 }
+          - value: confirmed
+            label:
+              zh-CN: 已确认
+              ja: 確認済み
+              en: Confirmed
+            expected: true
+          - value: pending
+            label:
+              zh-CN: 等待确认
+              ja: 確認待ち
+              en: Pending confirmation
+            fixHint:
+              zh-CN: 到邮箱找 AWS Notification - Subscription Confirmation 邮件，点击确认链接
+              ja: メールボックスで AWS Notification - Subscription Confirmation のメールを探し、確認リンクをクリックしてください
+              en: Find the AWS Notification - Subscription Confirmation email in your mailbox and click the confirmation link
 
   - id: subscription-confirmed-manual
-    title: 我已在邮箱中点击了订阅确认链接
+    title:
+      zh-CN: 我已在邮箱中点击了订阅确认链接
+      ja: メールボックスでサブスクリプションの確認リンクをクリックした
+      en: I clicked the subscription confirmation link in my mailbox
     type: manual
     spec:
-      confirm: 我已在 {{ learner.inputs.notify-email }} 的邮箱中找到 “AWS Notification - Subscription Confirmation” 并点击了确认链接
+      confirm:
+        zh-CN: 我已在 {{ learner.inputs.notify-email }} 的邮箱中找到 “AWS Notification - Subscription Confirmation” 并点击了确认链接
+        ja: "{{ learner.inputs.notify-email }} のメールボックスで「AWS Notification - Subscription Confirmation」を見つけ、確認リンクをクリックしました"
+        en: I found "AWS Notification - Subscription Confirmation" in the {{ learner.inputs.notify-email }} mailbox and clicked the confirmation link
 
   - id: alarm-mail-received
-    title: 停服务期间收到了 app-heartbeat 的 ALARM 邮件
+    title:
+      zh-CN: 停服务期间收到了 app-heartbeat 的 ALARM 邮件
+      ja: サービスの停止中に app-heartbeat の ALARM メールを受け取った
+      en: Received the app-heartbeat ALARM email while the services were stopped
     type: manual
     spec:
       observed:
-        question: 停服务的这几分钟里，你的邮箱收到了什么？
+        question:
+          zh-CN: 停服务的这几分钟里，你的邮箱收到了什么？
+          ja: サービスを止めていた数分間に、メールボックスに何が届きましたか？
+          en: What arrived in your mailbox during the few minutes the services were stopped?
         options:
-          - { value: sns-alarm, label: 一封主题含 ALARM 与 app-heartbeat 的邮件, expected: true }
-          - { value: none, label: 什么都没收到, fixHint: 先确认订阅已确认；告警要连续 3 个 1 分钟周期没有心跳才进入 ALARM，再等一两分钟 }
-          - { value: local-only, label: 只有站内信, fixHint: 站内信来自本地评估器——停服务时它也停了，不可能发出；刷新页面再看 }
+          - value: sns-alarm
+            label:
+              zh-CN: 一封主题含 ALARM 与 app-heartbeat 的邮件
+              ja: 件名に ALARM と app-heartbeat を含むメールが 1 通
+              en: One email whose subject contains ALARM and app-heartbeat
+            expected: true
+          - value: none
+            label:
+              zh-CN: 什么都没收到
+              ja: 何も届かなかった
+              en: Nothing
+            fixHint:
+              zh-CN: 先确认订阅已确认；告警要连续 3 个 1 分钟周期没有心跳才进入 ALARM，再等一两分钟
+              ja: まずサブスクリプションが確認済みであることを確認してください。アラームは 1 分の期間が 3 回連続でハートビートなしになって初めて ALARM になります。もう 1～2 分待ってください
+              en: First check that the subscription is confirmed; the alarm only goes to ALARM after 3 consecutive 1-minute periods without a heartbeat, so wait another minute or two
+          - value: local-only
+            label:
+              zh-CN: 只有站内信
+              ja: サイト内メッセージだけ
+              en: Only an in-app message
+            fixHint:
+              zh-CN: 站内信来自本地评估器——停服务时它也停了，不可能发出；刷新页面再看
+              ja: サイト内メッセージはローカル評価器からのものです。サービスを止めている間は評価器も止まっているので、送られるはずがありません。ページを再読み込みして確認してください
+              en: In-app messages come from the local evaluator, which stops with the services, so it cannot have sent one; reload the page and look again
       input: { label: 邮件到达时间（本地时间，例如 14:32）, pattern: '^[0-2]?[0-9]:[0-5][0-9]$' }
 
   # ---- Agent 指标（内存可见性）
   - id: cwagent-mem-metric
-    title: CWAgent 命名空间里有本实验机的 mem_used_percent
+    title:
+      zh-CN: CWAgent 命名空间里有本实验机的 mem_used_percent
+      ja: CWAgent の名前空間にこのラボ用インスタンスの mem_used_percent がある
+      en: The CWAgent namespace has this lab instance's mem_used_percent
     type: aws-readonly
     service: cloudwatch
     action: ListMetrics
@@ -207,20 +475,48 @@ checks:
     wait: { typicalMinutes: 3, maxMinutes: 15 }
     drift: { policy: once }
     assert:
-      - { path: $.Metrics, op: len_gte, value: 1, label: 指标条数 }
-    explain: EC2 本身只有虚拟化层可见的指标（CPU、网络、磁盘 I/O、状态检查），内存使用率必须由操作系统内的 Agent 上报。
+      - path: $.Metrics
+        op: len_gte
+        value: 1
+        label:
+          zh-CN: 指标条数
+          ja: メトリクスの件数
+          en: Number of metrics
+    explain:
+      zh-CN: EC2 本身只有虚拟化层可见的指标（CPU、网络、磁盘 I/O、状态检查），内存使用率必须由操作系统内的 Agent 上报。
+      ja: EC2 自体には仮想化レイヤーから見えるメトリクス（CPU、ネットワーク、ディスク I/O、ステータスチェック）しかありません。メモリ使用率は OS 内のエージェントが送信する必要があります。
+      en: EC2 itself only has metrics visible from the virtualization layer (CPU, network, disk I/O, status checks); memory utilization must be sent by an agent inside the OS.
     reproduce: { run: 'aws cloudwatch list-metrics --namespace CWAgent --metric-name mem_used_percent --dimensions Name=InstanceId,Value={{ target.instanceId }}', runsOn: workstation }
     manualFallback:
       where: { breadcrumb: [CloudWatch, 指标, 所有指标, CWAgent, InstanceId], region: app }
       observed:
-        question: 能找到实验机实例 ID 下的 mem_used_percent 吗？
+        question:
+          zh-CN: 能找到实验机实例 ID 下的 mem_used_percent 吗？
+          ja: ラボ用インスタンスのインスタンス ID の下に mem_used_percent が見つかりますか？
+          en: Can you find mem_used_percent under the lab instance's instance ID?
         options:
-          - { value: found, label: 能找到, expected: true }
-          - { value: missing, label: 找不到, fixHint: Agent 是否在运行？新指标要几分钟才出现在控制台 }
+          - value: found
+            label:
+              zh-CN: 能找到
+              ja: 見つかる
+              en: Yes
+            expected: true
+          - value: missing
+            label:
+              zh-CN: 找不到
+              ja: 見つからない
+              en: No
+            fixHint:
+              zh-CN: Agent 是否在运行？新指标要几分钟才出现在控制台
+              ja: エージェントは動いていますか？新しいメトリクスがコンソールに現れるまで数分かかります
+              en: Is the agent running? New metrics take a few minutes to appear in the console
 
   # ---- 回收验证
   - id: monitoring-topic-gone
-    title: 本会话的 monitoring 栈已删除
+    title:
+      zh-CN: 本会话的 monitoring 栈已删除
+      ja: このセッションの monitoring スタックが削除された
+      en: This session's monitoring stack has been deleted
     type: aws-readonly
     service: cloudformation
     action: DescribeStacks
@@ -232,13 +528,49 @@ checks:
     manualFallback:
       where: { breadcrumb: [CloudFormation, 堆栈], region: app }
       observed:
-        question: 列表中还能找到 cloudalbum-{{ session.env }}-monitoring 吗？
+        question:
+          zh-CN: 列表中还能找到 cloudalbum-{{ session.env }}-monitoring 吗？
+          ja: 一覧にまだ cloudalbum-{{ session.env }}-monitoring がありますか？
+          en: Can you still find cloudalbum-{{ session.env }}-monitoring in the list?
         options:
-          - { value: gone, label: 找不到, expected: true }
-          - { value: present, label: 还在 }
+          - value: gone
+            label:
+              zh-CN: 找不到
+              ja: 見つからない
+              en: Not found
+            expected: true
+          - value: present
+            label:
+              zh-CN: 还在
+              ja: まだある
+              en: Still there
 
 pitfalls:
-  - { id: subscription-pending, title: 订阅还没有确认, match: [ { checkId: monitoring-wired, result: pending }, { checkId: subscription-confirmed, result: pending } ],
-      cause: SNS 的邮件订阅要收件人点击确认链接后才投递；确认前探针为 degraded（订阅未确认），告警只在控制台可见, fix: 到邮箱（含垃圾邮件箱）找 AWS Notification - Subscription Confirmation 邮件并点击确认 }
-  - { id: missing-not-breaching, title: 心跳告警停在 INSUFFICIENT_DATA, match: [ { checkId: heartbeat-alarm, result: fail } ],
-      cause: TreatMissingData 默认是 missing，进程死亡后告警不会进入 ALARM, fix: 不要在控制台修改栈管理的告警；重新执行 scripts/module enable monitoring 恢复为 breaching }
+  - id: subscription-pending
+    title:
+      zh-CN: 订阅还没有确认
+      ja: サブスクリプションがまだ確認されていない
+      en: The subscription has not been confirmed yet
+    match: [ { checkId: monitoring-wired, result: pending }, { checkId: subscription-confirmed, result: pending } ]
+    cause:
+      zh-CN: SNS 的邮件订阅要收件人点击确认链接后才投递；确认前探针为 degraded（订阅未确认），告警只在控制台可见
+      ja: SNS のメールサブスクリプションは受信者が確認リンクをクリックしてから配信されます。確認前のプローブは degraded（サブスクリプション未確認）で、アラームはコンソールでしか見えません
+      en: SNS email subscriptions deliver only after the recipient clicks the confirmation link; before that the probe is degraded (subscription not confirmed) and alarms are only visible in the console
+    fix:
+      zh-CN: 到邮箱（含垃圾邮件箱）找 AWS Notification - Subscription Confirmation 邮件并点击确认
+      ja: メールボックス（迷惑メールフォルダーを含む）で AWS Notification - Subscription Confirmation のメールを探し、確認をクリックしてください
+      en: Find the AWS Notification - Subscription Confirmation email in your mailbox (including spam) and click to confirm
+  - id: missing-not-breaching
+    title:
+      zh-CN: 心跳告警停在 INSUFFICIENT_DATA
+      ja: ハートビートのアラームが INSUFFICIENT_DATA で止まっている
+      en: The heartbeat alarm is stuck at INSUFFICIENT_DATA
+    match: [ { checkId: heartbeat-alarm, result: fail } ]
+    cause:
+      zh-CN: TreatMissingData 默认是 missing，进程死亡后告警不会进入 ALARM
+      ja: TreatMissingData のデフォルトは missing で、プロセスが死んでもアラームは ALARM になりません
+      en: TreatMissingData defaults to missing, so the alarm does not go to ALARM when the process dies
+    fix:
+      zh-CN: 不要在控制台修改栈管理的告警；重新执行 scripts/module enable monitoring 恢复为 breaching
+      ja: スタックが管理するアラームをコンソールで変更しないでください。scripts/module enable monitoring を再実行して breaching に戻してください
+      en: Do not change stack-managed alarms in the console; run scripts/module enable monitoring again to restore breaching

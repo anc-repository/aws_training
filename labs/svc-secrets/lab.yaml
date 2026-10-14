@@ -5,10 +5,22 @@ id: svc-secrets
 kind: service
 version: 0.1.0
 status: planned
-service: AWS Secrets Manager
-function: 密码与密钥管理
-title: AWS Secrets Manager：密码与密钥管理
-summary: 把数据卷上的 `secrets.env` 搬进 Secrets Manager：磁盘上不再有明文，轮换 JWT 签名密钥不用重启、用户不掉线，每次读取都有审计。
+service:
+  zh-CN: AWS Secrets Manager
+  ja: AWS Secrets Manager
+  en: AWS Secrets Manager
+function:
+  zh-CN: 密码与密钥管理
+  ja: パスワードとキーの管理
+  en: Password and key management
+title:
+  zh-CN: AWS Secrets Manager：密码与密钥管理
+  ja: AWS Secrets Manager：パスワードとキーの管理
+  en: "AWS Secrets Manager: password and key management"
+summary:
+  zh-CN: 把数据卷上的 `secrets.env` 搬进 Secrets Manager：磁盘上不再有明文，轮换 JWT 签名密钥不用重启、用户不掉线，每次读取都有审计。
+  ja: データボリューム上の `secrets.env` を Secrets Manager に移します。ディスクに平文が残らず、JWT 署名キーをローテーションしても再起動は不要でユーザーもログアウトされません。すべての読み取りは監査されます。
+  en: "Move `secrets.env` from the data volume into Secrets Manager: no more plaintext on disk, rotating the JWT signing key needs no restart and logs no one out, and every read is audited."
 difficulty: intermediate
 estimatedMinutes: 60
 timeLimitMinutes: 90
@@ -17,7 +29,13 @@ retain: {allowed: true, maxHours: 24}
 regions:
   supported: [ap-northeast-1]
 services:
-- {id: secretsmanager, name: AWS Secrets Manager, role: primary, module: secrets}
+- id: secretsmanager
+  name:
+    zh-CN: AWS Secrets Manager
+    ja: AWS Secrets Manager
+    en: AWS Secrets Manager
+  role: primary
+  module: secrets
 - {id: iam, role: context, module: iam}
 modules:
   target: [secrets]
@@ -33,8 +51,16 @@ startProfile:
     kind: module
     basis: credential
     set: {IAM_CREDENTIALS: role}
-    reason: 平台约定除 svc-ec2、svc-iam 外起始状态都带实例角色（C3）
-  - {item: preview-direct-https, kind: platform, reason: 预览使用方案 B 的 Let's Encrypt IP 证书（03 §6.2）}
+    reason:
+      zh-CN: 平台约定除 svc-ec2、svc-iam 外起始状态都带实例角色（C3）
+      ja: プラットフォームの取り決めにより、svc-ec2 と svc-iam 以外の開始状態にはインスタンスロールが付いています（C3）
+      en: By platform convention, every start state except svc-ec2 and svc-iam includes an instance role (C3)
+  - item: preview-direct-https
+    kind: platform
+    reason:
+      zh-CN: 预览使用方案 B 的 Let's Encrypt IP 证书（03 §6.2）
+      ja: プレビューには方式 B の Let's Encrypt IP 証明書を使います（03 §6.2）
+      en: The preview uses the option B Let's Encrypt IP certificate (03 §6.2)
   platform:
     preview: {directHttps: 'on'}
 targetModules:
@@ -42,7 +68,11 @@ targetModules:
 expectedWarnings: []
 cost: {tier: low}
 provision: {class: A}
-badge: {title: 机密托管}
+badge:
+  title:
+    zh-CN: 机密托管
+    ja: シークレットの管理
+    en: Managed secrets
 tracks: [saa-main, secure]
 saa:
   domains: [secure]

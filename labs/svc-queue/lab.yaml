@@ -6,51 +6,162 @@ id: svc-queue
 kind: service
 version: 1.0.0
 status: beta
-service: Amazon SQS
-function: 异步任务队列与死信队列
-title: Amazon SQS：异步任务队列与死信队列
-subtitle: 进程内队列 → SQS + DLQ
-summary: 把后台任务从 api 进程的内存队列换成 SQS + DLQ，在批量上传中途 kill -9 worker 看任务一个不丢，再把坏消息送进死信队列并重放。
-story: |
-  起始状态已经是“本地档异步”：任务放进 api 进程内的队列，接口立即返回，但处理仍和 API 抢 CPU；
-  进程一重启，排队和在途的任务全部丢失。这张卡片把任务放进 Amazon SQS，让“任务还在不在”与“哪个进程还活着”脱钩。
+service:
+  zh-CN: Amazon SQS
+  ja: Amazon SQS
+  en: Amazon SQS
+function:
+  zh-CN: 异步任务队列与死信队列
+  ja: 非同期ジョブキューとデッドレターキュー
+  en: Async job queue and dead-letter queue
+title:
+  zh-CN: Amazon SQS：异步任务队列与死信队列
+  ja: Amazon SQS：非同期ジョブキューとデッドレターキュー
+  en: "Amazon SQS: async job queue and dead-letter queue"
+subtitle:
+  zh-CN: 进程内队列 → SQS + DLQ
+  ja: プロセス内キュー → SQS + DLQ
+  en: In-process queue → SQS + DLQ
+summary:
+  zh-CN: 把后台任务从 api 进程的内存队列换成 SQS + DLQ，在批量上传中途 kill -9 worker 看任务一个不丢，再把坏消息送进死信队列并重放。
+  ja: バックグラウンドジョブを api プロセスのメモリ内キューから SQS + DLQ に移します。一括アップロードの途中で worker を kill -9 してもジョブが 1 件も失われないことを確かめ、さらに不正なメッセージをデッドレターキューに送って再処理します。
+  en: Move background jobs from the api process's in-memory queue to SQS + DLQ, kill -9 the worker in the middle of a bulk upload and see that no job is lost, then send a bad message to the dead-letter queue and replay it.
+story:
+  zh-CN: |
+    起始状态已经是“本地档异步”：任务放进 api 进程内的队列，接口立即返回，但处理仍和 API 抢 CPU；
+    进程一重启，排队和在途的任务全部丢失。这张卡片把任务放进 Amazon SQS，让“任务还在不在”与“哪个进程还活着”脱钩。
+  ja: |
+    開始状態はすでに「ローカル階層の非同期」です。ジョブは api プロセス内のキューに入り、API はすぐに応答しますが、処理は API と CPU を奪い合います。
+    プロセスが再起動すると、待機中と処理中のジョブはすべて失われます。このカードではジョブを Amazon SQS に入れ、「ジョブが残っているか」と「どのプロセスが生きているか」を切り離します。
+  en: |
+    The start state is already "async on the local tier": jobs go into a queue inside the api process and the API returns immediately, but processing still competes with the API for CPU;
+    when the process restarts, every queued and in-flight job is lost. This card puts jobs into Amazon SQS so that whether a job still exists no longer depends on which process is alive.
 objectives:
-  - { text: 用至少一次投递与幂等去重解释“重启不丢任务”, domain: resilient, relatesTo: after }
-  - { text: 说清可见性超时、长轮询与心跳, domain: resilient, relatesTo: enable-sqs }
-  - { text: 用死信队列隔离坏消息并重放, domain: resilient, relatesTo: poison }
-  - { text: 理解削峰填谷与按积压扩缩容, domain: performance, relatesTo: after }
+  - text:
+      zh-CN: 用至少一次投递与幂等去重解释“重启不丢任务”
+      ja: 少なくとも 1 回の配信と冪等な重複排除で「再起動してもジョブが失われない」理由を説明する
+      en: Use at-least-once delivery and idempotent deduplication to explain why restarts lose no jobs
+    domain: resilient
+    relatesTo: after
+  - text:
+      zh-CN: 说清可见性超时、长轮询与心跳
+      ja: 可視性タイムアウト、ロングポーリング、ハートビートを説明できる
+      en: Explain visibility timeouts, long polling and heartbeats
+    domain: resilient
+    relatesTo: enable-sqs
+  - text:
+      zh-CN: 用死信队列隔离坏消息并重放
+      ja: デッドレターキューで不正なメッセージを隔離し、再処理する
+      en: Isolate bad messages in a dead-letter queue and replay them
+    domain: resilient
+    relatesTo: poison
+  - text:
+      zh-CN: 理解削峰填谷与按积压扩缩容
+      ja: ピーク平準化とバックログに基づくスケーリングを理解する
+      en: Understand load leveling and scaling on backlog
+    domain: performance
+    relatesTo: after
 difficulty: beginner
 estimatedMinutes: 60
 timeLimitMinutes: 90
 extensions: { maxCount: 2, minutesEach: 30 }
-retain: { allowed: true, maxHours: 24, reason: 只有按请求计费的 SQS；保留后可以在 sc-decoupling 中继续 }
+retain:
+  allowed: true
+  maxHours: 24
+  reason:
+    zh-CN: 只有按请求计费的 SQS；保留后可以在 sc-decoupling 中继续
+    ja: リクエスト課金の SQS だけです。保持すれば sc-decoupling で続きから使えます
+    en: Only request-billed SQS; if you keep the environment, you can continue in sc-decoupling
 regions:
   supported: [ap-northeast-1]
 services:
-  - { id: sqs, name: Amazon SQS, role: primary, module: queue }
-  - { id: iam, name: AWS IAM（实例角色）, role: context, module: iam }
-  - { id: ec2, name: Amazon EC2（worker 进程）, role: observed, module: ec2 }
-  - { id: ssm-session-manager, name: AWS Systems Manager Session Manager（平台管理通道）, role: observed }
+  - id: sqs
+    name:
+      zh-CN: Amazon SQS
+      ja: Amazon SQS
+      en: Amazon SQS
+    role: primary
+    module: queue
+  - id: iam
+    name:
+      zh-CN: AWS IAM（实例角色）
+      ja: AWS IAM（インスタンスロール）
+      en: AWS IAM (instance role)
+    role: context
+    module: iam
+  - id: ec2
+    name:
+      zh-CN: Amazon EC2（worker 进程）
+      ja: Amazon EC2（worker プロセス）
+      en: Amazon EC2 (worker process)
+    role: observed
+    module: ec2
+  - id: ssm-session-manager
+    name:
+      zh-CN: AWS Systems Manager Session Manager（平台管理通道）
+      ja: AWS Systems Manager Session Manager（プラットフォームの管理チャネル）
+      en: AWS Systems Manager Session Manager (platform management channel)
+    role: observed
 modules: { target: [queue], start: [iam], context: [], related: [image-processing, notification, autoscaling] }
 prerequisites:
   cards:
     - { id: svc-ec2, kind: soft }
     - { id: svc-iam, kind: soft }
-  knowledge: [进程与 systemd 服务, JSON]
+  knowledge:
+    - zh-CN: 进程与 systemd 服务
+      ja: プロセスと systemd サービス
+      en: Processes and systemd services
+    - zh-CN: JSON
+      ja: JSON
+      en: JSON
 
 startProfile:
   provisions:
-    - { item: iam, kind: module, basis: credential, set: { IAM_CREDENTIALS: role },
-        reason: 平台约定除 svc-ec2、svc-iam 外起始状态都带实例角色（C3）；queue 本身也是 credentials required（CRED-001） }
-    - { item: queue, kind: local, set: { QUEUE_DRIVER: memory },
-        reason: 本地档 memory 队列是“没有 SQS”的基线（目标模块的前驱取值 fromDriver=memory）；DEP-004 也不允许 worker + sync }
-    - { item: image-processing, kind: local, set: { IMAGE_PROCESSOR: worker },
-        reason: 缩略图交给独立的 worker 进程，批量上传才能看出队列的作用（与 profiles/single/queue.env 相同） }
-    - { item: mgmt-channel, kind: platform, reason: 实验机挂只含 AmazonSSMManagedInstanceCore 的 CloudAlbumAppRole，是平台的管理通道，不是应用权限 }
-    - { item: workstation, kind: platform, reason: 每个会话一台工作台，用于运行 scripts/module、AWS CLI 与对比实验 }
-    - { item: preview-direct-https, kind: platform, reason: 预览使用方案 B 的 Let's Encrypt IP 证书；本卡不涉及 tls，保持开启 }
+    - item: iam
+      kind: module
+      basis: credential
+      set: { IAM_CREDENTIALS: role }
+      reason:
+        zh-CN: 平台约定除 svc-ec2、svc-iam 外起始状态都带实例角色（C3）；queue 本身也是 credentials required（CRED-001）
+        ja: プラットフォームの取り決めにより、svc-ec2 と svc-iam 以外の開始状態にはインスタンスロールが付いています（C3）。queue 自体も credentials required です（CRED-001）
+        en: By platform convention, every start state except svc-ec2 and svc-iam includes an instance role (C3); queue itself is also credentials required (CRED-001)
+    - item: queue
+      kind: local
+      set: { QUEUE_DRIVER: memory }
+      reason:
+        zh-CN: 本地档 memory 队列是“没有 SQS”的基线（目标模块的前驱取值 fromDriver=memory）；DEP-004 也不允许 worker + sync
+        ja: ローカル階層の memory キューが「SQS なし」のベースラインです（対象モジュールの前の値 fromDriver=memory）。DEP-004 も worker + sync を許可しません
+        en: The local memory tier queue is the "no SQS" baseline (the target module's previous value fromDriver=memory); DEP-004 also does not allow worker + sync
+    - item: image-processing
+      kind: local
+      set: { IMAGE_PROCESSOR: worker }
+      reason:
+        zh-CN: 缩略图交给独立的 worker 进程，批量上传才能看出队列的作用（与 profiles/single/queue.env 相同）
+        ja: サムネイルを独立した worker プロセスに任せることで、一括アップロード時にキューの効果が見えるようになります（profiles/single/queue.env と同じ）
+        en: Thumbnails go to a separate worker process, so the queue's effect shows during bulk uploads (same as profiles/single/queue.env)
+    - item: mgmt-channel
+      kind: platform
+      reason:
+        zh-CN: 实验机挂只含 AmazonSSMManagedInstanceCore 的 CloudAlbumAppRole，是平台的管理通道，不是应用权限
+        ja: ラボ用インスタンスには AmazonSSMManagedInstanceCore だけを含む CloudAlbumAppRole が付いています。これはプラットフォームの管理チャネルであり、アプリの権限ではありません
+        en: The lab instance carries CloudAlbumAppRole with only AmazonSSMManagedInstanceCore. It is the platform's management channel, not an app permission
+    - item: workstation
+      kind: platform
+      reason:
+        zh-CN: 每个会话一台工作台，用于运行 scripts/module、AWS CLI 与对比实验
+        ja: セッションごとに 1 台のワークベンチがあり、scripts/module、AWS CLI、比較実験の実行に使います
+        en: Each session has one workbench for running scripts/module, the AWS CLI and comparison experiments
+    - item: preview-direct-https
+      kind: platform
+      reason:
+        zh-CN: 预览使用方案 B 的 Let's Encrypt IP 证书；本卡不涉及 tls，保持开启
+        ja: プレビューには方式 B の Let's Encrypt IP 証明書を使います。このカードは tls に関係しないため、有効のままにします
+        en: The preview uses the option B Let's Encrypt IP certificate; this card does not involve tls, so it stays on
   platform: { preview: { directHttps: 'on' } }
-  reason: queue 的 requires 为空；起始状态是 L0 + 实例角色 + 两个本地档（档位 atl/svc-queue/default），不部署任何队列
+  reason:
+    zh-CN: queue 的 requires 为空；起始状态是 L0 + 实例角色 + 两个本地档（档位 atl/svc-queue/default），不部署任何队列
+    ja: queue の requires は空です。開始状態は L0 ＋インスタンスロール＋ 2 つのローカル階層です（プロファイル atl/svc-queue/default）。キューは何もデプロイしません
+    en: queue has no requires; the start state is L0 plus the instance role plus two local tiers (profile atl/svc-queue/default), and no queue is deployed
 targetModules:
   - { id: queue, driver: sqs, fromDriver: memory, wireStep: enable-sqs, adoptsExisting: false }
 expectedWarnings: []
@@ -60,27 +171,77 @@ platform:
 provision: { class: A }
 
 variables:
-  queueUrl: { label: 任务队列 URL, from: derived, fillFrom: stack.queue.EnvSqsQueueUrl }
-  dlqUrl: { label: 死信队列 URL, from: derived, fillFrom: stack.queue.EnvSqsDlqUrl }
-  queueArn: { label: 任务队列 ARN, from: derived, fillFrom: stack.queue.InfoQueueArn }
-  dlqArn: { label: 死信队列 ARN, from: derived, fillFrom: stack.queue.InfoDlqArn }
+  queueUrl:
+    label:
+      zh-CN: 任务队列 URL
+      ja: ジョブキューの URL
+      en: Job queue URL
+    from: derived
+    fillFrom: stack.queue.EnvSqsQueueUrl
+  dlqUrl:
+    label:
+      zh-CN: 死信队列 URL
+      ja: デッドレターキューの URL
+      en: Dead-letter queue URL
+    from: derived
+    fillFrom: stack.queue.EnvSqsDlqUrl
+  queueArn:
+    label:
+      zh-CN: 任务队列 ARN
+      ja: ジョブキューの ARN
+      en: Job queue ARN
+    from: derived
+    fillFrom: stack.queue.InfoQueueArn
+  dlqArn:
+    label:
+      zh-CN: 死信队列 ARN
+      ja: デッドレターキューの ARN
+      en: Dead-letter queue ARN
+    from: derived
+    fillFrom: stack.queue.InfoDlqArn
 
 cost:
   currency: USD
   tier: low
-  mainDrivers: [SQS 请求（含空队列的长轮询）]
+  mainDrivers:
+    - zh-CN: SQS 请求（含空队列的长轮询）
+      ja: SQS リクエスト（空のキューへのロングポーリングを含む）
+      en: SQS requests (including long polls on an empty queue)
   basis:
-    - { ref: start-profile, note: 实验机 EC2、EBS（根卷与数据卷）、公网 IPv4 }
-    - { ref: workstation, note: 工作台 EC2、EBS、公网 IPv4 }
-    - { key: sqs-requests, pricingKey: sqs.requests, billing: usage, quantity: 1, unit: requests,
-        assumedUsagePerHour: 20000, source: target, whenRetained: true, note: 每次 API 调用最多 10 条消息、每 64 KB 算一次；空队列的长轮询也计请求 }
+    - ref: start-profile
+      note:
+        zh-CN: 实验机 EC2、EBS（根卷与数据卷）、公网 IPv4
+        ja: ラボ用インスタンスの EC2、EBS（ルートボリュームとデータボリューム）、パブリック IPv4
+        en: Lab instance EC2, EBS (root and data volumes) and public IPv4
+    - ref: workstation
+      note:
+        zh-CN: 工作台 EC2、EBS、公网 IPv4
+        ja: ワークベンチの EC2、EBS、パブリック IPv4
+        en: Workbench EC2, EBS and public IPv4
+    - key: sqs-requests
+      pricingKey: sqs.requests
+      billing: usage
+      quantity: 1
+      unit: requests
+      assumedUsagePerHour: 20000
+      source: target
+      whenRetained: true
+      note:
+        zh-CN: 每次 API 调用最多 10 条消息、每 64 KB 算一次；空队列的长轮询也计请求
+        ja: API 呼び出し 1 回で最大 10 メッセージ、64 KB ごとに 1 リクエストとして数えます。空のキューへのロングポーリングもリクエストとして課金されます
+        en: Up to 10 messages per API call, and every 64 KB counts as one request; long polls on an empty queue are billed as requests too
   assumptions:
-    - 两条队列都是标准队列；学习规模的请求量通常在免费额度内，以官方定价为准
+    - zh-CN: 两条队列都是标准队列；学习规模的请求量通常在免费额度内，以官方定价为准
+      ja: 2 つのキューはどちらも標準キューです。学習規模のリクエスト量は通常は無料利用枠に収まります。正確な料金は公式の料金表を確認してください
+      en: Both queues are standard queues; learning-scale request volumes usually stay within the free tier; check the official pricing
 
 steps:
   - id: orient
     type: observe
-    title: 观察本地异步：memory 队列 + worker
+    title:
+      zh-CN: 观察本地异步：memory 队列 + worker
+      ja: ローカルの非同期を観察：memory キュー + worker
+      en: "Observe the local async setup: memory queue + worker"
     manual: manual/10-orient.md
     panel: preview
     estMinutes: 5
@@ -88,7 +249,10 @@ steps:
 
   - id: baseline
     type: experiment
-    title: 记录 before：突发上传 + 第 30 秒重启 api
+    title:
+      zh-CN: 记录 before：突发上传 + 第 30 秒重启 api
+      ja: before を記録：突発的なアップロード + 30 秒目に api を再起動
+      en: "Record before: burst upload + restart api at 30 s"
     manual: manual/20-baseline.md
     experiment: { module: queue, id: upload-burst, label: before }
     panel: terminal-workstation
@@ -98,19 +262,37 @@ steps:
   - id: enable-sqs
     type: script
     wire: true
-    title: 接入 SQS：部署任务队列与死信队列并切换驱动
+    title:
+      zh-CN: 接入 SQS：部署任务队列与死信队列并切换驱动
+      ja: SQS を組み込む：ジョブキューとデッドレターキューをデプロイしてドライバーを切り替える
+      en: "Wire in SQS: deploy the job queue and dead-letter queue and switch the driver"
     manual: manual/30-enable-sqs.md
     methods: [script]
     requires: { steps: [baseline] }
     panel: terminal-workstation
     estMinutes: 8
-    startsBilling: { class: usage, pricingKeys: [sqs.requests], note: 按请求计费 }
-    wait: { typicalMinutes: 3, maxMinutes: 10, text: 排空内存队列、部署两条队列、先重启 worker 再重启 api }
+    startsBilling:
+      class: usage
+      pricingKeys: [sqs.requests]
+      note:
+        zh-CN: 按请求计费
+        ja: リクエスト課金
+        en: Billed per request
+    wait:
+      typicalMinutes: 3
+      maxMinutes: 10
+      text:
+        zh-CN: 排空内存队列、部署两条队列、先重启 worker 再重启 api
+        ja: メモリ内キューを空にし、2 つのキューをデプロイし、worker、api の順に再起動します
+        en: Drain the in-memory queue, deploy the two queues, restart the worker first and then the api
     checks: [queue-wired, queue-path-seen, queue-attributes]
 
   - id: after
     type: experiment
-    title: 记录 after：同样的突发上传 + 第 30 秒 kill -9 worker
+    title:
+      zh-CN: 记录 after：同样的突发上传 + 第 30 秒 kill -9 worker
+      ja: after を記録：同じ突発的なアップロード + 30 秒目に worker を kill -9
+      en: "Record after: the same burst upload + kill -9 the worker at 30 s"
     manual: manual/40-after.md
     experiment: { module: queue, id: upload-burst, label: after }
     requires: { steps: [enable-sqs] }
@@ -120,17 +302,29 @@ steps:
 
   - id: poison
     type: cli
-    title: 投一条坏消息，看它进入死信队列
+    title:
+      zh-CN: 投一条坏消息，看它进入死信队列
+      ja: 不正なメッセージを 1 件送り、デッドレターキューに入るのを見る
+      en: Send one bad message and watch it land in the dead-letter queue
     manual: manual/50-poison.md
     requires: { steps: [enable-sqs] }
     panel: terminal-workstation
     estMinutes: 10
-    wait: { typicalMinutes: 8, maxMinutes: 20, text: 接收 3 次、每次等可见性超时后才进入死信队列 }
+    wait:
+      typicalMinutes: 8
+      maxMinutes: 20
+      text:
+        zh-CN: 接收 3 次、每次等可见性超时后才进入死信队列
+        ja: 3 回受信され、毎回可視性タイムアウトを待ってからデッドレターキューに入ります
+        en: It is received 3 times, waiting for the visibility timeout each time, before it moves to the dead-letter queue
     checks: [dlq-has-message]
 
   - id: dlq-replay
     type: cli
-    title: 处理死信：重放回源队列
+    title:
+      zh-CN: 处理死信：重放回源队列
+      ja: デッドレターを処理：元のキューに再処理する
+      en: "Handle dead letters: replay them to the source queue"
     manual: manual/60-dlq-replay.md
     requires: { steps: [poison] }
     panel: terminal-workstation
@@ -139,9 +333,16 @@ steps:
 
   - id: ab
     type: experiment
-    title: （选做）运行时 A/B：同一时段一半请求绕过 SQS
+    title:
+      zh-CN: （选做）运行时 A/B：同一时段一半请求绕过 SQS
+      ja: （任意）実行時 A/B：同じ時間帯にリクエストの半分が SQS をバイパス
+      en: "(Optional) Runtime A/B: half of the requests bypass SQS in the same period"
     manual: manual/70-ab.md
-    optional: { reason: 与 before/after 结论方向一致 }
+    optional:
+      reason:
+        zh-CN: 与 before/after 结论方向一致
+        ja: before/after と結論の方向が同じです
+        en: Points to the same conclusion as before/after
     experiment: { module: queue, id: upload-burst, label: after }
     requires: { steps: [enable-sqs] }
     estMinutes: 8
@@ -155,7 +356,12 @@ experiments:
   - module: queue
     id: upload-burst
     labels:
-      - { id: l0, role: baseline, title: sync + inline（L0 参照） }
+      - id: l0
+        role: baseline
+        title:
+          zh-CN: sync + inline（L0 参照）
+          ja: sync + inline（L0 の参考値）
+          en: sync + inline (L0 reference)
       - { id: before, role: baseline, requires: { queue: memory, image-processing: worker } }
       - { id: after, role: treatment, requires: { queue: sqs, image-processing: worker } }
     pairs: [[before, after]]
@@ -166,13 +372,24 @@ experiments:
     corroboration: { minServerRatio: 0.9 }
 
 quiz: { file: quiz.yaml, draw: 3 }
-badge: { title: 削峰填谷, icon: assets/badge.svg }
+badge:
+  title:
+    zh-CN: 削峰填谷
+    ja: ピーク平準化
+    en: Load leveler
+  icon: assets/badge.svg
 tracks: [quick-compare, resilient, saa-main, serverless]
 
 cleanup:
-  summary: 结束实验后，平台删除本次会话创建的任务队列与死信队列；队列中未处理的消息随队列一起删除。本地档设置随实验机删除。
+  summary:
+    zh-CN: 结束实验后，平台删除本次会话创建的任务队列与死信队列；队列中未处理的消息随队列一起删除。本地档设置随实验机删除。
+    ja: ラボの終了後、プラットフォームがこのセッションで作成したジョブキューとデッドレターキューを削除します。キューに残った未処理のメッセージもキューと一緒に削除されます。ローカル階層の設定はラボ用インスタンスとともに削除されます。
+    en: When the lab ends, the platform deletes the job queue and dead-letter queue this session created; unprocessed messages are deleted with the queues. The local tier settings are deleted with the lab instance.
   autoReclaim: true
-  dataRisk: [死信队列中的消息随队列删除；不要往队列里写真实的个人数据]
+  dataRisk:
+    - zh-CN: 死信队列中的消息随队列删除；不要往队列里写真实的个人数据
+      ja: デッドレターキューのメッセージはキューと一緒に削除されます。キューに実際の個人データを書き込まないでください
+      en: Messages in the dead-letter queue are deleted with the queue; do not write real personal data into the queues
   learnerCreatedHints: []
   verify:
     - queue-gone
@@ -180,13 +397,59 @@ cleanup:
 saa:
   domains: [resilient, performance, cost]
   topics:
-    - { id: visibility-timeout, title: 可见性超时、心跳与长轮询, domain: resilient, relatesTo: enable-sqs }
-    - { id: dlq, title: 死信队列、maxReceiveCount 与重放, domain: resilient, relatesTo: poison }
-    - { id: at-least-once, title: 标准队列的至少一次投递与幂等去重, domain: resilient, relatesTo: after }
-    - { id: load-leveling, title: 削峰填谷与按积压扩缩容, domain: performance, relatesTo: after }
+    - id: visibility-timeout
+      title:
+        zh-CN: 可见性超时、心跳与长轮询
+        ja: 可視性タイムアウト、ハートビート、ロングポーリング
+        en: Visibility timeout, heartbeats and long polling
+      domain: resilient
+      relatesTo: enable-sqs
+    - id: dlq
+      title:
+        zh-CN: 死信队列、maxReceiveCount 与重放
+        ja: デッドレターキュー、maxReceiveCount、再処理
+        en: Dead-letter queues, maxReceiveCount and replay
+      domain: resilient
+      relatesTo: poison
+    - id: at-least-once
+      title:
+        zh-CN: 标准队列的至少一次投递与幂等去重
+        ja: 標準キューの少なくとも 1 回の配信と冪等な重複排除
+        en: At-least-once delivery on standard queues and idempotent deduplication
+      domain: resilient
+      relatesTo: after
+    - id: load-leveling
+      title:
+        zh-CN: 削峰填谷与按积压扩缩容
+        ja: ピーク平準化とバックログに基づくスケーリング
+        en: Load leveling and scaling on backlog
+      domain: performance
+      relatesTo: after
   confusables:
-    - { a: SQS 标准队列, b: SQS FIFO 队列, rule: 标准队列至少一次、尽力排序；FIFO 在消息组内保证顺序并去重，吞吐有上限 }
-    - { a: SQS, b: SNS, rule: SQS 是拉取式队列，一条消息由一个消费者处理；SNS 是推送式发布订阅，一条消息扇出给多个订阅 }
+    - a:
+        zh-CN: SQS 标准队列
+        ja: SQS 標準キュー
+        en: SQS standard queue
+      b:
+        zh-CN: SQS FIFO 队列
+        ja: SQS FIFO キュー
+        en: SQS FIFO queue
+      rule:
+        zh-CN: 标准队列至少一次、尽力排序；FIFO 在消息组内保证顺序并去重，吞吐有上限
+        ja: 標準キューは少なくとも 1 回の配信でベストエフォートの順序です。FIFO はメッセージグループ内の順序を保証して重複を排除しますが、スループットに上限があります
+        en: Standard queues deliver at least once with best-effort ordering; FIFO guarantees order within a message group and deduplicates, but has a throughput limit
+    - a:
+        zh-CN: SQS
+        ja: SQS
+        en: SQS
+      b:
+        zh-CN: SNS
+        ja: SNS
+        en: SNS
+      rule:
+        zh-CN: SQS 是拉取式队列，一条消息由一个消费者处理；SNS 是推送式发布订阅，一条消息扇出给多个订阅
+        ja: SQS はプル型のキューで、1 つのメッセージを 1 つのコンシューマーが処理します。SNS はプッシュ型のパブリッシュ/サブスクライブで、1 つのメッセージを複数のサブスクリプションにファンアウトします
+        en: SQS is a pull-based queue where one consumer handles each message; SNS is push-based publish/subscribe that fans one message out to many subscriptions
 
 tags: [queue, sqs, dlq, decoupling, resilience]
 

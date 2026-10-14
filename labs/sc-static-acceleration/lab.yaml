@@ -9,59 +9,193 @@ id: sc-static-acceleration
 kind: scenario
 version: 1.0.0
 status: beta
-title: 静态资源全球加速
-subtitle: S3 + CloudFront（OAC 私有桶 + 边缘缓存）
-summary: 把缩略图与前端资源交给离用户最近的边缘节点，同时让照片桶对公网完全关闭：媒体只能经 CloudFront 的 OAC 读取。
-story: |
-  CloudAlbum 的用户从日本扩展到北美和欧洲。海外用户反馈相册页的缩略图要一张张慢慢出来，首页脚本偶尔加载失败；
-  安全团队要求照片桶不能有任何公开访问路径，所有媒体都必须经 HTTPS 访问；财务希望不要为此增加按小时计费的服务器。
-  架构师需要在一天内给出改造方案并演示效果。
+title:
+  zh-CN: 静态资源全球加速
+  ja: 静的コンテンツのグローバル高速化
+  en: Global acceleration for static content
+subtitle:
+  zh-CN: S3 + CloudFront（OAC 私有桶 + 边缘缓存）
+  ja: S3 + CloudFront（OAC によるプライベートバケット + エッジキャッシュ）
+  en: S3 + CloudFront (private bucket with OAC + edge caching)
+summary:
+  zh-CN: 把缩略图与前端资源交给离用户最近的边缘节点，同时让照片桶对公网完全关闭：媒体只能经 CloudFront 的 OAC 读取。
+  ja: サムネイルとフロントエンドの資産をユーザーに最も近いエッジロケーションに任せ、同時に写真のバケットをインターネットから完全に閉じます。メディアは CloudFront の OAC 経由でしか読めません。
+  en: "Hand thumbnails and front-end assets to the edge location closest to users while closing the photo bucket to the internet completely: media can only be read through CloudFront's OAC."
+story:
+  zh-CN: |
+    CloudAlbum 的用户从日本扩展到北美和欧洲。海外用户反馈相册页的缩略图要一张张慢慢出来，首页脚本偶尔加载失败；
+    安全团队要求照片桶不能有任何公开访问路径，所有媒体都必须经 HTTPS 访问；财务希望不要为此增加按小时计费的服务器。
+    架构师需要在一天内给出改造方案并演示效果。
+  ja: |
+    CloudAlbum のユーザーは日本から北米とヨーロッパに広がりました。海外のユーザーからは、アルバムページのサムネイルが 1 枚ずつゆっくり表示される、トップページのスクリプトがときどき読み込みに失敗する、という声が上がっています。
+    セキュリティチームは、写真のバケットに公開アクセスの経路が一切ないこと、すべてのメディアに HTTPS でアクセスすることを求めています。経理は、そのために時間課金のサーバーを増やさないでほしいと考えています。
+    アーキテクトは 1 日で改修案を示し、効果をデモする必要があります。
+  en: |
+    CloudAlbum's users have spread from Japan to North America and Europe. Overseas users report that thumbnails on album pages appear slowly one by one and that the home page script sometimes fails to load;
+    the security team requires that the photo bucket have no public access path at all and that all media be served over HTTPS; finance does not want any additional hourly-billed servers for this.
+    The architect has one day to propose a redesign and demonstrate the result.
 scenario:
-  question: 一家图片社区把图片存放在 us-east-1 的 S3 桶中，全球用户反馈加载慢。要求：降低全球访问延迟；桶不得公开；使用 media.example.com 与受信证书；运维工作量最少。哪个方案最合适？
-  constraints: [降低全球访问延迟, 照片桶不得公开, 全程 HTTPS, 不增加按小时计费的服务器]
+  question:
+    zh-CN: 一家图片社区把图片存放在 us-east-1 的 S3 桶中，全球用户反馈加载慢。要求：降低全球访问延迟；桶不得公开；使用 media.example.com 与受信证书；运维工作量最少。哪个方案最合适？
+    ja: ある画像コミュニティは画像を us-east-1 の S3 バケットに保存しており、世界中のユーザーから読み込みが遅いと報告されています。要件は、世界中からのアクセスの遅延を下げること、バケットを公開しないこと、media.example.com と信頼された証明書を使うこと、運用作業を最小限にすることです。最も適切な構成はどれですか？
+    en: "An image community stores images in an S3 bucket in us-east-1, and users worldwide report slow loading. Requirements: lower latency worldwide; the bucket must not be public; use media.example.com with a trusted certificate; minimal operational work. Which design is most suitable?"
+  constraints:
+    - zh-CN: 降低全球访问延迟
+      ja: 世界中からのアクセスの遅延を下げる
+      en: Lower latency worldwide
+    - zh-CN: 照片桶不得公开
+      ja: 写真のバケットを公開しない
+      en: The photo bucket must not be public
+    - zh-CN: 全程 HTTPS
+      ja: 全経路で HTTPS
+      en: HTTPS end to end
+    - zh-CN: 不增加按小时计费的服务器
+      ja: 時間課金のサーバーを増やさない
+      en: No additional hourly-billed servers
   antiPatterns:
-    - 用 S3 静态网站端点作 CloudFront 源：只支持 HTTP、不能配合 OAC，桶必须公开读
-    - 用 S3 Transfer Acceleration 代替 CDN：它加速客户端与桶之间的传输，但不缓存内容
-    - 用 Global Accelerator 代替 CDN：它提供静态 Anycast IP，不缓存，也不能直接以 S3 为端点
-    - 用 OAI 访问 SSE-KMS 加密的对象：OAI 不支持，应使用 OAC
+    - zh-CN: 用 S3 静态网站端点作 CloudFront 源：只支持 HTTP、不能配合 OAC，桶必须公开读
+      ja: S3 の静的ウェブサイトエンドポイントを CloudFront のオリジンにする：HTTP しか使えず、OAC と組み合わせられず、バケットを公開読み取りにする必要がある
+      en: "Using the S3 static website endpoint as the CloudFront origin: HTTP only, no OAC, and the bucket must be publicly readable"
+    - zh-CN: 用 S3 Transfer Acceleration 代替 CDN：它加速客户端与桶之间的传输，但不缓存内容
+      ja: CDN の代わりに S3 Transfer Acceleration を使う：クライアントとバケット間の転送を高速化するが、コンテンツはキャッシュしない
+      en: "Using S3 Transfer Acceleration instead of a CDN: it speeds up transfers between clients and the bucket but caches nothing"
+    - zh-CN: 用 Global Accelerator 代替 CDN：它提供静态 Anycast IP，不缓存，也不能直接以 S3 为端点
+      ja: CDN の代わりに Global Accelerator を使う：静的な Anycast IP を提供するが、キャッシュせず、S3 を直接エンドポイントにもできない
+      en: "Using Global Accelerator instead of a CDN: it provides static Anycast IPs, caches nothing, and cannot use S3 directly as an endpoint"
+    - zh-CN: 用 OAI 访问 SSE-KMS 加密的对象：OAI 不支持，应使用 OAC
+      ja: SSE-KMS で暗号化されたオブジェクトに OAI でアクセスする：OAI は対応しておらず、OAC を使うべき
+      en: "Using OAI for SSE-KMS-encrypted objects: OAI does not support it; use OAC"
 objectives:
-  - { text: 用 OAC 与桶策略的 AWS:SourceArn 让私有桶只对本分配开放, domain: secure, relatesTo: private-bucket }
-  - { text: 说清缓存策略、源请求策略、响应头策略各管什么, domain: performance, relatesTo: enable-cdn }
-  - { text: 用服务端证据证明边缘命中不回源, domain: performance, relatesTo: after }
-  - { text: 比较失效与版本化文件名, domain: cost, relatesTo: invalidation }
-  - { text: 区分 CloudFront、S3 Transfer Acceleration 与 Global Accelerator, domain: performance, relatesTo: after }
+  - text:
+      zh-CN: 用 OAC 与桶策略的 AWS:SourceArn 让私有桶只对本分配开放
+      ja: OAC とバケットポリシーの AWS:SourceArn で、プライベートバケットをこのディストリビューションにだけ開く
+      en: Use OAC and AWS:SourceArn in the bucket policy to open a private bucket to this distribution only
+    domain: secure
+    relatesTo: private-bucket
+  - text:
+      zh-CN: 说清缓存策略、源请求策略、响应头策略各管什么
+      ja: キャッシュポリシー、オリジンリクエストポリシー、レスポンスヘッダーポリシーがそれぞれ何を担当するかを説明できる
+      en: Explain what cache policies, origin request policies and response headers policies each control
+    domain: performance
+    relatesTo: enable-cdn
+  - text:
+      zh-CN: 用服务端证据证明边缘命中不回源
+      ja: サーバー側の証拠で、エッジでヒットしたリクエストがオリジンに届かないことを示す
+      en: Prove with server-side evidence that edge hits do not go to the origin
+    domain: performance
+    relatesTo: after
+  - text:
+      zh-CN: 比较失效与版本化文件名
+      ja: 無効化とバージョン付きファイル名を比較する
+      en: Compare invalidations with versioned file names
+    domain: cost
+    relatesTo: invalidation
+  - text:
+      zh-CN: 区分 CloudFront、S3 Transfer Acceleration 与 Global Accelerator
+      ja: CloudFront、S3 Transfer Acceleration、Global Accelerator を区別する
+      en: Tell CloudFront, S3 Transfer Acceleration and Global Accelerator apart
+    domain: performance
+    relatesTo: after
 difficulty: intermediate
 estimatedMinutes: 90
 timeLimitMinutes: 150
 extensions: { maxCount: 2, minutesEach: 30 }
-retain: { allowed: true, maxHours: 24, reason: 新增服务都按量计费；分配的禁用与删除较慢，保留后可以在 sc-edge-protection 中继续 }
+retain:
+  allowed: true
+  maxHours: 24
+  reason:
+    zh-CN: 新增服务都按量计费；分配的禁用与删除较慢，保留后可以在 sc-edge-protection 中继续
+    ja: 追加するサービスはすべて使用量課金です。ディストリビューションの無効化と削除には時間がかかります。保持すれば sc-edge-protection で続きから使えます
+    en: All the added services are billed by usage; disabling and deleting distributions is slow; if you keep the environment, you can continue in sc-edge-protection
 regions:
   supported: [ap-northeast-1]
   alsoUses: [global, us-east-1]
 services:
-  - { id: cloudfront, name: Amazon CloudFront, role: primary, module: cdn }
-  - { id: s3, name: Amazon S3（媒体桶，起始状态预置）, role: primary, module: storage, creditBy: [private-bucket] }
-  - { id: ec2, name: Amazon EC2（页面与 /assets 的源站）, role: supporting, module: ec2 }
-  - { id: iam, name: AWS IAM（实例角色）, role: context, module: iam }
+  - id: cloudfront
+    name:
+      zh-CN: Amazon CloudFront
+      ja: Amazon CloudFront
+      en: Amazon CloudFront
+    role: primary
+    module: cdn
+  - id: s3
+    name:
+      zh-CN: Amazon S3（媒体桶，起始状态预置）
+      ja: Amazon S3（メディアバケット。開始状態で事前準備済み）
+      en: Amazon S3 (media bucket, provisioned in the start state)
+    role: primary
+    module: storage
+    creditBy: [private-bucket]
+  - id: ec2
+    name:
+      zh-CN: Amazon EC2（页面与 /assets 的源站）
+      ja: Amazon EC2（ページと /assets のオリジン）
+      en: Amazon EC2 (origin for pages and /assets)
+    role: supporting
+    module: ec2
+  - id: iam
+    name:
+      zh-CN: AWS IAM（实例角色）
+      ja: AWS IAM（インスタンスロール）
+      en: AWS IAM (instance role)
+    role: context
+    module: iam
 modules: { target: [cdn], start: [iam, storage], context: [], related: [tls, dns, waf] }
 prerequisites:
   cards:
     - { id: svc-storage, kind: soft }
     - { id: svc-cdn, kind: soft }
   learnerInputs: []
-  knowledge: [HTTP 缓存头（Cache-Control、Age、ETag）, S3 桶策略的基本结构]
+  knowledge:
+    - zh-CN: HTTP 缓存头（Cache-Control、Age、ETag）
+      ja: HTTP のキャッシュヘッダー（Cache-Control、Age、ETag）
+      en: HTTP cache headers (Cache-Control, Age, ETag)
+    - zh-CN: S3 桶策略的基本结构
+      ja: S3 バケットポリシーの基本構造
+      en: The basic structure of S3 bucket policies
 
 startProfile:
   provisions:
-    - { item: iam, kind: module, basis: credential, set: { IAM_CREDENTIALS: role },
-        reason: 平台约定起始状态带实例角色（C3）；storage 本身也是 credentials required，cdn 的失效按钮与 GetDistribution 探针也用它 }
-    - { item: storage, kind: module, basis: closure, rule: DEP-010, set: { STORAGE_DRIVER: s3 },
-        reason: cdn 的 CDN_MEDIA_ORIGIN=s3 依赖 storage(s3)（DEP-010）；照片已在 S3，学员只专注“桶前面加分配” }
-    - { item: mgmt-channel, kind: platform, reason: 实验机挂只含 AmazonSSMManagedInstanceCore 的 CloudAlbumAppRole，是平台的管理通道，不是应用权限 }
-    - { item: workstation, kind: platform, reason: 每个会话一台工作台，用于运行 scripts/module、AWS CLI 与对比实验 }
-    - { item: preview-direct-https, kind: platform, reason: 本版不含 tls 模块，预览方案 B 保持开启（与 svc-cdn 一致） }
+    - item: iam
+      kind: module
+      basis: credential
+      set: { IAM_CREDENTIALS: role }
+      reason:
+        zh-CN: 平台约定起始状态带实例角色（C3）；storage 本身也是 credentials required，cdn 的失效按钮与 GetDistribution 探针也用它
+        ja: プラットフォームの取り決めにより、開始状態にはインスタンスロールが付いています（C3）。storage 自体も credentials required で、cdn の無効化ボタンと GetDistribution のプローブもこれを使います
+        en: By platform convention, the start state includes an instance role (C3); storage itself is also credentials required, and cdn's invalidation button and GetDistribution probe use it too
+    - item: storage
+      kind: module
+      basis: closure
+      rule: DEP-010
+      set: { STORAGE_DRIVER: s3 }
+      reason:
+        zh-CN: cdn 的 CDN_MEDIA_ORIGIN=s3 依赖 storage(s3)（DEP-010）；照片已在 S3，学员只专注“桶前面加分配”
+        ja: cdn の CDN_MEDIA_ORIGIN=s3 は storage(s3) に依存します（DEP-010）。写真はすでに S3 にあるので、受講者は「バケットの前にディストリビューションを置く」ことだけに集中できます
+        en: cdn's CDN_MEDIA_ORIGIN=s3 depends on storage(s3) (DEP-010); the photos are already in S3, so learners can focus only on "putting a distribution in front of the bucket"
+    - item: mgmt-channel
+      kind: platform
+      reason:
+        zh-CN: 实验机挂只含 AmazonSSMManagedInstanceCore 的 CloudAlbumAppRole，是平台的管理通道，不是应用权限
+        ja: ラボ用インスタンスには AmazonSSMManagedInstanceCore だけを含む CloudAlbumAppRole が付いています。これはプラットフォームの管理チャネルであり、アプリの権限ではありません
+        en: The lab instance carries CloudAlbumAppRole with only AmazonSSMManagedInstanceCore. It is the platform's management channel, not an app permission
+    - item: workstation
+      kind: platform
+      reason:
+        zh-CN: 每个会话一台工作台，用于运行 scripts/module、AWS CLI 与对比实验
+        ja: セッションごとに 1 台のワークベンチがあり、scripts/module、AWS CLI、比較実験の実行に使います
+        en: Each session has one workbench for running scripts/module, the AWS CLI and comparison experiments
+    - item: preview-direct-https
+      kind: platform
+      reason:
+        zh-CN: 本版不含 tls 模块，预览方案 B 保持开启（与 svc-cdn 一致）
+        ja: このバージョンには tls モジュールが含まれないため、プレビューの方式 B は有効のままです（svc-cdn と同じ）
+        en: This version does not include the tls module, so the preview's option B stays on (same as svc-cdn)
   platform: { preview: { directHttps: 'on' } }
-  reason: 起始状态是 L0 + 实例角色 + storage(s3)（档位 atl/sc-static-acceleration/default）；cdn 是目标模块，不预置
+  reason:
+    zh-CN: 起始状态是 L0 + 实例角色 + storage(s3)（档位 atl/sc-static-acceleration/default）；cdn 是目标模块，不预置
+    ja: 開始状態は L0 ＋インスタンスロール＋ storage(s3) です（プロファイル atl/sc-static-acceleration/default）。cdn は対象モジュールなので事前準備しません
+    en: The start state is L0 plus the instance role plus storage(s3) (profile atl/sc-static-acceleration/default); cdn is the target module and is not provisioned
 targetModules:
   - id: cdn
     driver: cloudfront
@@ -75,30 +209,82 @@ platform:
 provision: { class: A, cleanupBudgetMinutes: 90 }
 
 variables:
-  distributionId: { label: 分配 ID, from: derived, fillFrom: stack.cdn.EnvCdnDistributionId, pattern: '^E[A-Z0-9]{8,20}$' }
-  cdnDomain: { label: 分配域名, from: derived, fillFrom: stack.cdn.InfoDistributionDomainName, pattern: '^[a-z0-9]+\.cloudfront\.net$' }
-  mediaBucket: { label: 媒体桶, from: derived, fillFrom: stack.storage.EnvStorageS3MediaBucket }
+  distributionId:
+    label:
+      zh-CN: 分配 ID
+      ja: ディストリビューション ID
+      en: Distribution ID
+    from: derived
+    fillFrom: stack.cdn.EnvCdnDistributionId
+    pattern: '^E[A-Z0-9]{8,20}$'
+  cdnDomain:
+    label:
+      zh-CN: 分配域名
+      ja: ディストリビューションのドメイン名
+      en: Distribution domain name
+    from: derived
+    fillFrom: stack.cdn.InfoDistributionDomainName
+    pattern: '^[a-z0-9]+\.cloudfront\.net$'
+  mediaBucket:
+    label:
+      zh-CN: 媒体桶
+      ja: メディアバケット
+      en: Media bucket
+    from: derived
+    fillFrom: stack.storage.EnvStorageS3MediaBucket
 
 cost:
   currency: USD
   tier: low
-  mainDrivers: [CloudFront 请求与出网流量, S3 存储与请求, 超出免费配额的失效路径]
+  mainDrivers:
+    - zh-CN: CloudFront 请求与出网流量
+      ja: CloudFront のリクエストとデータ転送（アウト）
+      en: CloudFront requests and data transfer out
+    - zh-CN: S3 存储与请求
+      ja: S3 のストレージとリクエスト
+      en: S3 storage and requests
+    - zh-CN: 超出免费配额的失效路径
+      ja: 無料枠を超えた無効化パス
+      en: Invalidation paths beyond the free quota
   basis:
-    - { ref: start-profile, note: 实验机 EC2、EBS、公网 IPv4；起始状态中的 S3 按量计费 }
-    - { ref: workstation, note: 工作台 EC2、EBS、公网 IPv4 }
+    - ref: start-profile
+      note:
+        zh-CN: 实验机 EC2、EBS、公网 IPv4；起始状态中的 S3 按量计费
+        ja: ラボ用インスタンスの EC2、EBS、パブリック IPv4。開始状態の S3 は使用量課金
+        en: Lab instance EC2, EBS and public IPv4; S3 in the start state is billed by usage
+    - ref: workstation
+      note:
+        zh-CN: 工作台 EC2、EBS、公网 IPv4
+        ja: ワークベンチの EC2、EBS、パブリック IPv4
+        en: Workbench EC2, EBS and public IPv4
     - { key: cf-requests, pricingKey: cloudfront.requests.https, billing: usage, quantity: 1, unit: requests,
         assumedUsagePerHour: 5000, source: target, whenRetained: false }
     - { key: cf-dto, pricingKey: cloudfront.dto, billing: usage, quantity: 1, unit: GB,
         assumedUsagePerHour: 0.2, source: target, whenRetained: false }
-    - { key: cf-invalidation, pricingKey: cloudfront.invalidation, billing: usage, quantity: 1, unit: paths,
-        assumedUsagePerHour: 2, source: learner-created, whenRetained: false, note: 失效路径在每月免费配额内通常不收费 }
+    - key: cf-invalidation
+      pricingKey: cloudfront.invalidation
+      billing: usage
+      quantity: 1
+      unit: paths
+      assumedUsagePerHour: 2
+      source: learner-created
+      whenRetained: false
+      note:
+        zh-CN: 失效路径在每月免费配额内通常不收费
+        ja: 無効化パスは毎月の無料枠内なら通常は課金されません
+        en: Invalidation paths are usually free within the monthly free quota
   assumptions:
-    - 从 AWS 源站（S3、EC2）到 CloudFront 的传输不计出网费用；学习流量通常在免费额度内，以官方定价为准
+    - zh-CN: 从 AWS 源站（S3、EC2）到 CloudFront 的传输不计出网费用；学习流量通常在免费额度内，以官方定价为准
+      ja: AWS のオリジン（S3、EC2）から CloudFront への転送にはデータ転送料金がかかりません。学習規模のトラフィックは通常は無料利用枠に収まります。正確な料金は公式の料金表を確認してください
+      en: Transfer from AWS origins (S3, EC2) to CloudFront has no data transfer charge; learning-scale traffic usually stays within the free tier; check the official pricing
 
 steps:
   - id: orient
     type: experiment
-    title: 观察起点：预签名 URL 直连 S3，记录 before
+    title:
+      zh-CN: 观察起点：预签名 URL 直连 S3，记录 before
+      ja: 出発点を観察：署名付き URL で S3 に直接アクセスし、before を記録
+      en: "Observe the starting point: presigned URLs straight to S3, and record before"
     manual: manual/10-orient.md
     experiment: { module: cdn, id: media-load, label: before }
     panel: terminal-workstation
@@ -108,19 +294,37 @@ steps:
   - id: enable-cdn
     type: script
     wire: true
-    title: 创建分配并以 S3 为媒体源站（OAC）
+    title:
+      zh-CN: 创建分配并以 S3 为媒体源站（OAC）
+      ja: ディストリビューションを作成し、S3 をメディアのオリジンにする（OAC）
+      en: Create the distribution with S3 as the media origin (OAC)
     manual: manual/20-enable-cdn.md
     methods: [script]
     requires: { steps: [orient] }
     panel: terminal-workstation
     estMinutes: 25
-    startsBilling: { class: usage, pricingKeys: [cloudfront.requests.https, cloudfront.dto], note: 按量计费 }
-    wait: { typicalMinutes: 8, maxMinutes: 25, text: 三阶段：以 EC2 为源部署分配、注入分配 ARN 生成 OAC 桶策略、媒体源站切到 S3 }
+    startsBilling:
+      class: usage
+      pricingKeys: [cloudfront.requests.https, cloudfront.dto]
+      note:
+        zh-CN: 按量计费
+        ja: 使用量課金
+        en: Billed by usage
+    wait:
+      typicalMinutes: 8
+      maxMinutes: 25
+      text:
+        zh-CN: 三阶段：以 EC2 为源部署分配、注入分配 ARN 生成 OAC 桶策略、媒体源站切到 S3
+        ja: 3 段階：EC2 をオリジンにディストリビューションをデプロイ、ディストリビューションの ARN を注入して OAC のバケットポリシーを生成、メディアのオリジンを S3 に切り替え
+        en: "Three phases: deploy the distribution with EC2 as the origin, inject the distribution ARN to generate the OAC bucket policy, and switch the media origin to S3"
     checks: [svc-cdn/cap-cdn-healthy, svc-cdn/entry-cloudfront, svc-cdn/distribution-deployed, media-behavior-oac, bucket-policy-oac]
 
   - id: private-bucket
     type: cli
-    title: 证明桶仍然私有，媒体只能经 CloudFront 读取
+    title:
+      zh-CN: 证明桶仍然私有，媒体只能经 CloudFront 读取
+      ja: バケットがまだプライベートで、メディアは CloudFront 経由でしか読めないことを示す
+      en: Prove the bucket is still private and media can only be read through CloudFront
     manual: manual/30-private-bucket.md
     requires: { steps: [enable-cdn] }
     panel: terminal-workstation
@@ -129,7 +333,10 @@ steps:
 
   - id: after
     type: experiment
-    title: 记录 after：边缘缓存后的源站负载
+    title:
+      zh-CN: 记录 after：边缘缓存后的源站负载
+      ja: after を記録：エッジキャッシュ後のオリジンの負荷
+      en: "Record after: origin load with edge caching"
     manual: manual/40-after.md
     experiment: { module: cdn, id: media-load, label: after }
     requires: { steps: [enable-cdn] }
@@ -139,7 +346,10 @@ steps:
 
   - id: invalidation
     type: cli
-    title: 失效与版本化文件名
+    title:
+      zh-CN: 失效与版本化文件名
+      ja: 無効化とバージョン付きファイル名
+      en: Invalidations and versioned file names
     manual: manual/50-invalidation.md
     requires: { steps: [enable-cdn] }
     panel: terminal-workstation
@@ -165,29 +375,95 @@ experiments:
   - { module: cdn, id: ttfb, labels: [before, after], required: false, runner: workstation }
 
 quiz: { file: quiz.yaml, draw: 3 }
-badge: { title: 全球加速, icon: assets/badge.svg }
+badge:
+  title:
+    zh-CN: 全球加速
+    ja: グローバル高速化
+    en: Global acceleration
+  icon: assets/badge.svg
 tracks: [networking, performant, saa-main]
 
 cleanup:
-  summary: 结束实验后，平台先禁用再删除分配（需要数分钟），并删除缓存策略、响应头策略、OAC 与 CloudFront Function；媒体桶随 storage 一起清空后删除。
+  summary:
+    zh-CN: 结束实验后，平台先禁用再删除分配（需要数分钟），并删除缓存策略、响应头策略、OAC 与 CloudFront Function；媒体桶随 storage 一起清空后删除。
+    ja: ラボの終了後、プラットフォームはディストリビューションを無効にしてから削除し（数分かかります）、キャッシュポリシー、レスポンスヘッダーポリシー、OAC、CloudFront Function を削除します。メディアバケットは storage とともに空にしてから削除されます。
+    en: When the lab ends, the platform disables and then deletes the distribution (this takes a few minutes), and deletes the cache policy, response headers policy, OAC and CloudFront Function; the media bucket is emptied and deleted together with storage.
   autoReclaim: true
-  dataRisk: [上传的照片随桶删除；报告中保留证据摘要]
+  dataRisk:
+    - zh-CN: 上传的照片随桶删除；报告中保留证据摘要
+      ja: アップロードした写真はバケットとともに削除されます。レポートには証拠の要約が残ります
+      en: Uploaded photos are deleted with the bucket; the report keeps an evidence summary
   learnerCreatedHints:
-    - { resourceType: 'AWS::CloudFront::Distribution', how: 先禁用，状态变为已部署后再删除 }
+    - resourceType: 'AWS::CloudFront::Distribution'
+      how:
+        zh-CN: 先禁用，状态变为已部署后再删除
+        ja: まず無効にし、状態がデプロイ済みになってから削除します
+        en: Disable first, then delete once the status is Deployed
   verify:
     - svc-cdn/dist-gone
 
 saa:
   domains: [performance, secure, cost]
   topics:
-    - { id: oac, title: OAC 与 OAI；只允许 CloudFront 访问 S3 的桶策略, domain: secure, relatesTo: private-bucket }
-    - { id: three-policies, title: 缓存策略、源请求策略、响应头策略的分工, domain: performance, relatesTo: enable-cdn }
-    - { id: invalidation, title: 失效与版本化文件名；失效的计费, domain: cost, relatesTo: invalidation }
-    - { id: edge-cert, title: CloudFront 使用的 ACM 证书必须在 us-east-1；Route 53 Alias 与 CNAME, domain: secure }
-    - { id: accelerators, title: CloudFront、S3 Transfer Acceleration、Global Accelerator 的对比, domain: performance, relatesTo: after }
+    - id: oac
+      title:
+        zh-CN: OAC 与 OAI；只允许 CloudFront 访问 S3 的桶策略
+        ja: OAC と OAI。CloudFront だけに S3 へのアクセスを許可するバケットポリシー
+        en: OAC vs OAI; bucket policies that only allow CloudFront to access S3
+      domain: secure
+      relatesTo: private-bucket
+    - id: three-policies
+      title:
+        zh-CN: 缓存策略、源请求策略、响应头策略的分工
+        ja: キャッシュポリシー、オリジンリクエストポリシー、レスポンスヘッダーポリシーの役割分担
+        en: The division of labor between cache, origin request and response headers policies
+      domain: performance
+      relatesTo: enable-cdn
+    - id: invalidation
+      title:
+        zh-CN: 失效与版本化文件名；失效的计费
+        ja: 無効化とバージョン付きファイル名。無効化の課金
+        en: Invalidations vs versioned file names; how invalidations are billed
+      domain: cost
+      relatesTo: invalidation
+    - id: edge-cert
+      title:
+        zh-CN: CloudFront 使用的 ACM 证书必须在 us-east-1；Route 53 Alias 与 CNAME
+        ja: CloudFront で使う ACM 証明書は us-east-1 になければならない。Route 53 の Alias と CNAME
+        en: ACM certificates used by CloudFront must be in us-east-1; Route 53 Alias vs CNAME
+      domain: secure
+    - id: accelerators
+      title:
+        zh-CN: CloudFront、S3 Transfer Acceleration、Global Accelerator 的对比
+        ja: CloudFront、S3 Transfer Acceleration、Global Accelerator の比較
+        en: CloudFront vs S3 Transfer Acceleration vs Global Accelerator
+      domain: performance
+      relatesTo: after
   confusables:
-    - { a: OAC, b: OAI, rule: OAC 用 SigV4 以服务主体访问，支持 SSE-KMS 与全部区域；OAI 是旧机制，不支持 SSE-KMS }
-    - { a: Route 53 Alias, b: CNAME, rule: Alias 可用于根域名，指向 AWS 资源的查询不收费；根域名不能有 CNAME }
+    - a:
+        zh-CN: OAC
+        ja: OAC
+        en: OAC
+      b:
+        zh-CN: OAI
+        ja: OAI
+        en: OAI
+      rule:
+        zh-CN: OAC 用 SigV4 以服务主体访问，支持 SSE-KMS 与全部区域；OAI 是旧机制，不支持 SSE-KMS
+        ja: OAC は SigV4 を使ってサービスプリンシパルとしてアクセスし、SSE-KMS とすべてのリージョンに対応します。OAI は古い仕組みで、SSE-KMS には対応していません
+        en: OAC accesses as a service principal with SigV4 and supports SSE-KMS and every Region; OAI is the older mechanism and does not support SSE-KMS
+    - a:
+        zh-CN: Route 53 Alias
+        ja: Route 53 Alias
+        en: Route 53 Alias
+      b:
+        zh-CN: CNAME
+        ja: CNAME
+        en: CNAME
+      rule:
+        zh-CN: Alias 可用于根域名，指向 AWS 资源的查询不收费；根域名不能有 CNAME
+        ja: Alias はゾーンの頂点（ルートドメイン）にも使え、AWS リソースを指すクエリは無料です。ゾーンの頂点には CNAME を置けません
+        en: Alias works at the zone apex, and queries for aliases to AWS resources are free; the zone apex cannot have a CNAME
 
 tags: [cdn, cloudfront, s3, oac, edge, performance]
 

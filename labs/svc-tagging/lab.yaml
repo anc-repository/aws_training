@@ -5,10 +5,22 @@ id: svc-tagging
 kind: service
 version: 0.1.0
 status: planned
-service: Amazon Rekognition
-function: 图片识别与审核
-title: Amazon Rekognition：图片识别与审核
-summary: 给照片加上 Rekognition 的内容标签与自动审核，用同一组 CC0 测试图并排比较“元数据标签”与“内容标签”的命中率，再看审核误判。
+service:
+  zh-CN: Amazon Rekognition
+  ja: Amazon Rekognition
+  en: Amazon Rekognition
+function:
+  zh-CN: 图片识别与审核
+  ja: 画像認識とモデレーション
+  en: Image recognition and moderation
+title:
+  zh-CN: Amazon Rekognition：图片识别与审核
+  ja: Amazon Rekognition：画像認識とモデレーション
+  en: "Amazon Rekognition: image recognition and moderation"
+summary:
+  zh-CN: 给照片加上 Rekognition 的内容标签与自动审核，用同一组 CC0 测试图并排比较“元数据标签”与“内容标签”的命中率，再看审核误判。
+  ja: 写真に Rekognition のコンテンツラベルと自動モデレーションを追加します。同じ CC0 のテスト画像で「メタデータのラベル」と「コンテンツのラベル」の的中率を並べて比較し、モデレーションの誤判定も確認します。
+  en: Add Rekognition content labels and automatic moderation to photos. With the same set of CC0 test images, compare the hit rates of metadata labels and content labels side by side, then look at moderation mistakes.
 difficulty: beginner
 estimatedMinutes: 45
 timeLimitMinutes: 90
@@ -17,7 +29,13 @@ retain: {allowed: true, maxHours: 24}
 regions:
   supported: [ap-northeast-1]
 services:
-- {id: rekognition, name: Amazon Rekognition, role: primary, module: tagging}
+- id: rekognition
+  name:
+    zh-CN: Amazon Rekognition
+    ja: Amazon Rekognition
+    en: Amazon Rekognition
+  role: primary
+  module: tagging
 - {id: iam, role: context, module: iam}
 modules:
   target: [tagging]
@@ -35,8 +53,16 @@ startProfile:
     kind: module
     basis: credential
     set: {IAM_CREDENTIALS: role}
-    reason: 平台约定除 svc-ec2、svc-iam 外起始状态都带实例角色（C3）
-  - {item: preview-direct-https, kind: platform, reason: 预览使用方案 B 的 Let's Encrypt IP 证书（03 §6.2）}
+    reason:
+      zh-CN: 平台约定除 svc-ec2、svc-iam 外起始状态都带实例角色（C3）
+      ja: プラットフォームの取り決めにより、svc-ec2 と svc-iam 以外の開始状態にはインスタンスロールが付いています（C3）
+      en: By platform convention, every start state except svc-ec2 and svc-iam includes an instance role (C3)
+  - item: preview-direct-https
+    kind: platform
+    reason:
+      zh-CN: 预览使用方案 B 的 Let's Encrypt IP 证书（03 §6.2）
+      ja: プレビューには方式 B の Let's Encrypt IP 証明書を使います（03 §6.2）
+      en: The preview uses the option B Let's Encrypt IP certificate (03 §6.2)
   platform:
     preview: {directHttps: 'on'}
 targetModules:
@@ -46,7 +72,11 @@ targetModules:
 expectedWarnings: []
 cost: {tier: low}
 provision: {class: A}
-badge: {title: 看懂图片}
+badge:
+  title:
+    zh-CN: 看懂图片
+    ja: 画像を読み解く
+    en: Image insight
 tracks: [saa-main, serverless]
 saa:
   domains: [performance, secure]

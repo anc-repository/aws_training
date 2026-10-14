@@ -2,12 +2,24 @@
 schema: atl.track/v2
 id: operations
 version: 1.0.0
-title: 运维与可观测
-summary: 把 Systems Manager、CloudWatch、X-Ray、CloudTrail、Image Builder、Backup 串成“日常运维”视角，费用为低或中。
-audience: 负责日常运维、想系统掌握运维登录、日志指标追踪与审计的学员
+title:
+  zh-CN: 运维与可观测
+  ja: 運用とオブザーバビリティ
+  en: Operations and observability
+summary:
+  zh-CN: 把 Systems Manager、CloudWatch、X-Ray、CloudTrail、Image Builder、Backup 串成“日常运维”视角，费用为低或中。
+  ja: Systems Manager、CloudWatch、X-Ray、CloudTrail、Image Builder、Backup を「日々の運用」の視点でつなぎます。費用は低または中です。
+  en: Ties Systems Manager, CloudWatch, X-Ray, CloudTrail, Image Builder and Backup together from a day-to-day operations view. Costs are low or medium.
+audience:
+  zh-CN: 负责日常运维、想系统掌握运维登录、日志指标追踪与审计的学员
+  ja: 日々の運用を担当し、運用ログイン、ログ・メトリクス・トレース、監査を体系的に身につけたい受講者
+  en: Learners who run day-to-day operations and want a systematic grasp of operator access, logs, metrics, traces and auditing
 stages:
   - id: s1-observe
-    title: 登录、日志、指标与追踪
+    title:
+      zh-CN: 登录、日志、指标与追踪
+      ja: ログイン、ログ、メトリクス、トレース
+      en: Access, logs, metrics and tracing
     items:
       - { card: svc-shell-access, role: required }
       - { card: svc-logging, role: required }
@@ -15,7 +27,10 @@ stages:
       - { card: svc-tracing, role: required }
       - { card: sc-observability, role: required }
   - id: s2-govern
-    title: 配置与审计
+    title:
+      zh-CN: 配置与审计
+      ja: 設定と監査
+      en: Configuration and auditing
     items:
       - { card: svc-config, role: required }
       - { card: svc-audit, role: required }
@@ -23,8 +38,22 @@ stages:
       - { card: svc-compliance, role: optional }
       - { card: sc-threat-compliance, role: optional }
   - id: s3-resilience
-    title: 运维弹性
+    title:
+      zh-CN: 运维弹性
+      ja: 運用の回復性
+      en: Operational resilience
     items:
-      - { group: g-ops, title: 运维弹性, pick: 1, cards: [svc-backup, svc-ami] }
+      - group: g-ops
+        title:
+          zh-CN: 运维弹性
+          ja: 運用の回復性
+          en: Operational resilience
+        pick: 1
+        cards: [svc-backup, svc-ami]
 completion: { allowManual: true, minAutoRatio: 0.8, excludeSelfReported: true }
-certificate: { enabled: true, title: 运维与可观测路径证书 }
+certificate:
+  enabled: true
+  title:
+    zh-CN: 运维与可观测路径证书
+    ja: 運用とオブザーバビリティのパス修了証
+    en: Operations and observability path certificate

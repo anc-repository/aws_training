@@ -1,7 +1,10 @@
 # 选做：封禁 IP 同步到 IP 集合（管理端点证据；wafv2:GetIPSet 不在 aws-readonly 白名单，所以用本地 / 管理端点）
 checks:
   - id: blocklist-synced
-    title: （选做）管理后台封禁的 IP 已同步到 us-east-1 的 IP 集合
+    title:
+      zh-CN: （选做）管理后台封禁的 IP 已同步到 us-east-1 的 IP 集合
+      ja: （任意）管理画面でブロックした IP が us-east-1 の IP セットに同期された
+      en: (Optional) The IP blocked in the admin console has been synced to the IP set in us-east-1
     type: local
     on: lab
     checkId: http-probe
@@ -12,6 +15,21 @@ checks:
       method: GET
     drift: { policy: once }
     assert:
-      - { path: '$.responses[0].json.driver', op: eq, value: aws, label: BlocklistPort 驱动为 aws }
-      - { path: '$.responses[0].json.lastSync.ok', op: eq, value: true, label: 最近一次同步成功 }
-    explain: 管理端点返回 BlocklistPort 的驱动与最近一次 IP 集合同步状态；封禁按钮先写本地 denylist，再同步到 cloudalbum-blocklist（起始状态带 iam，同步可用）。本地探测经回环地址，只验证应用逻辑。
+      - path: '$.responses[0].json.driver'
+        op: eq
+        value: aws
+        label:
+          zh-CN: BlocklistPort 驱动为 aws
+          ja: BlocklistPort のドライバーが aws
+          en: BlocklistPort driver is aws
+      - path: '$.responses[0].json.lastSync.ok'
+        op: eq
+        value: true
+        label:
+          zh-CN: 最近一次同步成功
+          ja: 直近の同期が成功
+          en: The last sync succeeded
+    explain:
+      zh-CN: 管理端点返回 BlocklistPort 的驱动与最近一次 IP 集合同步状态；封禁按钮先写本地 denylist，再同步到 cloudalbum-blocklist（起始状态带 iam，同步可用）。本地探测经回环地址，只验证应用逻辑。
+      ja: 管理用エンドポイントは BlocklistPort のドライバーと直近の IP セット同期の状態を返します。ブロックボタンはまずローカルの denylist に書き込み、その後 cloudalbum-blocklist に同期します（開始状態に iam があるので同期できます）。ローカルのプローブはループバックアドレス経由で、アプリのロジックだけを検証します。
+      en: The admin endpoint returns the BlocklistPort driver and the state of the last IP set sync; the block button writes the local denylist first, then syncs to cloudalbum-blocklist (the start state includes iam, so syncing works). The local probe goes over the loopback address and only verifies the app logic.

@@ -2,7 +2,10 @@
 # 不用 waf/bypass 实验：工作台的公网出口就是 CDN_ADMIN_CIDR，从工作台探测 80 端口必然可达（见 lab.yaml 文件头）。
 checks:
   - id: origin-locked-sg
-    title: 实验机安全组的 80/443 不再对全网开放，只对工作台的公网出口（管理员 IP）开放
+    title:
+      zh-CN: 实验机安全组的 80/443 不再对全网开放，只对工作台的公网出口（管理员 IP）开放
+      ja: ラボ用インスタンスのセキュリティグループの 80/443 はインターネット全体には開いておらず、ワークベンチのパブリックな送信元（管理者 IP）にだけ開いている
+      en: The lab instance's security group no longer opens 80/443 to the whole internet, only to the workbench's public egress (the admin IP)
     type: aws-readonly
     service: ec2
     action: DescribeSecurityGroupRules
@@ -19,40 +22,77 @@ checks:
         where: { IsEgress: false, FromPort: 80, CidrIpv4: 0.0.0.0/0 }
         op: len_eq
         value: 0
-        label: 80 端口对 0.0.0.0/0 开放的入站规则
+        label:
+          zh-CN: 80 端口对 0.0.0.0/0 开放的入站规则
+          ja: 80 番ポートを 0.0.0.0/0 に開く受信ルール
+          en: Inbound rules opening port 80 to 0.0.0.0/0
       - path: $.SecurityGroupRules
         where: { IsEgress: false, FromPort: 443, CidrIpv4: 0.0.0.0/0 }
         op: len_eq
         value: 0
-        label: 443 端口对 0.0.0.0/0 开放的入站规则
+        label:
+          zh-CN: 443 端口对 0.0.0.0/0 开放的入站规则
+          ja: 443 番ポートを 0.0.0.0/0 に開く受信ルール
+          en: Inbound rules opening port 443 to 0.0.0.0/0
       - path: $.SecurityGroupRules
         where: { IsEgress: false, FromPort: 80, CidrIpv6: '::/0' }
         op: len_eq
         value: 0
-        label: 80 端口对 ::/0 开放的入站规则
+        label:
+          zh-CN: 80 端口对 ::/0 开放的入站规则
+          ja: 80 番ポートを ::/0 に開く受信ルール
+          en: Inbound rules opening port 80 to ::/0
       - path: $.SecurityGroupRules
         where: { IsEgress: false, FromPort: 443, CidrIpv6: '::/0' }
         op: len_eq
         value: 0
-        label: 443 端口对 ::/0 开放的入站规则
+        label:
+          zh-CN: 443 端口对 ::/0 开放的入站规则
+          ja: 443 番ポートを ::/0 に開く受信ルール
+          en: Inbound rules opening port 443 to ::/0
       - path: $.SecurityGroupRules
         where: { IsEgress: false, FromPort: 80, CidrIpv4: '{{ workstation.publicIp }}/32' }
         op: len_eq
         value: 1
-        label: 80 端口只对工作台公网出口开放
-    explain: CDN_DIRECT_ACCESS=admin-ip 让 ec2 基础栈的 PublicHttpIngress 取 admin-ip：80/443 只放行 CDN_ADMIN_CIDR。攻击者再直连弹性 IP 只会超时，绕不过 CloudFront 上的 WAF。
+        label:
+          zh-CN: 80 端口只对工作台公网出口开放
+          ja: 80 番ポートはワークベンチのパブリックな送信元にだけ開いている
+          en: Port 80 is only open to the workbench's public egress
+    explain:
+      zh-CN: CDN_DIRECT_ACCESS=admin-ip 让 ec2 基础栈的 PublicHttpIngress 取 admin-ip：80/443 只放行 CDN_ADMIN_CIDR。攻击者再直连弹性 IP 只会超时，绕不过 CloudFront 上的 WAF。
+      ja: CDN_DIRECT_ACCESS=admin-ip にすると、ec2 の基盤スタックの PublicHttpIngress が admin-ip になり、80/443 は CDN_ADMIN_CIDR だけを許可します。攻撃者が Elastic IP に直接アクセスしてもタイムアウトするだけで、CloudFront の WAF は迂回できません。
+      en: CDN_DIRECT_ACCESS=admin-ip makes the ec2 base stack's PublicHttpIngress admin-ip, so 80/443 only allow CDN_ADMIN_CIDR. An attacker hitting the Elastic IP directly just times out and cannot go around the WAF on CloudFront.
     reproduce: { run: 'aws ec2 describe-security-group-rules --filters Name=group-id,Values={{ target.sgId }} --query "SecurityGroupRules[?IsEgress==\`false\`].[FromPort,ToPort,CidrIpv4,CidrIpv6,PrefixListId]" --output table', runsOn: workstation }
     pitfalls: [direct-still-open]
     manualFallback:
       where: { breadcrumb: [EC2, 安全组, '{{ target.sgId }}', 入站规则], region: app }
       observed:
-        question: 端口 80 与 443 的入站规则，来源是什么？
+        question:
+          zh-CN: 端口 80 与 443 的入站规则，来源是什么？
+          ja: 80 番と 443 番ポートの受信ルールの送信元は何ですか？
+          en: What is the source of the inbound rules for ports 80 and 443?
         options:
-          - { value: admin, label: '只有 {{ workstation.publicIp }}/32', expected: true }
-          - { value: world, label: 0.0.0.0/0 或 ::/0, fixHint: 用 --set CDN_DIRECT_ACCESS=admin-ip --set CDN_ADMIN_CIDR=<工作台公网 IP>/32 重新执行 scripts/module enable cdn }
+          - value: admin
+            label:
+              zh-CN: '只有 {{ workstation.publicIp }}/32'
+              ja: "{{ workstation.publicIp }}/32 だけ"
+              en: Only {{ workstation.publicIp }}/32
+            expected: true
+          - value: world
+            label:
+              zh-CN: 0.0.0.0/0 或 ::/0
+              ja: 0.0.0.0/0 または ::/0
+              en: 0.0.0.0/0 or ::/0
+            fixHint:
+              zh-CN: 用 --set CDN_DIRECT_ACCESS=admin-ip --set CDN_ADMIN_CIDR=<工作台公网 IP>/32 重新执行 scripts/module enable cdn
+              ja: --set CDN_DIRECT_ACCESS=admin-ip --set CDN_ADMIN_CIDR=<ワークベンチのパブリック IP>/32 を付けて scripts/module enable cdn を再実行してください
+              en: Run scripts/module enable cdn again with --set CDN_DIRECT_ACCESS=admin-ip --set CDN_ADMIN_CIDR=<workbench public IP>/32
 
   - id: origin-sg-prefix-list
-    title: 源站安全组的 8080 只引用 CloudFront 托管前缀列表，不对任何 CIDR 开放
+    title:
+      zh-CN: 源站安全组的 8080 只引用 CloudFront 托管前缀列表，不对任何 CIDR 开放
+      ja: オリジンのセキュリティグループの 8080 は CloudFront のマネージドプレフィックスリストだけを参照し、どの CIDR にも開いていない
+      en: The origin security group's 8080 only references the CloudFront managed prefix list and is open to no CIDR
     type: aws-readonly
     service: ec2
     action: DescribeSecurityGroupRules
@@ -68,40 +108,110 @@ checks:
         where: { IsEgress: false, FromPort: 8080, PrefixListId: { op: matches, value: '^pl-[0-9a-f]+$' } }
         op: len_eq
         value: 1
-        label: 8080 引用托管前缀列表的入站规则
+        label:
+          zh-CN: 8080 引用托管前缀列表的入站规则
+          ja: 8080 でマネージドプレフィックスリストを参照する受信ルール
+          en: Inbound rule on 8080 referencing the managed prefix list
       - path: $.SecurityGroupRules
         where: { IsEgress: false, CidrIpv4: { op: exists } }
         op: len_eq
         value: 0
-        label: 按 IPv4 CIDR 放行的入站规则
+        label:
+          zh-CN: 按 IPv4 CIDR 放行的入站规则
+          ja: IPv4 の CIDR で許可する受信ルール
+          en: Inbound rules allowing IPv4 CIDRs
       - path: $.SecurityGroupRules
         where: { IsEgress: false, CidrIpv6: { op: exists } }
         op: len_eq
         value: 0
-        label: 按 IPv6 CIDR 放行的入站规则
-    explain: 源站安全组由本会话的 cdn 栈创建，只有一条入站规则：8080 来自 com.amazonaws.global.cloudfront.origin-facing。前缀列表只说明“来自某个 CloudFront”，所以 Nginx 还要校验只有本分配知道的 X-Origin-Verify（下一项检查）。
+        label:
+          zh-CN: 按 IPv6 CIDR 放行的入站规则
+          ja: IPv6 の CIDR で許可する受信ルール
+          en: Inbound rules allowing IPv6 CIDRs
+    explain:
+      zh-CN: 源站安全组由本会话的 cdn 栈创建，只有一条入站规则：8080 来自 com.amazonaws.global.cloudfront.origin-facing。前缀列表只说明“来自某个 CloudFront”，所以 Nginx 还要校验只有本分配知道的 X-Origin-Verify（下一项检查）。
+      ja: オリジンのセキュリティグループはこのセッションの cdn スタックが作成し、受信ルールは 1 つだけです。8080 の送信元は com.amazonaws.global.cloudfront.origin-facing です。プレフィックスリストは「どこかの CloudFront から来た」ことしか示さないため、Nginx はさらにこのディストリビューションしか知らない X-Origin-Verify を検証します（次のチェック）。
+      en: "This session's cdn stack created the origin security group, which has a single inbound rule: 8080 from com.amazonaws.global.cloudfront.origin-facing. The prefix list only says \"from some CloudFront\", so Nginx also checks X-Origin-Verify, which only this distribution knows (the next check)."
     reproduce: { run: 'aws ec2 describe-security-group-rules --filters Name=group-id,Values={{ var.originSgId }} --query "SecurityGroupRules[?IsEgress==\`false\`].[FromPort,PrefixListId,CidrIpv4]" --output table', runsOn: workstation }
     manualFallback:
       where: { breadcrumb: [EC2, 安全组, '{{ var.originSgId }}', 入站规则], region: app }
       observed:
-        question: 端口 8080 的入站规则来源是什么？
+        question:
+          zh-CN: 端口 8080 的入站规则来源是什么？
+          ja: 8080 番ポートの受信ルールの送信元は何ですか？
+          en: What is the source of the inbound rule for port 8080?
         options:
-          - { value: prefix-list, label: 一个 pl- 开头的托管前缀列表（CloudFront origin-facing）, expected: true }
-          - { value: cidr, label: 某个 IP 地址段, fixHint: 不要在控制台修改模块管理的安全组；重新执行 scripts/module enable cdn }
+          - value: prefix-list
+            label:
+              zh-CN: 一个 pl- 开头的托管前缀列表（CloudFront origin-facing）
+              ja: pl- で始まるマネージドプレフィックスリスト（CloudFront の origin-facing）
+              en: A managed prefix list starting with pl- (CloudFront origin-facing)
+            expected: true
+          - value: cidr
+            label:
+              zh-CN: 某个 IP 地址段
+              ja: 何らかの IP アドレス範囲
+              en: Some IP address range
+            fixHint:
+              zh-CN: 不要在控制台修改模块管理的安全组；重新执行 scripts/module enable cdn
+              ja: モジュールが管理するセキュリティグループをコンソールで変更しないでください。scripts/module enable cdn を再実行してください
+              en: Do not change module-managed security groups in the console; run scripts/module enable cdn again
 
   - id: direct-blocked-observed
-    title: 从非管理员地址（CloudShell）直连实验机的结果
+    title:
+      zh-CN: 从非管理员地址（CloudShell）直连实验机的结果
+      ja: 管理者以外のアドレス（CloudShell）からラボ用インスタンスに直接アクセスした結果
+      en: The result of reaching the lab instance directly from a non-admin address (CloudShell)
     type: manual
     spec:
       where: { breadcrumb: [CloudShell], region: app }
       observed:
-        question: 在 CloudShell 中 curl 实验机弹性 IP 的 80 端口（--max-time 8），结果是？
+        question:
+          zh-CN: 在 CloudShell 中 curl 实验机弹性 IP 的 80 端口（--max-time 8），结果是？
+          ja: CloudShell でラボ用インスタンスの Elastic IP の 80 番ポートに curl（--max-time 8）すると、結果はどうなりますか？
+          en: What happens when you curl port 80 on the lab instance's Elastic IP from CloudShell (--max-time 8)?
         options:
-          - { value: timeout, label: 超时（连接建立不了）, expected: true }
-          - { value: ok, label: 返回了 200 或 301, fixHint: 安全组仍对全网开放 80；先确认 origin-locked-sg 通过，再确认你没有在工作台上运行这条命令 }
-          - { value: refused, label: 立即被拒绝（connection refused）, fixHint: 安全组丢弃数据包时表现为超时；被拒绝说明请求到达了实例，检查命令里的地址是否为本会话的弹性 IP }
-    explain: 原生手动确认（04 §5.2.6）：平台 Lambda 在锁定后访问不到 public-ip，也没有“不可达”的断言；攻击者视角只能由你在一个不是管理员 IP 的地方观察。
+          - value: timeout
+            label:
+              zh-CN: 超时（连接建立不了）
+              ja: タイムアウト（接続を確立できない）
+              en: Timeout (no connection)
+            expected: true
+          - value: ok
+            label:
+              zh-CN: 返回了 200 或 301
+              ja: 200 または 301 が返った
+              en: It returned 200 or 301
+            fixHint:
+              zh-CN: 安全组仍对全网开放 80；先确认 origin-locked-sg 通过，再确认你没有在工作台上运行这条命令
+              ja: セキュリティグループがまだ 80 をインターネット全体に開いています。まず origin-locked-sg が合格していることを確認し、次にこのコマンドをワークベンチで実行していないことを確認してください
+              en: The security group still opens 80 to the whole internet; first confirm that origin-locked-sg passed, then make sure you did not run this command on the workbench
+          - value: refused
+            label:
+              zh-CN: 立即被拒绝（connection refused）
+              ja: すぐに拒否された（connection refused）
+              en: Refused immediately (connection refused)
+            fixHint:
+              zh-CN: 安全组丢弃数据包时表现为超时；被拒绝说明请求到达了实例，检查命令里的地址是否为本会话的弹性 IP
+              ja: セキュリティグループがパケットを破棄するとタイムアウトになります。拒否されたのはリクエストがインスタンスに届いたからなので、コマンドのアドレスがこのセッションの Elastic IP かどうか確認してください
+              en: A security group dropping packets looks like a timeout; a refusal means the request reached the instance, so check that the address in the command is this session's Elastic IP
+    explain:
+      zh-CN: 原生手动确认（04 §5.2.6）：平台 Lambda 在锁定后访问不到 public-ip，也没有“不可达”的断言；攻击者视角只能由你在一个不是管理员 IP 的地方观察。
+      ja: 本来の手動確認（04 §5.2.6）：ロック後はプラットフォームの Lambda から public-ip にアクセスできず、「到達できない」というアサーションもありません。攻撃者の視点は、管理者 IP ではない場所からあなたが観察するしかありません。
+      en: "Native manual confirmation (04 §5.2.6): after the lock, the platform's Lambda cannot reach public-ip, and there is no \"unreachable\" assertion; the attacker's view can only be observed by you from somewhere that is not the admin IP."
 
 pitfalls:
-  - { id: direct-still-open, title: 直连入口仍对全网开放, match: [ { checkId: origin-locked-sg, result: fail } ],
-      cause: cdn 以默认的 CDN_DIRECT_ACCESS=open 启用，或 CDN_ADMIN_CIDR 不是工作台的公网出口, fix: '重新执行 scripts/module enable cdn --set CDN_DIRECT_ACCESS=admin-ip --set CDN_ADMIN_CIDR={{ workstation.publicIp }}/32' }
+  - id: direct-still-open
+    title:
+      zh-CN: 直连入口仍对全网开放
+      ja: 直接アクセスの入口がまだインターネット全体に開いている
+      en: The direct entry is still open to the whole internet
+    match: [ { checkId: origin-locked-sg, result: fail } ]
+    cause:
+      zh-CN: cdn 以默认的 CDN_DIRECT_ACCESS=open 启用，或 CDN_ADMIN_CIDR 不是工作台的公网出口
+      ja: cdn がデフォルトの CDN_DIRECT_ACCESS=open で有効になっているか、CDN_ADMIN_CIDR がワークベンチのパブリックな送信元ではありません
+      en: cdn was enabled with the default CDN_DIRECT_ACCESS=open, or CDN_ADMIN_CIDR is not the workbench's public egress
+    fix:
+      zh-CN: '重新执行 scripts/module enable cdn --set CDN_DIRECT_ACCESS=admin-ip --set CDN_ADMIN_CIDR={{ workstation.publicIp }}/32'
+      ja: scripts/module enable cdn --set CDN_DIRECT_ACCESS=admin-ip --set CDN_ADMIN_CIDR={{ workstation.publicIp }}/32 を再実行してください
+      en: Run scripts/module enable cdn --set CDN_DIRECT_ACCESS=admin-ip --set CDN_ADMIN_CIDR={{ workstation.publicIp }}/32 again

@@ -2,30 +2,98 @@
 schema: atl.track/v2
 id: cost-optimized
 version: 1.0.0
-title: 成本优化专项
-summary: 补强“设计成本优化的架构”：费用护栏、计费方式、存储类别、网络与数据传输费用，最后在结业卡中亲手省钱。
-audience: 想补强 SAA“设计成本优化的架构”领域的学员
+title:
+  zh-CN: 成本优化专项
+  ja: コスト最適化パス
+  en: Cost optimization path
+summary:
+  zh-CN: 补强“设计成本优化的架构”：费用护栏、计费方式、存储类别、网络与数据传输费用，最后在结业卡中亲手省钱。
+  ja: SAA の「コストを最適化したアーキテクチャの設計」を強化します。費用のガードレール、課金方式、ストレージクラス、ネットワークとデータ転送の費用を学び、最後に修了カードで実際にコストを削減します。
+  en: 'Strengthens the SAA domain "Design Cost-Optimized Architectures": cost guardrails, pricing models, storage classes, network and data transfer costs, and finally saving money yourself in the capstone card.'
+audience:
+  zh-CN: 想补强 SAA“设计成本优化的架构”领域的学员
+  ja: SAA の「コストを最適化したアーキテクチャの設計」分野を強化したい受講者
+  en: Learners who want to strengthen the SAA domain "Design Cost-Optimized Architectures"
 domain: cost
 stages:
   - id: s1-billing
-    title: 护栏与计费方式
-    note: 平台动作 cost-activate-tags 需在 svc-cost 前一到两天执行
+    title:
+      zh-CN: 护栏与计费方式
+      ja: ガードレールと課金方式
+      en: Guardrails and pricing models
+    note:
+      zh-CN: 平台动作 cost-activate-tags 需在 svc-cost 前一到两天执行
+      ja: プラットフォーム操作 cost-activate-tags は、svc-cost の 1～2 日前に実行してください
+      en: Run the platform action cost-activate-tags one or two days before svc-cost
     items:
       - { card: svc-cost, role: required }
-      - { card: svc-ec2, role: required, note: Graviton、突发积分、公网 IPv4 计费 }
-      - { card: svc-storage, role: required, note: 存储类别与生命周期 }
-      - { card: svc-image-processing, role: required, note: 按调用计费 vs 常开实例 }
-      - { card: svc-social-store, role: required, note: 按需容量 }
+      - card: svc-ec2
+        role: required
+        note:
+          zh-CN: Graviton、突发积分、公网 IPv4 计费
+          ja: Graviton、バーストクレジット、パブリック IPv4 の課金
+          en: Graviton, burst credits and public IPv4 charges
+      - card: svc-storage
+        role: required
+        note:
+          zh-CN: 存储类别与生命周期
+          ja: ストレージクラスとライフサイクル
+          en: Storage classes and lifecycle
+      - card: svc-image-processing
+        role: required
+        note:
+          zh-CN: 按调用计费 vs 常开实例
+          ja: 呼び出し課金と常時稼働インスタンスの比較
+          en: Pay-per-invocation vs always-on instances
+      - card: svc-social-store
+        role: required
+        note:
+          zh-CN: 按需容量
+          ja: オンデマンドキャパシティ
+          en: On-demand capacity
   - id: s2-transfer
-    title: 网络与数据费用
+    title:
+      zh-CN: 网络与数据费用
+      ja: ネットワークとデータの費用
+      en: Network and data costs
     items:
-      - { group: g-network-cost, title: 网络费用, pick: 1, cards: [svc-network, sc-private-network] }
-      - { group: g-data-cost, title: 数据费用, pick: 1, cards: [svc-cdn, svc-analytics, sc-analytics] }
-      - { card: svc-autoscaling, role: optional, note: 混合实例策略，费用高 }
+      - group: g-network-cost
+        title:
+          zh-CN: 网络费用
+          ja: ネットワークの費用
+          en: Network costs
+        pick: 1
+        cards: [svc-network, sc-private-network]
+      - group: g-data-cost
+        title:
+          zh-CN: 数据费用
+          ja: データの費用
+          en: Data costs
+        pick: 1
+        cards: [svc-cdn, svc-analytics, sc-analytics]
+      - card: svc-autoscaling
+        role: optional
+        note:
+          zh-CN: 混合实例策略，费用高
+          ja: 混合インスタンスポリシー。費用は高めです
+          en: Mixed instances policy; high cost
       - { card: svc-db-proxy, role: optional }
   - id: s3-capstone
-    title: 结业
+    title:
+      zh-CN: 结业
+      ja: 修了
+      en: Capstone
     items:
-      - { card: sc-cost-optimization, role: required, note: Graviton 与 Spot 在本卡亲手做 }
+      - card: sc-cost-optimization
+        role: required
+        note:
+          zh-CN: Graviton 与 Spot 在本卡亲手做
+          ja: Graviton と Spot はこのカードで実際に試します
+          en: You try Graviton and Spot yourself in this card
 completion: { allowManual: true, minAutoRatio: 0.8, excludeSelfReported: true }
-certificate: { enabled: true, title: 成本优化专项证书 }
+certificate:
+  enabled: true
+  title:
+    zh-CN: 成本优化专项证书
+    ja: コスト最適化パス修了証
+    en: Cost optimization path certificate

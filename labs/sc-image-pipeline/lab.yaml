@@ -5,11 +5,27 @@ id: sc-image-pipeline
 kind: scenario
 version: 0.1.0
 status: planned
-title: 无服务器图片流水线
-subtitle: S3 + EventBridge + Lambda + SQS + Rekognition
-summary: 上传到 S3 就自动触发缩略图生成与内容识别，EC2 只签发 URL 和写回结果；扩展练习用 Step Functions 把多个步骤编排成可视化的流程
-story: 用户一次上传几十张手机原图，`complete` 接口要等 sharp 在 EC2 上把每张图压完才返回，期间整个网站都变慢。产品还想要“按内容搜索照片”（搜“狗”“海边”）和自动拦截不当内容。团队希望：上传完成接口立刻返回；处理能力随上传量自动伸缩；失败的图片有地方可查、可重试；EC2 宕机时已经上传的照片也能处理完；不需要为偶发的上传高峰常开大实例。
-scenario: {question: 一家保险公司收到大量理赔照片，上传到 S3 后需要依次执行：生成缩略图、识别车辆损伤、根据结果决定转人工还是自动通过，人工复核可能等待数天；要求每一步失败都能重试并可视化，且能在失败处继续。最合适的方案是？}
+title:
+  zh-CN: 无服务器图片流水线
+  ja: サーバーレス画像パイプライン
+  en: Serverless image pipeline
+subtitle:
+  zh-CN: S3 + EventBridge + Lambda + SQS + Rekognition
+  ja: S3 + EventBridge + Lambda + SQS + Rekognition
+  en: S3 + EventBridge + Lambda + SQS + Rekognition
+summary:
+  zh-CN: 上传到 S3 就自动触发缩略图生成与内容识别，EC2 只签发 URL 和写回结果；扩展练习用 Step Functions 把多个步骤编排成可视化的流程
+  ja: S3 にアップロードするだけでサムネイル生成とコンテンツ認識が自動的に始まり、EC2 は URL の発行と結果の書き戻しだけを行います。発展課題では Step Functions で複数のステップを可視化されたフローとしてオーケストレーションします
+  en: An upload to S3 automatically triggers thumbnail generation and content recognition, and EC2 only issues URLs and writes back results; the extension exercise uses Step Functions to orchestrate the steps as a visual workflow
+story:
+  zh-CN: 用户一次上传几十张手机原图，`complete` 接口要等 sharp 在 EC2 上把每张图压完才返回，期间整个网站都变慢。产品还想要“按内容搜索照片”（搜“狗”“海边”）和自动拦截不当内容。团队希望：上传完成接口立刻返回；处理能力随上传量自动伸缩；失败的图片有地方可查、可重试；EC2 宕机时已经上传的照片也能处理完；不需要为偶发的上传高峰常开大实例。
+  ja: ユーザーは一度にスマートフォンの元画像を数十枚アップロードします。`complete` API は EC2 上の sharp がすべての画像を圧縮し終えるまで応答せず、その間はサイト全体が遅くなります。プロダクトチームは「内容で写真を検索する」（「犬」「海辺」で検索）機能や、不適切なコンテンツの自動ブロックも求めています。チームの希望は、アップロード完了 API がすぐに応答すること、処理能力がアップロード量に応じて自動的に伸縮すること、失敗した画像を調べて再試行できること、EC2 がダウンしてもアップロード済みの写真は処理が完了すること、たまのアップロードのピークのために大きなインスタンスを常時動かさなくてよいことです。
+  en: Users upload dozens of original phone photos at once, and the `complete` API waits until sharp on EC2 has compressed every image, slowing down the whole site meanwhile. The product team also wants "search photos by content" (search for "dog" or "beach") and automatic blocking of inappropriate content. The team wants the upload-complete API to return immediately; processing capacity that scales with upload volume; failed images that can be inspected and retried; photos already uploaded still processed when EC2 is down; and no need to keep a large instance running for occasional upload peaks.
+scenario:
+  question:
+    zh-CN: 一家保险公司收到大量理赔照片，上传到 S3 后需要依次执行：生成缩略图、识别车辆损伤、根据结果决定转人工还是自动通过，人工复核可能等待数天；要求每一步失败都能重试并可视化，且能在失败处继续。最合适的方案是？
+    ja: ある保険会社には大量の保険金請求用の写真が届きます。S3 にアップロードされた後、サムネイルの生成、車両損傷の認識、結果に応じた人による確認か自動承認かの判断を順に実行する必要があり、人による確認は数日待つこともあります。各ステップが失敗したら再試行でき、可視化され、失敗した箇所から再開できることが求められます。最も適切な構成はどれですか？
+    en: An insurance company receives large numbers of claim photos. After upload to S3 they must go through thumbnail generation, vehicle damage recognition, and a decision between human review and automatic approval, and human review can take days. Every step must be retryable and visible on failure, and the process must be able to resume where it failed. What is the most suitable design?
 difficulty: intermediate
 estimatedMinutes: 105
 timeLimitMinutes: 180
@@ -41,13 +57,21 @@ startProfile:
     kind: module
     basis: credential
     set: {IAM_CREDENTIALS: role}
-    reason: 平台约定除 svc-ec2、svc-iam 外起始状态都带实例角色（C3）
+    reason:
+      zh-CN: 平台约定除 svc-ec2、svc-iam 外起始状态都带实例角色（C3）
+      ja: プラットフォームの取り決めにより、svc-ec2 と svc-iam 以外の開始状態にはインスタンスロールが付いています（C3）
+      en: By platform convention, every start state except svc-ec2 and svc-iam includes an instance role (C3)
   - item: storage
     kind: module
     basis: closure
     rule: DEP-003
     set: {STORAGE_DRIVER: s3}
-  - {item: preview-direct-https, kind: platform, reason: 预览使用方案 B 的 Let's Encrypt IP 证书（03 §6.2）}
+  - item: preview-direct-https
+    kind: platform
+    reason:
+      zh-CN: 预览使用方案 B 的 Let's Encrypt IP 证书（03 §6.2）
+      ja: プレビューには方式 B の Let's Encrypt IP 証明書を使います（03 §6.2）
+      en: The preview uses the option B Let's Encrypt IP certificate (03 §6.2)
   platform:
     preview: {directHttps: 'on'}
 targetModules:
@@ -61,7 +85,15 @@ targetModules:
 expectedWarnings: []
 cost: {tier: low}
 provision: {class: A}
-badge: {title: 图片流水线, short: 流水线}
+badge:
+  title:
+    zh-CN: 图片流水线
+    ja: 画像パイプライン
+    en: Image pipeline
+  short:
+    zh-CN: 流水线
+    ja: パイプライン
+    en: Pipeline
 tracks: [performant, saa-main, serverless]
 saa:
   domains: [performance, resilient, cost]

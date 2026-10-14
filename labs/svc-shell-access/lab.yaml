@@ -10,52 +10,161 @@ id: svc-shell-access
 kind: service
 version: 1.0.0
 status: beta
-service: AWS Systems Manager Session Manager
-function: 运维登录
-title: AWS Systems Manager Session Manager：运维登录
-subtitle: SSH 22 + 密钥对 → IAM 身份登录、零入站端口、命令级审计
-summary: 把实验机的运维登录从 SSH 22 换成 Session Manager：安全组不再有管理端口入站，用 IAM 身份登录与端口转发，会话命令写进 CloudWatch Logs，并能与 CloudTrail 的 StartSession 对上。
-story: |
-  凌晨三点 CloudAlbum 报错，你得登录 EC2 看日志。安全组里那条“22 ← 运维 IP”因为换网络改了好几次，
-  私钥也拷到过别人的电脑上；事后只能查到“某把钥匙从某个 IP 登录过”，登录后做了什么，没人说得清。
+service:
+  zh-CN: AWS Systems Manager Session Manager
+  ja: AWS Systems Manager Session Manager
+  en: AWS Systems Manager Session Manager
+function:
+  zh-CN: 运维登录
+  ja: 運用ログイン
+  en: Operator access
+title:
+  zh-CN: AWS Systems Manager Session Manager：运维登录
+  ja: AWS Systems Manager Session Manager：運用ログイン
+  en: "AWS Systems Manager Session Manager: operator access"
+subtitle:
+  zh-CN: SSH 22 + 密钥对 → IAM 身份登录、零入站端口、命令级审计
+  ja: SSH 22 + キーペア → IAM ID でのログイン、受信ポートゼロ、コマンド単位の監査
+  en: SSH 22 + key pairs → IAM identity sign-in, zero inbound ports, command-level auditing
+summary:
+  zh-CN: 把实验机的运维登录从 SSH 22 换成 Session Manager：安全组不再有管理端口入站，用 IAM 身份登录与端口转发，会话命令写进 CloudWatch Logs，并能与 CloudTrail 的 StartSession 对上。
+  ja: ラボ用インスタンスへの運用ログインを SSH 22 から Session Manager に切り替えます。セキュリティグループから管理ポートの受信をなくし、IAM ID でのログインとポートフォワーディングを使い、セッションのコマンドを CloudWatch Logs に書き込み、CloudTrail の StartSession と照合できるようにします。
+  en: "Switch operator access to the lab instance from SSH 22 to Session Manager: no more management ports open inbound in the security group, sign in and port-forward with IAM identities, write session commands to CloudWatch Logs, and match them with CloudTrail's StartSession."
+story:
+  zh-CN: |
+    凌晨三点 CloudAlbum 报错，你得登录 EC2 看日志。安全组里那条“22 ← 运维 IP”因为换网络改了好几次，
+    私钥也拷到过别人的电脑上；事后只能查到“某把钥匙从某个 IP 登录过”，登录后做了什么，没人说得清。
+  ja: |
+    午前 3 時に CloudAlbum でエラーが発生し、EC2 にログインしてログを見る必要があります。セキュリティグループの「22 ← 運用 IP」のルールはネットワークが変わるたびに何度も書き換えられ、
+    秘密鍵は他人のパソコンにコピーされたこともあります。後から調べられるのは「ある鍵がある IP からログインした」ことだけで、ログイン後に何をしたかは誰にも説明できません。
+  en: |
+    At 3 a.m. CloudAlbum throws errors and you have to sign in to EC2 to read the logs. The "22 ← operations IP" rule in the security group has been edited many times as networks changed,
+    and the private key has been copied to other people's computers; afterwards all you can find is "some key signed in from some IP", and nobody can say what was done after signing in.
 objectives:
-  - { text: 说出 SSM 托管节点的三个前提, domain: secure, relatesTo: orient }
-  - { text: 在安全组零入站的情况下登录实例并做端口转发, domain: secure, relatesTo: session }
-  - { text: 用 CloudTrail 与会话日志回答“谁在何时执行了什么命令”, domain: secure, relatesTo: audit-chain }
-  - { text: 区分 Session Manager、堡垒机与 EC2 Instance Connect, domain: secure, relatesTo: after }
+  - text:
+      zh-CN: 说出 SSM 托管节点的三个前提
+      ja: SSM マネージドノードの 3 つの前提を説明できる
+      en: Name the three prerequisites of an SSM managed node
+    domain: secure
+    relatesTo: orient
+  - text:
+      zh-CN: 在安全组零入站的情况下登录实例并做端口转发
+      ja: セキュリティグループの受信ルールがゼロの状態でインスタンスにログインし、ポートフォワーディングを行う
+      en: Sign in to an instance and port-forward with zero inbound security group rules
+    domain: secure
+    relatesTo: session
+  - text:
+      zh-CN: 用 CloudTrail 与会话日志回答“谁在何时执行了什么命令”
+      ja: CloudTrail とセッションログで「誰がいつどのコマンドを実行したか」に答える
+      en: Answer "who ran which command when" with CloudTrail and session logs
+    domain: secure
+    relatesTo: audit-chain
+  - text:
+      zh-CN: 区分 Session Manager、堡垒机与 EC2 Instance Connect
+      ja: Session Manager、踏み台サーバー、EC2 Instance Connect を区別する
+      en: Tell Session Manager, bastion hosts and EC2 Instance Connect apart
+    domain: secure
+    relatesTo: after
 difficulty: beginner
 estimatedMinutes: 60
 timeLimitMinutes: 90
 extensions: { maxCount: 2, minutesEach: 30 }
-retain: { allowed: false, reason: 会话首选项是区域级单例，保留环境会持续影响同区域其他会话 }
+retain:
+  allowed: false
+  reason:
+    zh-CN: 会话首选项是区域级单例，保留环境会持续影响同区域其他会话
+    ja: セッション設定はリージョン単位のシングルトンなので、環境を保持すると同じリージョンの他のセッションに影響し続けます
+    en: Session preferences are a Region-level singleton, so keeping the environment keeps affecting other sessions in the same Region
 regions:
   supported: [ap-northeast-1]
 services:
-  - { id: ssm-session-manager, name: AWS Systems Manager Session Manager, role: primary, module: shell-access }
-  - { id: cloudwatch-logs, name: Amazon CloudWatch Logs（会话日志）, role: supporting, featureOf: ssm-session-manager }
-  - { id: ec2, name: Amazon EC2（实验机与安全组）, role: supporting, module: ec2 }
-  - { id: iam, name: AWS IAM（实例角色）, role: context, module: iam }
-  - { id: cloudtrail, name: AWS CloudTrail Event History, role: observed }
+  - id: ssm-session-manager
+    name:
+      zh-CN: AWS Systems Manager Session Manager
+      ja: AWS Systems Manager Session Manager
+      en: AWS Systems Manager Session Manager
+    role: primary
+    module: shell-access
+  - id: cloudwatch-logs
+    name:
+      zh-CN: Amazon CloudWatch Logs（会话日志）
+      ja: Amazon CloudWatch Logs（セッションログ）
+      en: Amazon CloudWatch Logs (session logs)
+    role: supporting
+    featureOf: ssm-session-manager
+  - id: ec2
+    name:
+      zh-CN: Amazon EC2（实验机与安全组）
+      ja: Amazon EC2（ラボ用インスタンスとセキュリティグループ）
+      en: Amazon EC2 (lab instance and security group)
+    role: supporting
+    module: ec2
+  - id: iam
+    name:
+      zh-CN: AWS IAM（实例角色）
+      ja: AWS IAM（インスタンスロール）
+      en: AWS IAM (instance role)
+    role: context
+    module: iam
+  - id: cloudtrail
+    name:
+      zh-CN: AWS CloudTrail Event History
+      ja: AWS CloudTrail Event History
+      en: AWS CloudTrail Event History
+    role: observed
 modules: { target: [shell-access], start: [iam], context: [], related: [network, threat-detection, compliance, vuln-scan, logging] }
 prerequisites:
   cards:
     - { id: svc-ec2, kind: soft }
     - { id: svc-iam, kind: soft }
   learnerInputs: []
-  knowledge: [SSH 密钥对登录, 安全组是有状态的]
+  knowledge:
+    - zh-CN: SSH 密钥对登录
+      ja: SSH キーペアでのログイン
+      en: Signing in with SSH key pairs
+    - zh-CN: 安全组是有状态的
+      ja: セキュリティグループはステートフルであること
+      en: Security groups are stateful
 
 startProfile:
   provisions:
-    - { item: iam, kind: module, basis: credential, set: { IAM_CREDENTIALS: role },
-        reason: 平台为每张卡片预置实例角色（裁决 C3）；Session Manager 也要求 role（DEP-001），SSM Agent 用实例配置文件凭证，不读应用的访问密钥 }
-    - { item: mgmt-channel, kind: platform,
-        reason: 实验机从 L0 起只挂 AmazonSSMManagedInstanceCore（平台管理通道），SSM Agent 一开始就在线 }
-    - { item: workstation, kind: platform, reason: 每个会话一台工作台：AWS CLI、session-manager-plugin、SSH 私钥、scripts/module 与对比实验 }
-    - { item: ssh-from-workstation, kind: platform,
-        reason: SSH 基线——运行器按 03 §4.8 把 SshIngressCidr 设为工作台私网 IP/32，ssh lab 走私网 }
-    - { item: preview-direct-https, kind: platform, reason: 预览使用 Let's Encrypt IP 证书 }
+    - item: iam
+      kind: module
+      basis: credential
+      set: { IAM_CREDENTIALS: role }
+      reason:
+        zh-CN: 平台为每张卡片预置实例角色（裁决 C3）；Session Manager 也要求 role（DEP-001），SSM Agent 用实例配置文件凭证，不读应用的访问密钥
+        ja: プラットフォームはすべてのカードにインスタンスロールを事前準備します（裁定 C3）。Session Manager も role を必要とし（DEP-001）、SSM Agent はインスタンスプロファイルの認証情報を使い、アプリのアクセスキーは読みません
+        en: The platform provisions an instance role for every card (ruling C3); Session Manager also requires role (DEP-001), and the SSM Agent uses the instance profile credentials, never the app's access keys
+    - item: mgmt-channel
+      kind: platform
+      reason:
+        zh-CN: 实验机从 L0 起只挂 AmazonSSMManagedInstanceCore（平台管理通道），SSM Agent 一开始就在线
+        ja: ラボ用インスタンスには L0 から AmazonSSMManagedInstanceCore（プラットフォームの管理チャネル）だけが付いているため、SSM Agent は最初からオンラインです
+        en: From L0 the lab instance only carries AmazonSSMManagedInstanceCore (the platform management channel), so the SSM Agent is online from the start
+    - item: workstation
+      kind: platform
+      reason:
+        zh-CN: 每个会话一台工作台：AWS CLI、session-manager-plugin、SSH 私钥、scripts/module 与对比实验
+        ja: セッションごとに 1 台のワークベンチ：AWS CLI、session-manager-plugin、SSH の秘密鍵、scripts/module と比較実験
+        en: "One workbench per session: AWS CLI, session-manager-plugin, the SSH private key, scripts/module and comparison experiments"
+    - item: ssh-from-workstation
+      kind: platform
+      reason:
+        zh-CN: SSH 基线——运行器按 03 §4.8 把 SshIngressCidr 设为工作台私网 IP/32，ssh lab 走私网
+        ja: SSH のベースライン。ランナーは 03 §4.8 に従って SshIngressCidr をワークベンチのプライベート IP/32 に設定し、ssh lab はプライベートネットワークを通ります
+        en: SSH baseline — per 03 §4.8 the runner sets SshIngressCidr to the workbench's private IP/32, and ssh lab goes over the private network
+    - item: preview-direct-https
+      kind: platform
+      reason:
+        zh-CN: 预览使用 Let's Encrypt IP 证书
+        ja: プレビューには Let's Encrypt IP 証明書を使います
+        en: The preview uses a Let's Encrypt IP certificate
   platform: { preview: { directHttps: 'on' } }
-  reason: L0 + iam(role)；shell-access 没有其他硬依赖，不预置软依赖 logging、kms
+  reason:
+    zh-CN: L0 + iam(role)；shell-access 没有其他硬依赖，不预置软依赖 logging、kms
+    ja: L0 + iam(role)。shell-access には他のハードな依存がなく、ソフトな依存の logging と kms は事前準備しません
+    en: L0 + iam(role); shell-access has no other hard dependencies, and the soft dependencies logging and kms are not provisioned
 targetModules:
   - { id: shell-access, driver: ssm, fromDriver: ssh, params: { KeepSsh: 'false' }, wireStep: wire, adoptsExisting: false }
 expectedWarnings: []
@@ -65,26 +174,60 @@ workstation:
   tools: [aws-cli, node, jq, session-manager-plugin]
   savingsMode: unsupported
 variables:
-  sessionLogGroup: { label: 会话日志组, from: derived, fillFrom: stack.shell-access.EnvSsmSessionLogGroup }
+  sessionLogGroup:
+    label:
+      zh-CN: 会话日志组
+      ja: セッションログのロググループ
+      en: Session log group
+    from: derived
+    fillFrom: stack.shell-access.EnvSsmSessionLogGroup
 
 cost:
   currency: USD
   tier: low
-  mainDrivers: [会话日志的 CloudWatch Logs 摄取与存储（量极小）]
+  mainDrivers:
+    - zh-CN: 会话日志的 CloudWatch Logs 摄取与存储（量极小）
+      ja: セッションログの CloudWatch Logs への取り込みと保存（量はごくわずか）
+      en: CloudWatch Logs ingestion and storage for session logs (tiny)
   basis:
-    - { ref: start-profile, note: 实验机 EC2、EBS（根卷与数据卷）、公网 IPv4；iam 不计费 }
-    - { ref: workstation, note: 工作台 EC2、EBS、公网 IPv4 }
-    - { key: session-logs, pricingKey: logs.ingestion, billing: usage, quantity: 1, unit: GB, assumedUsagePerHour: 0.001, source: target,
-        whenRetained: false, note: 会话日志量极小 }
+    - ref: start-profile
+      note:
+        zh-CN: 实验机 EC2、EBS（根卷与数据卷）、公网 IPv4；iam 不计费
+        ja: ラボ用インスタンスの EC2、EBS（ルートボリュームとデータボリューム）、パブリック IPv4。iam は課金されません
+        en: Lab instance EC2, EBS (root and data volumes) and public IPv4; iam is free
+    - ref: workstation
+      note:
+        zh-CN: 工作台 EC2、EBS、公网 IPv4
+        ja: ワークベンチの EC2、EBS、パブリック IPv4
+        en: Workbench EC2, EBS and public IPv4
+    - key: session-logs
+      pricingKey: logs.ingestion
+      billing: usage
+      quantity: 1
+      unit: GB
+      assumedUsagePerHour: 0.001
+      source: target
+      whenRetained: false
+      note:
+        zh-CN: 会话日志量极小
+        ja: セッションログの量はごくわずかです
+        en: Session log volume is tiny
   assumptions:
-    - Session Manager 对 EC2 实例不额外收费（以官方定价为准）
-    - 本卡不创建 Interface Endpoint；私有子网场景见 sc-private-network
+    - zh-CN: Session Manager 对 EC2 实例不额外收费（以官方定价为准）
+      ja: Session Manager は EC2 インスタンスについて追加料金がかかりません（公式の料金表を確認してください）
+      en: Session Manager has no extra charge for EC2 instances (check the official pricing)
+    - zh-CN: 本卡不创建 Interface Endpoint；私有子网场景见 sc-private-network
+      ja: このカードではインターフェイスエンドポイントを作成しません。プライベートサブネットのケースは sc-private-network を参照してください
+      en: This card creates no interface endpoints; for the private subnet case see sc-private-network
 provision: { class: A }
 
 steps:
   - id: orient
     type: observe
-    title: 观察起始状态：22 只对工作台开放，Agent 已因平台通道在线
+    title:
+      zh-CN: 观察起始状态：22 只对工作台开放，Agent 已因平台通道在线
+      ja: 開始状態を観察：22 はワークベンチにだけ開いており、エージェントはプラットフォームのチャネルのためにすでにオンライン
+      en: "Observe the start state: 22 is only open to the workbench, and the agent is already online for the platform channel"
     manual: manual/10-orient.md
     panel: terminal-workstation
     estMinutes: 5
@@ -92,7 +235,10 @@ steps:
 
   - id: baseline
     type: experiment
-    title: 记录 before：从工作台探测私网地址的 22 端口
+    title:
+      zh-CN: 记录 before：从工作台探测私网地址的 22 端口
+      ja: before を記録：ワークベンチからプライベートアドレスの 22 番ポートを調べる
+      en: "Record before: probe port 22 on the private address from the workbench"
     manual: manual/20-baseline.md
     experiment: { module: shell-access, id: probe-port, label: before }
     requires: { steps: [orient] }
@@ -103,19 +249,37 @@ steps:
   - id: wire
     type: script
     wire: true
-    title: 接入：enable shell-access（关闭 22、写会话首选项）
+    title:
+      zh-CN: 接入：enable shell-access（关闭 22、写会话首选项）
+      ja: 組み込み：enable shell-access（22 を閉じ、セッション設定を書き込む）
+      en: "Wire in: enable shell-access (close 22, write session preferences)"
     manual: manual/30-wire.md
     methods: [script]
     requires: { steps: [baseline] }
     panel: terminal-workstation
     estMinutes: 10
-    startsBilling: { class: usage, pricingKeys: [logs.ingestion], note: 会话日志按摄取与存储计费（量极小） }
-    wait: { typicalMinutes: 3, maxMinutes: 10, text: 先确认 Agent Online 并做 Run Command 冒烟，再删除 22 规则 }
+    startsBilling:
+      class: usage
+      pricingKeys: [logs.ingestion]
+      note:
+        zh-CN: 会话日志按摄取与存储计费（量极小）
+        ja: セッションログは取り込みと保存に応じて課金（量はごくわずか）
+        en: Session logs billed by ingestion and storage (tiny)
+    wait:
+      typicalMinutes: 3
+      maxMinutes: 10
+      text:
+        zh-CN: 先确认 Agent Online 并做 Run Command 冒烟，再删除 22 规则
+        ja: まずエージェントが Online であることを確認し、Run Command でスモークテストを行ってから、22 のルールを削除します
+        en: First confirm the agent is Online and smoke-test with Run Command, then delete the 22 rule
     checks: [cap-ssm-ok, module-state-ssm, sg-no-22, session-log-group]
 
   - id: session
     type: cli
-    title: 用 Session Manager 登录：runAs 用户与受限 sudo
+    title:
+      zh-CN: 用 Session Manager 登录：runAs 用户与受限 sudo
+      ja: Session Manager でログイン：runAs ユーザーと制限付き sudo
+      en: "Sign in with Session Manager: the runAs user and restricted sudo"
     manual: manual/40-session.md
     requires: { steps: [wire] }
     panel: terminal-workstation
@@ -124,7 +288,10 @@ steps:
 
   - id: port-forward
     type: cli
-    title: 端口转发：不开放 3000 也能在工作台访问应用
+    title:
+      zh-CN: 端口转发：不开放 3000 也能在工作台访问应用
+      ja: ポートフォワーディング：3000 を開けなくてもワークベンチからアプリにアクセスできる
+      en: "Port forwarding: reach the app from the workbench without opening 3000"
     manual: manual/50-port-forward.md
     requires: { steps: [wire] }
     panel: terminal-workstation
@@ -133,7 +300,10 @@ steps:
 
   - id: after
     type: experiment
-    title: 记录 after：再次从工作台探测 22 端口
+    title:
+      zh-CN: 记录 after：再次从工作台探测 22 端口
+      ja: after を記録：ワークベンチからもう一度 22 番ポートを調べる
+      en: "Record after: probe port 22 from the workbench again"
     manual: manual/60-after.md
     experiment: { module: shell-access, id: probe-port, label: after }
     requires: { steps: [wire] }
@@ -143,13 +313,22 @@ steps:
 
   - id: audit-chain
     type: experiment
-    title: 对齐审计链：会话历史、会话日志与 StartSession
+    title:
+      zh-CN: 对齐审计链：会话历史、会话日志与 StartSession
+      ja: 監査の流れを照合：セッション履歴、セッションログ、StartSession
+      en: "Line up the audit chain: session history, session logs and StartSession"
     manual: manual/70-audit-chain.md
     experiment: { module: shell-access, id: session-audit, label: after }
     requires: { steps: [session] }
     panel: terminal-workstation
     estMinutes: 8
-    wait: { typicalMinutes: 5, maxMinutes: 20, text: CloudTrail 事件有分钟级延迟，脚本会轮询 }
+    wait:
+      typicalMinutes: 5
+      maxMinutes: 20
+      text:
+        zh-CN: CloudTrail 事件有分钟级延迟，脚本会轮询
+        ja: CloudTrail のイベントには分単位の遅延があるため、スクリプトがポーリングします
+        en: CloudTrail events lag by minutes, so the script polls
     checks: [session-logged, exp-session-audit]
 
 finalChecks:
@@ -179,31 +358,113 @@ experiments:
     corroborateWith: [session-logged]
 
 quiz: { file: quiz.yaml, draw: 3 }
-badge: { title: 零入站运维, icon: assets/badge.svg }
+badge:
+  title:
+    zh-CN: 零入站运维
+    ja: 受信ポートなしの運用
+    en: Zero-inbound operations
+  icon: assets/badge.svg
 tracks: [operations, saa-main, secure]
 certificate: { enabled: false }
 
 cleanup:
-  summary: 结束后平台还原 Session Manager 会话首选项、删除 cloudalbum-ops 用户与 shell-access 栈；会话日志组由回收器删除。会话首选项是区域级单例，请不要在控制台手工修改它。
+  summary:
+    zh-CN: 结束后平台还原 Session Manager 会话首选项、删除 cloudalbum-ops 用户与 shell-access 栈；会话日志组由回收器删除。会话首选项是区域级单例，请不要在控制台手工修改它。
+    ja: ラボの終了後、プラットフォームが Session Manager のセッション設定を元に戻し、cloudalbum-ops ユーザーと shell-access スタックを削除します。セッションログのロググループは回収処理が削除します。セッション設定はリージョン単位のシングルトンなので、コンソールで手動で変更しないでください。
+    en: When the lab ends, the platform restores the Session Manager session preferences and deletes the cloudalbum-ops user and the shell-access stack; the reclaimer deletes the session log group. Session preferences are a Region-level singleton, so do not change them by hand in the console.
   autoReclaim: true
-  dataRisk: [没有业务数据；会话日志随会话删除，报告中保留证据摘要]
+  dataRisk:
+    - zh-CN: 没有业务数据；会话日志随会话删除，报告中保留证据摘要
+      ja: 業務データはありません。セッションログはセッションとともに削除され、レポートには証拠の要約が残ります
+      en: No business data; session logs are deleted with the session, and the report keeps an evidence summary
   learnerCreatedHints:
-    - { resourceType: 'AWS::SSM::Document', how: SSM-SessionManagerRunShell 不删除，按环境状态桶 <envName>/backups/ 中的原值还原 }
-    - { resourceType: 'AWS::Logs::LogGroup', how: 会话日志组 DeletionPolicy=Retain，回收器按 RETAINED 来源删除（02 §7.1） }
+    - resourceType: 'AWS::SSM::Document'
+      how:
+        zh-CN: SSM-SessionManagerRunShell 不删除，按环境状态桶 <envName>/backups/ 中的原值还原
+        ja: SSM-SessionManagerRunShell は削除せず、環境状態バケットの <envName>/backups/ にある元の値に戻します
+        en: SSM-SessionManagerRunShell is not deleted; it is restored from the original value in <envName>/backups/ in the environment state bucket
+    - resourceType: 'AWS::Logs::LogGroup'
+      how:
+        zh-CN: 会话日志组 DeletionPolicy=Retain，回收器按 RETAINED 来源删除（02 §7.1）
+        ja: セッションログのロググループは DeletionPolicy=Retain で、回収処理が RETAINED のソースとして削除します（02 §7.1）
+        en: The session log group has DeletionPolicy=Retain, and the reclaimer deletes it as a RETAINED source (02 §7.1)
   verify: [shell-access-stack-gone]
 
 saa:
   domains: [secure]
   topics:
-    - { id: ssm-managed-node, title: SSM 托管节点的三个前提, domain: secure, relatesTo: orient }
-    - { id: zero-inbound, title: 零入站规则也能管理实例（出站通道 + 有状态安全组）, domain: secure, relatesTo: wire }
-    - { id: session-audit-chain, title: 会话日志与 StartSession 构成审计链, domain: secure, relatesTo: audit-chain }
-    - { id: port-forward, title: 端口转发访问私有资源，取代堡垒机, domain: secure, relatesTo: port-forward }
-    - { id: managed-vs-least, title: AmazonSSMManagedInstanceCore 与最小权限, domain: secure, relatesTo: wire }
+    - id: ssm-managed-node
+      title:
+        zh-CN: SSM 托管节点的三个前提
+        ja: SSM マネージドノードの 3 つの前提
+        en: The three prerequisites of an SSM managed node
+      domain: secure
+      relatesTo: orient
+    - id: zero-inbound
+      title:
+        zh-CN: 零入站规则也能管理实例（出站通道 + 有状态安全组）
+        ja: 受信ルールがゼロでもインスタンスを管理できる（送信方向のチャネル + ステートフルなセキュリティグループ）
+        en: Managing instances with zero inbound rules (an outbound channel + stateful security groups)
+      domain: secure
+      relatesTo: wire
+    - id: session-audit-chain
+      title:
+        zh-CN: 会话日志与 StartSession 构成审计链
+        ja: セッションログと StartSession が監査の流れを構成する
+        en: Session logs and StartSession form the audit chain
+      domain: secure
+      relatesTo: audit-chain
+    - id: port-forward
+      title:
+        zh-CN: 端口转发访问私有资源，取代堡垒机
+        ja: ポートフォワーディングでプライベートなリソースにアクセスし、踏み台サーバーを置き換える
+        en: Port forwarding to private resources instead of bastion hosts
+      domain: secure
+      relatesTo: port-forward
+    - id: managed-vs-least
+      title:
+        zh-CN: AmazonSSMManagedInstanceCore 与最小权限
+        ja: AmazonSSMManagedInstanceCore と最小権限
+        en: AmazonSSMManagedInstanceCore and least privilege
+      domain: secure
+      relatesTo: wire
   confusables:
-    - { a: Session Manager, b: EC2 Instance Connect, rule: 前者不需要入站 22 与公网 IP；后者浏览器方式需要 22 对服务地址段开放 }
-    - { a: Session Manager, b: 堡垒机, rule: 堡垒机本身要开放入站并管理密钥；Session Manager 用 IAM 授权与出站通道 }
-    - { a: CloudTrail StartSession, b: 会话日志, rule: CloudTrail 记录谁开了会话；会话中执行的命令只在会话日志里 }
+    - a:
+        zh-CN: Session Manager
+        ja: Session Manager
+        en: Session Manager
+      b:
+        zh-CN: EC2 Instance Connect
+        ja: EC2 Instance Connect
+        en: EC2 Instance Connect
+      rule:
+        zh-CN: 前者不需要入站 22 与公网 IP；后者浏览器方式需要 22 对服务地址段开放
+        ja: 前者は受信の 22 もパブリック IP も不要です。後者のブラウザー方式では 22 をサービスのアドレス範囲に開く必要があります
+        en: The former needs neither inbound 22 nor a public IP; the latter's browser method needs 22 open to the service's address range
+    - a:
+        zh-CN: Session Manager
+        ja: Session Manager
+        en: Session Manager
+      b:
+        zh-CN: 堡垒机
+        ja: 踏み台サーバー
+        en: Bastion host
+      rule:
+        zh-CN: 堡垒机本身要开放入站并管理密钥；Session Manager 用 IAM 授权与出站通道
+        ja: 踏み台サーバーは自分自身の受信を開け、鍵を管理する必要があります。Session Manager は IAM の認可と送信方向のチャネルを使います
+        en: A bastion host must open inbound ports and manage keys itself; Session Manager uses IAM authorization and an outbound channel
+    - a:
+        zh-CN: CloudTrail StartSession
+        ja: CloudTrail StartSession
+        en: CloudTrail StartSession
+      b:
+        zh-CN: 会话日志
+        ja: セッションログ
+        en: Session logs
+      rule:
+        zh-CN: CloudTrail 记录谁开了会话；会话中执行的命令只在会话日志里
+        ja: CloudTrail は誰がセッションを開いたかを記録します。セッション中に実行したコマンドはセッションログにしかありません
+        en: CloudTrail records who opened a session; the commands run inside it are only in the session logs
 tags: [shell-access, ssm, session-manager, least-privilege, audit]
 
 permissions:
@@ -241,7 +502,17 @@ permissions:
 platform:
   consoleLinks: [ec2.securityGroup, ssm.sessions, logs.group]
   accountImpact:
-    - { id: ssm-session-prefs, scope: region, resource: SSM-SessionManagerRunShell, preexisting: not-applicable, revert: restore,
-        note: 模块修改前把原值（或“原本不存在”）备份到环境状态桶的 <envName>/backups/（06 PM-M28），回收时还原 }
+    - id: ssm-session-prefs
+      scope: region
+      resource:
+        zh-CN: SSM-SessionManagerRunShell
+        ja: SSM-SessionManagerRunShell
+        en: SSM-SessionManagerRunShell
+      preexisting: not-applicable
+      revert: restore
+      note:
+        zh-CN: 模块修改前把原值（或“原本不存在”）备份到环境状态桶的 <envName>/backups/（06 PM-M28），回收时还原
+        ja: モジュールは変更前に元の値（または「もともと存在しない」こと）を環境状態バケットの <envName>/backups/ にバックアップし（06 PM-M28）、回収時に元に戻します
+        en: Before changing it, the module backs up the original value (or "did not exist") to <envName>/backups/ in the environment state bucket (06 PM-M28) and restores it at reclaim
 
 owners: [cloudalbum-maintainers]

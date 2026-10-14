@@ -2,13 +2,25 @@
 schema: atl.track/v2
 id: performant
 version: 1.0.0
-title: 高性能专项
-summary: 补强“设计高性能的架构”：对象存储与边缘、事件驱动处理、托管 API、缓存与数据库提速、分析。
-audience: 想补强 SAA“设计高性能的架构”领域的学员
+title:
+  zh-CN: 高性能专项
+  ja: 高パフォーマンスパス
+  en: High performance path
+summary:
+  zh-CN: 补强“设计高性能的架构”：对象存储与边缘、事件驱动处理、托管 API、缓存与数据库提速、分析。
+  ja: SAA の「高パフォーマンスなアーキテクチャの設計」を強化します。オブジェクトストレージとエッジ、イベント駆動の処理、マネージド API、キャッシュとデータベースの高速化、分析を扱います。
+  en: 'Strengthens the SAA domain "Design High-Performing Architectures": object storage and the edge, event-driven processing, managed APIs, caching and faster databases, and analytics.'
+audience:
+  zh-CN: 想补强 SAA“设计高性能的架构”领域的学员
+  ja: SAA の「高パフォーマンスなアーキテクチャの設計」分野を強化したい受講者
+  en: Learners who want to strengthen the SAA domain "Design High-Performing Architectures"
 domain: performance
 stages:
   - id: s1-edge
-    title: 存储、边缘与事件驱动
+    title:
+      zh-CN: 存储、边缘与事件驱动
+      ja: ストレージ、エッジ、イベント駆動
+      en: Storage, edge and event-driven processing
     items:
       - { card: svc-storage, role: required }
       - { card: svc-cdn, role: required }
@@ -16,19 +28,42 @@ stages:
       - { card: sc-image-pipeline, role: required }
       - { card: sc-static-acceleration, role: optional }
   - id: s2-api
-    title: 托管 API
+    title:
+      zh-CN: 托管 API
+      ja: マネージド API
+      en: Managed APIs
     items:
       - { card: svc-social-store, role: required }
-      - { group: g-api, title: API, pick: 1, cards: [svc-social-api, sc-serverless-api] }
+      - group: g-api
+        title:
+          zh-CN: API
+          ja: API
+          en: API
+        pick: 1
+        cards: [svc-social-api, sc-serverless-api]
   - id: s3-data
-    title: 数据提速与分析
+    title:
+      zh-CN: 数据提速与分析
+      ja: データの高速化と分析
+      en: Faster data and analytics
     items:
       - { card: svc-cache, role: required }
       - { card: svc-database, role: required }
       - { card: sc-db-performance, role: required }
-      - { group: g-analytics, title: 分析, pick: 1, cards: [svc-analytics, sc-analytics] }
+      - group: g-analytics
+        title:
+          zh-CN: 分析
+          ja: 分析
+          en: Analytics
+        pick: 1
+        cards: [svc-analytics, sc-analytics]
       - { card: svc-db-proxy, role: optional }
       - { card: svc-tracing, role: optional }
       - { card: svc-shared-fs, role: optional }
 completion: { allowManual: true, minAutoRatio: 0.8, excludeSelfReported: true }
-certificate: { enabled: true, title: 高性能架构专项证书 }
+certificate:
+  enabled: true
+  title:
+    zh-CN: 高性能架构专项证书
+    ja: 高パフォーマンスアーキテクチャパス修了証
+    en: High-performing architecture path certificate

@@ -3639,3 +3639,33 @@ original-image bucket / display bucket；前缀令牌 → プレフィックス�
 `labs:build --out <临时目录>`（483 个文件；根目录与 HEAD 相同）、`npx vitest run --project atl-labs-tools`（30 / 30）、
 `--project atl-api --project atl-shared --project atl-workflows`（472 通过）、`npm run build -w @atl/web`、`npm run lint`、
 `npm run i18n:check -- --allow-empty`（结构问题 0；本组没有界面词典键）。
+
+## i18n-content-b
+
+卡片内容的 ja / en 译文（I4、I5），范围是按 id 字母序排序后的后一半 svc 卡片（svc-load-balancer … svc-workflow，20 张）、全部 16 张
+sc 场景卡片与 `labs/_tracks`（9 条学习路径）。12 张 planned 的 svc 卡片与 13 张 planned 的 sc 卡片只有目录元数据（标题、副标题、简介、
+故事、场景题、服务名、起始状态说明、徽章），全部译完；8 张可以开始的 svc 卡片（logging、monitoring、notification、queue、shell-access、
+storage、tls、waf）与 3 张 sc 卡片（edge-protection、event-fanout、static-acceleration）的 lab.yaml、checks/*.yaml、quiz.yaml 中 schema
+标为文本的字段（共 1898 个）与全部手册（122 个文件 → `manual/ja/`、`manual/en/` 各 122 个）译完；学习路径的标题、简介、受众、阶段、
+备注与证书标题（117 个字段）译完。`npm run labs:i18n`：上述 36 张卡片与 `_tracks` 的 ja / en 均 100%。
+
+做法与 content-a 一致（同一套转换规则：只改文本字段所在的那段源码，按 zh-CN 解析的文档与原文逐项相等，`labs:build` 根目录产物不变，
+卡片版本号与 CHANGELOG 不变）。有歧义时的取舍：
+
+| 问题 | 决定 |
+|---|---|
+| CloudAlbum 应用与 API 输出的中文（`/admin/*` 页面文字、capabilities 的 detail、脚本打印的行） | 保留中文原文并在括号里附译文，便于学员在页面或输出里找到；代码块与行内代码里的输出原样保留 |
+| `:::saa{confusable="…"}` 属性值、检查的 `where.breadcrumb[]` | 保持中文（与 content-a 相同；前者是 I4 的比较对象，后者 schema 未标为文本） |
+| 代码块里的 `<…>` 占位与 echo 提示 | 译成对应语言（如 `<メールアドレスの +admin エイリアス>`、`<your +admin alias>`）；命令本身不变 |
+| 术语对齐 | 采用 content-a 的写法：経路ヘッダー / 経路セグメント / 入口チェーン / 検知処理 / 元画像；平台界面名称按界面词典（アプリのプレビュー / App preview、ワークベンチのターミナル / Workbench terminal、ラボ用インスタンスのターミナル / Lab terminal） |
+| 00-overview 以外的标题 | 架构 → 構成 / Architecture；开始时 / 完成后 → 開始時 / 完了後、At the start / When done；整体对比 → 全体の比較 / Overall comparison；其余同 content-a |
+| 学习路径中“专项” | 译为“…パス / … path”（如 回復性パス / Resilience path），SAA 领域名用官方考纲写法（「回復性の高いアーキテクチャの設計」/ "Design Resilient Architectures"） |
+
+仍回退为中文的学员可见内容（不在本组范围）：共享检查 `_shared/checks`（no-world-ssh，每张完整卡片 10 个字段）、目录索引的 `searchText`
+（含 taxonomy 的服务名）、`assets/arch-*.svg` 中的文字。另：按语言构建的目录索引里，每条学习路径的 `i18n.fallback` 是 `["/i18n"]`
+（单独的 `tracks/<id>.json` 为空），看起来是构建的标记比较把嵌套的 `i18n` 对象也算成了差异，留给 prep-i18n / 集成阶段确认。
+
+自测（2026-10-14）：`npm run labs:lint`（56 张，0 错误 0 警告）、`npm run labs:i18n`、`npm run labs:catalog -- --check`、
+`labs:build --out <临时目录>`（483 个文件）、`npx vitest run --project atl-labs-tools`（30 / 30）、api dev-server / infra package /
+web 目录、简介、小测、i18n 相关测试（10 个文件 154 通过）、`npm run build -w @atl/web`、`npm run lint`。`npm run i18n:check` 只报
+`frame.ws.*` 4 个界面键未译（不属于本组；本组没有界面词典键）。

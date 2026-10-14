@@ -6,14 +6,36 @@ questions:
     type: single
     kind: scenario
     services: [sqs]
-    stem: worker 处理一条消息最长需要 3 分钟，队列的可见性超时是 30 秒，结果同一任务经常被处理两次。应该怎么做？
+    stem:
+      zh-CN: worker 处理一条消息最长需要 3 分钟，队列的可见性超时是 30 秒，结果同一任务经常被处理两次。应该怎么做？
+      ja: worker が 1 つのメッセージを処理するのに最長 3 分かかり、キューの可視性タイムアウトは 30 秒です。その結果、同じジョブがよく 2 回処理されます。どうすべきですか？
+      en: A worker needs up to 3 minutes to process a message, the queue's visibility timeout is 30 seconds, and the same job is often processed twice. What should you do?
     options:
-      - { id: a, text: 改用短轮询 }
-      - { id: b, text: 把可见性超时调到大于最长处理时间，长任务处理中定期延长可见性 }
-      - { id: c, text: 把消息保留期调到 14 天 }
-      - { id: d, text: 把 maxReceiveCount 调到 1 }
+      - id: a
+        text:
+          zh-CN: 改用短轮询
+          ja: ショートポーリングに変更する
+          en: Switch to short polling
+      - id: b
+        text:
+          zh-CN: 把可见性超时调到大于最长处理时间，长任务处理中定期延长可见性
+          ja: 可視性タイムアウトを最長の処理時間より長くし、長いジョブの処理中は定期的に可視性を延長する
+          en: Set the visibility timeout longer than the longest processing time, and extend visibility periodically while long jobs run
+      - id: c
+        text:
+          zh-CN: 把消息保留期调到 14 天
+          ja: メッセージの保持期間を 14 日にする
+          en: Set message retention to 14 days
+      - id: d
+        text:
+          zh-CN: 把 maxReceiveCount 调到 1
+          ja: maxReceiveCount を 1 にする
+          en: Set maxReceiveCount to 1
     answer: [b]
-    explain: 处理时间超过可见性超时，消息会重新可见并被其他消费者拿走；maxReceiveCount=1 会把正常的慢任务送进死信队列。
+    explain:
+      zh-CN: 处理时间超过可见性超时，消息会重新可见并被其他消费者拿走；maxReceiveCount=1 会把正常的慢任务送进死信队列。
+      ja: 処理時間が可視性タイムアウトを超えると、メッセージは再び表示されて別のコンシューマーに取られます。maxReceiveCount=1 にすると、正常だが遅いジョブまでデッドレターキューに送られます。
+      en: When processing takes longer than the visibility timeout, the message becomes visible again and another consumer takes it; maxReceiveCount=1 would send normal but slow jobs to the dead-letter queue.
     relatesTo: enable-sqs
     difficulty: 1
   - id: queue-fifo
@@ -21,28 +43,72 @@ questions:
     type: single
     kind: scenario
     services: [sqs]
-    stem: 订单事件必须对同一个客户严格按顺序、且只处理一次。应选择？
+    stem:
+      zh-CN: 订单事件必须对同一个客户严格按顺序、且只处理一次。应选择？
+      ja: 注文イベントは、同じ顧客について厳密に順番どおり、かつ 1 回だけ処理しなければなりません。どれを選びますか？
+      en: Order events must be processed strictly in order and exactly once per customer. What should you choose?
     options:
-      - { id: a, text: SQS 标准队列 + 应用层去重 }
-      - { id: b, text: SQS FIFO 队列，以客户 ID 作为消息组 ID }
-      - { id: c, text: SNS 标准主题 }
-      - { id: d, text: 两个 SQS 标准队列分别承载奇偶订单 }
+      - id: a
+        text:
+          zh-CN: SQS 标准队列 + 应用层去重
+          ja: SQS 標準キュー + アプリケーション層での重複排除
+          en: SQS standard queue + deduplication in the application
+      - id: b
+        text:
+          zh-CN: SQS FIFO 队列，以客户 ID 作为消息组 ID
+          ja: SQS FIFO キューで、顧客 ID をメッセージグループ ID にする
+          en: An SQS FIFO queue with the customer ID as the message group ID
+      - id: c
+        text:
+          zh-CN: SNS 标准主题
+          ja: SNS 標準トピック
+          en: An SNS standard topic
+      - id: d
+        text:
+          zh-CN: 两个 SQS 标准队列分别承载奇偶订单
+          ja: 2 つの SQS 標準キューで奇数と偶数の注文を分担する
+          en: Two SQS standard queues for odd and even orders
     answer: [b]
-    explain: FIFO 在同一消息组内保证顺序，并提供去重；标准队列只尽力排序、至少一次投递。
+    explain:
+      zh-CN: FIFO 在同一消息组内保证顺序，并提供去重；标准队列只尽力排序、至少一次投递。
+      ja: FIFO は同じメッセージグループ内の順序を保証し、重複排除も提供します。標準キューはベストエフォートの順序で、少なくとも 1 回の配信です。
+      en: FIFO guarantees order within a message group and provides deduplication; standard queues only order on a best-effort basis and deliver at least once.
     difficulty: 1
   - id: queue-poison
     domain: resilient
     type: multi
     kind: concept
     services: [sqs]
-    stem: 处理“毒消息”反复失败、阻塞消费的问题，哪两项做法正确？
+    stem:
+      zh-CN: 处理“毒消息”反复失败、阻塞消费的问题，哪两项做法正确？
+      ja: 「ポイズンメッセージ」が失敗を繰り返して消費を止めてしまう問題について、正しい対処を 2 つ選んでください。
+      en: Which two practices correctly handle a "poison message" that keeps failing and blocks consumption?
     options:
-      - { id: a, text: 配置重驱动策略，接收次数超过 maxReceiveCount 后移入死信队列 }
-      - { id: b, text: 让死信队列的消息保留期长于源队列 }
-      - { id: c, text: 把源队列改为短轮询 }
-      - { id: d, text: 给所有消息设置 900 秒的投递延迟 }
+      - id: a
+        text:
+          zh-CN: 配置重驱动策略，接收次数超过 maxReceiveCount 后移入死信队列
+          ja: 再処理ポリシーを設定し、受信回数が maxReceiveCount を超えたらデッドレターキューに移す
+          en: Configure a redrive policy that moves the message to a dead-letter queue once the receive count exceeds maxReceiveCount
+      - id: b
+        text:
+          zh-CN: 让死信队列的消息保留期长于源队列
+          ja: デッドレターキューのメッセージ保持期間を元のキューより長くする
+          en: Make the dead-letter queue's message retention longer than the source queue's
+      - id: c
+        text:
+          zh-CN: 把源队列改为短轮询
+          ja: 元のキューをショートポーリングに変更する
+          en: Switch the source queue to short polling
+      - id: d
+        text:
+          zh-CN: 给所有消息设置 900 秒的投递延迟
+          ja: すべてのメッセージに 900 秒の配信遅延を設定する
+          en: Set a 900-second delivery delay on every message
     answer: [a, b]
-    explain: 标准队列的消息进入死信队列后，过期时间仍从最初入队时算起，所以死信队列保留期要更长；短轮询与延迟投递都解决不了毒消息。
+    explain:
+      zh-CN: 标准队列的消息进入死信队列后，过期时间仍从最初入队时算起，所以死信队列保留期要更长；短轮询与延迟投递都解决不了毒消息。
+      ja: 標準キューのメッセージはデッドレターキューに入った後も、有効期限は最初にキューに入った時点から数えられます。そのためデッドレターキューの保持期間は長くする必要があります。ショートポーリングも配信遅延もポイズンメッセージは解決しません。
+      en: For standard queues, a message's expiry still counts from when it was first enqueued after it moves to the dead-letter queue, so the dead-letter queue needs a longer retention; neither short polling nor delayed delivery solves poison messages.
     relatesTo: poison
     difficulty: 2
   - id: queue-scaling
@@ -50,12 +116,34 @@ questions:
     type: single
     kind: scenario
     services: [sqs]
-    stem: 一组 EC2 worker 从 SQS 拉取任务，高峰时积压越来越多。希望按积压自动扩容，最合适的指标是？
+    stem:
+      zh-CN: 一组 EC2 worker 从 SQS 拉取任务，高峰时积压越来越多。希望按积压自动扩容，最合适的指标是？
+      ja: 一群の EC2 worker が SQS からジョブを取得していますが、ピーク時にはバックログがどんどん増えます。バックログに応じて自動でスケールアウトしたい場合、最も適切なメトリクスはどれですか？
+      en: A group of EC2 workers pulls jobs from SQS, and the backlog keeps growing at peak. To scale out automatically on the backlog, which metric is most suitable?
     options:
-      - { id: a, text: 每个实例的积压消息数（ApproximateNumberOfMessagesVisible 除以实例数）作为目标跟踪指标 }
-      - { id: b, text: worker 实例的平均 CPU 利用率 }
-      - { id: c, text: 队列的 NumberOfEmptyReceives }
-      - { id: d, text: 死信队列的消息数 }
+      - id: a
+        text:
+          zh-CN: 每个实例的积压消息数（ApproximateNumberOfMessagesVisible 除以实例数）作为目标跟踪指标
+          ja: インスタンスあたりのバックログ（ApproximateNumberOfMessagesVisible をインスタンス数で割った値）をターゲット追跡のメトリクスにする
+          en: Backlog per instance (ApproximateNumberOfMessagesVisible divided by the number of instances) as a target tracking metric
+      - id: b
+        text:
+          zh-CN: worker 实例的平均 CPU 利用率
+          ja: worker インスタンスの平均 CPU 使用率
+          en: The workers' average CPU utilization
+      - id: c
+        text:
+          zh-CN: 队列的 NumberOfEmptyReceives
+          ja: キューの NumberOfEmptyReceives
+          en: The queue's NumberOfEmptyReceives
+      - id: d
+        text:
+          zh-CN: 死信队列的消息数
+          ja: デッドレターキューのメッセージ数
+          en: The dead-letter queue's message count
     answer: [a]
-    explain: 按“每实例积压”扩缩容直接反映处理能力与待处理量的比例；CPU 不一定随积压上升，空接收数反映的是空闲。
+    explain:
+      zh-CN: 按“每实例积压”扩缩容直接反映处理能力与待处理量的比例；CPU 不一定随积压上升，空接收数反映的是空闲。
+      ja: 「インスタンスあたりのバックログ」でスケーリングすると、処理能力と未処理量の比率をそのまま反映できます。CPU はバックログに応じて上がるとは限らず、空の受信数はアイドル状態を表します。
+      en: Scaling on backlog per instance directly reflects the ratio of processing capacity to pending work; CPU does not necessarily rise with the backlog, and empty receives reflect idleness.
     difficulty: 2

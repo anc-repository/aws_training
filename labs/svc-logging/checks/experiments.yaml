@@ -1,6 +1,9 @@
 checks:
   - id: exp-query-before
-    title: query-compare 的 before（只有本地一侧）有一条有效结果
+    title:
+      zh-CN: query-compare 的 before（只有本地一侧）有一条有效结果
+      ja: query-compare の before（ローカル側のみ）に有効な結果が 1 件ある
+      en: query-compare has one valid before result (local side only)
     type: experiment
     module: logging
     experiment: query-compare
@@ -8,7 +11,10 @@ checks:
     accept: [valid]
 
   - id: exp-query-pair
-    title: query-compare 的 before 与 after 都有效且可比
+    title:
+      zh-CN: query-compare 的 before 与 after 都有效且可比
+      ja: query-compare の before と after がどちらも有効で比較できる
+      en: query-compare before and after are both valid and comparable
     type: experiment
     module: logging
     experiment: query-compare
@@ -16,7 +22,10 @@ checks:
     accept: [valid]
 
   - id: exp-ingest-after
-    title: ingest-lag 的 after 有一条有效结果
+    title:
+      zh-CN: ingest-lag 的 after 有一条有效结果
+      ja: ingest-lag の after に有効な結果が 1 件ある
+      en: ingest-lag has one valid after result
     type: experiment
     module: logging
     experiment: ingest-lag

@@ -2,12 +2,24 @@
 schema: atl.track/v2
 id: serverless
 version: 1.0.0
-title: Serverless 应用
-summary: 把分散在原 Lab 4、10、11、12、17 中的无服务器内容连成一条线：事件驱动、按请求付费、托管扩展。
-audience: 想系统掌握事件驱动与无服务器的学员
+title:
+  zh-CN: Serverless 应用
+  ja: Serverless アプリケーション
+  en: Serverless applications
+summary:
+  zh-CN: 把分散在原 Lab 4、10、11、12、17 中的无服务器内容连成一条线：事件驱动、按请求付费、托管扩展。
+  ja: 旧 Lab 4、10、11、12、17 に分散していたサーバーレスの内容を 1 本につなぎます。イベント駆動、リクエスト単位の課金、マネージドなスケーリングを扱います。
+  en: "Connects the serverless material spread across the original Labs 4, 10, 11, 12 and 17 into one path: event-driven design, pay-per-request pricing and managed scaling."
+audience:
+  zh-CN: 想系统掌握事件驱动与无服务器的学员
+  ja: イベント駆動とサーバーレスを体系的に身につけたい受講者
+  en: Learners who want a systematic grasp of event-driven and serverless design
 stages:
   - id: s1-events
-    title: 存储与事件驱动
+    title:
+      zh-CN: 存储与事件驱动
+      ja: ストレージとイベント駆動
+      en: Storage and event-driven processing
     items:
       - { card: svc-storage, role: required }
       - { card: svc-image-processing, role: required }
@@ -18,15 +30,32 @@ stages:
       - { card: svc-notification, role: optional }
       - { card: sc-event-fanout, role: optional }
   - id: s2-api
-    title: 托管 API
+    title:
+      zh-CN: 托管 API
+      ja: マネージド API
+      en: Managed APIs
     items:
       - { card: svc-social-store, role: required }
       - { card: svc-social-api, role: required }
       - { card: sc-serverless-api, role: required }
       - { card: sc-user-identity, role: optional }
   - id: s3-orchestration
-    title: 编排
+    title:
+      zh-CN: 编排
+      ja: オーケストレーション
+      en: Orchestration
     items:
-      - { group: g-orchestration, title: 编排, pick: 1, cards: [svc-workflow, svc-scheduler] }
+      - group: g-orchestration
+        title:
+          zh-CN: 编排
+          ja: オーケストレーション
+          en: Orchestration
+        pick: 1
+        cards: [svc-workflow, svc-scheduler]
 completion: { allowManual: true, minAutoRatio: 0.8, excludeSelfReported: true }
-certificate: { enabled: true, title: Serverless 应用路径证书 }
+certificate:
+  enabled: true
+  title:
+    zh-CN: Serverless 应用路径证书
+    ja: Serverless アプリケーションパス修了証
+    en: Serverless applications path certificate

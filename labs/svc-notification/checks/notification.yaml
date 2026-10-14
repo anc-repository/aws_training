@@ -1,18 +1,39 @@
 checks:
   # ---- 起始状态（before 一律 once）
   - id: notification-db-baseline
-    title: 起始状态：站外通知由 db 驱动逐个调用 EmailPort
+    title:
+      zh-CN: 起始状态：站外通知由 db 驱动逐个调用 EmailPort
+      ja: 開始状態：外部への通知は db ドライバーが EmailPort を 1 件ずつ呼び出して送る
+      en: "Start state: off-site notifications are sent by the db driver calling EmailPort per recipient"
     type: capability
     module: notification
     drift: { policy: once }
     assert:
-      - { path: $.driver, op: eq, value: db, label: 驱动 }
-      - { path: $.status, op: eq, value: 'off', label: 模块状态（本地实现） }
-    explain: db 驱动只在开启了邮件通知的用户上逐个调用 EmailPort；站内信由核心服务写库，与驱动无关。
+      - path: $.driver
+        op: eq
+        value: db
+        label:
+          zh-CN: 驱动
+          ja: ドライバー
+          en: Driver
+      - path: $.status
+        op: eq
+        value: 'off'
+        label:
+          zh-CN: 模块状态（本地实现）
+          ja: モジュールの状態（ローカル実装）
+          en: Module status (local implementation)
+    explain:
+      zh-CN: db 驱动只在开启了邮件通知的用户上逐个调用 EmailPort；站内信由核心服务写库，与驱动无关。
+      ja: db ドライバーは、メール通知を有効にしたユーザーについてだけ EmailPort を 1 件ずつ呼び出します。サイト内メッセージはコアサービスがデータベースに書き込むもので、ドライバーとは関係ありません。
+      en: The db driver calls EmailPort one by one, only for users who turned on email notifications; in-app messages are written to the database by the core service and have nothing to do with the driver.
 
   # ---- 接入 SNS
   - id: notification-wired
-    title: notification 已切换到 SNS，且状态正常
+    title:
+      zh-CN: notification 已切换到 SNS，且状态正常
+      ja: notification が SNS に切り替わり、状態が正常
+      en: notification has switched to SNS and is healthy
     type: capability
     module: notification
     drift: { policy: must-hold, monitor: true }
@@ -21,14 +42,31 @@ checks:
       - { path: $.status, op: eq, value: degraded }
       - { path: $.detail, op: contains, value: 订阅待确认 }
     assert:
-      - { path: $.driver, op: eq, value: sns, label: 驱动 }
-      - { path: $, op: healthy, label: 状态正常（本卡 expectedWarnings 为空，即必须是 ok） }
-    explain: 运维订阅（--param AdminEmail）点击确认链接之前，探针报 degraded“运维订阅待确认”，这里记为等待而不是失败（附录 C-18）。
+      - path: $.driver
+        op: eq
+        value: sns
+        label:
+          zh-CN: 驱动
+          ja: ドライバー
+          en: Driver
+      - path: $
+        op: healthy
+        label:
+          zh-CN: 状态正常（本卡 expectedWarnings 为空，即必须是 ok）
+          ja: 状態が正常（このカードの expectedWarnings は空なので ok でなければならない）
+          en: Healthy (this card's expectedWarnings is empty, so it must be ok)
+    explain:
+      zh-CN: 运维订阅（--param AdminEmail）点击确认链接之前，探针报 degraded“运维订阅待确认”，这里记为等待而不是失败（附录 C-18）。
+      ja: 運用担当のサブスクリプション（--param AdminEmail）の確認リンクをクリックするまで、プローブは degraded「运维订阅待确认」（運用担当のサブスクリプションが確認待ち）を報告します。ここでは失敗ではなく待機として扱います（付録 C-18）。
+      en: Until you click the confirmation link of the operations subscription (--param AdminEmail), the probe reports degraded "运维订阅待确认" (operations subscription pending confirmation); this counts as waiting, not failure (appendix C-18).
     reproduce: { run: 'curl -s http://127.0.0.1/api/capabilities | jq ".modules.notification | {driver, status, detail}"', runsOn: lab }
     pitfalls: [admin-not-confirmed]
 
   - id: notification-path-seen
-    title: 最近的真实请求把通知发布到了 SNS
+    title:
+      zh-CN: 最近的真实请求把通知发布到了 SNS
+      ja: 最近の実際のリクエストが通知を SNS に発行した
+      en: A recent real request published a notification to SNS
     type: local
     on: lab
     checkId: path-seen
@@ -36,11 +74,23 @@ checks:
     dependsOn: [notification-wired]
     drift: { policy: once }
     assert:
-      - { path: $.count, op: gte, value: 1, label: 出现 notification=sns:published 的请求数 }
-    explain: 在应用预览里给 +u1 的照片发一条评论即可满足；路径签名由应用按实际调用的驱动生成，探测请求不计入。
+      - path: $.count
+        op: gte
+        value: 1
+        label:
+          zh-CN: 出现 notification=sns:published 的请求数
+          ja: notification=sns:published が現れたリクエストの数
+          en: Number of requests showing notification=sns:published
+    explain:
+      zh-CN: 在应用预览里给 +u1 的照片发一条评论即可满足；路径签名由应用按实际调用的驱动生成，探测请求不计入。
+      ja: アプリのプレビューで +u1 の写真にコメントを 1 件投稿すれば満たせます。経路の署名はアプリが実際に呼び出したドライバーに基づいて生成し、プローブのリクエストは数えません。
+      en: Post a comment on a +u1 photo in the App preview to satisfy this; the app builds the path signature from the driver it actually called, and probe requests do not count.
 
   - id: topic-subscriptions
-    title: 本会话的通知主题至少有 2 个已确认订阅（收件队列 + 运维邮箱）
+    title:
+      zh-CN: 本会话的通知主题至少有 2 个已确认订阅（收件队列 + 运维邮箱）
+      ja: このセッションの通知トピックに確認済みのサブスクリプションが少なくとも 2 つある（受信キュー + 運用担当のメールアドレス）
+      en: This session's notification topic has at least 2 confirmed subscriptions (inbox queue + operations mailbox)
     type: aws-readonly
     service: sns
     action: GetTopicAttributes
@@ -52,19 +102,47 @@ checks:
       - { path: $.Attributes.SubscriptionsConfirmed, op: lt, value: 2 }
     drift: { policy: must-hold }
     assert:
-      - { path: $.Attributes.SubscriptionsConfirmed, op: gte, value: 2, label: 已确认订阅数 }
-    explain: 收件队列的 sqs 订阅由 CloudFormation 自动确认；运维邮箱的订阅要你点击确认链接，之前这里是等待。
+      - path: $.Attributes.SubscriptionsConfirmed
+        op: gte
+        value: 2
+        label:
+          zh-CN: 已确认订阅数
+          ja: 確認済みのサブスクリプション数
+          en: Confirmed subscriptions
+    explain:
+      zh-CN: 收件队列的 sqs 订阅由 CloudFormation 自动确认；运维邮箱的订阅要你点击确认链接，之前这里是等待。
+      ja: 受信キューの sqs サブスクリプションは CloudFormation が自動で確認します。運用担当のメールアドレスのサブスクリプションは確認リンクのクリックが必要で、それまではここは待機になります。
+      en: CloudFormation confirms the inbox queue's sqs subscription automatically; the operations mailbox subscription needs you to click the confirmation link, and until then this item is waiting.
     reproduce: { run: 'aws sns get-topic-attributes --topic-arn "{{ var.topicArn }}" --query "Attributes.[SubscriptionsConfirmed,SubscriptionsPending]"', runsOn: workstation }
     manualFallback:
       where: { breadcrumb: [SNS, 主题, 'cloudalbum-{{ session.env }}-notification-events', 订阅], region: app }
       observed:
-        question: 订阅列表中“已确认”的订阅有几个？
+        question:
+          zh-CN: 订阅列表中“已确认”的订阅有几个？
+          ja: サブスクリプションの一覧で「確認済み」のサブスクリプションはいくつありますか？
+          en: How many subscriptions in the list are "Confirmed"?
         options:
-          - { value: '2+', label: 2 个或更多, expected: true }
-          - { value: '1', label: 只有 1 个（收件队列）, fixHint: 到运维邮箱点击“AWS Notification - Subscription Confirmation”中的确认链接 }
+          - value: '2+'
+            label:
+              zh-CN: 2 个或更多
+              ja: 2 つ以上
+              en: 2 or more
+            expected: true
+          - value: '1'
+            label:
+              zh-CN: 只有 1 个（收件队列）
+              ja: 1 つだけ（受信キュー）
+              en: Only 1 (the inbox queue)
+            fixHint:
+              zh-CN: 到运维邮箱点击“AWS Notification - Subscription Confirmation”中的确认链接
+              ja: 運用担当のメールボックスで「AWS Notification - Subscription Confirmation」の確認リンクをクリックしてください
+              en: Click the confirmation link in "AWS Notification - Subscription Confirmation" in the operations mailbox
 
   - id: inbox-queue-policy
-    title: 收件队列只接受本主题投递（aws:SourceArn），并配置了 DLQ 与 SSE
+    title:
+      zh-CN: 收件队列只接受本主题投递（aws:SourceArn），并配置了 DLQ 与 SSE
+      ja: 受信キューはこのトピックからの配信だけを受け付け（aws:SourceArn）、DLQ と SSE が設定されている
+      en: The inbox queue only accepts deliveries from this topic (aws:SourceArn) and has a DLQ and SSE configured
     type: aws-readonly
     service: sqs
     action: GetQueueAttributes
@@ -73,24 +151,76 @@ checks:
     ownership: { resource: '{{ var.inboxArn }}', mode: session, createdAfter: session.readyAt }
     drift: { policy: must-hold }
     assert:
-      - { path: $.Attributes.Policy, op: contains, value: 'sns.amazonaws.com', label: 允许 SNS 服务主体 }
-      - { path: $.Attributes.Policy, op: contains, value: 'aws:SourceArn', label: 用 aws:SourceArn 限定来源 }
-      - { path: $.Attributes.Policy, op: contains, value: '{{ var.topicArn }}', label: 来源是本会话的主题 }
-      - { path: $.Attributes.RedrivePolicy, op: contains, value: 'notification-dlq', label: 坏消息进入 DLQ }
-      - { path: $.Attributes.SqsManagedSseEnabled, op: eq, value: 'true', label: SSE-SQS 加密 }
-    explain: 只有 sns.amazonaws.com 且来源 ARN 是本主题时才能写入队列，防止别的主题或账号冒用（混淆代理人）。
+      - path: $.Attributes.Policy
+        op: contains
+        value: 'sns.amazonaws.com'
+        label:
+          zh-CN: 允许 SNS 服务主体
+          ja: SNS サービスプリンシパルを許可
+          en: Allows the SNS service principal
+      - path: $.Attributes.Policy
+        op: contains
+        value: 'aws:SourceArn'
+        label:
+          zh-CN: 用 aws:SourceArn 限定来源
+          ja: aws:SourceArn で送信元を限定
+          en: Limits the source with aws:SourceArn
+      - path: $.Attributes.Policy
+        op: contains
+        value: '{{ var.topicArn }}'
+        label:
+          zh-CN: 来源是本会话的主题
+          ja: 送信元がこのセッションのトピック
+          en: The source is this session's topic
+      - path: $.Attributes.RedrivePolicy
+        op: contains
+        value: 'notification-dlq'
+        label:
+          zh-CN: 坏消息进入 DLQ
+          ja: 不正なメッセージは DLQ に入る
+          en: Bad messages go to the DLQ
+      - path: $.Attributes.SqsManagedSseEnabled
+        op: eq
+        value: 'true'
+        label:
+          zh-CN: SSE-SQS 加密
+          ja: SSE-SQS 暗号化
+          en: SSE-SQS encryption
+    explain:
+      zh-CN: 只有 sns.amazonaws.com 且来源 ARN 是本主题时才能写入队列，防止别的主题或账号冒用（混淆代理人）。
+      ja: sns.amazonaws.com で、かつ送信元 ARN がこのトピックのときだけキューに書き込めます。他のトピックやアカウントによるなりすまし（混乱した代理問題）を防ぎます。
+      en: Only sns.amazonaws.com with this topic as the source ARN can write to the queue, which stops other topics or accounts from impersonating it (the confused deputy problem).
     reproduce: { run: 'aws sqs get-queue-attributes --queue-url "{{ var.inboxUrl }}" --attribute-names Policy --query Attributes.Policy --output text | jq .', runsOn: workstation }
     manualFallback:
       where: { breadcrumb: [SQS, 队列, 'cloudalbum-{{ session.env }}-notification-inbox', 访问策略], region: app }
       observed:
-        question: 访问策略的 Condition 里限定了什么？
+        question:
+          zh-CN: 访问策略的 Condition 里限定了什么？
+          ja: アクセスポリシーの Condition では何を限定していますか？
+          en: What does the access policy's Condition restrict?
         options:
-          - { value: source-arn, label: aws:SourceArn 等于通知主题的 ARN, expected: true }
-          - { value: none, label: 没有条件, fixHint: 不要在控制台修改栈管理的队列策略；重新执行 scripts/module enable notification }
+          - value: source-arn
+            label:
+              zh-CN: aws:SourceArn 等于通知主题的 ARN
+              ja: aws:SourceArn が通知トピックの ARN と等しい
+              en: aws:SourceArn equals the notification topic's ARN
+            expected: true
+          - value: none
+            label:
+              zh-CN: 没有条件
+              ja: 条件がない
+              en: No condition
+            fixHint:
+              zh-CN: 不要在控制台修改栈管理的队列策略；重新执行 scripts/module enable notification
+              ja: スタックが管理するキューポリシーをコンソールで変更しないでください。scripts/module enable notification を再実行してください
+              en: Do not change the stack-managed queue policy in the console; run scripts/module enable notification again
 
   # ---- 用户订阅
   - id: user-subscriptions
-    title: 主题上有 3 个用户订阅（共至少 5 个订阅）
+    title:
+      zh-CN: 主题上有 3 个用户订阅（共至少 5 个订阅）
+      ja: トピックにユーザーのサブスクリプションが 3 つある（合計で少なくとも 5 つのサブスクリプション）
+      en: The topic has 3 user subscriptions (at least 5 subscriptions in total)
     type: aws-readonly
     service: sns
     action: ListSubscriptionsByTopic
@@ -99,32 +229,87 @@ checks:
     dependsOn: [topic-subscriptions]
     drift: { policy: once }
     assert:
-      - { path: $.Subscriptions, op: len_gte, value: 5, label: 订阅数（收件队列 + 运维邮箱 + 3 个用户） }
-    explain: 主题的归属已由 topic-subscriptions 确认；待确认的订阅在列表中显示为 PendingConfirmation，也计入。
+      - path: $.Subscriptions
+        op: len_gte
+        value: 5
+        label:
+          zh-CN: 订阅数（收件队列 + 运维邮箱 + 3 个用户）
+          ja: サブスクリプション数（受信キュー + 運用担当のメールアドレス + ユーザー 3 人）
+          en: Subscriptions (inbox queue + operations mailbox + 3 users)
+    explain:
+      zh-CN: 主题的归属已由 topic-subscriptions 确认；待确认的订阅在列表中显示为 PendingConfirmation，也计入。
+      ja: トピックの所有は topic-subscriptions で確認済みです。確認待ちのサブスクリプションは一覧で PendingConfirmation と表示され、これも数に含めます。
+      en: topic-subscriptions has already confirmed the topic's ownership; pending subscriptions show as PendingConfirmation in the list and are counted too.
     reproduce: { run: 'aws sns list-subscriptions-by-topic --topic-arn "{{ var.topicArn }}" --query "Subscriptions[].[Protocol,Endpoint,SubscriptionArn]" --output table', runsOn: workstation }
     manualFallback:
       where: { breadcrumb: [SNS, 主题, 'cloudalbum-{{ session.env }}-notification-events', 订阅], region: app }
       observed:
-        question: 订阅列表一共有几项？
+        question:
+          zh-CN: 订阅列表一共有几项？
+          ja: サブスクリプションの一覧には全部でいくつの項目がありますか？
+          en: How many entries does the subscription list have in total?
         options:
-          - { value: '5+', label: 5 项或更多, expected: true }
-          - { value: less, label: 少于 5 项, fixHint: 先运行 experiments/notification/subscribe-users.ts }
+          - value: '5+'
+            label:
+              zh-CN: 5 项或更多
+              ja: 5 つ以上
+              en: 5 or more
+            expected: true
+          - value: less
+            label:
+              zh-CN: 少于 5 项
+              ja: 5 つ未満
+              en: Fewer than 5
+            fixHint:
+              zh-CN: 先运行 experiments/notification/subscribe-users.ts
+              ja: 先に experiments/notification/subscribe-users.ts を実行してください
+              en: Run experiments/notification/subscribe-users.ts first
 
   - id: user-filter-policy
-    title: 看懂 +u1 订阅的过滤策略
+    title:
+      zh-CN: 看懂 +u1 订阅的过滤策略
+      ja: +u1 のサブスクリプションのフィルターポリシーを読み解く
+      en: Understand the filter policy of the +u1 subscription
     type: manual
     spec:
       where: { breadcrumb: [SNS, 订阅, '<+u1 的订阅>', 订阅筛选策略], region: app }
       observed:
-        question: +u1 订阅的筛选策略是哪一种？（种子用户已被设为管理员）
+        question:
+          zh-CN: +u1 订阅的筛选策略是哪一种？（种子用户已被设为管理员）
+          ja: +u1 のサブスクリプションのフィルターポリシーはどれですか？（シードしたユーザーは管理者に設定済みです）
+          en: Which filter policy does the +u1 subscription have? (The seeded users were made admins.)
         options:
-          - { value: or, label: '{"$or":[{"userId":["<u1 的 ID>"]},{"audience":["admin"]}]}', expected: true }
-          - { value: user-only, label: '{"userId":["<u1 的 ID>"]}', fixHint: 种子用户默认被设为管理员；--no-admins 时是这一种 }
-          - { value: none, label: 没有筛选策略, fixHint: 没有筛选策略的邮件订阅会收到所有人的通知——这是隐私事故，检查 subscribe-users 的输出 }
+          - value: or
+            label:
+              zh-CN: '{"$or":[{"userId":["<u1 的 ID>"]},{"audience":["admin"]}]}'
+              ja: '{"$or":[{"userId":["<u1 の ID>"]},{"audience":["admin"]}]}'
+              en: "{\"$or\":[{\"userId\":[\"<u1's ID>\"]},{\"audience\":[\"admin\"]}]}"
+            expected: true
+          - value: user-only
+            label:
+              zh-CN: '{"userId":["<u1 的 ID>"]}'
+              ja: '{"userId":["<u1 の ID>"]}'
+              en: "{\"userId\":[\"<u1's ID>\"]}"
+            fixHint:
+              zh-CN: 种子用户默认被设为管理员；--no-admins 时是这一种
+              ja: シードしたユーザーはデフォルトで管理者に設定されます。--no-admins のときはこの形になります
+              en: Seeded users are made admins by default; with --no-admins you get this one
+          - value: none
+            label:
+              zh-CN: 没有筛选策略
+              ja: フィルターポリシーがない
+              en: No filter policy
+            fixHint:
+              zh-CN: 没有筛选策略的邮件订阅会收到所有人的通知——这是隐私事故，检查 subscribe-users 的输出
+              ja: フィルターポリシーのないメールサブスクリプションは全員の通知を受け取ります。これはプライバシー事故です。subscribe-users の出力を確認してください
+              en: An email subscription without a filter policy receives everyone's notifications — a privacy incident; check the subscribe-users output
 
   # ---- after
   - id: filtered-out-metric
-    title: CloudWatch 记录到被过滤掉的投递（NumberOfNotificationsFilteredOut）
+    title:
+      zh-CN: CloudWatch 记录到被过滤掉的投递（NumberOfNotificationsFilteredOut）
+      ja: CloudWatch にフィルターで除外された配信が記録された（NumberOfNotificationsFilteredOut）
+      en: CloudWatch recorded filtered-out deliveries (NumberOfNotificationsFilteredOut)
     type: aws-readonly
     service: cloudwatch
     action: GetMetricData
@@ -147,20 +332,48 @@ checks:
       - { path: '$.MetricDataResults[0].Values', op: len_eq, value: 0 }
     drift: { policy: once }
     assert:
-      - { path: '$.MetricDataResults[0].Values', op: len_gte, value: 1, label: 有被过滤掉的投递的 5 分钟区间数 }
-    explain: 发给 u1 的事件对 u2、u3 的订阅不匹配，SNS 记为 FilteredOut；SNS 指标有分钟级延迟，所以这是等待型检查。
+      - path: '$.MetricDataResults[0].Values'
+        op: len_gte
+        value: 1
+        label:
+          zh-CN: 有被过滤掉的投递的 5 分钟区间数
+          ja: フィルターで除外された配信がある 5 分間の区間の数
+          en: Number of 5-minute periods with filtered-out deliveries
+    explain:
+      zh-CN: 发给 u1 的事件对 u2、u3 的订阅不匹配，SNS 记为 FilteredOut；SNS 指标有分钟级延迟，所以这是等待型检查。
+      ja: u1 宛てのイベントは u2 と u3 のサブスクリプションに一致しないため、SNS は FilteredOut として記録します。SNS のメトリクスには分単位の遅延があるため、これは待機型のチェックです。
+      en: Events for u1 do not match the u2 and u3 subscriptions, so SNS records them as FilteredOut; SNS metrics lag by minutes, so this is a waiting check.
     reproduce: { run: 'aws cloudwatch get-metric-statistics --namespace AWS/SNS --metric-name NumberOfNotificationsFilteredOut --dimensions Name=TopicName,Value=cloudalbum-{{ session.env }}-notification-events --start-time "{{ session.readyAt }}" --end-time "$(date -u +%FT%TZ)" --period 300 --statistics Sum', runsOn: workstation }
     manualFallback:
       where: { breadcrumb: [CloudWatch, 指标, SNS, 'TopicName = cloudalbum-{{ session.env }}-notification-events', NumberOfNotificationsFilteredOut], region: app }
       observed:
-        question: 最近 15 分钟的 NumberOfNotificationsFilteredOut 有数据点吗？
+        question:
+          zh-CN: 最近 15 分钟的 NumberOfNotificationsFilteredOut 有数据点吗？
+          ja: 直近 15 分間の NumberOfNotificationsFilteredOut にデータポイントはありますか？
+          en: Does NumberOfNotificationsFilteredOut have data points in the last 15 minutes?
         options:
-          - { value: yes, label: 有，且大于 0, expected: true }
-          - { value: no, label: 还没有, fixHint: 指标有几分钟延迟；也确认 filter 场景已经运行 }
+          - value: yes
+            label:
+              zh-CN: 有，且大于 0
+              ja: ある。0 より大きい
+              en: Yes, above 0
+            expected: true
+          - value: no
+            label:
+              zh-CN: 还没有
+              ja: まだない
+              en: Not yet
+            fixHint:
+              zh-CN: 指标有几分钟延迟；也确认 filter 场景已经运行
+              ja: メトリクスには数分の遅延があります。filter シナリオを実行済みかも確認してください
+              en: Metrics lag by a few minutes; also confirm that the filter scenario has run
 
   # ---- worker 停机（观察）
   - id: inbox-backlog
-    title: worker 停机期间收件队列有积压
+    title:
+      zh-CN: worker 停机期间收件队列有积压
+      ja: worker の停止中、受信キューに滞留がある
+      en: The inbox queue has a backlog while the worker is stopped
     type: aws-readonly
     service: sqs
     action: GetQueueAttributes
@@ -170,30 +383,78 @@ checks:
     required: false
     drift: { policy: once }
     assert:
-      - { path: $.Attributes.ApproximateNumberOfMessages, op: gte, value: 1, label: 收件队列的可见消息数, severity: warn }
-    explain: 只在 worker 停止期间有意义；worker 启动后积压被消费，数字回到 0。
+      - path: $.Attributes.ApproximateNumberOfMessages
+        op: gte
+        value: 1
+        label:
+          zh-CN: 收件队列的可见消息数
+          ja: 受信キューの表示可能なメッセージ数
+          en: Visible messages in the inbox queue
+        severity: warn
+    explain:
+      zh-CN: 只在 worker 停止期间有意义；worker 启动后积压被消费，数字回到 0。
+      ja: worker の停止中にだけ意味があります。worker が起動すると滞留は消費され、数は 0 に戻ります。
+      en: Only meaningful while the worker is stopped; once the worker starts, the backlog is consumed and the number returns to 0.
     reproduce: { run: 'aws sqs get-queue-attributes --queue-url "{{ var.inboxUrl }}" --attribute-names ApproximateNumberOfMessages', runsOn: workstation }
     manualFallback:
       where: { breadcrumb: [SQS, 队列, 'cloudalbum-{{ session.env }}-notification-inbox'], region: app }
       observed:
-        question: worker 停止期间“可用消息”数是多少？
+        question:
+          zh-CN: worker 停止期间“可用消息”数是多少？
+          ja: worker の停止中、「利用可能なメッセージ」はいくつですか？
+          en: How many "Messages available" are there while the worker is stopped?
         options:
-          - { value: '1+', label: 1 条或更多, expected: true }
-          - { value: '0', label: '0', fixHint: 确认 worker 已停止（systemctl is-active cloudalbum-worker），并在停机期间发几条评论 }
+          - value: '1+'
+            label:
+              zh-CN: 1 条或更多
+              ja: 1 件以上
+              en: 1 or more
+            expected: true
+          - value: '0'
+            label:
+              zh-CN: '0'
+              ja: "0"
+              en: "0"
+            fixHint:
+              zh-CN: 确认 worker 已停止（systemctl is-active cloudalbum-worker），并在停机期间发几条评论
+              ja: worker が停止していること（systemctl is-active cloudalbum-worker）を確認し、停止中にコメントをいくつか投稿してください
+              en: Confirm the worker is stopped (systemctl is-active cloudalbum-worker) and post a few comments while it is down
 
   - id: worker-stop-mail
-    title: worker 停机期间的通知邮件是否到达
+    title:
+      zh-CN: worker 停机期间的通知邮件是否到达
+      ja: worker の停止中の通知メールが届いたか
+      en: Whether notification emails arrived while the worker was stopped
     type: manual
     spec:
       observed:
-        question: worker 停止期间发的评论，对应的通知邮件到达你的邮箱了吗？
+        question:
+          zh-CN: worker 停止期间发的评论，对应的通知邮件到达你的邮箱了吗？
+          ja: worker の停止中に投稿したコメントについて、通知メールはメールボックスに届きましたか？
+          en: For the comments posted while the worker was stopped, did the notification emails reach your mailbox?
         options:
-          - { value: arrived, label: 照常到达（SNS 投递不依赖 worker）, expected: true }
-          - { value: missing, label: 没有到达, fixHint: 确认对应用户的订阅已确认（PendingConfirmation 的订阅不投递）；邮件也可能在垃圾箱 }
+          - value: arrived
+            label:
+              zh-CN: 照常到达（SNS 投递不依赖 worker）
+              ja: いつもどおり届いた（SNS の配信は worker に依存しない）
+              en: They arrived as usual (SNS delivery does not depend on the worker)
+            expected: true
+          - value: missing
+            label:
+              zh-CN: 没有到达
+              ja: 届いていない
+              en: They did not arrive
+            fixHint:
+              zh-CN: 确认对应用户的订阅已确认（PendingConfirmation 的订阅不投递）；邮件也可能在垃圾箱
+              ja: 対象ユーザーのサブスクリプションが確認済みであることを確認してください（PendingConfirmation のサブスクリプションには配信されません）。迷惑メールフォルダーに入っている可能性もあります
+              en: Confirm that the user's subscription is confirmed (PendingConfirmation subscriptions get no deliveries); the email may also be in the spam folder
 
   # ---- 回收验证
   - id: notification-topic-gone
-    title: 本会话的通知主题已删除
+    title:
+      zh-CN: 本会话的通知主题已删除
+      ja: このセッションの通知トピックが削除された
+      en: This session's notification topic has been deleted
     type: aws-readonly
     service: sns
     action: GetTopicAttributes
@@ -205,11 +466,35 @@ checks:
     manualFallback:
       where: { breadcrumb: [SNS, 主题], region: app }
       observed:
-        question: 列表中还能找到 cloudalbum-{{ session.env }}-notification-events 吗？
+        question:
+          zh-CN: 列表中还能找到 cloudalbum-{{ session.env }}-notification-events 吗？
+          ja: 一覧にまだ cloudalbum-{{ session.env }}-notification-events がありますか？
+          en: Can you still find cloudalbum-{{ session.env }}-notification-events in the list?
         options:
-          - { value: gone, label: 找不到, expected: true }
-          - { value: present, label: 还在 }
+          - value: gone
+            label:
+              zh-CN: 找不到
+              ja: 見つからない
+              en: Not found
+            expected: true
+          - value: present
+            label:
+              zh-CN: 还在
+              ja: まだある
+              en: Still there
 
 pitfalls:
-  - { id: admin-not-confirmed, title: 运维订阅还没确认, match: [ { checkId: notification-wired, result: pending } ],
-      cause: 运维邮箱的订阅处于 PendingConfirmation，探针报 degraded“运维订阅待确认”, fix: 在运维邮箱（你的 +admin 别名）里找 AWS Notifications 的确认邮件并点击链接；可能在垃圾箱 }
+  - id: admin-not-confirmed
+    title:
+      zh-CN: 运维订阅还没确认
+      ja: 運用担当のサブスクリプションがまだ確認されていない
+      en: The operations subscription is not confirmed yet
+    match: [ { checkId: notification-wired, result: pending } ]
+    cause:
+      zh-CN: 运维邮箱的订阅处于 PendingConfirmation，探针报 degraded“运维订阅待确认”
+      ja: 運用担当のメールアドレスのサブスクリプションが PendingConfirmation のままで、プローブは degraded「运维订阅待确认」（運用担当のサブスクリプションが確認待ち）を報告しています
+      en: The operations mailbox subscription is PendingConfirmation, and the probe reports degraded "运维订阅待确认" (operations subscription pending confirmation)
+    fix:
+      zh-CN: 在运维邮箱（你的 +admin 别名）里找 AWS Notifications 的确认邮件并点击链接；可能在垃圾箱
+      ja: 運用担当のメールボックス（あなたの +admin エイリアス）で AWS Notifications からの確認メールを探し、リンクをクリックしてください。迷惑メールフォルダーに入っていることがあります
+      en: Find the confirmation email from AWS Notifications in the operations mailbox (your +admin alias) and click the link; it may be in the spam folder

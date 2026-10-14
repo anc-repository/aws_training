@@ -1,18 +1,38 @@
 # 接入与关联：capability、经分配的入口链带 WAF、Web ACL 的归属与托管规则组动作、源站锁定、Block 在边缘的服务端证据
 checks:
   - id: cap-waf-wired
-    title: capabilities 中 waf 的驱动为 aws（此刻因 DEP-018 为 degraded，属卡片级预期警告）
+    title:
+      zh-CN: capabilities 中 waf 的驱动为 aws（此刻因 DEP-018 为 degraded，属卡片级预期警告）
+      ja: capabilities の waf のドライバーが aws（この時点では DEP-018 により degraded で、カードとして想定内の警告）
+      en: waf's driver in capabilities is aws (degraded at this point because of DEP-018, an expected warning for this card)
     type: capability
     module: waf
     drift: { policy: once }
     assert:
-      - { path: $.driver, op: eq, value: aws, label: 驱动 }
-      - { path: $, op: healthy, label: 状态正常（本卡 expectedWarnings 含 DEP-018；源站尚未锁定，degraded 属预期） }
-    explain: 第 3 步刚启用、源站仍为 open 时，感知器与规则引擎会因 DEP-018 把 waf 标为 degraded（带规则 ID），这在本卡属于预期警告；第 4 步锁定后必须变为 ok。
+      - path: $.driver
+        op: eq
+        value: aws
+        label:
+          zh-CN: 驱动
+          ja: ドライバー
+          en: Driver
+      - path: $
+        op: healthy
+        label:
+          zh-CN: 状态正常（本卡 expectedWarnings 含 DEP-018；源站尚未锁定，degraded 属预期）
+          ja: 状態が正常（このカードの expectedWarnings には DEP-018 が含まれる。オリジンはまだロックされておらず、degraded は想定内）
+          en: Healthy (this card's expectedWarnings includes DEP-018; the origin is not locked yet, so degraded is expected)
+    explain:
+      zh-CN: 第 3 步刚启用、源站仍为 open 时，感知器与规则引擎会因 DEP-018 把 waf 标为 degraded（带规则 ID），这在本卡属于预期警告；第 4 步锁定后必须变为 ok。
+      ja: ステップ 3 で有効にした直後でオリジンがまだ open のとき、検知処理とルールエンジンは DEP-018 により waf を degraded（ルール ID 付き）とします。これはこのカードでは想定内の警告ですが、ステップ 4 でロックした後は ok にならなければなりません。
+      en: Right after step 3 enables it, while the origin is still open, the sensor and the rule engine mark waf degraded (with the rule ID) because of DEP-018 — an expected warning for this card; after step 4 locks the origin it must become ok.
     reproduce: { run: 'curl -s http://127.0.0.1/api/capabilities | jq ".modules.waf | {driver, status, detail}"', runsOn: lab }
 
   - id: entry-waf
-    title: 经本会话分配请求 /api/health/live，入口链含 waf（源站收到 x-amzn-waf-cloudalbum）
+    title:
+      zh-CN: 经本会话分配请求 /api/health/live，入口链含 waf（源站收到 x-amzn-waf-cloudalbum）
+      ja: このセッションのディストリビューション経由で /api/health/live にリクエストし、入口チェーンに waf が含まれる（オリジンが x-amzn-waf-cloudalbum を受け取る）
+      en: A request to /api/health/live through this session's distribution has waf in its entry chain (the origin receives x-amzn-waf-cloudalbum)
     type: http-header
     from: platform
     target: cdn
@@ -21,17 +41,38 @@ checks:
     dependsOn: [webacl-count]
     drift: { policy: must-hold }
     assert:
-      - { path: $.status, op: eq, value: 200, label: 状态码 }
-      - { path: $.pathSegments.entry, op: startsWith, value: cloudfront, label: 入口以 cloudfront 开头 }
-      - { path: $.pathSegments.entry, op: contains, value: waf, label: 入口链含 waf }
-    explain: >-
-      Web ACL 默认动作给放行的请求插入 x-amzn-waf-cloudalbum，Nginx 据此在入口链里写上 waf（cloudfront>waf>nginx）。
-      这个头经 /api 的源请求策略（AllViewer）也可以由客户端自己带上，所以它只说明“源站收到了这个头”；Web ACL 确实关联在本会话的分配上，
-      由控制面检查 distribution-webacl（GetDistributionConfig 的 WebACLId）证明。
+      - path: $.status
+        op: eq
+        value: 200
+        label:
+          zh-CN: 状态码
+          ja: ステータスコード
+          en: Status code
+      - path: $.pathSegments.entry
+        op: startsWith
+        value: cloudfront
+        label:
+          zh-CN: 入口以 cloudfront 开头
+          ja: 入口が cloudfront で始まる
+          en: Entry starts with cloudfront
+      - path: $.pathSegments.entry
+        op: contains
+        value: waf
+        label:
+          zh-CN: 入口链含 waf
+          ja: 入口チェーンに waf を含む
+          en: Entry chain includes waf
+    explain:
+      zh-CN: Web ACL 默认动作给放行的请求插入 x-amzn-waf-cloudalbum，Nginx 据此在入口链里写上 waf（cloudfront>waf>nginx）。 这个头经 /api 的源请求策略（AllViewer）也可以由客户端自己带上，所以它只说明“源站收到了这个头”；Web ACL 确实关联在本会话的分配上， 由控制面检查 distribution-webacl（GetDistributionConfig 的 WebACLId）证明。
+      ja: Web ACL のデフォルトアクションは、許可したリクエストに x-amzn-waf-cloudalbum を挿入し、Nginx はそれをもとに入口チェーンに waf を書き込みます（cloudfront>waf>nginx）。このヘッダーは /api のオリジンリクエストポリシー（AllViewer）を通じてクライアント自身が付けることもできるため、「オリジンがこのヘッダーを受け取った」ことしか示しません。Web ACL がこのセッションのディストリビューションに本当に関連付けられていることは、コントロールプレーンのチェック distribution-webacl（GetDistributionConfig の WebACLId）が証明します。
+      en: The Web ACL's default action inserts x-amzn-waf-cloudalbum into allowed requests, and Nginx uses it to write waf into the entry chain (cloudfront>waf>nginx). Clients can also send this header themselves through the /api origin request policy (AllViewer), so it only shows that the origin received the header; that the Web ACL really is associated with this session's distribution is proven by the control plane check distribution-webacl (WebACLId from GetDistributionConfig).
     reproduce: { run: 'curl -sI "https://{{ var.cdnDomain }}/api/health/live" | grep -i "^x-cloudalbum-path:"', runsOn: workstation }
 
   - id: distribution-webacl
-    title: 本会话的分配已关联这个 Web ACL（控制面证据：WebACLId）
+    title:
+      zh-CN: 本会话的分配已关联这个 Web ACL（控制面证据：WebACLId）
+      ja: このセッションのディストリビューションにこの Web ACL が関連付けられている（コントロールプレーンの証拠：WebACLId）
+      en: "This session's distribution is associated with this Web ACL (control plane evidence: WebACLId)"
     type: aws-readonly
     service: cloudfront
     action: GetDistributionConfig
@@ -41,21 +82,47 @@ checks:
     wait: { typicalMinutes: 5, maxMinutes: 20 }
     drift: { policy: must-hold }
     assert:
-      - { path: $.DistributionConfig.WebACLId, op: eq, value: '{{ var.webAclArn }}', label: WebACLId 等于本会话 Web ACL 的 ARN }
-    explain: >-
-      入口链里的 waf 段来自请求头，客户端可以伪造；这一项从控制面确认分配的 WebACLId 就是本会话的 Web ACL（waf 栈的 EnvWafWebAclArn
-      经 registry 的 injects 注入 cdn 栈的 WebAclArn）。CloudFront 的 WebACLId 字段对 WAFv2 写的是完整 ARN。
+      - path: $.DistributionConfig.WebACLId
+        op: eq
+        value: '{{ var.webAclArn }}'
+        label:
+          zh-CN: WebACLId 等于本会话 Web ACL 的 ARN
+          ja: WebACLId がこのセッションの Web ACL の ARN と等しい
+          en: WebACLId equals this session's Web ACL ARN
+    explain:
+      zh-CN: 入口链里的 waf 段来自请求头，客户端可以伪造；这一项从控制面确认分配的 WebACLId 就是本会话的 Web ACL（waf 栈的 EnvWafWebAclArn 经 registry 的 injects 注入 cdn 栈的 WebAclArn）。CloudFront 的 WebACLId 字段对 WAFv2 写的是完整 ARN。
+      ja: 入口チェーンの waf 区間はリクエストヘッダーに由来し、クライアントが偽造できます。この項目はコントロールプレーンから、ディストリビューションの WebACLId がこのセッションの Web ACL であることを確認します（waf スタックの EnvWafWebAclArn が registry の injects を通じて cdn スタックの WebAclArn に注入されます）。CloudFront の WebACLId フィールドには、WAFv2 の場合は完全な ARN が入ります。
+      en: The waf segment of the entry chain comes from a request header that clients can forge; this item confirms from the control plane that the distribution's WebACLId is this session's Web ACL (the waf stack's EnvWafWebAclArn is injected into the cdn stack's WebAclArn through the registry's injects). For WAFv2, CloudFront's WebACLId field holds the full ARN.
     reproduce: { run: 'aws cloudfront get-distribution-config --id {{ var.distributionId }} --query DistributionConfig.WebACLId --output text', runsOn: workstation }
     manualFallback:
       where: { breadcrumb: [CloudFront, 分配, '{{ var.distributionId }}', 安全性], region: global }
       observed:
-        question: 分配的“Web 应用程序防火墙（WAF）”关联的是哪个 Web ACL？
+        question:
+          zh-CN: 分配的“Web 应用程序防火墙（WAF）”关联的是哪个 Web ACL？
+          ja: ディストリビューションの「ウェブアプリケーションファイアウォール（WAF）」にはどの Web ACL が関連付けられていますか？
+          en: Which Web ACL is associated in the distribution's "Web Application Firewall (WAF)" setting?
         options:
-          - { value: mine, label: '{{ var.webAclName }}', expected: true }
-          - { value: none, label: 未关联, fixHint: 等分配部署完成；仍未关联时重新执行 scripts/module enable waf（注入会更新 cdn 栈） }
+          - value: mine
+            label:
+              zh-CN: '{{ var.webAclName }}'
+              ja: "{{ var.webAclName }}"
+              en: "{{ var.webAclName }}"
+            expected: true
+          - value: none
+            label:
+              zh-CN: 未关联
+              ja: 関連付けなし
+              en: Not associated
+            fixHint:
+              zh-CN: 等分配部署完成；仍未关联时重新执行 scripts/module enable waf（注入会更新 cdn 栈）
+              ja: ディストリビューションのデプロイが終わるのを待ってください。それでも関連付けられていなければ、scripts/module enable waf を再実行してください（注入で cdn スタックが更新されます）
+              en: Wait for the distribution to finish deploying; if it is still not associated, run scripts/module enable waf again (the injection updates the cdn stack)
 
   - id: webacl-count
-    title: 本会话的 Web ACL 已创建（us-east-1），托管规则组为 Count
+    title:
+      zh-CN: 本会话的 Web ACL 已创建（us-east-1），托管规则组为 Count
+      ja: このセッションの Web ACL が作成され（us-east-1）、マネージドルールグループが Count
+      en: This session's Web ACL has been created (us-east-1), with the managed rule group on Count
     type: aws-readonly
     service: wafv2
     action: GetWebACL
@@ -71,45 +138,96 @@ checks:
     wait: { typicalMinutes: 6, maxMinutes: 20 }
     drift: { policy: once }
     assert:
-      - { path: $.WebACL.Name, op: eq, value: '{{ var.webAclName }}', label: 名称 }
+      - path: $.WebACL.Name
+        op: eq
+        value: '{{ var.webAclName }}'
+        label:
+          zh-CN: 名称
+          ja: 名前
+          en: Name
       - path: $.WebACL.Rules
         where: { Name: aws-crs }
         op: len_eq
         value: 1
-        label: 含 AWS 托管 CRS 规则
+        label:
+          zh-CN: 含 AWS 托管 CRS 规则
+          ja: AWS マネージドの CRS ルールを含む
+          en: Includes the AWS managed CRS rule
       # 检测引擎的 JSONPath 子集不支持 [?(...)] 过滤表达式（wave1-integration），用 where 选出规则后再比较
       - path: $.WebACL.Rules
         where: { Name: aws-crs, OverrideAction.Count: { op: exists } }
         op: len_eq
         value: 1
-        label: CRS 的 OverrideAction 为 Count（先观察）
+        label:
+          zh-CN: CRS 的 OverrideAction 为 Count（先观察）
+          ja: CRS の OverrideAction が Count（まず観察）
+          en: CRS OverrideAction is Count (observe first)
     evidence:
       keep: ['$.WebACL.Id', '$.WebACL.Name', '$.WebACL.ARN']
-    explain: 先确认 Web ACL 是本会话创建的（本环境的 waf 栈），再核对托管规则组此刻是 Count（第 6 步改为 Block）。
+    explain:
+      zh-CN: 先确认 Web ACL 是本会话创建的（本环境的 waf 栈），再核对托管规则组此刻是 Count（第 6 步改为 Block）。
+      ja: まず Web ACL がこのセッションで作成されたもの（この環境の waf スタック）であることを確認し、次にマネージドルールグループがこの時点で Count であることを確認します（ステップ 6 で Block に変えます）。
+      en: First confirm that this session created the Web ACL (this environment's waf stack), then that the managed rule group is on Count at this point (step 6 changes it to Block).
     reproduce: { run: 'aws wafv2 get-web-acl --region us-east-1 --scope CLOUDFRONT --name {{ var.webAclName }} --id {{ var.webAclId }} --query "WebACL.Rules[?Name==''aws-crs''].OverrideAction"', runsOn: workstation }
     pitfalls: [acl-not-mine, acl-wrong-region]
     manualFallback:
       where: { breadcrumb: [WAF, Web ACLs, 'Global (CloudFront)', '{{ var.webAclName }}', Rules], region: us-east-1 }
       observed:
-        question: AWSManagedRulesCommonRuleSet 这条规则的 Action 显示为？
+        question:
+          zh-CN: AWSManagedRulesCommonRuleSet 这条规则的 Action 显示为？
+          ja: AWSManagedRulesCommonRuleSet ルールのアクションには何と表示されていますか？
+          en: What does the Action of the AWSManagedRulesCommonRuleSet rule show?
         options:
-          - { value: count, label: Count（仅计数）, expected: true }
-          - { value: block, label: 使用规则组自带动作（Block）, fixHint: 第 3 步应先用 Count 观察；若已是 Block 说明你跳到了第 6 步 }
+          - value: count
+            label:
+              zh-CN: Count（仅计数）
+              ja: Count（カウントのみ）
+              en: Count (count only)
+            expected: true
+          - value: block
+            label:
+              zh-CN: 使用规则组自带动作（Block）
+              ja: ルールグループのアクションを使用（Block）
+              en: Use rule group actions (Block)
+            fixHint:
+              zh-CN: 第 3 步应先用 Count 观察；若已是 Block 说明你跳到了第 6 步
+              ja: ステップ 3 ではまず Count で観察するはずです。すでに Block なら、ステップ 6 まで飛ばしています
+              en: Step 3 should observe with Count first; if it is already Block, you skipped ahead to step 6
 
   - id: cap-waf-locked
-    title: 锁定源站后 waf 为 ok（DEP-018 消失）
+    title:
+      zh-CN: 锁定源站后 waf 为 ok（DEP-018 消失）
+      ja: オリジンをロックした後 waf が ok（DEP-018 が消える）
+      en: waf is ok after the origin is locked (DEP-018 is gone)
     type: capability
     module: waf
     expectedWarnings: []
     drift: { policy: must-hold, monitor: true }
     assert:
-      - { path: $.driver, op: eq, value: aws, label: 驱动 }
-      - { path: $, op: healthy, label: 状态正常（检查级 expectedWarnings 为空，必须是 ok） }
-    explain: CDN_DIRECT_ACCESS 收紧为 admin-ip 后，攻击者无法直连源站绕过 WAF，DEP-018 消失，waf 必须是 ok。
+      - path: $.driver
+        op: eq
+        value: aws
+        label:
+          zh-CN: 驱动
+          ja: ドライバー
+          en: Driver
+      - path: $
+        op: healthy
+        label:
+          zh-CN: 状态正常（检查级 expectedWarnings 为空，必须是 ok）
+          ja: 状態が正常（チェック単位の expectedWarnings は空なので ok でなければならない）
+          en: Healthy (the check-level expectedWarnings is empty, so it must be ok)
+    explain:
+      zh-CN: CDN_DIRECT_ACCESS 收紧为 admin-ip 后，攻击者无法直连源站绕过 WAF，DEP-018 消失，waf 必须是 ok。
+      ja: CDN_DIRECT_ACCESS を admin-ip に締めると、攻撃者はオリジンに直接アクセスして WAF を迂回できなくなり、DEP-018 は消え、waf は ok でなければなりません。
+      en: Once CDN_DIRECT_ACCESS is tightened to admin-ip, attackers can no longer reach the origin directly to bypass WAF, DEP-018 disappears, and waf must be ok.
     reproduce: { run: 'curl -s http://127.0.0.1/api/capabilities | jq ".modules.waf.status"', runsOn: lab }
 
   - id: webacl-block
-    title: 切换为 Block 后，托管规则组的 OverrideAction 为 None（规则组自带动作生效）
+    title:
+      zh-CN: 切换为 Block 后，托管规则组的 OverrideAction 为 None（规则组自带动作生效）
+      ja: Block に切り替えた後、マネージドルールグループの OverrideAction が None（ルールグループ自身のアクションが有効）
+      en: After switching to Block, the managed rule group's OverrideAction is None (the rule group's own actions apply)
     type: aws-readonly
     service: wafv2
     action: GetWebACL
@@ -122,19 +240,44 @@ checks:
         where: { Name: aws-crs, OverrideAction.None: { op: exists } }
         op: len_eq
         value: 1
-        label: CRS 的 OverrideAction 为 None（Block 生效）
-    explain: OverrideAction=None 表示托管规则组用自己的动作（Block）；Count 时只计数。
+        label:
+          zh-CN: CRS 的 OverrideAction 为 None（Block 生效）
+          ja: CRS の OverrideAction が None（Block が有効）
+          en: CRS OverrideAction is None (Block in effect)
+    explain:
+      zh-CN: OverrideAction=None 表示托管规则组用自己的动作（Block）；Count 时只计数。
+      ja: OverrideAction=None は、マネージドルールグループが自分のアクション（Block）を使うことを意味します。Count のときはカウントするだけです。
+      en: OverrideAction=None means the managed rule group uses its own actions (Block); with Count it only counts.
     reproduce: { run: 'aws wafv2 get-web-acl --region us-east-1 --scope CLOUDFRONT --name {{ var.webAclName }} --id {{ var.webAclId }} --query "WebACL.Rules[?Name==''aws-crs''].OverrideAction"', runsOn: workstation }
     manualFallback:
       where: { breadcrumb: [WAF, Web ACLs, 'Global (CloudFront)', '{{ var.webAclName }}', Rules, AWSManagedRulesCommonRuleSet], region: us-east-1 }
       observed:
-        question: AWSManagedRulesCommonRuleSet 这条规则的 Action 现在显示为？
+        question:
+          zh-CN: AWSManagedRulesCommonRuleSet 这条规则的 Action 现在显示为？
+          ja: AWSManagedRulesCommonRuleSet ルールのアクションには今何と表示されていますか？
+          en: What does the Action of the AWSManagedRulesCommonRuleSet rule show now?
         options:
-          - { value: block, label: 使用规则组自带动作（Block）, expected: true }
-          - { value: count, label: Count（仅计数）, fixHint: 重新执行 scripts/module enable waf --param RuleAction=block }
+          - value: block
+            label:
+              zh-CN: 使用规则组自带动作（Block）
+              ja: ルールグループのアクションを使用（Block）
+              en: Use rule group actions (Block)
+            expected: true
+          - value: count
+            label:
+              zh-CN: Count（仅计数）
+              ja: Count（カウントのみ）
+              en: Count (count only)
+            fixHint:
+              zh-CN: 重新执行 scripts/module enable waf --param RuleAction=block
+              ja: scripts/module enable waf --param RuleAction=block を再実行してください
+              en: Run scripts/module enable waf --param RuleAction=block again
 
   - id: block-not-at-origin
-    title: 被 Block 的请求根本没有到达源站（服务端证据，而非只看响应头）
+    title:
+      zh-CN: 被 Block 的请求根本没有到达源站（服务端证据，而非只看响应头）
+      ja: Block されたリクエストがそもそもオリジンに届いていない（レスポンスヘッダーだけでなく、サーバー側の証拠で）
+      en: Blocked requests never reached the origin (server-side evidence, not just response headers)
     type: http-header
     from: platform
     target: cdn
@@ -143,35 +286,116 @@ checks:
     dependsOn: [webacl-block]
     drift: { policy: must-hold }
     assert:
-      - { path: $.status, op: eq, value: 403, label: 被 WAF 拦截（CloudFront 的 403） }
+      - path: $.status
+        op: eq
+        value: 403
+        label:
+          zh-CN: 被 WAF 拦截（CloudFront 的 403）
+          ja: WAF にブロックされた（CloudFront の 403）
+          en: Blocked by WAF (CloudFront's 403)
     corroborate:
       - id: origin-clean
         via: local
         checkId: nginx-log-summary
         args: { window: 10m, nonce: '{{ sample.nonce }}' }
         assert:
-          - { path: $.nonce.count, op: eq, value: 0, label: 源站收到带本次 nonce 的请求数为 0 }
-    explain: 托管规则组 Block 时返回 CloudFront 的 403 页，不带 X-CloudAlbum-Path——无法用客户端响应头把它和 Nginx 正则的 403 区分开。真正的证据是源站 Nginx 日志里这条 nonce 的计数为 0：请求在边缘就被拦下，没有到达 EC2。
+          - path: $.nonce.count
+            op: eq
+            value: 0
+            label:
+              zh-CN: 源站收到带本次 nonce 的请求数为 0
+              ja: オリジンが今回の nonce 付きのリクエストを受け取った回数が 0
+              en: The origin received 0 requests carrying this nonce
+    explain:
+      zh-CN: 托管规则组 Block 时返回 CloudFront 的 403 页，不带 X-CloudAlbum-Path——无法用客户端响应头把它和 Nginx 正则的 403 区分开。真正的证据是源站 Nginx 日志里这条 nonce 的计数为 0：请求在边缘就被拦下，没有到达 EC2。
+      ja: マネージドルールグループの Block は CloudFront の 403 ページを返し、X-CloudAlbum-Path は付きません。そのため、クライアントのレスポンスヘッダーでは Nginx の正規表現による 403 と区別できません。本当の証拠は、オリジンの Nginx のログでこの nonce の件数が 0 であることです。リクエストはエッジで止められ、EC2 には届いていません。
+      en: "A managed rule group Block returns CloudFront's 403 page without X-CloudAlbum-Path, so client response headers cannot tell it from the 403 of Nginx's regexes. The real evidence is a count of 0 for this nonce in the origin's Nginx log: the request was stopped at the edge and never reached EC2."
     reproduce: { run: 'curl -s -o /dev/null -w "%{http_code}\n" "https://{{ var.cdnDomain }}/api/public/now?q=1%27%20UnIoN%20SeLeCt%201"', runsOn: workstation }
     pitfalls: [block-reached-origin]
 
   - id: false-positive-rule
-    title: 找出会误杀上传的规则以及本模块的处理方式
+    title:
+      zh-CN: 找出会误杀上传的规则以及本模块的处理方式
+      ja: アップロードを誤ってブロックするルールと、このモジュールでの対処を見つける
+      en: Find the rule that would falsely block uploads and how this module handles it
     type: manual
     spec:
       where: { breadcrumb: [WAF, Web ACLs, 'Global (CloudFront)', '{{ var.webAclName }}', Rules, AWSManagedRulesCommonRuleSet], region: us-east-1 }
       observed:
-        question: 哪条规则会拦掉大请求体（照片上传），本模块对它做了什么？
+        question:
+          zh-CN: 哪条规则会拦掉大请求体（照片上传），本模块对它做了什么？
+          ja: 大きなリクエストボディ（写真のアップロード）をブロックしてしまうのはどのルールで、このモジュールはそれに何をしていますか？
+          en: Which rule blocks large request bodies (photo uploads), and what does this module do about it?
         options:
-          - { value: size-count, label: SizeRestrictions_BODY —— 本模块用 RuleActionOverrides 把它改为 Count, expected: true }
-          - { value: sqli, label: SQLi 规则 —— 改为 Count, fixHint: 误杀大请求体的是 CRS 的 SizeRestrictions_BODY（8 KB），不是 SQLi }
-          - { value: none, label: 没有规则会误杀上传, fixHint: 不覆盖时 storage=local 的上传会被 SizeRestrictions_BODY 拦掉 }
-    explain: 原生手动确认（04 §5.2.6）：模板把 SizeRestrictions_BODY 覆盖为 Count，否则经 CloudFront 的照片上传会被 8 KB 请求体限制拦掉。
+          - value: size-count
+            label:
+              zh-CN: SizeRestrictions_BODY —— 本模块用 RuleActionOverrides 把它改为 Count
+              ja: SizeRestrictions_BODY —— このモジュールは RuleActionOverrides でこれを Count に変えている
+              en: SizeRestrictions_BODY — this module changes it to Count with RuleActionOverrides
+            expected: true
+          - value: sqli
+            label:
+              zh-CN: SQLi 规则 —— 改为 Count
+              ja: SQLi のルール —— Count に変える
+              en: The SQLi rule — changed to Count
+            fixHint:
+              zh-CN: 误杀大请求体的是 CRS 的 SizeRestrictions_BODY（8 KB），不是 SQLi
+              ja: 大きなリクエストボディを誤ってブロックするのは CRS の SizeRestrictions_BODY（8 KB）で、SQLi ではありません
+              en: What falsely blocks large request bodies is CRS's SizeRestrictions_BODY (8 KB), not SQLi
+          - value: none
+            label:
+              zh-CN: 没有规则会误杀上传
+              ja: アップロードを誤ってブロックするルールはない
+              en: No rule falsely blocks uploads
+            fixHint:
+              zh-CN: 不覆盖时 storage=local 的上传会被 SizeRestrictions_BODY 拦掉
+              ja: 上書きしないと、storage=local のアップロードは SizeRestrictions_BODY にブロックされます
+              en: Without the override, storage=local uploads are blocked by SizeRestrictions_BODY
+    explain:
+      zh-CN: 原生手动确认（04 §5.2.6）：模板把 SizeRestrictions_BODY 覆盖为 Count，否则经 CloudFront 的照片上传会被 8 KB 请求体限制拦掉。
+      ja: 本来の手動確認（04 §5.2.6）：テンプレートは SizeRestrictions_BODY を Count に上書きしています。そうしないと、CloudFront 経由の写真のアップロードが 8 KB のリクエストボディ制限でブロックされます。
+      en: "Native manual confirmation (04 §5.2.6): the template overrides SizeRestrictions_BODY to Count; otherwise photo uploads through CloudFront would be blocked by the 8 KB request body limit."
 
 pitfalls:
-  - { id: acl-not-mine, title: Web ACL 不属于本会话, match: [ { checkId: webacl-count, errorCode: OWNERSHIP_MISMATCH } ],
-      cause: 检测到的 Web ACL 不是本次实验创建的, fix: 在本次实验中重新执行 scripts/module enable waf }
-  - { id: acl-wrong-region, title: 在错误的区域找 Web ACL, match: [ { checkId: webacl-count, result: fail } ],
-      cause: CLOUDFRONT 范围的 Web ACL 只在 us-east-1 可见, fix: aws CLI 与控制台都切到 us-east-1 }
-  - { id: block-reached-origin, title: 请求到达了源站, match: [ { checkId: block-not-at-origin, assertionLabel: 源站收到带本次 nonce 的请求数为 0 } ],
-      cause: 该载荷没有被任何规则拦截（回源到了 8080），或 WAF 未关联, fix: 确认 webacl-block 通过、分配已重新部署；必要时换一条 payloads 中稳定命中的载荷 }
+  - id: acl-not-mine
+    title:
+      zh-CN: Web ACL 不属于本会话
+      ja: Web ACL がこのセッションのものではない
+      en: The Web ACL does not belong to this session
+    match: [ { checkId: webacl-count, errorCode: OWNERSHIP_MISMATCH } ]
+    cause:
+      zh-CN: 检测到的 Web ACL 不是本次实验创建的
+      ja: 検出された Web ACL は今回の実験で作成されたものではありません
+      en: The detected Web ACL was not created by this lab
+    fix:
+      zh-CN: 在本次实验中重新执行 scripts/module enable waf
+      ja: 今回の実験で scripts/module enable waf を再実行してください
+      en: Run scripts/module enable waf again in this lab
+  - id: acl-wrong-region
+    title:
+      zh-CN: 在错误的区域找 Web ACL
+      ja: 間違ったリージョンで Web ACL を探している
+      en: Looking for the Web ACL in the wrong Region
+    match: [ { checkId: webacl-count, result: fail } ]
+    cause:
+      zh-CN: CLOUDFRONT 范围的 Web ACL 只在 us-east-1 可见
+      ja: CLOUDFRONT スコープの Web ACL は us-east-1 でしか見えません
+      en: CLOUDFRONT-scope Web ACLs are only visible in us-east-1
+    fix:
+      zh-CN: aws CLI 与控制台都切到 us-east-1
+      ja: aws CLI もコンソールも us-east-1 に切り替えてください
+      en: Switch both the aws CLI and the console to us-east-1
+  - id: block-reached-origin
+    title:
+      zh-CN: 请求到达了源站
+      ja: リクエストがオリジンに届いた
+      en: The request reached the origin
+    match: [ { checkId: block-not-at-origin, assertionLabel: 源站收到带本次 nonce 的请求数为 0 } ]
+    cause:
+      zh-CN: 该载荷没有被任何规则拦截（回源到了 8080），或 WAF 未关联
+      ja: そのペイロードはどのルールにもブロックされなかった（8080 にオリジンリクエストされた）か、WAF が関連付けられていません
+      en: The payload was not blocked by any rule (it was forwarded to 8080), or WAF is not associated
+    fix:
+      zh-CN: 确认 webacl-block 通过、分配已重新部署；必要时换一条 payloads 中稳定命中的载荷
+      ja: webacl-block が合格し、ディストリビューションが再デプロイ済みであることを確認してください。必要なら payloads の中で安定して一致するペイロードに替えてください
+      en: Confirm that webacl-block passed and the distribution has redeployed; if needed, switch to a payload from payloads that matches reliably

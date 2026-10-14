@@ -5,11 +5,27 @@ id: sc-user-identity
 kind: scenario
 version: 0.1.0
 status: planned
-title: 用户身份全链路
-subtitle: Cognito User Pool + Identity Pool + S3 + API Gateway
-summary: 用户在 Cognito 托管登录页登录，拿到的令牌既能直接调用 API Gateway（网关验签），又能换成只允许写自己 S3 前缀的临时凭证
-story: 相册准备开放给合作伙伴的员工使用。安全团队提出四点：应用不应再保存任何密码哈希；登录要支持 MFA，以后还要接企业 SAML；浏览器上传大文件时不应经过 EC2，但只能写自己的目录，绝不能覆盖别人的照片；社交接口要在网关层就拒绝未登录或伪造的令牌，而不是等请求打到服务器上才返回 401。
-scenario: {question: 一个 SPA 需要让用户登录后调用后端 API，并支持将来接入企业 SAML。团队希望在网关层完成令牌校验，后端尽量不写认证代码，并且费用随请求量变化。最合适的方案是？}
+title:
+  zh-CN: 用户身份全链路
+  ja: ユーザー ID のエンドツーエンド
+  en: End-to-end user identity
+subtitle:
+  zh-CN: Cognito User Pool + Identity Pool + S3 + API Gateway
+  ja: Cognito User Pool + Identity Pool + S3 + API Gateway
+  en: Cognito User Pool + Identity Pool + S3 + API Gateway
+summary:
+  zh-CN: 用户在 Cognito 托管登录页登录，拿到的令牌既能直接调用 API Gateway（网关验签），又能换成只允许写自己 S3 前缀的临时凭证
+  ja: ユーザーは Cognito のマネージドログインページでログインします。受け取ったトークンで API Gateway を直接呼び出せ（ゲートウェイが署名を検証）、さらに自分の S3 プレフィックスにだけ書き込める一時的な認証情報にも交換できます
+  en: Users sign in on the Cognito managed login page; the token they get can call API Gateway directly (the gateway verifies the signature) and can also be exchanged for temporary credentials that may only write to the user's own S3 prefix
+story:
+  zh-CN: 相册准备开放给合作伙伴的员工使用。安全团队提出四点：应用不应再保存任何密码哈希；登录要支持 MFA，以后还要接企业 SAML；浏览器上传大文件时不应经过 EC2，但只能写自己的目录，绝不能覆盖别人的照片；社交接口要在网关层就拒绝未登录或伪造的令牌，而不是等请求打到服务器上才返回 401。
+  ja: アルバムをパートナー企業の従業員にも開放する準備をしています。セキュリティチームからの要件は 4 つです。アプリはパスワードハッシュを一切保存しないこと。ログインは MFA に対応し、将来は企業の SAML にも接続すること。ブラウザーから大きなファイルをアップロードするときは EC2 を経由しないが、書き込めるのは自分のディレクトリだけで、他人の写真を上書きすることは絶対にできないこと。ソーシャル API は、リクエストがサーバーに届いてから 401 を返すのではなく、ゲートウェイ層で未ログインや偽造のトークンを拒否すること。
+  en: "The album is about to open up to employees of partner companies. The security team has four requirements: the app must no longer store any password hashes; sign-in must support MFA and later connect to corporate SAML; large browser uploads must not go through EC2, yet may only write to the user's own directory and can never overwrite anyone else's photos; and the social APIs must reject missing or forged tokens at the gateway instead of returning 401 only after the request reaches the server."
+scenario:
+  question:
+    zh-CN: 一个 SPA 需要让用户登录后调用后端 API，并支持将来接入企业 SAML。团队希望在网关层完成令牌校验，后端尽量不写认证代码，并且费用随请求量变化。最合适的方案是？
+    ja: ある SPA では、ユーザーがログインした後にバックエンド API を呼び出せるようにし、将来は企業の SAML にも対応する必要があります。チームはゲートウェイ層でトークンを検証し、バックエンドには認証のコードをできるだけ書かず、費用はリクエスト量に応じて変動させたいと考えています。最も適切な構成はどれですか？
+    en: A SPA must let users call the backend API after signing in, and support corporate SAML in the future. The team wants token validation at the gateway, as little authentication code as possible in the backend, and costs that follow request volume. What is the most suitable design?
 difficulty: advanced
 estimatedMinutes: 120
 timeLimitMinutes: 180
@@ -43,7 +59,10 @@ startProfile:
     kind: module
     basis: credential
     set: {IAM_CREDENTIALS: role}
-    reason: 平台约定除 svc-ec2、svc-iam 外起始状态都带实例角色（C3）
+    reason:
+      zh-CN: 平台约定除 svc-ec2、svc-iam 外起始状态都带实例角色（C3）
+      ja: プラットフォームの取り決めにより、svc-ec2 と svc-iam 以外の開始状態にはインスタンスロールが付いています（C3）
+      en: By platform convention, every start state except svc-ec2 and svc-iam includes an instance role (C3)
   - item: storage
     kind: module
     basis: closure
@@ -54,9 +73,22 @@ startProfile:
     basis: context
     contextKind: https-entry
     set: {CDN_MEDIA_ORIGIN: s3}
-    reason: 托管登录需要受信 HTTPS 入口
-  - {item: cognito-test-users, kind: seed, reason: 已确认、密码已知的 Cognito 测试用户}
-  - {item: preview-direct-https, kind: platform, reason: 预览使用方案 B 的 Let's Encrypt IP 证书（03 §6.2）}
+    reason:
+      zh-CN: 托管登录需要受信 HTTPS 入口
+      ja: マネージドログインには信頼された HTTPS の入口が必要です
+      en: Managed login needs a trusted HTTPS entry point
+  - item: cognito-test-users
+    kind: seed
+    reason:
+      zh-CN: 已确认、密码已知的 Cognito 测试用户
+      ja: 確認済みでパスワードがわかっている Cognito のテストユーザー
+      en: A confirmed Cognito test user whose password is known
+  - item: preview-direct-https
+    kind: platform
+    reason:
+      zh-CN: 预览使用方案 B 的 Let's Encrypt IP 证书（03 §6.2）
+      ja: プレビューには方式 B の Let's Encrypt IP 証明書を使います（03 §6.2）
+      en: The preview uses the option B Let's Encrypt IP certificate (03 §6.2)
   platform:
     preview: {directHttps: 'on'}
 targetModules:
@@ -70,7 +102,15 @@ targetModules:
 expectedWarnings: []
 cost: {tier: low}
 provision: {class: B}
-badge: {title: 身份全链路, short: 身份链路}
+badge:
+  title:
+    zh-CN: 身份全链路
+    ja: ID のエンドツーエンド
+    en: End-to-end identity
+  short:
+    zh-CN: 身份链路
+    ja: ID の流れ
+    en: Identity chain
 tracks: [saa-main, secure, serverless]
 saa:
   domains: [secure, resilient]

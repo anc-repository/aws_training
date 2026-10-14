@@ -5,11 +5,27 @@ id: sc-analytics
 kind: scenario
 version: 0.1.0
 status: planned
-title: 点击流分析
-subtitle: Data Firehose + S3 + Athena（+ Glue）
-summary: 把点击事件从业务库里搬出去：Firehose 按分钟缓冲写入 S3 数据湖，Glue 数据目录描述表结构，Athena 用 SQL 按扫描量计费地查询
-story: 运营想知道“哪些相册被看得最多、用户在哪一步放弃上传”。现在每次页面浏览都往业务库的 `click_events` 表里插一行：几周后这张表比业务数据还大，每天的统计报表要跑好几分钟，跑的时候前台评论接口变慢，数据库备份也越来越大。数据团队希望：点击流与业务库彻底分开、长期低成本保存、能用 SQL 随时分析，而且不想维护任何服务器或集群。
-scenario: {question: 一家物联网公司每秒产生大量设备读数，需要：多个团队各自实时消费同一份数据（告警、看板），并且能在出错时重放过去 24 小时的数据。最合适的是？}
+title:
+  zh-CN: 点击流分析
+  ja: クリックストリーム分析
+  en: Clickstream analytics
+subtitle:
+  zh-CN: Data Firehose + S3 + Athena（+ Glue）
+  ja: Data Firehose + S3 + Athena（+ Glue）
+  en: Data Firehose + S3 + Athena (+ Glue)
+summary:
+  zh-CN: 把点击事件从业务库里搬出去：Firehose 按分钟缓冲写入 S3 数据湖，Glue 数据目录描述表结构，Athena 用 SQL 按扫描量计费地查询
+  ja: クリックイベントを業務データベースから切り出します。Firehose が 1 分単位でバッファリングして S3 のデータレイクに書き込み、Glue データカタログがテーブル構造を記述し、Athena がスキャン量に応じた課金で SQL クエリを実行します
+  en: "Move click events out of the application database: Firehose buffers them by the minute into an S3 data lake, the Glue Data Catalog describes the table schema, and Athena runs SQL billed by the data it scans"
+story:
+  zh-CN: 运营想知道“哪些相册被看得最多、用户在哪一步放弃上传”。现在每次页面浏览都往业务库的 `click_events` 表里插一行：几周后这张表比业务数据还大，每天的统计报表要跑好几分钟，跑的时候前台评论接口变慢，数据库备份也越来越大。数据团队希望：点击流与业务库彻底分开、长期低成本保存、能用 SQL 随时分析，而且不想维护任何服务器或集群。
+  ja: 運用チームは「どのアルバムが最もよく見られているか、ユーザーはアップロードのどの段階で離脱しているか」を知りたがっています。現在はページビューのたびに業務データベースの `click_events` テーブルに 1 行を挿入しています。数週間でこのテーブルは業務データより大きくなり、毎日の集計レポートは数分かかり、その間はフロントのコメント API も遅くなり、データベースのバックアップもどんどん大きくなっています。データチームの希望は、クリックストリームを業務データベースから完全に切り離し、長期間低コストで保存し、いつでも SQL で分析でき、しかもサーバーやクラスターを一切運用しないことです。
+  en: "The operations team wants to know which albums are viewed most and at which step users give up on uploading. Today every page view inserts a row into the `click_events` table in the application database: after a few weeks the table is bigger than the business data, the daily report takes several minutes, the comment API slows down while it runs, and database backups keep growing. The data team wants clickstream data fully separated from the application database, stored cheaply for a long time, queryable with SQL at any time, and no servers or clusters to maintain."
+scenario:
+  question:
+    zh-CN: 一家物联网公司每秒产生大量设备读数，需要：多个团队各自实时消费同一份数据（告警、看板），并且能在出错时重放过去 24 小时的数据。最合适的是？
+    ja: ある IoT 企業では毎秒大量のデバイスの測定値が発生します。複数のチームが同じデータをそれぞれリアルタイムに消費し（アラート、ダッシュボード）、問題が起きたときは過去 24 時間のデータを再処理できる必要があります。最も適切なのはどれですか？
+    en: An IoT company produces a large number of device readings every second. Several teams must each consume the same data in real time (alerts, dashboards), and be able to replay the last 24 hours of data when something goes wrong. What is the most suitable choice?
 difficulty: intermediate
 estimatedMinutes: 90
 timeLimitMinutes: 150
@@ -39,8 +55,16 @@ startProfile:
     kind: module
     basis: credential
     set: {IAM_CREDENTIALS: role}
-    reason: 平台约定除 svc-ec2、svc-iam 外起始状态都带实例角色（C3）
-  - {item: preview-direct-https, kind: platform, reason: 预览使用方案 B 的 Let's Encrypt IP 证书（03 §6.2）}
+    reason:
+      zh-CN: 平台约定除 svc-ec2、svc-iam 外起始状态都带实例角色（C3）
+      ja: プラットフォームの取り決めにより、svc-ec2 と svc-iam 以外の開始状態にはインスタンスロールが付いています（C3）
+      en: By platform convention, every start state except svc-ec2 and svc-iam includes an instance role (C3)
+  - item: preview-direct-https
+    kind: platform
+    reason:
+      zh-CN: 预览使用方案 B 的 Let's Encrypt IP 证书（03 §6.2）
+      ja: プレビューには方式 B の Let's Encrypt IP 証明書を使います（03 §6.2）
+      en: The preview uses the option B Let's Encrypt IP certificate (03 §6.2)
   platform:
     preview: {directHttps: 'on'}
 targetModules:
@@ -50,7 +74,15 @@ targetModules:
 expectedWarnings: []
 cost: {tier: low}
 provision: {class: A}
-badge: {title: 点击流分析, short: 点击流}
+badge:
+  title:
+    zh-CN: 点击流分析
+    ja: クリックストリーム分析
+    en: Clickstream analytics
+  short:
+    zh-CN: 点击流
+    ja: クリックストリーム
+    en: Clickstream
 tracks: [cost-optimized, performant, saa-main]
 saa:
   domains: [performance, cost]

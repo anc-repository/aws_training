@@ -1,7 +1,10 @@
 # 对比实验结果（04 §5.2.5）：experiments/tls/experiment.json 的 inspect、renew-drill
 checks:
   - id: exp-inspect-before
-    title: inspect 的 before（自签名）有一条有效结果
+    title:
+      zh-CN: inspect 的 before（自签名）有一条有效结果
+      ja: inspect の before（自己署名）に有効な結果が 1 件ある
+      en: inspect has one valid before result (self-signed)
     type: experiment
     module: tls
     experiment: inspect
@@ -9,7 +12,10 @@ checks:
     accept: [valid]
 
   - id: exp-inspect-pair
-    title: inspect 的 before 与 after 都有效且可比
+    title:
+      zh-CN: inspect 的 before 与 after 都有效且可比
+      ja: inspect の before と after がどちらも有効で比較できる
+      en: inspect before and after are both valid and comparable
     type: experiment
     module: tls
     experiment: inspect
@@ -17,7 +23,10 @@ checks:
     accept: [valid]
 
   - id: exp-renew-drill
-    title: renew-drill 有一条有效结果（ACME 分支）
+    title:
+      zh-CN: renew-drill 有一条有效结果（ACME 分支）
+      ja: renew-drill に有効な結果が 1 件ある（ACME の分岐）
+      en: renew-drill has one valid result (ACME branch)
     type: experiment
     module: tls
     experiment: renew-drill

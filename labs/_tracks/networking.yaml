@@ -2,24 +2,64 @@
 schema: atl.track/v2
 id: networking
 version: 1.0.0
-title: 网络与边缘
-summary: VPC、子网、路由、NAT、终端节点、ALB、CloudFront、WAF：SAA 网络题的主体；需要域名的内容全部是可选。
-audience: 想系统掌握网络隔离、入口与边缘防护的学员
+title:
+  zh-CN: 网络与边缘
+  ja: ネットワークとエッジ
+  en: Networking and edge
+summary:
+  zh-CN: VPC、子网、路由、NAT、终端节点、ALB、CloudFront、WAF：SAA 网络题的主体；需要域名的内容全部是可选。
+  ja: VPC、サブネット、ルーティング、NAT、エンドポイント、ALB、CloudFront、WAF。SAA のネットワーク問題の中心です。ドメイン名が必要な内容はすべて任意です。
+  en: "VPC, subnets, routing, NAT, endpoints, ALB, CloudFront and WAF: the core of SAA networking questions. Everything that needs a domain name is optional."
+audience:
+  zh-CN: 想系统掌握网络隔离、入口与边缘防护的学员
+  ja: ネットワークの分離、入口、エッジでの防御を体系的に身につけたい受講者
+  en: Learners who want a systematic grasp of network isolation, entry points and edge protection
 stages:
   - id: s1-network
-    title: 网络与入口
+    title:
+      zh-CN: 网络与入口
+      ja: ネットワークと入口
+      en: Network and entry points
     items:
       - { card: svc-network, role: required }
       - { card: svc-load-balancer, role: required }
       - { card: sc-private-network, role: required }
   - id: s2-edge
-    title: 边缘与防护
+    title:
+      zh-CN: 边缘与防护
+      ja: エッジと防御
+      en: Edge and protection
     items:
       - { card: svc-cdn, role: required }
       - { card: svc-waf, role: required }
-      - { card: sc-edge-protection, role: required, note: 与 svc-waf 有一半内容重叠，是有意的复习 }
-      - { card: svc-dns, role: optional, note: 需要域名 }
-      - { card: svc-tls, role: optional, note: 需要域名 }
-      - { card: sc-static-acceleration, role: optional, note: 域名可选 }
+      - card: sc-edge-protection
+        role: required
+        note:
+          zh-CN: 与 svc-waf 有一半内容重叠，是有意的复习
+          ja: svc-waf と内容が半分ほど重なります。意図的な復習です
+          en: About half of it overlaps with svc-waf; this is intentional review
+      - card: svc-dns
+        role: optional
+        note:
+          zh-CN: 需要域名
+          ja: ドメイン名が必要です
+          en: Needs a domain name
+      - card: svc-tls
+        role: optional
+        note:
+          zh-CN: 需要域名
+          ja: ドメイン名が必要です
+          en: Needs a domain name
+      - card: sc-static-acceleration
+        role: optional
+        note:
+          zh-CN: 域名可选
+          ja: ドメイン名は任意です
+          en: Domain name optional
 completion: { allowManual: true, minAutoRatio: 0.8, excludeSelfReported: true }
-certificate: { enabled: true, title: 网络与边缘路径证书 }
+certificate:
+  enabled: true
+  title:
+    zh-CN: 网络与边缘路径证书
+    ja: ネットワークとエッジのパス修了証
+    en: Networking and edge path certificate

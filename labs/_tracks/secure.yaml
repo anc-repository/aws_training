@@ -2,40 +2,97 @@
 schema: atl.track/v2
 id: secure
 version: 1.0.0
-title: 安全专项
-summary: 补强“设计安全的架构”：身份与凭证 → 数据保护 → 审计 → 用户身份 → 边界防护 → 检测。
-audience: 想补强 SAA“设计安全的架构”领域的学员
+title:
+  zh-CN: 安全专项
+  ja: セキュリティパス
+  en: Security path
+summary:
+  zh-CN: 补强“设计安全的架构”：身份与凭证 → 数据保护 → 审计 → 用户身份 → 边界防护 → 检测。
+  ja: SAA の「セキュアなアーキテクチャの設計」を強化します。ID と認証情報 → データ保護 → 監査 → ユーザー ID → 境界での防御 → 検出の順に進みます。
+  en: 'Strengthens the SAA domain "Design Secure Architectures": identity and credentials → data protection → auditing → user identity → perimeter protection → detection.'
+audience:
+  zh-CN: 想补强 SAA“设计安全的架构”领域的学员
+  ja: SAA の「セキュアなアーキテクチャの設計」分野を強化したい受講者
+  en: Learners who want to strengthen the SAA domain "Design Secure Architectures"
 domain: secure
 stages:
   - id: s1-credentials
-    title: 身份与凭证
+    title:
+      zh-CN: 身份与凭证
+      ja: ID と認証情報
+      en: Identity and credentials
     items:
       - { card: svc-iam, role: required }
       - { card: svc-shell-access, role: required }
   - id: s2-data
-    title: 数据保护与审计
+    title:
+      zh-CN: 数据保护与审计
+      ja: データ保護と監査
+      en: Data protection and auditing
     items:
       - { card: svc-kms, role: required }
       - { card: svc-secrets, role: required }
       - { card: svc-config, role: optional }
       - { card: svc-audit, role: required }
-      - { card: sc-security-baseline, role: required, note: 已完成前面单服务卡的学员会觉得前半段较快，这是有意的复习 }
+      - card: sc-security-baseline
+        role: required
+        note:
+          zh-CN: 已完成前面单服务卡的学员会觉得前半段较快，这是有意的复习
+          ja: 前のサービスカードを終えた受講者には前半が速く感じられますが、意図的な復習です
+          en: If you have done the earlier service cards, the first half will feel quick; this is intentional review
   - id: s3-identity
-    title: 用户身份
+    title:
+      zh-CN: 用户身份
+      ja: ユーザー ID
+      en: User identity
     items:
       - { card: svc-auth, role: required }
-      - { group: g-identity, title: 身份, pick: 1, cards: [svc-identity-pool, sc-user-identity] }
+      - group: g-identity
+        title:
+          zh-CN: 身份
+          ja: ID
+          en: Identity
+        pick: 1
+        cards: [svc-identity-pool, sc-user-identity]
   - id: s4-boundary
-    title: 边界防护
+    title:
+      zh-CN: 边界防护
+      ja: 境界での防御
+      en: Perimeter protection
     items:
       - { card: svc-waf, role: required }
-      - { group: g-network, title: 网络, pick: 1, cards: [svc-network, sc-private-network] }
-      - { card: svc-tls, role: optional, note: 需要域名 }
+      - group: g-network
+        title:
+          zh-CN: 网络
+          ja: ネットワーク
+          en: Network
+        pick: 1
+        cards: [svc-network, sc-private-network]
+      - card: svc-tls
+        role: optional
+        note:
+          zh-CN: 需要域名
+          ja: ドメイン名が必要です
+          en: Needs a domain name
       - { card: sc-edge-protection, role: optional }
   - id: s5-detect
-    title: 检测
+    title:
+      zh-CN: 检测
+      ja: 検出
+      en: Detection
     items:
-      - { group: g-detect, title: 检测, pick: 1, cards: [svc-threat-detection, svc-compliance, svc-vuln-scan] }
+      - group: g-detect
+        title:
+          zh-CN: 检测
+          ja: 検出
+          en: Detection
+        pick: 1
+        cards: [svc-threat-detection, svc-compliance, svc-vuln-scan]
       - { card: sc-threat-compliance, role: required }
 completion: { allowManual: true, minAutoRatio: 0.8, excludeSelfReported: true }
-certificate: { enabled: true, title: 安全架构专项证书 }
+certificate:
+  enabled: true
+  title:
+    zh-CN: 安全架构专项证书
+    ja: セキュアアーキテクチャパス修了証
+    en: Secure architecture path certificate

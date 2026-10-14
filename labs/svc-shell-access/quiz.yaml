@@ -6,14 +6,36 @@ questions:
     type: single
     kind: scenario
     services: [ssm-session-manager, ec2]
-    stem: 公司要求运维人员登录私有子网中的 EC2 实例，不得开放任何入站端口、不分发 SSH 密钥，并且要记录会话中执行的命令。最合适的方案是？
+    stem:
+      zh-CN: 公司要求运维人员登录私有子网中的 EC2 实例，不得开放任何入站端口、不分发 SSH 密钥，并且要记录会话中执行的命令。最合适的方案是？
+      ja: 会社は、運用担当者がプライベートサブネットの EC2 インスタンスにログインする際、受信ポートを一切開けず、SSH 鍵を配布せず、セッション中に実行したコマンドを記録することを求めています。最も適切な方法はどれですか？
+      en: A company requires operators to sign in to EC2 instances in private subnets without opening any inbound ports or distributing SSH keys, and the commands run in each session must be recorded. What is the most suitable approach?
     options:
-      - { id: a, text: 在公有子网部署堡垒机，安全组只放行公司出口 IP 的 22 端口 }
-      - { id: b, text: 为实例配置带 SSM 托管节点权限的实例角色，创建 ssm、ssmmessages 接口端点，使用 Session Manager 并把会话日志写入 CloudWatch Logs 或 S3 }
-      - { id: c, text: 使用浏览器方式的 EC2 Instance Connect }
-      - { id: d, text: 在安全组中开放 22 端口，用 CloudTrail 记录登录后执行的命令 }
+      - id: a
+        text:
+          zh-CN: 在公有子网部署堡垒机，安全组只放行公司出口 IP 的 22 端口
+          ja: パブリックサブネットに踏み台サーバーを置き、セキュリティグループで会社の送信元 IP からの 22 番ポートだけを許可する
+          en: Deploy a bastion host in a public subnet whose security group only allows port 22 from the company's egress IP
+      - id: b
+        text:
+          zh-CN: 为实例配置带 SSM 托管节点权限的实例角色，创建 ssm、ssmmessages 接口端点，使用 Session Manager 并把会话日志写入 CloudWatch Logs 或 S3
+          ja: SSM マネージドノードの権限を持つインスタンスロールを設定し、ssm と ssmmessages のインターフェイスエンドポイントを作成して、Session Manager を使い、セッションログを CloudWatch Logs または S3 に書き込む
+          en: Give the instances an instance role with SSM managed node permissions, create ssm and ssmmessages interface endpoints, use Session Manager and write session logs to CloudWatch Logs or S3
+      - id: c
+        text:
+          zh-CN: 使用浏览器方式的 EC2 Instance Connect
+          ja: ブラウザー方式の EC2 Instance Connect を使う
+          en: Use EC2 Instance Connect in the browser
+      - id: d
+        text:
+          zh-CN: 在安全组中开放 22 端口，用 CloudTrail 记录登录后执行的命令
+          ja: セキュリティグループで 22 番ポートを開け、ログイン後に実行したコマンドを CloudTrail で記録する
+          en: Open port 22 in the security group and record the commands run after sign-in with CloudTrail
     answer: [b]
-    explain: Session Manager 由 Agent 主动出站建立通道，安全组无需入站规则，身份来自 IAM，会话日志记录命令与输出。A 需要入站端口和密钥；C 需要 22 端口对 Instance Connect 的服务地址段开放；D 错在 CloudTrail 只记录 AWS API 调用，不记录操作系统内执行的命令。
+    explain:
+      zh-CN: Session Manager 由 Agent 主动出站建立通道，安全组无需入站规则，身份来自 IAM，会话日志记录命令与输出。A 需要入站端口和密钥；C 需要 22 端口对 Instance Connect 的服务地址段开放；D 错在 CloudTrail 只记录 AWS API 调用，不记录操作系统内执行的命令。
+      ja: Session Manager ではエージェントが自分から送信方向にチャネルを張るため、セキュリティグループに受信ルールは不要で、ID は IAM から得られ、セッションログがコマンドと出力を記録します。A は受信ポートと鍵が必要です。C は 22 番ポートを Instance Connect のサービスのアドレス範囲に開く必要があります。D は誤りで、CloudTrail は AWS API の呼び出しだけを記録し、OS 内で実行したコマンドは記録しません。
+      en: With Session Manager the agent opens the channel outbound itself, so the security group needs no inbound rules, identity comes from IAM, and session logs record commands and output. A needs inbound ports and keys; C needs port 22 open to Instance Connect's service address range; D is wrong because CloudTrail only records AWS API calls, not commands run inside the OS.
     relatesTo: wire
     difficulty: 1
   - id: ssm-managed-node
@@ -21,15 +43,41 @@ questions:
     type: multi
     kind: concept
     services: [ssm-session-manager, ec2, iam]
-    stem: 要让 EC2 实例成为 SSM 托管节点并能打开 Session Manager 会话，必须满足哪些条件？（选三项）
+    stem:
+      zh-CN: 要让 EC2 实例成为 SSM 托管节点并能打开 Session Manager 会话，必须满足哪些条件？（选三项）
+      ja: EC2 インスタンスを SSM マネージドノードにして Session Manager のセッションを開けるようにするには、どの条件を満たす必要がありますか？（3 つ選択）
+      en: What must be true for an EC2 instance to become an SSM managed node and accept Session Manager sessions? (Choose three.)
     options:
-      - { id: a, text: 实例上运行 SSM Agent }
-      - { id: b, text: 实例有带 SSM 托管节点权限的 IAM 角色（或启用了默认主机管理配置） }
-      - { id: c, text: 实例能以 HTTPS 访问 ssm 与 ssmmessages 端点（经 NAT 或接口端点） }
-      - { id: d, text: 安全组放行来自 Systems Manager 服务的 443 入站 }
-      - { id: e, text: 实例必须有公网 IPv4 地址 }
+      - id: a
+        text:
+          zh-CN: 实例上运行 SSM Agent
+          ja: インスタンスで SSM Agent が動作している
+          en: The SSM Agent runs on the instance
+      - id: b
+        text:
+          zh-CN: 实例有带 SSM 托管节点权限的 IAM 角色（或启用了默认主机管理配置）
+          ja: インスタンスに SSM マネージドノードの権限を持つ IAM ロールがある（またはデフォルトのホスト管理設定が有効）
+          en: The instance has an IAM role with SSM managed node permissions (or Default Host Management Configuration is enabled)
+      - id: c
+        text:
+          zh-CN: 实例能以 HTTPS 访问 ssm 与 ssmmessages 端点（经 NAT 或接口端点）
+          ja: インスタンスが HTTPS で ssm と ssmmessages のエンドポイントにアクセスできる（NAT またはインターフェイスエンドポイント経由）
+          en: The instance can reach the ssm and ssmmessages endpoints over HTTPS (through NAT or interface endpoints)
+      - id: d
+        text:
+          zh-CN: 安全组放行来自 Systems Manager 服务的 443 入站
+          ja: セキュリティグループで Systems Manager サービスからの 443 の受信を許可する
+          en: The security group allows inbound 443 from the Systems Manager service
+      - id: e
+        text:
+          zh-CN: 实例必须有公网 IPv4 地址
+          ja: インスタンスにパブリック IPv4 アドレスが必要
+          en: The instance must have a public IPv4 address
     answer: [a, b, c]
-    explain: 所有连接都由实例上的 Agent 发起，安全组有状态，回包自动放行，所以不需要任何入站规则（D 错）；私有子网实例经 NAT 或接口端点即可（E 错）。
+    explain:
+      zh-CN: 所有连接都由实例上的 Agent 发起，安全组有状态，回包自动放行，所以不需要任何入站规则（D 错）；私有子网实例经 NAT 或接口端点即可（E 错）。
+      ja: 接続はすべてインスタンス上のエージェントが開始し、セキュリティグループはステートフルで戻りのパケットは自動で許可されるため、受信ルールは一切不要です（D は誤り）。プライベートサブネットのインスタンスは NAT かインターフェイスエンドポイントがあれば十分です（E は誤り）。
+      en: Every connection is opened by the agent on the instance, and security groups are stateful so return traffic is allowed automatically, so no inbound rule is needed (D is wrong); instances in private subnets only need NAT or interface endpoints (E is wrong).
     relatesTo: orient
     difficulty: 1
   - id: ssm-port-forward-rds
@@ -37,14 +85,36 @@ questions:
     type: single
     kind: scenario
     services: [ssm-session-manager]
-    stem: 开发者需要从笔记本临时访问私有子网中的 RDS for PostgreSQL 排障，要求不把数据库暴露到公网、不新建堡垒机。最佳做法是？
+    stem:
+      zh-CN: 开发者需要从笔记本临时访问私有子网中的 RDS for PostgreSQL 排障，要求不把数据库暴露到公网、不新建堡垒机。最佳做法是？
+      ja: 開発者がノートパソコンからプライベートサブネットの RDS for PostgreSQL に一時的にアクセスしてトラブルシューティングする必要があります。データベースをインターネットに公開せず、踏み台サーバーも新たに作らないことが条件です。最善の方法はどれですか？
+      en: A developer needs temporary access from a laptop to RDS for PostgreSQL in a private subnet for troubleshooting, without exposing the database to the internet or creating a new bastion host. What is the best approach?
     options:
-      - { id: a, text: 把 RDS 改为可公开访问，并在安全组中只放行开发者 IP }
-      - { id: b, text: 通过 Session Manager 的 AWS-StartPortForwardingSessionToRemoteHost，经同一 VPC 中的托管实例把本地端口转发到 RDS 端点 }
-      - { id: c, text: 建立 Site-to-Site VPN }
-      - { id: d, text: 在 RDS 实例上安装 SSM Agent }
+      - id: a
+        text:
+          zh-CN: 把 RDS 改为可公开访问，并在安全组中只放行开发者 IP
+          ja: RDS をパブリックアクセス可能にし、セキュリティグループで開発者の IP だけを許可する
+          en: Make RDS publicly accessible and allow only the developer's IP in the security group
+      - id: b
+        text:
+          zh-CN: 通过 Session Manager 的 AWS-StartPortForwardingSessionToRemoteHost，经同一 VPC 中的托管实例把本地端口转发到 RDS 端点
+          ja: Session Manager の AWS-StartPortForwardingSessionToRemoteHost を使い、同じ VPC 内のマネージドインスタンス経由でローカルポートを RDS エンドポイントに転送する
+          en: Use Session Manager's AWS-StartPortForwardingSessionToRemoteHost to forward a local port to the RDS endpoint through a managed instance in the same VPC
+      - id: c
+        text:
+          zh-CN: 建立 Site-to-Site VPN
+          ja: Site-to-Site VPN を構築する
+          en: Set up a Site-to-Site VPN
+      - id: d
+        text:
+          zh-CN: 在 RDS 实例上安装 SSM Agent
+          ja: RDS インスタンスに SSM Agent をインストールする
+          en: Install the SSM Agent on the RDS instance
     answer: [b]
-    explain: 端口转发到远程主机让托管实例充当跳板，数据库安全组只需放行该实例；A 增加暴露面；C 运维成本高、属于长期网络方案；D 不可行，RDS 是托管服务，不能安装代理。
+    explain:
+      zh-CN: 端口转发到远程主机让托管实例充当跳板，数据库安全组只需放行该实例；A 增加暴露面；C 运维成本高、属于长期网络方案；D 不可行，RDS 是托管服务，不能安装代理。
+      ja: リモートホストへのポートフォワーディングでは、マネージドインスタンスが中継役になり、データベースのセキュリティグループはそのインスタンスだけを許可すれば済みます。A は公開範囲が広がります。C は運用コストが高く、長期的なネットワーク構成向けです。D は不可能で、RDS はマネージドサービスなのでエージェントをインストールできません。
+      en: Port forwarding to a remote host makes the managed instance the relay, so the database security group only needs to allow that instance; A widens exposure; C is costly to operate and meant for long-term networking; D is impossible because RDS is a managed service where you cannot install an agent.
     relatesTo: port-forward
     difficulty: 2
   - id: ssm-runas
@@ -52,13 +122,35 @@ questions:
     type: single
     kind: concept
     services: [ssm-session-manager]
-    stem: Session Manager 默认以 ssm-user 打开 shell，它有免密 sudo。要降低会话中的权限，下列做法正确的是？
+    stem:
+      zh-CN: Session Manager 默认以 ssm-user 打开 shell，它有免密 sudo。要降低会话中的权限，下列做法正确的是？
+      ja: Session Manager はデフォルトで ssm-user としてシェルを開き、このユーザーはパスワードなしで sudo できます。セッション中の権限を下げる方法として正しいものはどれですか？
+      en: Session Manager opens shells as ssm-user by default, which has passwordless sudo. Which is a correct way to reduce privileges in a session?
     options:
-      - { id: a, text: 在会话首选项中启用 runAs，指定一个只有受限 sudoers 的专用 OS 用户 }
-      - { id: b, text: 把 runAs 改成 AL2023 的 ec2-user }
-      - { id: c, text: 从实例角色中删除 ssmmessages 权限 }
-      - { id: d, text: 在安全组中关闭 443 端口 }
+      - id: a
+        text:
+          zh-CN: 在会话首选项中启用 runAs，指定一个只有受限 sudoers 的专用 OS 用户
+          ja: セッション設定で runAs を有効にし、制限付きの sudoers だけを持つ専用の OS ユーザーを指定する
+          en: Turn on runAs in session preferences and specify a dedicated OS user with only restricted sudoers
+      - id: b
+        text:
+          zh-CN: 把 runAs 改成 AL2023 的 ec2-user
+          ja: runAs を AL2023 の ec2-user に変える
+          en: Change runAs to AL2023's ec2-user
+      - id: c
+        text:
+          zh-CN: 从实例角色中删除 ssmmessages 权限
+          ja: インスタンスロールから ssmmessages の権限を削除する
+          en: Remove the ssmmessages permissions from the instance role
+      - id: d
+        text:
+          zh-CN: 在安全组中关闭 443 端口
+          ja: セキュリティグループで 443 番ポートを閉じる
+          en: Close port 443 in the security group
     answer: [a]
-    explain: ec2-user 同样有免密 sudo，换成它并不能降权；删除 ssmmessages 权限或关 443 会让会话根本打不开。本卡的 cloudalbum-ops 只允许查看与重启 cloudalbum 服务。
+    explain:
+      zh-CN: ec2-user 同样有免密 sudo，换成它并不能降权；删除 ssmmessages 权限或关 443 会让会话根本打不开。本卡的 cloudalbum-ops 只允许查看与重启 cloudalbum 服务。
+      ja: ec2-user もパスワードなしで sudo できるため、変えても権限は下がりません。ssmmessages の権限を削除したり 443 を閉じたりすると、セッション自体が開けなくなります。このカードの cloudalbum-ops は cloudalbum のサービスの確認と再起動だけが許可されています。
+      en: ec2-user also has passwordless sudo, so switching to it does not reduce privileges; removing the ssmmessages permissions or closing 443 stops sessions from opening at all. This card's cloudalbum-ops may only inspect and restart the cloudalbum services.
     relatesTo: session
     difficulty: 2

@@ -16,41 +16,146 @@ id: sc-event-fanout
 kind: scenario
 version: 1.0.0
 status: beta
-title: 事件扇出与通知
-subtitle: SNS + SQS + SES
-summary: 一条“有新评论”事件只发布一次，由 SNS 按订阅过滤策略分发给邮件与 SQS 收件队列；事务性邮件改由 SES 真正发出，退信与投诉经 SNS → SQS 安全地送回应用。
-story: |
-  相册新增“有人评论你的照片就通知你”。最初的实现是 EC2 逐个给关注者发邮件：一张热门照片有几十个关注者时，发表评论的接口要等几十次邮件调用；
-  邮件只写进 outbox，用户根本收不到；有人只想要站内信、有人想要邮件，以后还要接短信和数据分析。
-  邮箱验证链接也必须真的发到用户的收件箱里，退信的地址要自动停止发送——而实验机没有、也不应该开放任何入站端口来接收这些事件。
+title:
+  zh-CN: 事件扇出与通知
+  ja: イベントのファンアウトと通知
+  en: Event fan-out and notifications
+subtitle:
+  zh-CN: SNS + SQS + SES
+  ja: SNS + SQS + SES
+  en: SNS + SQS + SES
+summary:
+  zh-CN: 一条“有新评论”事件只发布一次，由 SNS 按订阅过滤策略分发给邮件与 SQS 收件队列；事务性邮件改由 SES 真正发出，退信与投诉经 SNS → SQS 安全地送回应用。
+  ja: 「新しいコメント」のイベントは 1 回だけ発行し、SNS がサブスクリプションフィルターポリシーに従ってメールと SQS 受信キューに配信します。トランザクションメールは SES が実際に送信し、バウンスと苦情は SNS → SQS を通じて安全にアプリに戻ります。
+  en: A "new comment" event is published only once, and SNS distributes it to email and an SQS inbox queue according to subscription filter policies; SES actually sends transactional email, and bounces and complaints flow safely back to the app through SNS → SQS.
+story:
+  zh-CN: |
+    相册新增“有人评论你的照片就通知你”。最初的实现是 EC2 逐个给关注者发邮件：一张热门照片有几十个关注者时，发表评论的接口要等几十次邮件调用；
+    邮件只写进 outbox，用户根本收不到；有人只想要站内信、有人想要邮件，以后还要接短信和数据分析。
+    邮箱验证链接也必须真的发到用户的收件箱里，退信的地址要自动停止发送——而实验机没有、也不应该开放任何入站端口来接收这些事件。
+  ja: |
+    アルバムに「誰かがあなたの写真にコメントしたら通知する」機能が追加されました。最初の実装では EC2 がフォロワー 1 人ずつにメールを送っていたため、人気の写真にフォロワーが数十人いると、コメント投稿の API は数十回のメール呼び出しを待つことになりました。
+    メールは outbox に書き込まれるだけで、ユーザーには届きません。サイト内メッセージだけ欲しい人もいればメールが欲しい人もいて、今後は SMS やデータ分析にもつなぐ予定です。
+    メールアドレスの確認リンクも実際にユーザーの受信箱に届かなければならず、バウンスしたアドレスには自動で送信を止める必要があります。しかしラボ用インスタンスには、これらのイベントを受け取るための受信ポートがなく、開けるべきでもありません。
+  en: |
+    The album added "notify me when someone comments on my photo". The first implementation had EC2 email followers one by one: when a popular photo had dozens of followers, the comment API waited for dozens of email calls;
+    the emails only went into the outbox, so users never received them; some people want only in-app messages, others want email, and SMS and data analytics are coming later.
+    Email verification links must also really reach users' inboxes, and sending must stop automatically for addresses that bounce — yet the lab instance has, and should have, no inbound port for receiving those events.
 scenario:
-  question: 一家 SaaS 公司的应用部署在私有子网中，没有任何入站端口。需要接收 SES 的退信与投诉事件，并在应用中把对应地址加入抑制名单，且应用停机期间事件不能丢。最合适的方案是？
-  constraints: [事件只发布一次, 每个用户只收到与自己有关的通知, 验证邮件真正送达收件箱, 退信与投诉能回到应用, 实验机不开放入站端口]
+  question:
+    zh-CN: 一家 SaaS 公司的应用部署在私有子网中，没有任何入站端口。需要接收 SES 的退信与投诉事件，并在应用中把对应地址加入抑制名单，且应用停机期间事件不能丢。最合适的方案是？
+    ja: ある SaaS 企業のアプリケーションはプライベートサブネットにデプロイされ、受信ポートは一切ありません。SES のバウンスと苦情のイベントを受け取り、アプリで該当するアドレスを抑制リストに追加する必要があり、アプリの停止中もイベントを失ってはなりません。最も適切な構成はどれですか？
+    en: A SaaS company's application runs in private subnets with no inbound ports at all. It must receive SES bounce and complaint events and add the addresses to a suppression list in the app, and no events may be lost while the app is down. What is the most suitable design?
+  constraints:
+    - zh-CN: 事件只发布一次
+      ja: イベントは 1 回だけ発行する
+      en: Publish each event only once
+    - zh-CN: 每个用户只收到与自己有关的通知
+      ja: 各ユーザーは自分に関係する通知だけを受け取る
+      en: Each user only receives notifications about them
+    - zh-CN: 验证邮件真正送达收件箱
+      ja: 確認メールが実際に受信箱に届く
+      en: Verification emails really reach the inbox
+    - zh-CN: 退信与投诉能回到应用
+      ja: バウンスと苦情がアプリに戻ってくる
+      en: Bounces and complaints come back to the app
+    - zh-CN: 实验机不开放入站端口
+      ja: ラボ用インスタンスは受信ポートを開けない
+      en: The lab instance opens no inbound ports
   antiPatterns:
-    - 用 SNS 邮件订阅发送验证码：同一条纯文本发给所有订阅者，带退订尾注，还要收件人先确认订阅
-    - 用一个 SQS 队列做“一对多”：竞争消费，一条消息只会被一个消费者处理
-    - 在 EC2 上跑 SMTP 直接发信：出站 25 端口默认受限，也没有发信信誉与退信处理
-    - 让 SES 事件推送到 EC2 的 HTTPS 端点：实例必须暴露入站端口
-    - 忽略沙盒：沙盒期只能发给已验证地址与邮箱模拟器，上线前要申请生产访问
+    - zh-CN: 用 SNS 邮件订阅发送验证码：同一条纯文本发给所有订阅者，带退订尾注，还要收件人先确认订阅
+      ja: SNS のメールサブスクリプションで確認コードを送る：同じプレーンテキストがすべてのサブスクライバーに送られ、配信停止のフッターが付き、受信者は先にサブスクリプションを確認する必要もある
+      en: "Sending verification codes through SNS email subscriptions: the same plain text goes to every subscriber with an unsubscribe footer, and recipients must confirm the subscription first"
+    - zh-CN: 用一个 SQS 队列做“一对多”：竞争消费，一条消息只会被一个消费者处理
+      ja: 1 つの SQS キューで「1 対多」を実現する：競合消費なので、1 つのメッセージは 1 つのコンシューマーにしか処理されない
+      en: 'Using one SQS queue for "one-to-many": consumers compete, so each message is handled by only one consumer'
+    - zh-CN: 在 EC2 上跑 SMTP 直接发信：出站 25 端口默认受限，也没有发信信誉与退信处理
+      ja: EC2 で SMTP を動かして直接送信する：送信の 25 番ポートはデフォルトで制限されており、送信者の評価やバウンス処理もない
+      en: "Running SMTP on EC2 to send directly: outbound port 25 is restricted by default, and there is no sender reputation or bounce handling"
+    - zh-CN: 让 SES 事件推送到 EC2 的 HTTPS 端点：实例必须暴露入站端口
+      ja: SES のイベントを EC2 の HTTPS エンドポイントにプッシュさせる：インスタンスが受信ポートを公開しなければならない
+      en: "Having SES push events to an HTTPS endpoint on EC2: the instance must expose an inbound port"
+    - zh-CN: 忽略沙盒：沙盒期只能发给已验证地址与邮箱模拟器，上线前要申请生产访问
+      ja: サンドボックスを無視する：サンドボックス期間中は検証済みのアドレスとメールボックスシミュレーターにしか送れず、本番利用の前に本番アクセスを申請する必要がある
+      en: "Ignoring the sandbox: in the sandbox you can only send to verified addresses and the mailbox simulator, and production access must be requested before launch"
 objectives:
-  - { text: 用 SNS 一次发布、按订阅扇出，发布方耗时与接收人数无关, domain: resilient, relatesTo: after }
-  - { text: 用订阅过滤策略（消息属性 userId）让每位用户只收到自己的通知, domain: resilient, relatesTo: filter }
-  - { text: 区分 SNS + SQS 扇出与 SQS 竞争消费；worker 停机时消息在队列中等待, domain: resilient, relatesTo: worker-stop }
-  - { text: 理解 SES 身份验证、沙盒与生产访问, domain: secure, relatesTo: enable-email }
-  - { text: 用配置集事件目标 + SNS → SQS 把退信与投诉送回没有入站端口的应用, domain: secure, relatesTo: enable-email }
-  - { text: 区分 SNS 邮件订阅与 SES 事务邮件的适用场景, domain: resilient, relatesTo: worker-stop }
+  - text:
+      zh-CN: 用 SNS 一次发布、按订阅扇出，发布方耗时与接收人数无关
+      ja: SNS で 1 回発行してサブスクリプションごとにファンアウトし、発行側の所要時間が受信者数に依存しないようにする
+      en: Publish once with SNS and fan out per subscription, so the publisher's time does not depend on the number of recipients
+    domain: resilient
+    relatesTo: after
+  - text:
+      zh-CN: 用订阅过滤策略（消息属性 userId）让每位用户只收到自己的通知
+      ja: サブスクリプションフィルターポリシー（メッセージ属性 userId）で、各ユーザーが自分の通知だけを受け取るようにする
+      en: Use subscription filter policies (message attribute userId) so each user only receives their own notifications
+    domain: resilient
+    relatesTo: filter
+  - text:
+      zh-CN: 区分 SNS + SQS 扇出与 SQS 竞争消费；worker 停机时消息在队列中等待
+      ja: SNS + SQS のファンアウトと SQS の競合消費を区別する。worker が停止している間、メッセージはキューで待つ
+      en: Tell SNS + SQS fan-out from SQS competing consumers; messages wait in the queue while the worker is down
+    domain: resilient
+    relatesTo: worker-stop
+  - text:
+      zh-CN: 理解 SES 身份验证、沙盒与生产访问
+      ja: SES の ID の検証、サンドボックス、本番アクセスを理解する
+      en: Understand SES identity verification, the sandbox and production access
+    domain: secure
+    relatesTo: enable-email
+  - text:
+      zh-CN: 用配置集事件目标 + SNS → SQS 把退信与投诉送回没有入站端口的应用
+      ja: 設定セットのイベント送信先 + SNS → SQS で、受信ポートのないアプリにバウンスと苦情を届ける
+      en: Use configuration set event destinations + SNS → SQS to deliver bounces and complaints to an app with no inbound ports
+    domain: secure
+    relatesTo: enable-email
+  - text:
+      zh-CN: 区分 SNS 邮件订阅与 SES 事务邮件的适用场景
+      ja: SNS のメールサブスクリプションと SES のトランザクションメールの使い分けを区別する
+      en: Tell when to use SNS email subscriptions and when to use SES transactional email
+    domain: resilient
+    relatesTo: worker-stop
 difficulty: intermediate
 estimatedMinutes: 75
 timeLimitMinutes: 120
 extensions: { maxCount: 2, minutesEach: 30 }
-retain: { allowed: true, maxHours: 24, reason: 只有按请求与按封计费的 SNS、SQS、SES；保留后可以继续观察退信回流与订阅状态 }
+retain:
+  allowed: true
+  maxHours: 24
+  reason:
+    zh-CN: 只有按请求与按封计费的 SNS、SQS、SES；保留后可以继续观察退信回流与订阅状态
+    ja: リクエスト単位と通数単位で課金される SNS、SQS、SES だけです。保持すれば、バウンスの戻りとサブスクリプションの状態を引き続き観察できます
+    en: Only SNS, SQS and SES, billed per request and per email; if you keep the environment, you can keep watching bounce feedback and subscription status
 regions:
   supported: [ap-northeast-1]
 services:
-  - { id: sns, name: Amazon SNS（通知主题、订阅过滤、反馈主题）, role: primary, module: notification }
-  - { id: ses, name: Amazon SES（发件身份、配置集、事件目标）, role: primary, module: email }
-  - { id: sqs, name: Amazon SQS（通知收件队列、订阅级 DLQ、SES 反馈队列；模块自带，不是 queue 模块）, role: supporting }
-  - { id: iam, name: AWS IAM（实例角色）, role: context, module: iam }
+  - id: sns
+    name:
+      zh-CN: Amazon SNS（通知主题、订阅过滤、反馈主题）
+      ja: Amazon SNS（通知トピック、サブスクリプションフィルター、フィードバックトピック）
+      en: Amazon SNS (notification topic, subscription filtering, feedback topic)
+    role: primary
+    module: notification
+  - id: ses
+    name:
+      zh-CN: Amazon SES（发件身份、配置集、事件目标）
+      ja: Amazon SES（送信元 ID、設定セット、イベント送信先）
+      en: Amazon SES (sender identity, configuration set, event destination)
+    role: primary
+    module: email
+  - id: sqs
+    name:
+      zh-CN: Amazon SQS（通知收件队列、订阅级 DLQ、SES 反馈队列；模块自带，不是 queue 模块）
+      ja: Amazon SQS（通知の受信キュー、サブスクリプション単位の DLQ、SES のフィードバックキュー。モジュール付属で、queue モジュールではない）
+      en: Amazon SQS (notification inbox queue, subscription-level DLQ, SES feedback queue; built into the modules, not the queue module)
+    role: supporting
+  - id: iam
+    name:
+      zh-CN: AWS IAM（实例角色）
+      ja: AWS IAM（インスタンスロール）
+      en: AWS IAM (instance role)
+    role: context
+    module: iam
 modules: { target: [email, notification], start: [iam], context: [], related: [queue, monitoring, auth] }
 prerequisites:
   cards:
@@ -59,18 +164,56 @@ prerequisites:
   learnerInputs:
     - { id: ses-identity }
     - { id: notify-email }
-  knowledge: [电子邮件的 + 子地址（plus addressing）, 邮件头（From、Message-ID）, JSON]
+  knowledge:
+    - zh-CN: 电子邮件的 + 子地址（plus addressing）
+      ja: メールアドレスの + サブアドレス（plus addressing）
+      en: Email + sub-addressing (plus addressing)
+    - zh-CN: 邮件头（From、Message-ID）
+      ja: メールのヘッダー（From、Message-ID）
+      en: Email headers (From, Message-ID)
+    - zh-CN: JSON
+      ja: JSON
+      en: JSON
 
 startProfile:
   provisions:
-    - { item: iam, kind: module, basis: credential, set: { IAM_CREDENTIALS: role },
-        reason: 平台约定除 svc-ec2、svc-iam 外起始状态都带实例角色（C3）；email 与 notification 也都是 credentials required（CRED-001） }
-    - { item: mgmt-channel, kind: platform, reason: 实验机挂只含 AmazonSSMManagedInstanceCore 的 CloudAlbumAppRole，是平台的管理通道，不是应用权限；第 8 步经它停止与启动 worker }
-    - { item: workstation, kind: platform, reason: 每个会话一台工作台，用于运行 scripts/module、AWS CLI、种子脚本与对比实验 }
-    - { item: check-bundle, kind: platform, reason: 检查包随 CloudAlbum 发布包安装在实验机的 /opt/atl（06 PM-04） }
-    - { item: preview-direct-https, kind: platform, reason: 预览使用方案 B 的 Let's Encrypt IP 证书（03 §6.2）；本卡不涉及 tls，保持开启 }
+    - item: iam
+      kind: module
+      basis: credential
+      set: { IAM_CREDENTIALS: role }
+      reason:
+        zh-CN: 平台约定除 svc-ec2、svc-iam 外起始状态都带实例角色（C3）；email 与 notification 也都是 credentials required（CRED-001）
+        ja: プラットフォームの取り決めにより、svc-ec2 と svc-iam 以外の開始状態にはインスタンスロールが付いています（C3）。email と notification もどちらも credentials required です（CRED-001）
+        en: By platform convention, every start state except svc-ec2 and svc-iam includes an instance role (C3); email and notification are both credentials required too (CRED-001)
+    - item: mgmt-channel
+      kind: platform
+      reason:
+        zh-CN: 实验机挂只含 AmazonSSMManagedInstanceCore 的 CloudAlbumAppRole，是平台的管理通道，不是应用权限；第 8 步经它停止与启动 worker
+        ja: ラボ用インスタンスには AmazonSSMManagedInstanceCore だけを含む CloudAlbumAppRole が付いています。これはプラットフォームの管理チャネルであり、アプリの権限ではありません。ステップ 8 ではこれを通じて worker を停止・起動します
+        en: The lab instance carries CloudAlbumAppRole with only AmazonSSMManagedInstanceCore; it is the platform's management channel, not an app permission, and step 8 uses it to stop and start the worker
+    - item: workstation
+      kind: platform
+      reason:
+        zh-CN: 每个会话一台工作台，用于运行 scripts/module、AWS CLI、种子脚本与对比实验
+        ja: セッションごとに 1 台のワークベンチがあり、scripts/module、AWS CLI、シードスクリプト、比較実験の実行に使います
+        en: Each session has one workbench for running scripts/module, the AWS CLI, seed scripts and comparison experiments
+    - item: check-bundle
+      kind: platform
+      reason:
+        zh-CN: 检查包随 CloudAlbum 发布包安装在实验机的 /opt/atl（06 PM-04）
+        ja: チェックパッケージは CloudAlbum のリリースパッケージとともにラボ用インスタンスの /opt/atl にインストールされます（06 PM-04）
+        en: The check package is installed with the CloudAlbum release package in /opt/atl on the lab instance (06 PM-04)
+    - item: preview-direct-https
+      kind: platform
+      reason:
+        zh-CN: 预览使用方案 B 的 Let's Encrypt IP 证书（03 §6.2）；本卡不涉及 tls，保持开启
+        ja: プレビューには方式 B の Let's Encrypt IP 証明書を使います（03 §6.2）。このカードは tls に関係しないため、有効のままにします
+        en: The preview uses the option B Let's Encrypt IP certificate (03 §6.2); this card does not involve tls, so it stays on
   platform: { preview: { directHttps: 'on' } }
-  reason: 起始状态是 L0 + 实例角色（档位 atl/sc-event-fanout/default）。不预置 queue 模块：SNS → SQS 的扇出用 notification 自带的收件队列，SES 的反馈用 email 自带的反馈队列（registry auxQueues），让学员看清“没开 queue 模块也在用 SQS”的边界
+  reason:
+    zh-CN: 起始状态是 L0 + 实例角色（档位 atl/sc-event-fanout/default）。不预置 queue 模块：SNS → SQS 的扇出用 notification 自带的收件队列，SES 的反馈用 email 自带的反馈队列（registry auxQueues），让学员看清“没开 queue 模块也在用 SQS”的边界
+    ja: 開始状態は L0 ＋インスタンスロールです（プロファイル atl/sc-event-fanout/default）。queue モジュールは事前準備しません。SNS → SQS のファンアウトには notification 付属の受信キューを、SES のフィードバックには email 付属のフィードバックキュー（registry auxQueues）を使い、「queue モジュールを有効にしていなくても SQS を使っている」という境界を受講者に見せます
+    en: "The start state is L0 plus the instance role (profile atl/sc-event-fanout/default). The queue module is not provisioned: SNS → SQS fan-out uses notification's own inbox queue, and SES feedback uses email's own feedback queue (registry auxQueues), showing learners the boundary of \"using SQS without the queue module\""
 targetModules:
   - { id: email, driver: ses, fromDriver: outbox, wireStep: enable-email, adoptsExisting: false }
   - { id: notification, driver: sns, fromDriver: db, wireStep: enable-notification, adoptsExisting: false }
@@ -79,40 +222,150 @@ workstation: { required: true, tools: [aws-cli, node, jq], savingsMode: degraded
 platform:
   consoleLinks: [sqs.queue]
   accountImpact:
-    - { id: ses-identity, scope: region, resource: SES 发件身份, revert: delete, note: 本会话创建的删除；可勾选保留（再次部署时只读接入） }
+    - id: ses-identity
+      scope: region
+      resource:
+        zh-CN: SES 发件身份
+        ja: SES の送信元 ID
+        en: SES sender identity
+      revert: delete
+      note:
+        zh-CN: 本会话创建的删除；可勾选保留（再次部署时只读接入）
+        ja: このセッションで作成したものは削除されます。保持を選ぶこともできます（次回デプロイ時は読み取り専用で接続）
+        en: Deleted if this session created it; you can choose to keep it (the next deployment attaches to it read-only)
 provision: { class: A }
 keepablePrerequisites: [ses-identity]
 
 variables:
-  topicArn: { label: 通知主题 ARN, from: derived, fillFrom: stack.notification.EnvNotifyTopicArn }
-  inboxUrl: { label: 收件队列 URL, from: derived, fillFrom: stack.notification.EnvNotifyInboxQueueUrl }
-  inboxArn: { label: 收件队列 ARN, from: derived, fillFrom: stack.notification.InfoInboxQueueArn }
-  dlqUrl: { label: 订阅级 DLQ URL, from: derived, fillFrom: stack.notification.EnvNotifyDlqUrl }
-  emailEventsTopicArn: { label: SES 事件主题 ARN, from: derived, fillFrom: stack.email.InfoEventsTopicArn }
-  feedbackUrl: { label: 反馈队列 URL, from: derived, fillFrom: stack.email.EnvSesFeedbackQueueUrl }
-  feedbackDlqUrl: { label: 反馈 DLQ URL, from: derived, fillFrom: stack.email.InfoFeedbackDlqUrl }
-  configSet: { label: 配置集, from: derived, fillFrom: stack.email.EnvSesConfigurationSet }
+  topicArn:
+    label:
+      zh-CN: 通知主题 ARN
+      ja: 通知トピックの ARN
+      en: Notification topic ARN
+    from: derived
+    fillFrom: stack.notification.EnvNotifyTopicArn
+  inboxUrl:
+    label:
+      zh-CN: 收件队列 URL
+      ja: 受信キューの URL
+      en: Inbox queue URL
+    from: derived
+    fillFrom: stack.notification.EnvNotifyInboxQueueUrl
+  inboxArn:
+    label:
+      zh-CN: 收件队列 ARN
+      ja: 受信キューの ARN
+      en: Inbox queue ARN
+    from: derived
+    fillFrom: stack.notification.InfoInboxQueueArn
+  dlqUrl:
+    label:
+      zh-CN: 订阅级 DLQ URL
+      ja: サブスクリプション単位の DLQ の URL
+      en: Subscription-level DLQ URL
+    from: derived
+    fillFrom: stack.notification.EnvNotifyDlqUrl
+  emailEventsTopicArn:
+    label:
+      zh-CN: SES 事件主题 ARN
+      ja: SES イベントトピックの ARN
+      en: SES event topic ARN
+    from: derived
+    fillFrom: stack.email.InfoEventsTopicArn
+  feedbackUrl:
+    label:
+      zh-CN: 反馈队列 URL
+      ja: フィードバックキューの URL
+      en: Feedback queue URL
+    from: derived
+    fillFrom: stack.email.EnvSesFeedbackQueueUrl
+  feedbackDlqUrl:
+    label:
+      zh-CN: 反馈 DLQ URL
+      ja: フィードバック DLQ の URL
+      en: Feedback DLQ URL
+    from: derived
+    fillFrom: stack.email.InfoFeedbackDlqUrl
+  configSet:
+    label:
+      zh-CN: 配置集
+      ja: 設定セット
+      en: Configuration set
+    from: derived
+    fillFrom: stack.email.EnvSesConfigurationSet
 
 cost:
   currency: USD
   tier: low
-  mainDrivers: [SES 发送封数, SNS 发布与投递（邮件协议单价高于 SQS）, 收件队列与反馈队列的 SQS 请求]
+  mainDrivers:
+    - zh-CN: SES 发送封数
+      ja: SES の送信通数
+      en: Number of emails sent with SES
+    - zh-CN: SNS 发布与投递（邮件协议单价高于 SQS）
+      ja: SNS の発行と配信（メールプロトコルの単価は SQS より高い）
+      en: SNS publishes and deliveries (the email protocol costs more per unit than SQS)
+    - zh-CN: 收件队列与反馈队列的 SQS 请求
+      ja: 受信キューとフィードバックキューへの SQS リクエスト
+      en: SQS requests to the inbox and feedback queues
   basis:
-    - { ref: start-profile, note: 实验机 EC2、EBS（根卷与数据卷）、公网 IPv4 }
-    - { ref: workstation, note: 工作台 EC2、EBS、公网 IPv4 }
-    - { key: ses-messages, pricingKey: ses.messages, billing: usage, quantity: 1, unit: messages,
-        assumedUsagePerHour: 30, source: target, whenRetained: true, note: 按发送封数计费；免费额度的条件以官方定价为准 }
-    - { key: sns-requests, pricingKey: sns.requests, billing: usage, quantity: 1, unit: requests,
-        assumedUsagePerHour: 300, source: target, whenRetained: true, note: 通知主题与 SES 事件主题的发布与按协议计的投递 }
-    - { key: sqs-requests, pricingKey: sqs.requests, billing: usage, quantity: 1, unit: requests,
-        assumedUsagePerHour: 4000, source: target, whenRetained: true, note: worker 对收件队列与反馈队列的长轮询（空队列也计请求） }
+    - ref: start-profile
+      note:
+        zh-CN: 实验机 EC2、EBS（根卷与数据卷）、公网 IPv4
+        ja: ラボ用インスタンスの EC2、EBS（ルートボリュームとデータボリューム）、パブリック IPv4
+        en: Lab instance EC2, EBS (root and data volumes) and public IPv4
+    - ref: workstation
+      note:
+        zh-CN: 工作台 EC2、EBS、公网 IPv4
+        ja: ワークベンチの EC2、EBS、パブリック IPv4
+        en: Workbench EC2, EBS and public IPv4
+    - key: ses-messages
+      pricingKey: ses.messages
+      billing: usage
+      quantity: 1
+      unit: messages
+      assumedUsagePerHour: 30
+      source: target
+      whenRetained: true
+      note:
+        zh-CN: 按发送封数计费；免费额度的条件以官方定价为准
+        ja: 送信通数に応じて課金されます。無料利用枠の条件は公式の料金表を確認してください
+        en: Billed per email sent; check the official pricing for free tier conditions
+    - key: sns-requests
+      pricingKey: sns.requests
+      billing: usage
+      quantity: 1
+      unit: requests
+      assumedUsagePerHour: 300
+      source: target
+      whenRetained: true
+      note:
+        zh-CN: 通知主题与 SES 事件主题的发布与按协议计的投递
+        ja: 通知トピックと SES イベントトピックの発行と、プロトコルごとの配信
+        en: Publishes and per-protocol deliveries for the notification topic and the SES event topic
+    - key: sqs-requests
+      pricingKey: sqs.requests
+      billing: usage
+      quantity: 1
+      unit: requests
+      assumedUsagePerHour: 4000
+      source: target
+      whenRetained: true
+      note:
+        zh-CN: worker 对收件队列与反馈队列的长轮询（空队列也计请求）
+        ja: worker による受信キューとフィードバックキューのロングポーリング（空のキューでもリクエストとして課金）
+        en: The worker's long polling of the inbox and feedback queues (billed as requests even when empty)
   assumptions:
-    - 卡片始终在 SES 沙盒中完成，不申请生产访问；不使用短信、移动推送与专用 IP；学习规模通常在免费额度内，以官方定价为准
+    - zh-CN: 卡片始终在 SES 沙盒中完成，不申请生产访问；不使用短信、移动推送与专用 IP；学习规模通常在免费额度内，以官方定价为准
+      ja: カードは最後まで SES のサンドボックスで完了し、本番アクセスは申請しません。SMS、モバイルプッシュ、専用 IP は使いません。学習規模なら通常は無料利用枠に収まります。正確な料金は公式の料金表を確認してください
+      en: The card is completed entirely in the SES sandbox without requesting production access; SMS, mobile push and dedicated IPs are not used; learning scale usually stays within the free tier; check the official pricing
 
 steps:
   - id: seed
     type: cli
-    title: 准备两位测试用户（+u1、+u2），记录起点
+    title:
+      zh-CN: 准备两位测试用户（+u1、+u2），记录起点
+      ja: テストユーザーを 2 人（+u1、+u2）用意し、出発点を記録する
+      en: Prepare two test users (+u1, +u2) and record the starting point
     manual: manual/10-seed.md
     panel: terminal-workstation
     estMinutes: 6
@@ -120,7 +373,10 @@ steps:
 
   - id: baseline
     type: experiment
-    title: 基线：EC2 逐个发、邮件只进 outbox
+    title:
+      zh-CN: 基线：EC2 逐个发、邮件只进 outbox
+      ja: ベースライン：EC2 が 1 通ずつ送り、メールは outbox に入るだけ
+      en: "Baseline: EC2 sends one by one, and emails only go into the outbox"
     manual: manual/15-baseline.md
     experiment: { module: notification, id: fanout, label: before }
     requires: { steps: [seed] }
@@ -131,19 +387,37 @@ steps:
   - id: enable-email
     type: script
     wire: true
-    title: 接入 SES：发件身份、沙盒与退信回流通道
+    title:
+      zh-CN: 接入 SES：发件身份、沙盒与退信回流通道
+      ja: SES を組み込む：送信元 ID、サンドボックス、バウンスの戻り経路
+      en: "Wire in SES: sender identity, sandbox and the bounce return path"
     manual: manual/20-enable-email.md
     methods: [script]
     requires: { steps: [baseline] }
     panel: terminal-workstation
     estMinutes: 12
-    startsBilling: { class: usage, pricingKeys: [ses.messages, sns.requests, sqs.requests], note: 按封与请求计费 }
-    wait: { typicalMinutes: 5, maxMinutes: 20, text: 部署后到邮箱点击 AWS 的验证链接，脚本轮询到“已验证”才写 env }
+    startsBilling:
+      class: usage
+      pricingKeys: [ses.messages, sns.requests, sqs.requests]
+      note:
+        zh-CN: 按封与请求计费
+        ja: 通数とリクエストに応じた課金
+        en: Billed per email and per request
+    wait:
+      typicalMinutes: 5
+      maxMinutes: 20
+      text:
+        zh-CN: 部署后到邮箱点击 AWS 的验证链接，脚本轮询到“已验证”才写 env
+        ja: デプロイ後、メールボックスで AWS の検証リンクをクリックします。スクリプトは「検証済み」になるまでポーリングしてから env を書き込みます
+        en: After deployment, click the AWS verification link in your mailbox; the script polls until "verified" before writing env
     checks: [email-wired, svc-email/email-path-seen, svc-email/identity-verified, feedback-subscription, { ref: svc-email/account-production, required: false }]
 
   - id: sandbox
     type: experiment
-    title: 沙盒：发给未验证地址被拒，而不是悄悄“发送成功”
+    title:
+      zh-CN: 沙盒：发给未验证地址被拒，而不是悄悄“发送成功”
+      ja: サンドボックス：未検証のアドレスへの送信は、こっそり「送信成功」になるのではなく拒否される
+      en: 'Sandbox: sending to an unverified address is rejected instead of quietly "succeeding"'
     manual: manual/25-sandbox.md
     experiment: { module: email, id: sandbox, label: after }
     requires: { steps: [enable-email] }
@@ -154,30 +428,57 @@ steps:
   - id: enable-notification
     type: script
     wire: true
-    title: 接入 SNS，为两位用户建带过滤策略的邮件订阅
+    title:
+      zh-CN: 接入 SNS，为两位用户建带过滤策略的邮件订阅
+      ja: SNS を組み込み、2 人のユーザーにフィルターポリシー付きのメールサブスクリプションを作成する
+      en: Wire in SNS and create email subscriptions with filter policies for the two users
     manual: manual/30-enable-notification.md
     methods: [script]
     requires: { steps: [enable-email] }
     panel: terminal-workstation
     estMinutes: 12
-    startsBilling: { class: usage, pricingKeys: [sns.requests, sqs.requests], note: 按请求与投递计费 }
-    wait: { typicalMinutes: 5, maxMinutes: 20, text: 部署主题与两条队列，然后到邮箱点击运维与两位用户的确认订阅邮件 }
+    startsBilling:
+      class: usage
+      pricingKeys: [sns.requests, sqs.requests]
+      note:
+        zh-CN: 按请求与投递计费
+        ja: リクエストと配信に応じた課金
+        en: Billed per request and delivery
+    wait:
+      typicalMinutes: 5
+      maxMinutes: 20
+      text:
+        zh-CN: 部署主题与两条队列，然后到邮箱点击运维与两位用户的确认订阅邮件
+        ja: トピックと 2 つのキューをデプロイし、メールボックスで運用担当と 2 人のユーザーのサブスクリプション確認メールをクリックします
+        en: Deploy the topic and two queues, then click the subscription confirmation emails for operations and the two users in your mailbox
     checks: [notification-wired, svc-notification/notification-path-seen, svc-notification/topic-subscriptions, svc-notification/inbox-queue-policy, user-subscriptions, filter-policy-observed]
 
   - id: filter
     type: experiment
-    title: 订阅过滤：只有照片主人收到邮件
+    title:
+      zh-CN: 订阅过滤：只有照片主人收到邮件
+      ja: サブスクリプションフィルター：写真の持ち主だけがメールを受け取る
+      en: "Subscription filtering: only the photo's owner gets the email"
     manual: manual/40-filter.md
     experiment: { module: notification, id: filter, label: after }
     requires: { steps: [enable-notification] }
     panel: terminal-workstation
     estMinutes: 6
-    wait: { typicalMinutes: 3, maxMinutes: 10, text: SNS 指标有分钟级延迟 }
+    wait:
+      typicalMinutes: 3
+      maxMinutes: 10
+      text:
+        zh-CN: SNS 指标有分钟级延迟
+        ja: SNS のメトリクスには分単位の遅延があります
+        en: SNS metrics lag by minutes
     checks: [svc-notification/exp-filter-after, svc-notification/filtered-out-metric, filter-mailbox]
 
   - id: after
     type: experiment
-    title: 扇出耗时对比：发布一次，与人数无关
+    title:
+      zh-CN: 扇出耗时对比：发布一次，与人数无关
+      ja: ファンアウトの所要時間の比較：発行は 1 回で、人数に依存しない
+      en: "Fan-out time compared: one publish, independent of the number of people"
     manual: manual/50-after.md
     experiment: { module: notification, id: fanout, label: after }
     requires: { steps: [enable-notification] }
@@ -187,7 +488,10 @@ steps:
 
   - id: worker-stop
     type: experiment
-    title: worker 停机时：邮件照常到达，收件队列积压后补齐
+    title:
+      zh-CN: worker 停机时：邮件照常到达，收件队列积压后补齐
+      ja: worker の停止中：メールはいつもどおり届き、受信キューは滞留した後に追いつく
+      en: "While the worker is down: emails still arrive, and the inbox queue backs up and then catches up"
     manual: manual/60-worker-stop.md
     experiment: { module: notification, id: worker-stop, label: after }
     requires: { steps: [enable-notification] }
@@ -197,9 +501,16 @@ steps:
 
   - id: feedback-loop
     type: observe
-    title: （选做）退信与投诉经 SNS → SQS 回流
+    title:
+      zh-CN: （选做）退信与投诉经 SNS → SQS 回流
+      ja: （任意）バウンスと苦情が SNS → SQS で戻ってくる
+      en: (Optional) Bounces and complaints flow back through SNS → SQS
     manual: manual/70-feedback-loop.md
-    optional: { reason: 不影响完成；用 SES 邮箱模拟器演练 }
+    optional:
+      reason:
+        zh-CN: 不影响完成；用 SES 邮箱模拟器演练
+        ja: 完了には影響しません。SES のメールボックスシミュレーターで演習します
+        en: Does not affect completion; practiced with the SES mailbox simulator
     requires: { steps: [enable-email] }
     panel: preview
     estMinutes: 6
@@ -246,15 +557,37 @@ experiments:
     corroborateWith: [email-wired]
 
 quiz: { file: quiz.yaml, draw: 3 }
-badge: { title: 事件扇出, short: 扇出, icon: assets/badge.svg }
+badge:
+  title:
+    zh-CN: 事件扇出
+    ja: イベントのファンアウト
+    en: Event fan-out
+  short:
+    zh-CN: 扇出
+    ja: ファンアウト
+    en: Fan-out
+  icon: assets/badge.svg
 tracks: [resilient, saa-main, serverless]
 
 cleanup:
-  summary: 结束实验后，平台删除本次会话创建的通知主题、收件队列、订阅级 DLQ，以及 SES 的配置集、事件主题、反馈队列与 DLQ；主题删除后所有订阅（包括待确认的）随之删除。SES 发件身份可以勾选保留（下次再部署时只读接入）。沙盒状态按区域保持不变。
+  summary:
+    zh-CN: 结束实验后，平台删除本次会话创建的通知主题、收件队列、订阅级 DLQ，以及 SES 的配置集、事件主题、反馈队列与 DLQ；主题删除后所有订阅（包括待确认的）随之删除。SES 发件身份可以勾选保留（下次再部署时只读接入）。沙盒状态按区域保持不变。
+    ja: ラボの終了後、プラットフォームがこのセッションで作成した通知トピック、受信キュー、サブスクリプション単位の DLQ、そして SES の設定セット、イベントトピック、フィードバックキューと DLQ を削除します。トピックを削除すると、すべてのサブスクリプション（確認待ちのものを含む）も一緒に削除されます。SES の送信元 ID は保持を選ぶことができます（次回デプロイ時は読み取り専用で接続）。サンドボックスの状態はリージョンごとにそのまま変わりません。
+    en: When the lab ends, the platform deletes the notification topic, inbox queue and subscription-level DLQ this session created, plus SES's configuration set, event topic, feedback queue and DLQ; deleting a topic also deletes all of its subscriptions (including pending ones). You can choose to keep the SES sender identity (the next deployment attaches to it read-only). The sandbox status stays as it is, per Region.
   autoReclaim: true
-  dataRisk: [发出的邮件已经在收件人的邮箱里，无法撤回；不要用真实用户的地址做实验, 测试用户、站内信与 outbox 记录随实验机删除]
+  dataRisk:
+    - zh-CN: 发出的邮件已经在收件人的邮箱里，无法撤回；不要用真实用户的地址做实验
+      ja: 送信したメールはすでに受信者のメールボックスにあり、取り消せません。実際のユーザーのアドレスで実験しないでください
+      en: Emails already sent are in the recipients' mailboxes and cannot be recalled; do not experiment with real users' addresses
+    - zh-CN: 测试用户、站内信与 outbox 记录随实验机删除
+      ja: テストユーザー、サイト内メッセージ、outbox の記録はラボ用インスタンスとともに削除されます
+      en: Test users, in-app messages and outbox records are deleted with the lab instance
   learnerCreatedHints:
-    - { resourceType: AWS::SES::EmailIdentity, how: 勾选保留的发件身份留在账号中；不再需要时在 SES 控制台“已验证身份”中删除 }
+    - resourceType: AWS::SES::EmailIdentity
+      how:
+        zh-CN: 勾选保留的发件身份留在账号中；不再需要时在 SES 控制台“已验证身份”中删除
+        ja: 保持を選んだ送信元 ID はアカウントに残ります。不要になったら SES コンソールの「検証済み ID」で削除してください
+        en: A sender identity you chose to keep stays in the account; delete it under "Verified identities" in the SES console when you no longer need it
   verify:
     - svc-notification/notification-topic-gone
     - svc-email/email-feedback-gone
@@ -262,15 +595,78 @@ cleanup:
 saa:
   domains: [resilient, secure]
   topics:
-    - { id: fan-out, title: SNS + SQS 扇出与 SQS 竞争消费的区别, domain: resilient, relatesTo: after }
-    - { id: filter-policy, title: 订阅过滤策略（消息属性 / 消息体）、邮件订阅确认, domain: resilient, relatesTo: filter }
-    - { id: buffer, title: 队列在消费者停机时缓冲消息；订阅级 DLQ, domain: resilient, relatesTo: worker-stop }
-    - { id: ses-identity, title: SES 身份验证、DKIM、沙盒与生产访问, domain: secure, relatesTo: enable-email }
-    - { id: feedback, title: 配置集事件目标 → SNS → SQS：没有入站端口也能收到 AWS 的异步事件, domain: secure, relatesTo: enable-email }
+    - id: fan-out
+      title:
+        zh-CN: SNS + SQS 扇出与 SQS 竞争消费的区别
+        ja: SNS + SQS のファンアウトと SQS の競合消費の違い
+        en: SNS + SQS fan-out versus SQS competing consumers
+      domain: resilient
+      relatesTo: after
+    - id: filter-policy
+      title:
+        zh-CN: 订阅过滤策略（消息属性 / 消息体）、邮件订阅确认
+        ja: サブスクリプションフィルターポリシー（メッセージ属性 / メッセージ本文）、メールサブスクリプションの確認
+        en: Subscription filter policies (message attributes / message body) and email subscription confirmation
+      domain: resilient
+      relatesTo: filter
+    - id: buffer
+      title:
+        zh-CN: 队列在消费者停机时缓冲消息；订阅级 DLQ
+        ja: コンシューマーの停止中にキューがメッセージをバッファリングする。サブスクリプション単位の DLQ
+        en: Queues buffer messages while consumers are down; subscription-level DLQs
+      domain: resilient
+      relatesTo: worker-stop
+    - id: ses-identity
+      title:
+        zh-CN: SES 身份验证、DKIM、沙盒与生产访问
+        ja: SES の ID の検証、DKIM、サンドボックスと本番アクセス
+        en: SES identity verification, DKIM, the sandbox and production access
+      domain: secure
+      relatesTo: enable-email
+    - id: feedback
+      title:
+        zh-CN: 配置集事件目标 → SNS → SQS：没有入站端口也能收到 AWS 的异步事件
+        ja: 設定セットのイベント送信先 → SNS → SQS：受信ポートがなくても AWS の非同期イベントを受け取れる
+        en: "Configuration set event destination → SNS → SQS: receiving AWS asynchronous events without inbound ports"
+      domain: secure
+      relatesTo: enable-email
   confusables:
-    - { a: SNS, b: SQS, rule: SNS 推送式一对多（每个订阅一份副本）；SQS 拉取式，一条消息只交给一个消费者 }
-    - { a: SNS 邮件订阅, b: Amazon SES, rule: SNS 邮件要先确认、纯文本、所有订阅者内容相同、带退订尾注；事务性个性化邮件用 SES }
-    - { a: SNS, b: EventBridge, rule: SNS 按订阅扇出、过滤看消息属性或消息体；EventBridge 按规则匹配事件内容并路由到目标，另有归档与重放 }
+    - a:
+        zh-CN: SNS
+        ja: SNS
+        en: SNS
+      b:
+        zh-CN: SQS
+        ja: SQS
+        en: SQS
+      rule:
+        zh-CN: SNS 推送式一对多（每个订阅一份副本）；SQS 拉取式，一条消息只交给一个消费者
+        ja: SNS はプッシュ型の 1 対多（サブスクリプションごとに 1 コピー）、SQS はプル型で、1 つのメッセージは 1 つのコンシューマーにだけ渡ります
+        en: SNS is push-based one-to-many (one copy per subscription); SQS is pull-based, and each message goes to only one consumer
+    - a:
+        zh-CN: SNS 邮件订阅
+        ja: SNS メールサブスクリプション
+        en: SNS email subscriptions
+      b:
+        zh-CN: Amazon SES
+        ja: Amazon SES
+        en: Amazon SES
+      rule:
+        zh-CN: SNS 邮件要先确认、纯文本、所有订阅者内容相同、带退订尾注；事务性个性化邮件用 SES
+        ja: SNS のメールは事前の確認が必要で、プレーンテキストのみ、全サブスクライバーに同じ内容が届き、配信停止のフッターが付きます。個別化されたトランザクションメールには SES を使います
+        en: SNS email needs prior confirmation, is plain text only, sends the same content to every subscriber and carries an unsubscribe footer; use SES for personalized transactional email
+    - a:
+        zh-CN: SNS
+        ja: SNS
+        en: SNS
+      b:
+        zh-CN: EventBridge
+        ja: EventBridge
+        en: EventBridge
+      rule:
+        zh-CN: SNS 按订阅扇出、过滤看消息属性或消息体；EventBridge 按规则匹配事件内容并路由到目标，另有归档与重放
+        ja: SNS はサブスクリプションごとにファンアウトし、フィルターはメッセージ属性かメッセージ本文を見ます。EventBridge はルールでイベントの内容を照合してターゲットにルーティングし、アーカイブと再生の機能もあります
+        en: SNS fans out per subscription and filters on message attributes or the message body; EventBridge matches event content with rules and routes to targets, and also offers archive and replay
 
 tags: [notification, email, sns, ses, sqs, fan-out, filter-policy]
 

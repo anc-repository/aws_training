@@ -6,14 +6,36 @@ questions:
     type: single
     kind: scenario
     services: [sns, sqs]
-    stem: 一个“照片已上传”事件需要分别触发缩略图、打标签、统计三个独立服务，各自按自己的速度处理，任何一个暂时不可用都不能丢消息。最合适的是？
+    stem:
+      zh-CN: 一个“照片已上传”事件需要分别触发缩略图、打标签、统计三个独立服务，各自按自己的速度处理，任何一个暂时不可用都不能丢消息。最合适的是？
+      ja: 1 つの「写真がアップロードされた」イベントで、サムネイル、タグ付け、集計の 3 つの独立したサービスをそれぞれ起動する必要があります。各サービスは自分のペースで処理し、どれかが一時的に使えなくてもメッセージを失ってはなりません。最も適切なのはどれですか？
+      en: One "photo uploaded" event must trigger three independent services — thumbnails, tagging and statistics — each processing at its own pace, and no message may be lost if any of them is temporarily unavailable. What is the most suitable choice?
     options:
-      - { id: a, text: 一个 SQS 队列，三个服务竞争消费 }
-      - { id: b, text: 一个 SNS 主题，三个服务各订阅一个自己的 SQS 队列 }
-      - { id: c, text: 应用依次同步调用三个服务 }
-      - { id: d, text: 一个 SNS 主题，三个服务都用 HTTP 端点订阅 }
+      - id: a
+        text:
+          zh-CN: 一个 SQS 队列，三个服务竞争消费
+          ja: 1 つの SQS キューを 3 つのサービスが競合して消費する
+          en: One SQS queue that the three services consume competitively
+      - id: b
+        text:
+          zh-CN: 一个 SNS 主题，三个服务各订阅一个自己的 SQS 队列
+          ja: 1 つの SNS トピックに、3 つのサービスがそれぞれ自分の SQS キューでサブスクライブする
+          en: One SNS topic, with each of the three services subscribing its own SQS queue
+      - id: c
+        text:
+          zh-CN: 应用依次同步调用三个服务
+          ja: アプリが 3 つのサービスを順番に同期呼び出しする
+          en: The app calls the three services synchronously one after another
+      - id: d
+        text:
+          zh-CN: 一个 SNS 主题，三个服务都用 HTTP 端点订阅
+          ja: 1 つの SNS トピックに、3 つのサービスすべてが HTTP エンドポイントでサブスクライブする
+          en: One SNS topic, with all three services subscribing HTTP endpoints
     answer: [b]
-    explain: SNS + SQS 扇出让每个消费者拿到一份副本并在自己的队列里缓冲；竞争消费时每条消息只会被一个服务处理；HTTP 订阅在端点不可用时按重试策略重试后丢弃。
+    explain:
+      zh-CN: SNS + SQS 扇出让每个消费者拿到一份副本并在自己的队列里缓冲；竞争消费时每条消息只会被一个服务处理；HTTP 订阅在端点不可用时按重试策略重试后丢弃。
+      ja: SNS + SQS のファンアウトなら、各コンシューマーがコピーを 1 つずつ受け取り、自分のキューでバッファリングできます。競合消費では各メッセージは 1 つのサービスでしか処理されません。HTTP サブスクリプションは、エンドポイントが使えないとき再試行ポリシーに従って再試行した後に破棄されます。
+      en: SNS + SQS fan-out gives every consumer its own copy, buffered in its own queue; with competing consumers each message is processed by only one service; HTTP subscriptions retry per the retry policy when the endpoint is unavailable and then drop the message.
     relatesTo: after
     difficulty: 1
   - id: sns-filter-policy
@@ -21,14 +43,36 @@ questions:
     type: single
     kind: scenario
     services: [sns]
-    stem: 同一个主题上有很多用户的邮件订阅，每位用户只应收到与自己有关的通知。应该怎么做？
+    stem:
+      zh-CN: 同一个主题上有很多用户的邮件订阅，每位用户只应收到与自己有关的通知。应该怎么做？
+      ja: 同じトピックに多数のユーザーのメールサブスクリプションがあり、各ユーザーは自分に関係する通知だけを受け取るべきです。どうすべきですか？
+      en: A topic has many users' email subscriptions, and each user should only receive notifications about them. What should you do?
     options:
-      - { id: a, text: 为每个用户创建一个主题 }
-      - { id: b, text: 在每个订阅上设置过滤策略（如按消息属性 userId），发布时带上该属性 }
-      - { id: c, text: 在邮件客户端设置收信规则 }
-      - { id: d, text: 使用 SNS FIFO 主题 }
+      - id: a
+        text:
+          zh-CN: 为每个用户创建一个主题
+          ja: ユーザーごとにトピックを作成する
+          en: Create a topic per user
+      - id: b
+        text:
+          zh-CN: 在每个订阅上设置过滤策略（如按消息属性 userId），发布时带上该属性
+          ja: 各サブスクリプションにフィルターポリシー（たとえばメッセージ属性 userId で照合）を設定し、発行時にその属性を付ける
+          en: Set a filter policy on each subscription (for example matching the message attribute userId) and include that attribute when publishing
+      - id: c
+        text:
+          zh-CN: 在邮件客户端设置收信规则
+          ja: メールクライアントで受信ルールを設定する
+          en: Set up inbox rules in the email client
+      - id: d
+        text:
+          zh-CN: 使用 SNS FIFO 主题
+          ja: SNS FIFO トピックを使う
+          en: Use an SNS FIFO topic
     answer: [b]
-    explain: 订阅过滤策略在 SNS 侧过滤；发布时忘了带属性，所有带过滤策略的订阅都收不到。
+    explain:
+      zh-CN: 订阅过滤策略在 SNS 侧过滤；发布时忘了带属性，所有带过滤策略的订阅都收不到。
+      ja: サブスクリプションフィルターポリシーは SNS 側でフィルタリングします。発行時に属性を付け忘れると、フィルターポリシーを持つサブスクリプションはどれも受け取れません。
+      en: Subscription filter policies filter on the SNS side; if you forget the attribute when publishing, no subscription with a filter policy receives the message.
     relatesTo: subscribe-users
     difficulty: 1
   - id: sns-vs-ses
@@ -36,14 +80,36 @@ questions:
     type: single
     kind: scenario
     services: [sns, ses]
-    stem: 注册后要给用户发送带个性化链接的 HTML 验证邮件，用户此前没有订阅过任何东西。应使用？
+    stem:
+      zh-CN: 注册后要给用户发送带个性化链接的 HTML 验证邮件，用户此前没有订阅过任何东西。应使用？
+      ja: 登録後、ユーザーに個別のリンクを含む HTML の確認メールを送る必要があります。ユーザーはこれまで何もサブスクライブしていません。何を使うべきですか？
+      en: After sign-up, users must get an HTML verification email with a personalized link, and they have not subscribed to anything before. What should you use?
     options:
-      - { id: a, text: SNS 邮件订阅 }
-      - { id: b, text: Amazon SES }
-      - { id: c, text: SNS 短信 }
-      - { id: d, text: CloudWatch 告警通知 }
+      - id: a
+        text:
+          zh-CN: SNS 邮件订阅
+          ja: SNS のメールサブスクリプション
+          en: SNS email subscriptions
+      - id: b
+        text:
+          zh-CN: Amazon SES
+          ja: Amazon SES
+          en: Amazon SES
+      - id: c
+        text:
+          zh-CN: SNS 短信
+          ja: SNS の SMS
+          en: SNS SMS
+      - id: d
+        text:
+          zh-CN: CloudWatch 告警通知
+          ja: CloudWatch アラームの通知
+          en: CloudWatch alarm notifications
     answer: [b]
-    explain: SNS 邮件订阅需要收件人先确认、只能发纯文本、所有订阅者内容相同；事务性个性化邮件用 SES。
+    explain:
+      zh-CN: SNS 邮件订阅需要收件人先确认、只能发纯文本、所有订阅者内容相同；事务性个性化邮件用 SES。
+      ja: SNS のメールサブスクリプションは受信者が先に確認する必要があり、プレーンテキストしか送れず、全サブスクライバーに同じ内容が届きます。個別化されたトランザクションメールには SES を使います。
+      en: SNS email subscriptions need the recipient to confirm first, can only send plain text and send the same content to every subscriber; use SES for personalized transactional email.
     relatesTo: enable
     difficulty: 1
   - id: sns-sqs-kms
@@ -51,27 +117,71 @@ questions:
     type: single
     kind: scenario
     services: [sns, sqs, kms]
-    stem: SNS 主题向一个用客户托管 KMS 密钥加密的 SQS 队列投递，主题的 NumberOfNotificationsFailed 一直在增加，队列里没有消息。最可能的原因是？
+    stem:
+      zh-CN: SNS 主题向一个用客户托管 KMS 密钥加密的 SQS 队列投递，主题的 NumberOfNotificationsFailed 一直在增加，队列里没有消息。最可能的原因是？
+      ja: SNS トピックがカスタマー管理の KMS キーで暗号化された SQS キューに配信しています。トピックの NumberOfNotificationsFailed が増え続け、キューにはメッセージがありません。最も考えられる原因はどれですか？
+      en: An SNS topic delivers to an SQS queue encrypted with a customer managed KMS key. The topic's NumberOfNotificationsFailed keeps rising and the queue has no messages. What is the most likely cause?
     options:
-      - { id: a, text: 队列没有开启长轮询 }
-      - { id: b, text: KMS 密钥策略没有授权 sns.amazonaws.com 使用该密钥 }
-      - { id: c, text: 订阅没有开启原始消息传递 }
-      - { id: d, text: 队列的可见性超时太短 }
+      - id: a
+        text:
+          zh-CN: 队列没有开启长轮询
+          ja: キューでロングポーリングが有効になっていない
+          en: The queue does not have long polling turned on
+      - id: b
+        text:
+          zh-CN: KMS 密钥策略没有授权 sns.amazonaws.com 使用该密钥
+          ja: KMS キーポリシーで sns.amazonaws.com にキーの使用を許可していない
+          en: The KMS key policy does not allow sns.amazonaws.com to use the key
+      - id: c
+        text:
+          zh-CN: 订阅没有开启原始消息传递
+          ja: サブスクリプションで raw メッセージ配信が有効になっていない
+          en: The subscription does not have raw message delivery turned on
+      - id: d
+        text:
+          zh-CN: 队列的可见性超时太短
+          ja: キューの可視性タイムアウトが短すぎる
+          en: The queue's visibility timeout is too short
     answer: [b]
-    explain: SNS 以服务主体身份写入加密队列，需要密钥策略允许 sns.amazonaws.com 执行 kms:GenerateDataKey / kms:Decrypt；否则投递静默失败，只能从指标看出来。
+    explain:
+      zh-CN: SNS 以服务主体身份写入加密队列，需要密钥策略允许 sns.amazonaws.com 执行 kms:GenerateDataKey / kms:Decrypt；否则投递静默失败，只能从指标看出来。
+      ja: SNS はサービスプリンシパルとして暗号化されたキューに書き込むため、キーポリシーで sns.amazonaws.com に kms:GenerateDataKey / kms:Decrypt を許可する必要があります。そうしないと配信は通知なしに失敗し、メトリクスでしか気づけません。
+      en: SNS writes to the encrypted queue as a service principal, so the key policy must allow sns.amazonaws.com kms:GenerateDataKey / kms:Decrypt; otherwise deliveries fail silently and only the metrics show it.
     difficulty: 2
   - id: sns-confused-deputy
     domain: secure
     type: single
     kind: concept
     services: [sns, sqs]
-    stem: 队列策略允许 sns.amazonaws.com 执行 sqs:SendMessage。为了只让你自己的那个主题能写入，应该再加什么？
+    stem:
+      zh-CN: 队列策略允许 sns.amazonaws.com 执行 sqs:SendMessage。为了只让你自己的那个主题能写入，应该再加什么？
+      ja: キューポリシーで sns.amazonaws.com に sqs:SendMessage を許可しています。自分のトピックだけが書き込めるようにするには、何を追加すべきですか？
+      en: The queue policy allows sns.amazonaws.com to call sqs:SendMessage. What should you add so that only your own topic can write?
     options:
-      - { id: a, text: 条件 aws:SourceArn 等于该主题的 ARN }
-      - { id: b, text: 条件 aws:SecureTransport 为 true }
-      - { id: c, text: 把 Principal 改成 * }
-      - { id: d, text: 给队列开启 SSE-SQS }
+      - id: a
+        text:
+          zh-CN: 条件 aws:SourceArn 等于该主题的 ARN
+          ja: aws:SourceArn がそのトピックの ARN と等しいという条件
+          en: A condition that aws:SourceArn equals that topic's ARN
+      - id: b
+        text:
+          zh-CN: 条件 aws:SecureTransport 为 true
+          ja: aws:SecureTransport が true という条件
+          en: A condition that aws:SecureTransport is true
+      - id: c
+        text:
+          zh-CN: 把 Principal 改成 *
+          ja: Principal を * に変える
+          en: Change the Principal to *
+      - id: d
+        text:
+          zh-CN: 给队列开启 SSE-SQS
+          ja: キューで SSE-SQS を有効にする
+          en: Turn on SSE-SQS for the queue
     answer: [a]
-    explain: 服务主体代表很多账号行事；用 aws:SourceArn（或 aws:SourceAccount）限定来源，防止混淆代理人。
+    explain:
+      zh-CN: 服务主体代表很多账号行事；用 aws:SourceArn（或 aws:SourceAccount）限定来源，防止混淆代理人。
+      ja: サービスプリンシパルは多くのアカウントに代わって動作します。aws:SourceArn（または aws:SourceAccount）で送信元を限定し、混乱した代理問題を防ぎます。
+      en: A service principal acts on behalf of many accounts; limit the source with aws:SourceArn (or aws:SourceAccount) to prevent the confused deputy problem.
     relatesTo: enable
     difficulty: 1

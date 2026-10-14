@@ -1,20 +1,53 @@
 # 接入 SES（第 3、4 步）。email-wired 与 svc-email 同名：svc-email/email-path-seen、feedback-dlq-empty 的 dependsOn 解析到这里。
 checks:
   - id: email-wired
-    title: email 已切换到 SES（沙盒中为黄色，视为正常）
+    title:
+      zh-CN: email 已切换到 SES（沙盒中为黄色，视为正常）
+      ja: email が SES に切り替わった（サンドボックスでは黄色だが、正常とみなす）
+      en: email has switched to SES (yellow in the sandbox, which counts as fine)
     type: capability
     module: email
     drift: { policy: must-hold, monitor: true }
     assert:
-      - { path: $.driver, op: eq, value: ses, label: 驱动 }
+      - path: $.driver
+        op: eq
+        value: ses
+        label:
+          zh-CN: 驱动
+          ja: ドライバー
+          en: Driver
     anyOf:
-      - [ { path: $, op: healthy, label: 状态正常（本区域已有生产访问） } ]
-      - [ { path: $.status, op: eq, value: degraded, label: 状态为 degraded }, { path: $.detail, op: startsWith, value: 沙盒, label: 原因是 SES 沙盒 } ]
-    explain: SES 沙盒是 email 探针的结果，不是规则表里的 warn，op healthy 不接受它；这里用 anyOf 单独放行“沙盒”这一种 degraded（附录 C-18）。会话内不会离开沙盒。
+      - - path: $
+          op: healthy
+          label:
+            zh-CN: 状态正常（本区域已有生产访问）
+            ja: 状態が正常（このリージョンで本番アクセスがすでにある）
+            en: Healthy (this Region already has production access)
+      - - path: $.status
+          op: eq
+          value: degraded
+          label:
+            zh-CN: 状态为 degraded
+            ja: 状態が degraded
+            en: Status is degraded
+        - path: $.detail
+          op: startsWith
+          value: 沙盒
+          label:
+            zh-CN: 原因是 SES 沙盒
+            ja: 理由が SES のサンドボックス
+            en: The reason is the SES sandbox
+    explain:
+      zh-CN: SES 沙盒是 email 探针的结果，不是规则表里的 warn，op healthy 不接受它；这里用 anyOf 单独放行“沙盒”这一种 degraded（附录 C-18）。会话内不会离开沙盒。
+      ja: SES のサンドボックスは email のプローブの結果であり、ルール表の warn ではないため、op healthy では受け付けられません。ここでは anyOf で「サンドボックス」という degraded だけを個別に許可しています（付録 C-18）。セッション中にサンドボックスを抜けることはありません。
+      en: The SES sandbox is a result of the email probe, not a warn in the rule table, so op healthy does not accept it; here anyOf separately allows just the "sandbox" kind of degraded (appendix C-18). The session never leaves the sandbox.
     reproduce: { run: 'curl -s http://127.0.0.1/api/capabilities | jq ".modules.email | {driver, status, detail}"', runsOn: lab }
 
   - id: feedback-subscription
-    title: SES 事件主题由本模块的反馈队列订阅（退信与投诉经 SNS → SQS 回流）
+    title:
+      zh-CN: SES 事件主题由本模块的反馈队列订阅（退信与投诉经 SNS → SQS 回流）
+      ja: SES のイベントトピックをこのモジュールのフィードバックキューがサブスクライブしている（バウンスと苦情は SNS → SQS で戻る）
+      en: The SES event topic is subscribed by this module's feedback queue (bounces and complaints come back through SNS → SQS)
     type: aws-readonly
     service: sns
     action: ListSubscriptionsByTopic
@@ -28,24 +61,52 @@ checks:
         where: { Protocol: sqs, Endpoint: { op: endsWith, value: ':cloudalbum-{{ session.env }}-email-feedback' } }
         op: len_eq
         value: 1
-        label: 反馈队列的 sqs 订阅
+        label:
+          zh-CN: 反馈队列的 sqs 订阅
+          ja: フィードバックキューの sqs サブスクリプション
+          en: sqs subscription of the feedback queue
       - path: $.Subscriptions
         where: { Protocol: { op: in, value: [http, https] } }
         op: len_eq
         value: 0
-        label: 推送到 HTTP(S) 端点的订阅
-    explain: 配置集的事件目标把投递、退信、投诉事件发到本模块的 SNS 主题，主题由反馈队列订阅，worker 长轮询拉取——实验机只发起出站连接，不需要任何入站端口；worker 停机时事件留在队列里。
+        label:
+          zh-CN: 推送到 HTTP(S) 端点的订阅
+          ja: HTTP(S) エンドポイントにプッシュするサブスクリプション
+          en: Subscriptions that push to HTTP(S) endpoints
+    explain:
+      zh-CN: 配置集的事件目标把投递、退信、投诉事件发到本模块的 SNS 主题，主题由反馈队列订阅，worker 长轮询拉取——实验机只发起出站连接，不需要任何入站端口；worker 停机时事件留在队列里。
+      ja: 設定セットのイベント送信先が、配信、バウンス、苦情のイベントをこのモジュールの SNS トピックに送り、トピックはフィードバックキューがサブスクライブし、worker がロングポーリングで取得します。ラボ用インスタンスは送信方向の接続を開始するだけで、受信ポートは一切不要です。worker が停止している間、イベントはキューに残ります。
+      en: The configuration set's event destination sends delivery, bounce and complaint events to this module's SNS topic, the feedback queue subscribes to the topic, and the worker long-polls it — the lab instance only opens outbound connections and needs no inbound port at all; while the worker is down, events stay in the queue.
     reproduce: { run: 'aws sns list-subscriptions-by-topic --topic-arn "{{ var.emailEventsTopicArn }}" --query "Subscriptions[].[Protocol,Endpoint]" --output table', runsOn: workstation }
     manualFallback:
       where: { breadcrumb: [SNS, 主题, 'cloudalbum-{{ session.env }}-email-events', 订阅], region: app }
       observed:
-        question: 这个主题的订阅是什么协议、指向哪里？
+        question:
+          zh-CN: 这个主题的订阅是什么协议、指向哪里？
+          ja: このトピックのサブスクリプションはどのプロトコルで、どこを指していますか？
+          en: What protocol does this topic's subscription use, and where does it point?
         options:
-          - { value: sqs, label: '协议 SQS，终端节点是 cloudalbum-{{ session.env }}-email-feedback 队列', expected: true }
-          - { value: https, label: 协议 HTTPS，指向实验机, fixHint: 不要把 SES 事件推到实例的公网端点；重新执行 scripts/module enable email }
+          - value: sqs
+            label:
+              zh-CN: '协议 SQS，终端节点是 cloudalbum-{{ session.env }}-email-feedback 队列'
+              ja: プロトコルは SQS、エンドポイントは cloudalbum-{{ session.env }}-email-feedback キュー
+              en: Protocol SQS, endpoint the cloudalbum-{{ session.env }}-email-feedback queue
+            expected: true
+          - value: https
+            label:
+              zh-CN: 协议 HTTPS，指向实验机
+              ja: プロトコルは HTTPS で、ラボ用インスタンスを指す
+              en: Protocol HTTPS, pointing at the lab instance
+            fixHint:
+              zh-CN: 不要把 SES 事件推到实例的公网端点；重新执行 scripts/module enable email
+              ja: SES のイベントをインスタンスのパブリックなエンドポイントにプッシュしないでください。scripts/module enable email を再実行してください
+              en: Do not push SES events to the instance's public endpoint; run scripts/module enable email again
 
   - id: exp-sandbox-after
-    title: sandbox（发给未验证地址）有一条有效结果
+    title:
+      zh-CN: sandbox（发给未验证地址）有一条有效结果
+      ja: sandbox（未検証のアドレスへの送信）に有効な結果が 1 件ある
+      en: sandbox (sending to an unverified address) has one valid result
     type: experiment
     module: email
     experiment: sandbox
@@ -53,15 +114,45 @@ checks:
     accept: [valid]
 
   - id: bounce-observed
-    title: （选做）退信与投诉回流到应用
+    title:
+      zh-CN: （选做）退信与投诉回流到应用
+      ja: （任意）バウンスと苦情がアプリに戻ってくる
+      en: (Optional) Bounces and complaints flow back to the app
     type: manual
     required: false
     spec:
       where: { breadcrumb: [CloudAlbum, 管理后台, 邮件 outbox] }
       observed:
-        question: 用 bounce@simulator.amazonses.com 注册的那封验证邮件，在 /admin/outbox 中最后显示什么状态？
+        question:
+          zh-CN: 用 bounce@simulator.amazonses.com 注册的那封验证邮件，在 /admin/outbox 中最后显示什么状态？
+          ja: bounce@simulator.amazonses.com で登録したときの確認メールは、/admin/outbox で最終的にどの状態と表示されていますか？
+          en: For the verification email from the sign-up with bounce@simulator.amazonses.com, what status does /admin/outbox finally show?
         options:
-          - { value: bounced, label: 退信（bounced），该用户之后只收必要邮件, expected: true }
-          - { value: sent, label: 一直是“已发送”, fixHint: 反馈事件通常几秒到几分钟回流；确认 worker 在运行（systemctl is-active cloudalbum-worker）、反馈 DLQ 为空 }
-          - { value: rejected, label: 失败（MessageRejected）, fixHint: 邮箱模拟器的地址在沙盒中也能收信；检查地址是否拼写正确 }
-    explain: 原生手动确认（04 §5.2.6）：投递状态由 SES 事件 → SNS → SQS → worker 更新，只有你在管理后台能看到对应的那一行。
+          - value: bounced
+            label:
+              zh-CN: 退信（bounced），该用户之后只收必要邮件
+              ja: バウンス（bounced）。このユーザーには以後、必要なメールだけが送られる
+              en: Bounced; from then on this user only gets essential emails
+            expected: true
+          - value: sent
+            label:
+              zh-CN: 一直是“已发送”
+              ja: ずっと「送信済み」のまま
+              en: It stays "sent"
+            fixHint:
+              zh-CN: 反馈事件通常几秒到几分钟回流；确认 worker 在运行（systemctl is-active cloudalbum-worker）、反馈 DLQ 为空
+              ja: フィードバックのイベントは通常、数秒から数分で戻ってきます。worker が動いていること（systemctl is-active cloudalbum-worker）、フィードバック DLQ が空であることを確認してください
+              en: Feedback events usually come back within seconds to minutes; check that the worker is running (systemctl is-active cloudalbum-worker) and the feedback DLQ is empty
+          - value: rejected
+            label:
+              zh-CN: 失败（MessageRejected）
+              ja: 失敗（MessageRejected）
+              en: Failed (MessageRejected)
+            fixHint:
+              zh-CN: 邮箱模拟器的地址在沙盒中也能收信；检查地址是否拼写正确
+              ja: メールボックスシミュレーターのアドレスはサンドボックスでも受信できます。アドレスのつづりが正しいか確認してください
+              en: Mailbox simulator addresses can receive mail even in the sandbox; check the address spelling
+    explain:
+      zh-CN: 原生手动确认（04 §5.2.6）：投递状态由 SES 事件 → SNS → SQS → worker 更新，只有你在管理后台能看到对应的那一行。
+      ja: 本来の手動確認（04 §5.2.6）：配信の状態は SES のイベント → SNS → SQS → worker によって更新され、対応する行を見られるのは管理画面のあなただけです。
+      en: "Native manual confirmation (04 §5.2.6): the delivery status is updated by SES events → SNS → SQS → worker, and only you can see the matching row in the admin console."

@@ -5,12 +5,27 @@ id: sc-backup-dr
 kind: scenario
 version: 0.1.0
 status: planned
-title: 备份与灾备
-subtitle: AWS Backup + S3 跨区域复制 + Route 53 故障转移
-summary: 东京区域故障时数据还在、入口能切走：按标签集中备份并复制到大阪，原图实时复制到大阪的桶，Route 53 健康检查失败时把用户引到大阪的维护站点
-story: 一家面向全国用户的相册服务被客户问到灾备能力：“如果东京区域整体不可用，你们最多丢多少数据（RPO）、多久能恢复服务（RTO）？”现状是每天凌晨在同一块磁盘上做一次 SQLite 备份，从未演练过恢复。管理层给出的目标是：数据层任何一类数据（EBS、RDS、DynamoDB、S3）都在另一个区域有副本；新上传的原图几分钟内就出现在另一个区域；东京入口故障时，用户至少能看到一个说明情况的维护页而不是超时；整个方案先按“备份与恢复
-  + 静态降级”实施，成本要可控，并说明往 Pilot Light 演进还缺什么。
-scenario: {question: 一家公司要求关键业务的 RPO 为分钟级、RTO 不超过一小时，同时希望灾备区域平时的成本尽量低。应用由 EC2 与 RDS for PostgreSQL 组成。哪种策略最合适？}
+title:
+  zh-CN: 备份与灾备
+  ja: バックアップと DR
+  en: Backup and disaster recovery
+subtitle:
+  zh-CN: AWS Backup + S3 跨区域复制 + Route 53 故障转移
+  ja: AWS Backup + S3 クロスリージョンレプリケーション + Route 53 フェイルオーバー
+  en: AWS Backup + S3 Cross-Region Replication + Route 53 failover
+summary:
+  zh-CN: 东京区域故障时数据还在、入口能切走：按标签集中备份并复制到大阪，原图实时复制到大阪的桶，Route 53 健康检查失败时把用户引到大阪的维护站点
+  ja: 東京リージョンに障害が起きてもデータは残り、入口を切り替えられるようにします。タグに基づいて一元的にバックアップして大阪にコピーし、元画像は大阪のバケットにリアルタイムでレプリケートし、Route 53 のヘルスチェックが失敗したらユーザーを大阪のメンテナンスサイトに誘導します
+  en: "Keep the data and switch the entry point when the Tokyo Region fails: back up centrally by tag and copy to Osaka, replicate original images to an Osaka bucket in real time, and send users to an Osaka maintenance site when the Route 53 health check fails"
+story:
+  zh-CN: 一家面向全国用户的相册服务被客户问到灾备能力：“如果东京区域整体不可用，你们最多丢多少数据（RPO）、多久能恢复服务（RTO）？”现状是每天凌晨在同一块磁盘上做一次 SQLite 备份，从未演练过恢复。管理层给出的目标是：数据层任何一类数据（EBS、RDS、DynamoDB、S3）都在另一个区域有副本；新上传的原图几分钟内就出现在另一个区域；东京入口故障时，用户至少能看到一个说明情况的维护页而不是超时；整个方案先按“备份与恢复 + 静态降级”实施，成本要可控，并说明往 Pilot Light 演进还缺什么。
+  ja: 全国のユーザー向けのアルバムサービスが、顧客から DR の能力について質問されました。「東京リージョン全体が使えなくなったら、データは最大どれだけ失われますか（RPO）？サービスはどれくらいで復旧しますか（RTO）？」現状は毎日未明に同じディスク上で SQLite のバックアップを 1 回取っているだけで、復元の訓練をしたことは一度もありません。経営陣が示した目標は次のとおりです。データ層のどの種類のデータ（EBS、RDS、DynamoDB、S3）も別リージョンにコピーがあること。新しくアップロードされた元画像が数分以内に別リージョンにも現れること。東京の入口が故障したとき、ユーザーにはタイムアウトではなく少なくとも状況を説明するメンテナンスページが表示されること。まずは「バックアップと復元 + 静的な縮退運転」として実施し、コストを抑え、Pilot Light に進むには何が足りないかも説明すること。
+  en: 'A nationwide photo album service is asked by a customer about its disaster recovery: "If the whole Tokyo Region goes down, how much data can you lose at most (RPO), and how long until service is back (RTO)?" Today there is one SQLite backup every night on the same disk, and a restore has never been rehearsed. Management sets these goals: every kind of data in the data tier (EBS, RDS, DynamoDB, S3) has a copy in another Region; newly uploaded original images appear in the other Region within minutes; when the Tokyo entry point fails, users at least see a maintenance page that explains the situation instead of a timeout; the first version is "backup and restore plus static degradation" at a controlled cost, with a note on what is still missing for Pilot Light.'
+scenario:
+  question:
+    zh-CN: 一家公司要求关键业务的 RPO 为分钟级、RTO 不超过一小时，同时希望灾备区域平时的成本尽量低。应用由 EC2 与 RDS for PostgreSQL 组成。哪种策略最合适？
+    ja: ある企業は、重要な業務について RPO を分単位、RTO を 1 時間以内にすることを求めています。同時に、DR リージョンの平常時のコストはできるだけ低くしたいと考えています。アプリケーションは EC2 と RDS for PostgreSQL で構成されています。最も適切な戦略はどれですか？
+    en: A company requires an RPO of minutes and an RTO of at most one hour for its critical workload, while keeping the everyday cost of the DR Region as low as possible. The application runs on EC2 and RDS for PostgreSQL. Which strategy is most suitable?
 difficulty: advanced
 estimatedMinutes: 150
 timeLimitMinutes: 240
@@ -49,7 +64,10 @@ startProfile:
     kind: module
     basis: credential
     set: {IAM_CREDENTIALS: role}
-    reason: 平台约定除 svc-ec2、svc-iam 外起始状态都带实例角色（C3）
+    reason:
+      zh-CN: 平台约定除 svc-ec2、svc-iam 外起始状态都带实例角色（C3）
+      ja: プラットフォームの取り決めにより、svc-ec2 と svc-iam 以外の開始状態にはインスタンスロールが付いています（C3）
+      en: By platform convention, every start state except svc-ec2 and svc-iam includes an instance role (C3)
   - item: storage
     kind: module
     basis: context
@@ -65,7 +83,12 @@ startProfile:
     basis: context
     contextKind: protected-data
     set: {SOCIAL_DRIVER: dynamodb}
-  - {item: preview-direct-https, kind: platform, reason: 预览使用方案 B 的 Let's Encrypt IP 证书（03 §6.2）}
+  - item: preview-direct-https
+    kind: platform
+    reason:
+      zh-CN: 预览使用方案 B 的 Let's Encrypt IP 证书（03 §6.2）
+      ja: プレビューには方式 B の Let's Encrypt IP 証明書を使います（03 §6.2）
+      en: The preview uses the option B Let's Encrypt IP certificate (03 §6.2)
   platform:
     preview: {directHttps: 'on'}
 targetModules:
@@ -79,7 +102,15 @@ targetModules:
 expectedWarnings: []
 cost: {tier: high}
 provision: {class: C}
-badge: {title: 备份与灾备, short: 灾备}
+badge:
+  title:
+    zh-CN: 备份与灾备
+    ja: バックアップと DR
+    en: Backup and DR
+  short:
+    zh-CN: 灾备
+    ja: DR
+    en: DR
 tracks: [resilient, saa-main]
 saa:
   domains: [resilient, cost, secure]

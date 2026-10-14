@@ -2,7 +2,10 @@
 # dependsOn 解析到这里。引擎的 pendingIf 是“任一成立即等待”，所以只用 detail 中的“订阅待确认”判定等待。
 checks:
   - id: notification-wired
-    title: notification 已切换到 SNS，且状态正常
+    title:
+      zh-CN: notification 已切换到 SNS，且状态正常
+      ja: notification が SNS に切り替わり、状態が正常
+      en: notification has switched to SNS and is healthy
     type: capability
     module: notification
     expectedWarnings: []
@@ -11,14 +14,31 @@ checks:
       - { path: $.detail, op: contains, value: 订阅待确认 }
     drift: { policy: must-hold, monitor: true }
     assert:
-      - { path: $.driver, op: eq, value: sns, label: 驱动 }
-      - { path: $, op: healthy, label: 状态正常（本卡没有预期警告，必须是 ok） }
-    explain: 运维订阅（--param AdminEmail）点击确认链接之前，探针报 degraded“运维订阅待确认”，这里记为等待而不是失败（附录 C-18）；其他原因的 degraded 照常判为不通过。
+      - path: $.driver
+        op: eq
+        value: sns
+        label:
+          zh-CN: 驱动
+          ja: ドライバー
+          en: Driver
+      - path: $
+        op: healthy
+        label:
+          zh-CN: 状态正常（本卡没有预期警告，必须是 ok）
+          ja: 状態が正常（このカードには想定内の警告がないので ok でなければならない）
+          en: Healthy (this card has no expected warnings, so it must be ok)
+    explain:
+      zh-CN: 运维订阅（--param AdminEmail）点击确认链接之前，探针报 degraded“运维订阅待确认”，这里记为等待而不是失败（附录 C-18）；其他原因的 degraded 照常判为不通过。
+      ja: 運用担当のサブスクリプション（--param AdminEmail）の確認リンクをクリックするまで、プローブは degraded「运维订阅待确认」（運用担当のサブスクリプションが確認待ち）を報告します。ここでは失敗ではなく待機として扱います（付録 C-18）。それ以外の理由の degraded は通常どおり不合格と判定します。
+      en: Until you click the confirmation link of the operations subscription (--param AdminEmail), the probe reports degraded "运维订阅待确认" (operations subscription pending confirmation), which counts as waiting rather than failure (appendix C-18); degraded for any other reason fails as usual.
     reproduce: { run: 'curl -s http://127.0.0.1/api/capabilities | jq ".modules.notification | {driver, status, detail}"', runsOn: lab }
     pitfalls: [fanout-admin-not-confirmed]
 
   - id: user-subscriptions
-    title: 通知主题上有收件队列的 SQS 订阅，且至少两个邮件订阅已确认
+    title:
+      zh-CN: 通知主题上有收件队列的 SQS 订阅，且至少两个邮件订阅已确认
+      ja: 通知トピックに受信キューの SQS サブスクリプションがあり、少なくとも 2 つのメールサブスクリプションが確認済み
+      en: The notification topic has the inbox queue's SQS subscription and at least two confirmed email subscriptions
     type: aws-readonly
     service: sns
     action: ListSubscriptionsByTopic
@@ -37,49 +57,137 @@ checks:
         where: { Protocol: sqs, Endpoint: '{{ var.inboxArn }}' }
         op: len_eq
         value: 1
-        label: 收件队列的 sqs 订阅
+        label:
+          zh-CN: 收件队列的 sqs 订阅
+          ja: 受信キューの sqs サブスクリプション
+          en: sqs subscription of the inbox queue
       - path: $.Subscriptions
         where: { Protocol: email, SubscriptionArn: { op: startsWith, value: 'arn:' } }
         op: len_gte
         value: 2
-        label: 已确认的邮件订阅数（+u1、+u2，另有运维邮箱时为 3）
-    explain: 主题的归属已由 topic-subscriptions 确认。待确认的订阅在列表中的 SubscriptionArn 是 PendingConfirmation，确认后才变成 ARN；还有待确认的订阅时这里是等待。
+        label:
+          zh-CN: 已确认的邮件订阅数（+u1、+u2，另有运维邮箱时为 3）
+          ja: 確認済みのメールサブスクリプションの数（+u1、+u2。運用担当のメールアドレスもあれば 3）
+          en: Confirmed email subscriptions (+u1, +u2; 3 with the operations mailbox)
+    explain:
+      zh-CN: 主题的归属已由 topic-subscriptions 确认。待确认的订阅在列表中的 SubscriptionArn 是 PendingConfirmation，确认后才变成 ARN；还有待确认的订阅时这里是等待。
+      ja: トピックの所有は topic-subscriptions で確認済みです。確認待ちのサブスクリプションは一覧での SubscriptionArn が PendingConfirmation で、確認後に ARN に変わります。確認待ちのサブスクリプションが残っている間、ここは待機になります。
+      en: topic-subscriptions has already confirmed the topic's ownership. Pending subscriptions show SubscriptionArn as PendingConfirmation in the list until they are confirmed and become ARNs; while any are pending, this item is waiting.
     reproduce: { run: 'aws sns list-subscriptions-by-topic --topic-arn "{{ var.topicArn }}" --query "Subscriptions[].[Protocol,Endpoint,SubscriptionArn]" --output table', runsOn: workstation }
     manualFallback:
       where: { breadcrumb: [SNS, 主题, 'cloudalbum-{{ session.env }}-notification-events', 订阅], region: app }
       observed:
-        question: 订阅列表中，状态为“已确认”的电子邮件订阅有几个？
+        question:
+          zh-CN: 订阅列表中，状态为“已确认”的电子邮件订阅有几个？
+          ja: サブスクリプションの一覧で、状態が「確認済み」の E メールのサブスクリプションはいくつありますか？
+          en: How many email subscriptions in the list have the status "Confirmed"?
         options:
-          - { value: '2+', label: 2 个或更多, expected: true }
-          - { value: less, label: 少于 2 个, fixHint: 先运行 subscribe-users.ts，再到邮箱点击收件人为 +u1、+u2 的确认邮件（可能在垃圾箱） }
+          - value: '2+'
+            label:
+              zh-CN: 2 个或更多
+              ja: 2 つ以上
+              en: 2 or more
+            expected: true
+          - value: less
+            label:
+              zh-CN: 少于 2 个
+              ja: 2 つ未満
+              en: Fewer than 2
+            fixHint:
+              zh-CN: 先运行 subscribe-users.ts，再到邮箱点击收件人为 +u1、+u2 的确认邮件（可能在垃圾箱）
+              ja: 先に subscribe-users.ts を実行し、メールボックスで受信者が +u1、+u2 の確認メールをクリックしてください（迷惑メールフォルダーにあるかもしれません）
+              en: Run subscribe-users.ts first, then click the confirmation emails addressed to +u1 and +u2 in your mailbox (they may be in spam)
 
   - id: filter-policy-observed
-    title: 看懂 +u1 订阅的过滤策略
+    title:
+      zh-CN: 看懂 +u1 订阅的过滤策略
+      ja: +u1 のサブスクリプションのフィルターポリシーを読み解く
+      en: Understand the filter policy of the +u1 subscription
     type: manual
     spec:
       where: { breadcrumb: [SNS, 订阅, '<+u1 的订阅>', 订阅筛选策略], region: app }
       observed:
-        question: +u1 订阅的筛选策略是哪一种？
+        question:
+          zh-CN: +u1 订阅的筛选策略是哪一种？
+          ja: +u1 のサブスクリプションのフィルターポリシーはどれですか？
+          en: Which filter policy does the +u1 subscription have?
         options:
-          - { value: user-only, label: '{"userId":["<u1 的用户 ID>"]}，作用范围是消息属性', expected: true }
-          - { value: or-admin, label: '{"$or":[{"userId":[…]},{"audience":["admin"]}]}', fixHint: 种子用户被设为了管理员（seed-users.ts 没有加 --no-admins）；不影响本卡，但 +u1 也会收到管理员广播 }
-          - { value: none, label: 没有筛选策略, fixHint: 没有筛选策略的邮件订阅会收到所有人的通知——这是隐私事故；检查 subscribe-users.ts 的输出 }
-    explain: 原生手动确认（04 §5.2.6）：订阅 ARN 只有学员能在控制台里对上号；过滤由 SNS 在投递前执行，不需要应用判断“谁该收”。
+          - value: user-only
+            label:
+              zh-CN: '{"userId":["<u1 的用户 ID>"]}，作用范围是消息属性'
+              ja: '{"userId":["<u1 のユーザー ID>"]}、範囲はメッセージ属性'
+              en: "{\"userId\":[\"<u1's user ID>\"]}, scoped to message attributes"
+            expected: true
+          - value: or-admin
+            label:
+              zh-CN: '{"$or":[{"userId":[…]},{"audience":["admin"]}]}'
+              ja: '{"$or":[{"userId":[…]},{"audience":["admin"]}]}'
+              en: '{"$or":[{"userId":[…]},{"audience":["admin"]}]}'
+            fixHint:
+              zh-CN: 种子用户被设为了管理员（seed-users.ts 没有加 --no-admins）；不影响本卡，但 +u1 也会收到管理员广播
+              ja: シードしたユーザーが管理者に設定されています（seed-users.ts に --no-admins を付けていない）。このカードには影響しませんが、+u1 も管理者向けブロードキャストを受け取ります
+              en: The seeded users were made admins (seed-users.ts ran without --no-admins); this does not affect the card, but +u1 also receives admin broadcasts
+          - value: none
+            label:
+              zh-CN: 没有筛选策略
+              ja: フィルターポリシーがない
+              en: No filter policy
+            fixHint:
+              zh-CN: 没有筛选策略的邮件订阅会收到所有人的通知——这是隐私事故；检查 subscribe-users.ts 的输出
+              ja: フィルターポリシーのないメールサブスクリプションは全員の通知を受け取ります。これはプライバシー事故です。subscribe-users.ts の出力を確認してください
+              en: An email subscription without a filter policy receives everyone's notifications — a privacy incident; check the output of subscribe-users.ts
+    explain:
+      zh-CN: 原生手动确认（04 §5.2.6）：订阅 ARN 只有学员能在控制台里对上号；过滤由 SNS 在投递前执行，不需要应用判断“谁该收”。
+      ja: 本来の手動確認（04 §5.2.6）：サブスクリプションの ARN を照合できるのは、コンソールを見ている受講者だけです。フィルタリングは SNS が配信の前に行うので、アプリが「誰が受け取るべきか」を判断する必要はありません。
+      en: "Native manual confirmation (04 §5.2.6): only the learner looking at the console can match the subscription ARN; SNS filters before delivery, so the app does not need to decide who should receive what."
 
   - id: filter-mailbox
-    title: 订阅过滤在邮箱里的结果
+    title:
+      zh-CN: 订阅过滤在邮箱里的结果
+      ja: サブスクリプションフィルターのメールボックスでの結果
+      en: The result of subscription filtering in the mailbox
     type: manual
     spec:
       observed:
-        question: filter 场景发出的那条评论通知，哪些收件人收到了？
+        question:
+          zh-CN: filter 场景发出的那条评论通知，哪些收件人收到了？
+          ja: filter シナリオで送られたコメント通知は、どの受信者に届きましたか？
+          en: Which recipients received the comment notification sent by the filter scenario?
         options:
-          - { value: u1-only, label: 只有收件人为 +u1 的那封到达, expected: true }
-          - { value: both, label: +u1 与 +u2 都收到了, fixHint: +u2 的订阅没有过滤策略，或发布时没带 userId 属性；看 filter-policy-observed 的答案 }
-          - { value: none, label: 都没收到, fixHint: +u1 的订阅可能还是 PendingConfirmation（待确认的订阅不投递），或邮件进了垃圾箱 }
-    explain: 所有 + 别名都进同一个邮箱，按收件人地址区分。服务端证据（一行 sns、一行 sqs-copy）与 CloudWatch 的 NumberOfNotificationsFilteredOut 由另外两项检查核对。
+          - value: u1-only
+            label:
+              zh-CN: 只有收件人为 +u1 的那封到达
+              ja: 受信者が +u1 のメールだけが届いた
+              en: Only the email to +u1 arrived
+            expected: true
+          - value: both
+            label:
+              zh-CN: +u1 与 +u2 都收到了
+              ja: +u1 と +u2 の両方に届いた
+              en: Both +u1 and +u2 got it
+            fixHint:
+              zh-CN: +u2 的订阅没有过滤策略，或发布时没带 userId 属性；看 filter-policy-observed 的答案
+              ja: +u2 のサブスクリプションにフィルターポリシーがないか、発行時に userId 属性が付いていません。filter-policy-observed の答えを確認してください
+              en: Either the +u2 subscription has no filter policy, or the userId attribute was missing at publish time; look at your answer to filter-policy-observed
+          - value: none
+            label:
+              zh-CN: 都没收到
+              ja: どちらにも届かなかった
+              en: Neither got it
+            fixHint:
+              zh-CN: +u1 的订阅可能还是 PendingConfirmation（待确认的订阅不投递），或邮件进了垃圾箱
+              ja: +u1 のサブスクリプションがまだ PendingConfirmation かもしれません（確認待ちのサブスクリプションには配信されません）。または迷惑メールフォルダーに入っています
+              en: The +u1 subscription may still be PendingConfirmation (pending subscriptions get no deliveries), or the email went to spam
+    explain:
+      zh-CN: 所有 + 别名都进同一个邮箱，按收件人地址区分。服务端证据（一行 sns、一行 sqs-copy）与 CloudWatch 的 NumberOfNotificationsFilteredOut 由另外两项检查核对。
+      ja: すべての + エイリアスは同じメールボックスに届くので、受信者のアドレスで区別します。サーバー側の証拠（sns が 1 行、sqs-copy が 1 行）と CloudWatch の NumberOfNotificationsFilteredOut は、別の 2 つのチェックで照合します。
+      en: All + aliases land in the same mailbox, so tell them apart by recipient address. The server-side evidence (one sns row, one sqs-copy row) and CloudWatch's NumberOfNotificationsFilteredOut are checked by two other items.
 
   - id: exp-worker-stop-after
-    title: worker-stop（worker 停机 45 秒）有一条有效结果
+    title:
+      zh-CN: worker-stop（worker 停机 45 秒）有一条有效结果
+      ja: worker-stop（worker を 45 秒停止）に有効な結果が 1 件ある
+      en: worker-stop (worker stopped for 45 seconds) has one valid result
     type: experiment
     module: notification
     experiment: worker-stop
@@ -87,7 +195,10 @@ checks:
     accept: [valid]
 
   - id: worker-active
-    title: worker 已经恢复运行（cloudalbum-worker 为 active）
+    title:
+      zh-CN: worker 已经恢复运行（cloudalbum-worker 为 active）
+      ja: worker が稼働を再開した（cloudalbum-worker が active）
+      en: The worker is running again (cloudalbum-worker is active)
     type: local
     on: lab
     checkId: systemd-unit
@@ -95,21 +206,64 @@ checks:
     dependsOn: [exp-worker-stop-after]
     drift: { policy: must-hold, monitor: true }
     assert:
-      - { path: $.active, op: eq, value: active, label: ActiveState }
-    explain: 停机演练结束后 worker 必须重新启动，否则收件队列与 SES 反馈队列都没人消费：站内信的 sqs-copy 记录不会补齐，退信也不会回流。
+      - path: $.active
+        op: eq
+        value: active
+        label:
+          zh-CN: ActiveState
+          ja: ActiveState
+          en: ActiveState
+    explain:
+      zh-CN: 停机演练结束后 worker 必须重新启动，否则收件队列与 SES 反馈队列都没人消费：站内信的 sqs-copy 记录不会补齐，退信也不会回流。
+      ja: 停止の演習の後は worker を必ず再起動しなければなりません。そうしないと受信キューも SES のフィードバックキューも誰も消費せず、サイト内メッセージの sqs-copy の記録はそろわず、バウンスも戻ってきません。
+      en: The worker must be started again after the stop drill; otherwise nobody consumes the inbox queue or the SES feedback queue, the sqs-copy records for in-app messages never fill in, and bounces never come back.
     reproduce: { run: 'systemctl is-active cloudalbum-worker', runsOn: lab }
 
   - id: sns-vs-ses-mail
-    title: 对照两封邮件：SNS 的通知邮件与 SES 的验证邮件
+    title:
+      zh-CN: 对照两封邮件：SNS 的通知邮件与 SES 的验证邮件
+      ja: 2 通のメールを見比べる：SNS の通知メールと SES の確認メール
+      en: "Compare two emails: the SNS notification email and the SES verification email"
     type: manual
     spec:
       observed:
-        question: 对照邮箱里的“评论通知”（经 SNS）与“验证码 / 重置密码”（经 SES），哪一项描述正确？
+        question:
+          zh-CN: 对照邮箱里的“评论通知”（经 SNS）与“验证码 / 重置密码”（经 SES），哪一项描述正确？
+          ja: メールボックスの「コメント通知」（SNS 経由）と「確認コード / パスワードの再設定」（SES 経由）を見比べたとき、正しい説明はどれですか？
+          en: Comparing the "comment notification" (through SNS) and the "verification code / password reset" (through SES) in your mailbox, which description is correct?
         options:
-          - { value: diff, label: SNS 邮件发件人是 AWS Notifications、纯文本、带退订链接；SES 邮件发件人是你的身份、带 DKIM 签名, expected: true }
-          - { value: same, label: 两封邮件的发件人与格式完全相同, fixHint: 看发件人与正文底部；SNS 邮件订阅不能自定义发件人，也不能发 HTML }
-    explain: 原生手动确认（04 §5.2.6）。SNS 邮件适合运维告警这类“订阅者自己要的广播”；验证码、个性化内容、需要证明邮箱归属的邮件用 SES。
+          - value: diff
+            label:
+              zh-CN: SNS 邮件发件人是 AWS Notifications、纯文本、带退订链接；SES 邮件发件人是你的身份、带 DKIM 签名
+              ja: SNS のメールは送信者が AWS Notifications でプレーンテキスト、配信停止リンク付き。SES のメールは送信者があなたの ID で、DKIM 署名付き
+              en: The SNS email comes from AWS Notifications as plain text with an unsubscribe link; the SES email comes from your identity with a DKIM signature
+            expected: true
+          - value: same
+            label:
+              zh-CN: 两封邮件的发件人与格式完全相同
+              ja: 2 通のメールの送信者と形式はまったく同じ
+              en: The two emails have exactly the same sender and format
+            fixHint:
+              zh-CN: 看发件人与正文底部；SNS 邮件订阅不能自定义发件人，也不能发 HTML
+              ja: 送信者と本文の下部を見てください。SNS のメールサブスクリプションでは送信者をカスタマイズできず、HTML も送れません
+              en: Look at the sender and the bottom of the body; SNS email subscriptions cannot customize the sender or send HTML
+    explain:
+      zh-CN: 原生手动确认（04 §5.2.6）。SNS 邮件适合运维告警这类“订阅者自己要的广播”；验证码、个性化内容、需要证明邮箱归属的邮件用 SES。
+      ja: 本来の手動確認（04 §5.2.6）。SNS のメールは運用アラートのような「サブスクライバー自身が望むブロードキャスト」に向いています。確認コード、個別化された内容、メールアドレスの所有を証明する必要があるメールには SES を使います。
+      en: Native manual confirmation (04 §5.2.6). SNS email suits "broadcasts the subscribers themselves asked for", such as operations alerts; use SES for verification codes, personalized content and emails that must prove mailbox ownership.
 
 pitfalls:
-  - { id: fanout-admin-not-confirmed, title: 运维订阅还没确认, match: [ { checkId: notification-wired, result: pending } ],
-      cause: 运维邮箱的订阅处于 PendingConfirmation，探针报 degraded“运维订阅待确认”, fix: 在运维邮箱（你的 +admin 别名）里找 AWS Notifications 的确认邮件并点击链接；可能在垃圾箱 }
+  - id: fanout-admin-not-confirmed
+    title:
+      zh-CN: 运维订阅还没确认
+      ja: 運用担当のサブスクリプションがまだ確認されていない
+      en: The operations subscription is not confirmed yet
+    match: [ { checkId: notification-wired, result: pending } ]
+    cause:
+      zh-CN: 运维邮箱的订阅处于 PendingConfirmation，探针报 degraded“运维订阅待确认”
+      ja: 運用担当のメールアドレスのサブスクリプションが PendingConfirmation のままで、プローブは degraded「运维订阅待确认」（運用担当のサブスクリプションが確認待ち）を報告しています
+      en: The operations mailbox subscription is PendingConfirmation, and the probe reports degraded "运维订阅待确认" (operations subscription pending confirmation)
+    fix:
+      zh-CN: 在运维邮箱（你的 +admin 别名）里找 AWS Notifications 的确认邮件并点击链接；可能在垃圾箱
+      ja: 運用担当のメールボックス（あなたの +admin エイリアス）で AWS Notifications からの確認メールを探し、リンクをクリックしてください。迷惑メールフォルダーに入っていることがあります
+      en: Find the confirmation email from AWS Notifications in the operations mailbox (your +admin alias) and click the link; it may be in the spam folder

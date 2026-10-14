@@ -6,14 +6,36 @@ questions:
     type: single
     kind: scenario
     services: [cloudwatch-logs, ec2]
-    stem: Auto Scaling 组缩容后，被终止实例上的应用日志再也查不到。要求日志集中存放、实例终止后仍可查询，并能按字段聚合统计，运维开销最小的做法是？
+    stem:
+      zh-CN: Auto Scaling 组缩容后，被终止实例上的应用日志再也查不到。要求日志集中存放、实例终止后仍可查询，并能按字段聚合统计，运维开销最小的做法是？
+      ja: Auto Scaling グループがスケールインした後、終了したインスタンス上のアプリログが二度と見られなくなりました。ログを一元的に保存し、インスタンスの終了後も検索でき、フィールドごとに集計できるようにしたい場合、運用負荷が最も小さい方法はどれですか？
+      en: After an Auto Scaling group scales in, the application logs on terminated instances can no longer be found. Logs must be stored centrally, remain searchable after instances terminate, and support aggregation by field. What has the least operational overhead?
     options:
-      - { id: a, text: 每台实例定时把日志 rsync 到一个 EFS 文件系统 }
-      - { id: b, text: 用 CloudWatch Agent（或应用内 SDK）把日志发送到 CloudWatch Logs，用 Logs Insights 查询 }
-      - { id: c, text: 启用 CloudTrail 数据事件 }
-      - { id: d, text: 定期为每台实例的 EBS 卷创建快照 }
+      - id: a
+        text:
+          zh-CN: 每台实例定时把日志 rsync 到一个 EFS 文件系统
+          ja: 各インスタンスが定期的にログを EFS ファイルシステムに rsync する
+          en: Have each instance rsync its logs to an EFS file system on a schedule
+      - id: b
+        text:
+          zh-CN: 用 CloudWatch Agent（或应用内 SDK）把日志发送到 CloudWatch Logs，用 Logs Insights 查询
+          ja: CloudWatch エージェント（またはアプリ内の SDK）でログを CloudWatch Logs に送り、Logs Insights で検索する
+          en: Send logs to CloudWatch Logs with the CloudWatch agent (or an in-app SDK) and query them with Logs Insights
+      - id: c
+        text:
+          zh-CN: 启用 CloudTrail 数据事件
+          ja: CloudTrail のデータイベントを有効にする
+          en: Turn on CloudTrail data events
+      - id: d
+        text:
+          zh-CN: 定期为每台实例的 EBS 卷创建快照
+          ja: 各インスタンスの EBS ボリュームのスナップショットを定期的に作成する
+          en: Take snapshots of each instance's EBS volumes regularly
     answer: [b]
-    explain: CloudWatch Logs 与实例生命周期解耦，Logs Insights 直接按字段聚合；A 要自己维护同步与检索；C 记录的是 AWS API 调用而不是应用日志；D 快照不便检索，终止前的最后一段日志可能来不及进入快照。
+    explain:
+      zh-CN: CloudWatch Logs 与实例生命周期解耦，Logs Insights 直接按字段聚合；A 要自己维护同步与检索；C 记录的是 AWS API 调用而不是应用日志；D 快照不便检索，终止前的最后一段日志可能来不及进入快照。
+      ja: CloudWatch Logs はインスタンスのライフサイクルから切り離されており、Logs Insights でフィールドごとに直接集計できます。A は同期と検索を自分で運用する必要があります。C が記録するのは AWS API の呼び出しで、アプリのログではありません。D のスナップショットは検索しにくく、終了直前のログはスナップショットに間に合わないことがあります。
+      en: CloudWatch Logs is decoupled from the instance lifecycle, and Logs Insights aggregates by field directly; A means maintaining sync and search yourself; C records AWS API calls, not application logs; D's snapshots are hard to search, and the last logs before termination may not make it into a snapshot.
     relatesTo: wire
     difficulty: 1
   - id: logging-metric-filter
@@ -21,14 +43,36 @@ questions:
     type: single
     kind: scenario
     services: [cloudwatch-logs, cloudwatch]
-    stem: 团队新建了一个指标过滤器统计 level = "error" 的日志行，却发现过去 7 天的错误没有出现在指标中。最可能的原因是？
+    stem:
+      zh-CN: 团队新建了一个指标过滤器统计 level = "error" 的日志行，却发现过去 7 天的错误没有出现在指标中。最可能的原因是？
+      ja: チームは level = "error" のログ行を数えるメトリクスフィルターを新しく作りましたが、過去 7 日間のエラーがメトリクスに現れません。最も考えられる原因はどれですか？
+      en: The team created a new metric filter that counts log lines with level = "error", but errors from the past 7 days do not show up in the metric. What is the most likely cause?
     options:
-      - { id: a, text: 日志组没有用 KMS 加密 }
-      - { id: b, text: 指标过滤器只对创建之后摄取的日志生效，不会回溯历史日志 }
-      - { id: c, text: 没有先开启 Logs Insights }
-      - { id: d, text: 日志组保留期太短 }
+      - id: a
+        text:
+          zh-CN: 日志组没有用 KMS 加密
+          ja: ロググループが KMS で暗号化されていない
+          en: The log group is not encrypted with KMS
+      - id: b
+        text:
+          zh-CN: 指标过滤器只对创建之后摄取的日志生效，不会回溯历史日志
+          ja: メトリクスフィルターは作成後に取り込まれたログにだけ適用され、過去のログにはさかのぼらない
+          en: Metric filters only apply to logs ingested after they are created and do not go back to past logs
+      - id: c
+        text:
+          zh-CN: 没有先开启 Logs Insights
+          ja: 先に Logs Insights を有効にしていない
+          en: Logs Insights was not turned on first
+      - id: d
+        text:
+          zh-CN: 日志组保留期太短
+          ja: ロググループの保持期間が短すぎる
+          en: The log group's retention is too short
     answer: [b]
-    explain: 指标过滤器在摄取时匹配，不回溯；要统计历史数据应使用 Logs Insights 查询。其余选项与指标过滤器的生效范围无关。
+    explain:
+      zh-CN: 指标过滤器在摄取时匹配，不回溯；要统计历史数据应使用 Logs Insights 查询。其余选项与指标过滤器的生效范围无关。
+      ja: メトリクスフィルターは取り込み時に照合し、過去にはさかのぼりません。過去のデータを集計するには Logs Insights のクエリを使います。他の選択肢はメトリクスフィルターの適用範囲とは関係ありません。
+      en: Metric filters match at ingestion and are not retroactive; use a Logs Insights query to count historical data. The other options have nothing to do with which logs a metric filter covers.
     relatesTo: insights
     difficulty: 1
   - id: logging-near-realtime
@@ -36,15 +80,41 @@ questions:
     type: multi
     kind: scenario
     services: [cloudwatch-logs]
-    stem: 需要把 CloudWatch Logs 中的应用日志近实时地投递给下游：一个用于实时处理，一个用于在 S3 中低成本归档。可以实现近实时投递的两项是？
+    stem:
+      zh-CN: 需要把 CloudWatch Logs 中的应用日志近实时地投递给下游：一个用于实时处理，一个用于在 S3 中低成本归档。可以实现近实时投递的两项是？
+      ja: CloudWatch Logs のアプリログをほぼリアルタイムで下流に配信する必要があります。1 つはリアルタイム処理用、もう 1 つは S3 への低コストのアーカイブ用です。ほぼリアルタイムの配信を実現できるものを 2 つ選んでください。
+      en: "Application logs in CloudWatch Logs must be delivered downstream in near real time: one destination for real-time processing and one for low-cost archiving in S3. Which two achieve near-real-time delivery?"
     options:
-      - { id: a, text: 订阅过滤器 → Amazon Data Firehose → Amazon S3 }
-      - { id: b, text: 每分钟执行一次 CreateExportTask 导出到 S3 }
-      - { id: c, text: 订阅过滤器 → Kinesis Data Streams 或 Lambda 做近实时处理 }
-      - { id: d, text: 把日志组保留期设为“永不过期” }
-      - { id: e, text: 用 Logs Insights 定时查询并把结果保存到本地 }
+      - id: a
+        text:
+          zh-CN: 订阅过滤器 → Amazon Data Firehose → Amazon S3
+          ja: サブスクリプションフィルター → Amazon Data Firehose → Amazon S3
+          en: Subscription filter → Amazon Data Firehose → Amazon S3
+      - id: b
+        text:
+          zh-CN: 每分钟执行一次 CreateExportTask 导出到 S3
+          ja: 1 分ごとに CreateExportTask を実行して S3 にエクスポートする
+          en: Run CreateExportTask every minute to export to S3
+      - id: c
+        text:
+          zh-CN: 订阅过滤器 → Kinesis Data Streams 或 Lambda 做近实时处理
+          ja: サブスクリプションフィルター → Kinesis Data Streams または Lambda でほぼリアルタイムに処理する
+          en: Subscription filter → Kinesis Data Streams or Lambda for near-real-time processing
+      - id: d
+        text:
+          zh-CN: 把日志组保留期设为“永不过期”
+          ja: ロググループの保持期間を「失効しない」にする
+          en: Set the log group retention to "Never expire"
+      - id: e
+        text:
+          zh-CN: 用 Logs Insights 定时查询并把结果保存到本地
+          ja: Logs Insights で定期的にクエリを実行し、結果をローカルに保存する
+          en: Run Logs Insights queries on a schedule and save the results locally
     answer: [a, c]
-    explain: 订阅过滤器是近实时投递的方式，目标可以是 Kinesis Data Streams、Firehose、Lambda；导出任务是批量、非实时的（同一时间只能有一个在运行，以官方文档为准）；保留期与投递无关；Insights 是交互式查询，不是投递机制。
+    explain:
+      zh-CN: 订阅过滤器是近实时投递的方式，目标可以是 Kinesis Data Streams、Firehose、Lambda；导出任务是批量、非实时的（同一时间只能有一个在运行，以官方文档为准）；保留期与投递无关；Insights 是交互式查询，不是投递机制。
+      ja: サブスクリプションフィルターがほぼリアルタイムで配信する方法で、送信先は Kinesis Data Streams、Firehose、Lambda にできます。エクスポートタスクはバッチ処理でリアルタイムではありません（同時に実行できるのは 1 つだけです。公式ドキュメントを確認してください）。保持期間は配信と関係ありません。Insights は対話型のクエリで、配信の仕組みではありません。
+      en: Subscription filters are the near-real-time delivery mechanism, with Kinesis Data Streams, Firehose or Lambda as targets; export tasks are batch and not real time (only one can run at a time; see the official documentation); retention has nothing to do with delivery; Insights is an interactive query, not a delivery mechanism.
     relatesTo: after
     difficulty: 2
   - id: logging-retention
@@ -52,14 +122,36 @@ questions:
     type: single
     kind: concept
     services: [cloudwatch-logs]
-    stem: 新建的 CloudWatch Logs 日志组如果不做任何设置，日志会保留多久？
+    stem:
+      zh-CN: 新建的 CloudWatch Logs 日志组如果不做任何设置，日志会保留多久？
+      ja: 新しく作成した CloudWatch Logs のロググループで何も設定しない場合、ログはどれくらい保持されますか？
+      en: If you create a new CloudWatch Logs log group and set nothing, how long are logs kept?
     options:
-      - { id: a, text: 永不过期，存储费会一直累积 }
-      - { id: b, text: 30 天 }
-      - { id: c, text: 14 天 }
-      - { id: d, text: 与实例的生命周期相同 }
+      - id: a
+        text:
+          zh-CN: 永不过期，存储费会一直累积
+          ja: 失効せず、保存料金が累積し続ける
+          en: They never expire, and storage charges keep accumulating
+      - id: b
+        text:
+          zh-CN: 30 天
+          ja: 30 日
+          en: 30 days
+      - id: c
+        text:
+          zh-CN: 14 天
+          ja: 14 日
+          en: 14 days
+      - id: d
+        text:
+          zh-CN: 与实例的生命周期相同
+          ja: インスタンスのライフサイクルと同じ
+          en: The same as the instance lifecycle
     answer: [a]
-    explain: 日志组默认永不过期；所以本模块在栈里用 RetentionInDays 显式设置保留期。
+    explain:
+      zh-CN: 日志组默认永不过期；所以本模块在栈里用 RetentionInDays 显式设置保留期。
+      ja: ロググループはデフォルトでは失効しません。そのため、このモジュールはスタックで RetentionInDays を明示的に設定しています。
+      en: Log groups never expire by default, which is why this module sets RetentionInDays explicitly in the stack.
     relatesTo: wire
     difficulty: 1
   - id: logging-ec2-vs-lambda
@@ -67,13 +159,35 @@ questions:
     type: single
     kind: concept
     services: [cloudwatch-logs, ec2]
-    stem: 关于日志进入 CloudWatch Logs 的方式，正确的是？
+    stem:
+      zh-CN: 关于日志进入 CloudWatch Logs 的方式，正确的是？
+      ja: ログが CloudWatch Logs に入る方法について、正しいものはどれですか？
+      en: Which statement about how logs get into CloudWatch Logs is correct?
     options:
-      - { id: a, text: EC2 上应用写到本地文件的日志会自动进入 CloudWatch Logs }
-      - { id: b, text: EC2 上的应用日志需要 CloudWatch Agent 或应用内 SDK 发送；Lambda 函数的日志会自动进入 CloudWatch Logs }
-      - { id: c, text: Lambda 的日志需要另外安装 CloudWatch Agent }
-      - { id: d, text: 只有开启 CloudTrail 后应用日志才会进入 CloudWatch Logs }
+      - id: a
+        text:
+          zh-CN: EC2 上应用写到本地文件的日志会自动进入 CloudWatch Logs
+          ja: EC2 上のアプリがローカルファイルに書いたログは自動的に CloudWatch Logs に入る
+          en: Logs that an app on EC2 writes to local files reach CloudWatch Logs automatically
+      - id: b
+        text:
+          zh-CN: EC2 上的应用日志需要 CloudWatch Agent 或应用内 SDK 发送；Lambda 函数的日志会自动进入 CloudWatch Logs
+          ja: EC2 上のアプリログは CloudWatch エージェントかアプリ内の SDK で送る必要がある。Lambda 関数のログは自動的に CloudWatch Logs に入る
+          en: App logs on EC2 must be sent by the CloudWatch agent or an in-app SDK; Lambda function logs reach CloudWatch Logs automatically
+      - id: c
+        text:
+          zh-CN: Lambda 的日志需要另外安装 CloudWatch Agent
+          ja: Lambda のログには別途 CloudWatch エージェントのインストールが必要
+          en: Lambda logs need the CloudWatch agent installed separately
+      - id: d
+        text:
+          zh-CN: 只有开启 CloudTrail 后应用日志才会进入 CloudWatch Logs
+          ja: CloudTrail を有効にして初めてアプリログが CloudWatch Logs に入る
+          en: App logs only reach CloudWatch Logs once CloudTrail is turned on
     answer: [b]
-    explain: EC2 不会替你上传文件内容；Lambda 运行时自动把输出写进 /aws/lambda/<函数名>。CloudTrail 记录的是 API 调用，与应用日志无关。
+    explain:
+      zh-CN: EC2 不会替你上传文件内容；Lambda 运行时自动把输出写进 /aws/lambda/<函数名>。CloudTrail 记录的是 API 调用，与应用日志无关。
+      ja: EC2 はファイルの内容を代わりにアップロードしてはくれません。Lambda のランタイムは出力を自動的に /aws/lambda/<関数名> に書き込みます。CloudTrail が記録するのは API の呼び出しで、アプリのログとは関係ありません。
+      en: EC2 does not upload file contents for you; the Lambda runtime automatically writes output to /aws/lambda/<function name>. CloudTrail records API calls and has nothing to do with application logs.
     relatesTo: agent
     difficulty: 1

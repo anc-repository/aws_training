@@ -5,12 +5,27 @@ id: sc-private-network
 kind: scenario
 version: 0.1.0
 status: planned
-title: 私有网络
-subtitle: VPC + NAT + VPC 终端节点 + Session Manager
-summary: 把实例搬进没有公网地址的私有子网：入口只剩 ALB，运维不开 22 端口，访问 AWS 服务走终端节点，访问公网走 NAT，全部流量可在 Flow Logs 中追溯
-story: 一次渗透测试报告指出：应用服务器有公网 IP，80/443 对全网开放，22 端口对运维网段开放，上线后不到一小时就开始收到扫描请求；服务器访问 S3 与 SQS 走的是公网端点；出了问题无法回答“这台机器在某个时间连过哪里”。整改要求：实例不能有公网地址；唯一入口是负载均衡器；运维不开任何入站端口且有审计；访问
-  AWS 服务尽量不经过公网；保留完整的网络流量记录。同时财务提醒：NAT 和终端节点都按小时收费，要说明取舍。
-scenario: {question: 一家金融公司的应用服务器位于两个 AZ 的私有子网中，需要访问第三方支付 API（互联网），第三方要求固定的源 IP 白名单；任何一个 AZ 故障时另一个 AZ 仍能出网。最合适的是？}
+title:
+  zh-CN: 私有网络
+  ja: プライベートネットワーク
+  en: Private network
+subtitle:
+  zh-CN: VPC + NAT + VPC 终端节点 + Session Manager
+  ja: VPC + NAT + VPC エンドポイント + Session Manager
+  en: VPC + NAT + VPC endpoints + Session Manager
+summary:
+  zh-CN: 把实例搬进没有公网地址的私有子网：入口只剩 ALB，运维不开 22 端口，访问 AWS 服务走终端节点，访问公网走 NAT，全部流量可在 Flow Logs 中追溯
+  ja: インスタンスをパブリックアドレスのないプライベートサブネットに移します。入口は ALB だけになり、運用で 22 番ポートを開けず、AWS サービスへのアクセスはエンドポイント経由、インターネットへのアクセスは NAT 経由になり、すべてのトラフィックを Flow Logs で追跡できます
+  en: "Move the instance into a private subnet with no public address: the ALB is the only entry point, operators open no port 22, AWS services are reached through endpoints and the internet through NAT, and all traffic can be traced in Flow Logs"
+story:
+  zh-CN: 一次渗透测试报告指出：应用服务器有公网 IP，80/443 对全网开放，22 端口对运维网段开放，上线后不到一小时就开始收到扫描请求；服务器访问 S3 与 SQS 走的是公网端点；出了问题无法回答“这台机器在某个时间连过哪里”。整改要求：实例不能有公网地址；唯一入口是负载均衡器；运维不开任何入站端口且有审计；访问 AWS 服务尽量不经过公网；保留完整的网络流量记录。同时财务提醒：NAT 和终端节点都按小时收费，要说明取舍。
+  ja: ペネトレーションテストの報告書で次の点が指摘されました。アプリケーションサーバーにパブリック IP があり、80/443 がインターネット全体に、22 番ポートが運用ネットワークに開いていて、公開から 1 時間もしないうちにスキャンのリクエストが届き始めたこと。サーバーから S3 と SQS へのアクセスがパブリックエンドポイント経由であること。問題が起きたときに「このマシンがある時刻にどこへ接続したか」に答えられないこと。是正要件は、インスタンスにパブリックアドレスを持たせないこと、唯一の入口をロードバランサーにすること、運用では受信ポートを一切開けず監査を残すこと、AWS サービスへのアクセスはできるだけインターネットを通さないこと、ネットワークトラフィックの完全な記録を残すことです。さらに経理からは、NAT もエンドポイントも時間課金なので、トレードオフを説明するようにと念押しされています。
+  en: 'A penetration test report found that the application server has a public IP, ports 80/443 are open to the whole internet and port 22 to the operations network, and scanning requests started arriving less than an hour after launch; the server reaches S3 and SQS through public endpoints; and when something goes wrong nobody can say "where did this machine connect at that time". The fixes required: no public addresses on instances; the load balancer as the only entry point; operators open no inbound ports and are audited; AWS services reached without the internet wherever possible; and a complete record of network traffic. Finance also points out that NAT and endpoints are both billed hourly, so the trade-offs must be explained.'
+scenario:
+  question:
+    zh-CN: 一家金融公司的应用服务器位于两个 AZ 的私有子网中，需要访问第三方支付 API（互联网），第三方要求固定的源 IP 白名单；任何一个 AZ 故障时另一个 AZ 仍能出网。最合适的是？
+    ja: ある金融企業のアプリケーションサーバーは 2 つの AZ のプライベートサブネットにあり、サードパーティーの決済 API（インターネット）にアクセスする必要があります。サードパーティーは固定の送信元 IP の許可リストを求めています。どちらかの AZ が故障しても、もう一方の AZ からはインターネットに出られなければなりません。最も適切なのはどれですか？
+    en: A financial company's application servers are in private subnets in two AZs and must call a third-party payment API on the internet. The third party requires an allow list of fixed source IPs, and if either AZ fails the other must still reach the internet. What is the most suitable choice?
 difficulty: advanced
 estimatedMinutes: 120
 timeLimitMinutes: 180
@@ -41,7 +56,10 @@ startProfile:
     kind: module
     basis: credential
     set: {IAM_CREDENTIALS: role}
-    reason: 平台约定除 svc-ec2、svc-iam 外起始状态都带实例角色（C3）
+    reason:
+      zh-CN: 平台约定除 svc-ec2、svc-iam 外起始状态都带实例角色（C3）
+      ja: プラットフォームの取り決めにより、svc-ec2 と svc-iam 以外の開始状態にはインスタンスロールが付いています（C3）
+      en: By platform convention, every start state except svc-ec2 and svc-iam includes an instance role (C3)
   - item: network
     kind: module
     basis: precursor
@@ -51,7 +69,12 @@ startProfile:
     basis: closure
     rule: DEP-009
     set: {LB_MODE: alb}
-  - {item: ssh-from-workstation, kind: platform, reason: SSH 只对工作台公网出口 /32 开放}
+  - item: ssh-from-workstation
+    kind: platform
+    reason:
+      zh-CN: SSH 只对工作台公网出口 /32 开放
+      ja: SSH はワークベンチのパブリックな送信元 /32 にだけ開きます
+      en: SSH is only open to the workbench's public egress address /32
   platform:
     preview: {directHttps: 'off'}
 targetModules:
@@ -64,7 +87,15 @@ expectedWarnings: []
 workstation: {required: true, sshFromWorkstation: true}
 cost: {tier: high}
 provision: {class: B}
-badge: {title: 私有网络, short: 私有网络}
+badge:
+  title:
+    zh-CN: 私有网络
+    ja: プライベートネットワーク
+    en: Private network
+  short:
+    zh-CN: 私有网络
+    ja: プライベート網
+    en: Private net
 tracks: [cost-optimized, networking, saa-main, secure]
 saa:
   domains: [secure, resilient, cost]

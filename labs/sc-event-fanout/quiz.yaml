@@ -6,14 +6,36 @@ questions:
     type: single
     kind: scenario
     services: [sns, sqs]
-    stem: 一条订单事件需要同时被库存服务、积分服务和数据分析服务各处理一次，任一服务暂时不可用时不能丢消息。最合适的是？
+    stem:
+      zh-CN: 一条订单事件需要同时被库存服务、积分服务和数据分析服务各处理一次，任一服务暂时不可用时不能丢消息。最合适的是？
+      ja: 1 つの注文イベントを、在庫サービス、ポイントサービス、データ分析サービスがそれぞれ 1 回ずつ処理する必要があり、どれかのサービスが一時的に使えなくてもメッセージを失ってはなりません。最も適切なのはどれですか？
+      en: One order event must be processed once each by the inventory, points and analytics services, and no message may be lost if any service is temporarily unavailable. What is the most suitable choice?
     options:
-      - { id: a, text: 发到一个 SQS 队列，三个服务一起消费 }
-      - { id: b, text: 发布到 SNS 主题，三个服务各自用一个 SQS 队列订阅 }
-      - { id: c, text: 三个服务轮询同一个 DynamoDB 表 }
-      - { id: d, text: 发到一个 SQS FIFO 队列 }
+      - id: a
+        text:
+          zh-CN: 发到一个 SQS 队列，三个服务一起消费
+          ja: 1 つの SQS キューに送り、3 つのサービスで一緒に消費する
+          en: Send it to one SQS queue that the three services consume together
+      - id: b
+        text:
+          zh-CN: 发布到 SNS 主题，三个服务各自用一个 SQS 队列订阅
+          ja: SNS トピックに発行し、3 つのサービスがそれぞれ自分の SQS キューでサブスクライブする
+          en: Publish to an SNS topic, with each of the three services subscribing its own SQS queue
+      - id: c
+        text:
+          zh-CN: 三个服务轮询同一个 DynamoDB 表
+          ja: 3 つのサービスが同じ DynamoDB テーブルをポーリングする
+          en: Have the three services poll the same DynamoDB table
+      - id: d
+        text:
+          zh-CN: 发到一个 SQS FIFO 队列
+          ja: 1 つの SQS FIFO キューに送る
+          en: Send it to one SQS FIFO queue
     answer: [b]
-    explain: SNS + SQS 扇出让每个服务各拿到一份副本并独立重试，消费者停机时消息在自己的队列里等待；单个队列（包括 FIFO）是竞争消费，每条消息只会被一个服务处理。
+    explain:
+      zh-CN: SNS + SQS 扇出让每个服务各拿到一份副本并独立重试，消费者停机时消息在自己的队列里等待；单个队列（包括 FIFO）是竞争消费，每条消息只会被一个服务处理。
+      ja: SNS + SQS のファンアウトなら、各サービスがコピーを 1 つずつ受け取って独立して再試行でき、コンシューマーが停止している間はメッセージが自分のキューで待ちます。1 つのキュー（FIFO を含む）では競合消費になり、各メッセージは 1 つのサービスでしか処理されません。
+      en: With SNS + SQS fan-out every service gets its own copy and retries independently, and messages wait in its own queue while it is down; a single queue (FIFO included) means competing consumers, and each message is processed by only one service.
     relatesTo: after
     difficulty: 1
 
@@ -22,14 +44,36 @@ questions:
     type: single
     kind: scenario
     services: [ses, sns]
-    stem: 应用需要给注册用户发送包含个性化验证链接的 HTML 邮件，并处理退信。应该使用？
+    stem:
+      zh-CN: 应用需要给注册用户发送包含个性化验证链接的 HTML 邮件，并处理退信。应该使用？
+      ja: アプリは登録したユーザーに、個別の確認リンクを含む HTML メールを送り、バウンスも処理する必要があります。何を使うべきですか？
+      en: The app must send registered users HTML emails with personalized verification links and handle bounces. What should it use?
     options:
-      - { id: a, text: SNS 邮件订阅 }
-      - { id: b, text: Amazon SES }
-      - { id: c, text: 在 EC2 上安装 Postfix 直接经 25 端口发信 }
-      - { id: d, text: CloudWatch 告警通知 }
+      - id: a
+        text:
+          zh-CN: SNS 邮件订阅
+          ja: SNS のメールサブスクリプション
+          en: SNS email subscriptions
+      - id: b
+        text:
+          zh-CN: Amazon SES
+          ja: Amazon SES
+          en: Amazon SES
+      - id: c
+        text:
+          zh-CN: 在 EC2 上安装 Postfix 直接经 25 端口发信
+          ja: EC2 に Postfix をインストールし、25 番ポートで直接送信する
+          en: Install Postfix on EC2 and send directly over port 25
+      - id: d
+        text:
+          zh-CN: CloudWatch 告警通知
+          ja: CloudWatch アラームの通知
+          en: CloudWatch alarm notifications
     answer: [b]
-    explain: SES 用于事务性邮件，支持模板、DKIM 与退信 / 投诉事件；SNS 邮件订阅是同一条纯文本广播，收件人还要先确认订阅；EC2 的出站 25 端口默认受限，也没有发信信誉。
+    explain:
+      zh-CN: SES 用于事务性邮件，支持模板、DKIM 与退信 / 投诉事件；SNS 邮件订阅是同一条纯文本广播，收件人还要先确认订阅；EC2 的出站 25 端口默认受限，也没有发信信誉。
+      ja: SES はトランザクションメール向けで、テンプレート、DKIM、バウンス / 苦情のイベントに対応しています。SNS のメールサブスクリプションは同じプレーンテキストのブロードキャストで、受信者は先にサブスクリプションを確認する必要もあります。EC2 の送信の 25 番ポートはデフォルトで制限されており、送信者の評価もありません。
+      en: SES is for transactional email, with templates, DKIM and bounce / complaint events; SNS email subscriptions broadcast the same plain text and recipients must confirm the subscription first; EC2's outbound port 25 is restricted by default, with no sender reputation either.
     relatesTo: enable-email
     difficulty: 1
 
@@ -38,14 +82,36 @@ questions:
     type: multi
     kind: concept
     services: [sns]
-    stem: 关于 SNS 订阅过滤策略，哪两项正确？
+    stem:
+      zh-CN: 关于 SNS 订阅过滤策略，哪两项正确？
+      ja: SNS のサブスクリプションフィルターポリシーについて、正しいものを 2 つ選んでください。
+      en: Which two statements about SNS subscription filter policies are correct?
     options:
-      - { id: a, text: 可以基于消息属性过滤 }
-      - { id: b, text: 可以基于消息体过滤（需要设置过滤范围） }
-      - { id: c, text: 过滤在订阅者收到消息后由订阅者执行 }
-      - { id: d, text: 使用过滤策略后必须改用 FIFO 主题 }
+      - id: a
+        text:
+          zh-CN: 可以基于消息属性过滤
+          ja: メッセージ属性に基づいてフィルタリングできる
+          en: They can filter on message attributes
+      - id: b
+        text:
+          zh-CN: 可以基于消息体过滤（需要设置过滤范围）
+          ja: メッセージ本文に基づいてフィルタリングできる（フィルターの範囲の設定が必要）
+          en: They can filter on the message body (with the filter scope set)
+      - id: c
+        text:
+          zh-CN: 过滤在订阅者收到消息后由订阅者执行
+          ja: フィルタリングはサブスクライバーがメッセージを受け取った後にサブスクライバー側で行う
+          en: Filtering happens on the subscriber's side after it receives the message
+      - id: d
+        text:
+          zh-CN: 使用过滤策略后必须改用 FIFO 主题
+          ja: フィルターポリシーを使うと FIFO トピックに変更しなければならない
+          en: Using a filter policy requires switching to a FIFO topic
     answer: [a, b]
-    explain: 过滤由 SNS 在投递前执行，FilterPolicyScope 决定按消息属性（默认）还是消息体匹配，与是否 FIFO 无关；不匹配的投递在 CloudWatch 中记为 NumberOfNotificationsFilteredOut。
+    explain:
+      zh-CN: 过滤由 SNS 在投递前执行，FilterPolicyScope 决定按消息属性（默认）还是消息体匹配，与是否 FIFO 无关；不匹配的投递在 CloudWatch 中记为 NumberOfNotificationsFilteredOut。
+      ja: フィルタリングは SNS が配信の前に行い、FilterPolicyScope でメッセージ属性（既定）とメッセージ本文のどちらで照合するかを決めます。FIFO かどうかとは関係ありません。一致しなかった配信は CloudWatch で NumberOfNotificationsFilteredOut として記録されます。
+      en: SNS filters before delivery, and FilterPolicyScope decides whether to match on message attributes (the default) or the message body, regardless of FIFO; deliveries that do not match are recorded in CloudWatch as NumberOfNotificationsFilteredOut.
     relatesTo: filter
     difficulty: 1
 
@@ -54,14 +120,36 @@ questions:
     type: single
     kind: scenario
     services: [ses, sns, sqs]
-    stem: 一家 SaaS 公司的应用部署在私有子网中，没有任何入站端口。需要接收 SES 的退信与投诉事件，并在应用中把对应地址加入抑制名单，且应用停机期间事件不能丢。最合适的方案是？
+    stem:
+      zh-CN: 一家 SaaS 公司的应用部署在私有子网中，没有任何入站端口。需要接收 SES 的退信与投诉事件，并在应用中把对应地址加入抑制名单，且应用停机期间事件不能丢。最合适的方案是？
+      ja: ある SaaS 企業のアプリケーションはプライベートサブネットにデプロイされ、受信ポートは一切ありません。SES のバウンスと苦情のイベントを受け取り、アプリで該当するアドレスを抑制リストに追加する必要があり、アプリの停止中もイベントを失ってはなりません。最も適切な構成はどれですか？
+      en: A SaaS company's application runs in private subnets with no inbound ports at all. It must receive SES bounce and complaint events and add the addresses to a suppression list in the app, and no events may be lost while the app is down. What is the most suitable design?
     options:
-      - { id: a, text: SES 配置集的事件目标为 SNS 主题，主题由 SQS 队列订阅，应用 worker 长轮询该队列 }
-      - { id: b, text: SES 事件目标为 SNS，SNS 以 HTTPS 订阅应用的公网端点 }
-      - { id: c, text: 应用每分钟调用 SES API 读取账号级抑制列表 }
-      - { id: d, text: 用 CloudWatch 告警监控退信率并发邮件给管理员 }
+      - id: a
+        text:
+          zh-CN: SES 配置集的事件目标为 SNS 主题，主题由 SQS 队列订阅，应用 worker 长轮询该队列
+          ja: SES の設定セットのイベント送信先を SNS トピックにし、トピックを SQS キューがサブスクライブし、アプリの worker がそのキューをロングポーリングする
+          en: Make an SNS topic the SES configuration set's event destination, subscribe an SQS queue to the topic, and have the app's worker long-poll the queue
+      - id: b
+        text:
+          zh-CN: SES 事件目标为 SNS，SNS 以 HTTPS 订阅应用的公网端点
+          ja: SES のイベント送信先を SNS にし、SNS が HTTPS でアプリのパブリックなエンドポイントをサブスクライブする
+          en: Make SNS the SES event destination, with SNS subscribing the app's public endpoint over HTTPS
+      - id: c
+        text:
+          zh-CN: 应用每分钟调用 SES API 读取账号级抑制列表
+          ja: アプリが 1 分ごとに SES API を呼び出してアカウントレベルの抑制リストを読む
+          en: Have the app call the SES API every minute to read the account-level suppression list
+      - id: d
+        text:
+          zh-CN: 用 CloudWatch 告警监控退信率并发邮件给管理员
+          ja: CloudWatch アラームでバウンス率を監視し、管理者にメールを送る
+          en: Monitor the bounce rate with a CloudWatch alarm and email the admins
     answer: [a]
-    explain: A 只需要出站连接，事件在队列中持久保存，停机恢复后照常处理。B 要求暴露入站端点，违背约束，停机时只能依赖重试策略。C 只能看到已被抑制的地址，拿不到每封邮件的投递、退信、投诉事件，轮询还有延迟与额外请求。D 只能看到比例，拿不到具体地址，无法自动加入抑制名单。
+    explain:
+      zh-CN: A 只需要出站连接，事件在队列中持久保存，停机恢复后照常处理。B 要求暴露入站端点，违背约束，停机时只能依赖重试策略。C 只能看到已被抑制的地址，拿不到每封邮件的投递、退信、投诉事件，轮询还有延迟与额外请求。D 只能看到比例，拿不到具体地址，无法自动加入抑制名单。
+      ja: A は送信方向の接続しか必要とせず、イベントはキューに永続的に保存され、停止から復旧した後も通常どおり処理されます。B は受信用のエンドポイントの公開が必要で制約に反し、停止中は再試行ポリシーに頼るしかありません。C で見えるのはすでに抑制されたアドレスだけで、メールごとの配信、バウンス、苦情のイベントは得られず、ポーリングには遅延と追加のリクエストもあります。D で見えるのは割合だけで、具体的なアドレスがわからないため、自動で抑制リストに追加できません。
+      en: A only needs outbound connections, events are stored durably in the queue, and they are processed as usual after recovery. B requires exposing an inbound endpoint, which breaks the constraint, and can only rely on the retry policy during downtime. C only shows addresses that are already suppressed, not per-email delivery, bounce and complaint events, and polling adds delay and extra requests. D only shows rates, not specific addresses, so nothing can be added to the suppression list automatically.
     relatesTo: enable-email
     difficulty: 2
 
@@ -70,13 +158,35 @@ questions:
     type: single
     kind: scenario
     services: [sns, ses, sqs]
-    stem: 系统要把“有新评论”通知发送给照片主人，用户数量很大，每个用户只能收到与自己相关的通知，并且以后要增加短信与移动推送。哪个设计最合适？
+    stem:
+      zh-CN: 系统要把“有新评论”通知发送给照片主人，用户数量很大，每个用户只能收到与自己相关的通知，并且以后要增加短信与移动推送。哪个设计最合适？
+      ja: システムは「新しいコメント」の通知を写真の持ち主に送る必要があります。ユーザー数は非常に多く、各ユーザーは自分に関係する通知だけを受け取り、今後は SMS とモバイルプッシュも追加する予定です。最も適切な設計はどれですか？
+      en: A system must send "new comment" notifications to photo owners. There are very many users, each user may only receive notifications about them, and SMS and mobile push will be added later. Which design is most suitable?
     options:
-      - { id: a, text: 每个用户一个 SNS 主题 }
-      - { id: b, text: 一个 SNS 主题，发布时带 userId 消息属性，每个订阅设置过滤策略；新增渠道只需新增订阅 }
-      - { id: c, text: 一个 SQS 队列，所有用户的客户端轮询并丢弃不属于自己的消息 }
-      - { id: d, text: 应用为每个用户调用一次 SES }
+      - id: a
+        text:
+          zh-CN: 每个用户一个 SNS 主题
+          ja: ユーザーごとに SNS トピックを 1 つ作る
+          en: One SNS topic per user
+      - id: b
+        text:
+          zh-CN: 一个 SNS 主题，发布时带 userId 消息属性，每个订阅设置过滤策略；新增渠道只需新增订阅
+          ja: 1 つの SNS トピックに、発行時に userId のメッセージ属性を付け、各サブスクリプションにフィルターポリシーを設定する。チャネルの追加はサブスクリプションを追加するだけ
+          en: One SNS topic, publishing with a userId message attribute and a filter policy on each subscription; adding a channel just means adding a subscription
+      - id: c
+        text:
+          zh-CN: 一个 SQS 队列，所有用户的客户端轮询并丢弃不属于自己的消息
+          ja: 1 つの SQS キューを、すべてのユーザーのクライアントがポーリングし、自分のものではないメッセージは捨てる
+          en: One SQS queue that every user's client polls, discarding messages that are not theirs
+      - id: d
+        text:
+          zh-CN: 应用为每个用户调用一次 SES
+          ja: アプリがユーザーごとに 1 回 SES を呼び出す
+          en: The app calls SES once per user
     answer: [b]
-    explain: B 一次发布、按属性过滤、渠道可扩展。A 主题数量随用户增长，管理与配额都是问题。C 竞争消费会让消息被错误的客户端拿走，而且无法推送。D 只覆盖邮件，增加短信与推送要改代码，发布方耗时随用户数线性增长。
+    explain:
+      zh-CN: B 一次发布、按属性过滤、渠道可扩展。A 主题数量随用户增长，管理与配额都是问题。C 竞争消费会让消息被错误的客户端拿走，而且无法推送。D 只覆盖邮件，增加短信与推送要改代码，发布方耗时随用户数线性增长。
+      ja: B は 1 回の発行で属性によってフィルタリングでき、チャネルも拡張できます。A はユーザーが増えるほどトピックが増え、管理もクォータも問題になります。C は競合消費のため、メッセージが間違ったクライアントに取られ、しかもプッシュできません。D はメールしか扱えず、SMS やプッシュを追加するにはコードの変更が必要で、発行側の所要時間はユーザー数に比例して増えます。
+      en: B publishes once, filters by attribute and can add channels. A grows the number of topics with users, which is a management and quota problem. C's competing consumers let messages be taken by the wrong client, and it cannot push. D only covers email, adding SMS and push means code changes, and the publisher's time grows linearly with the number of users.
     relatesTo: filter
     difficulty: 2

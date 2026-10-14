@@ -5,10 +5,22 @@ id: svc-tracing
 kind: service
 version: 0.1.0
 status: planned
-service: AWS X-Ray
-function: 分布式链路追踪
-title: AWS X-Ray：分布式链路追踪
-summary: 从单跳的 Server-Timing 到本机 span 树，再到 X-Ray 服务地图：同一套 OpenTelemetry 插桩只换导出后端，找出“慢在哪一段”。
+service:
+  zh-CN: AWS X-Ray
+  ja: AWS X-Ray
+  en: AWS X-Ray
+function:
+  zh-CN: 分布式链路追踪
+  ja: 分散トレーシング
+  en: Distributed tracing
+title:
+  zh-CN: AWS X-Ray：分布式链路追踪
+  ja: AWS X-Ray：分散トレーシング
+  en: "AWS X-Ray: distributed tracing"
+summary:
+  zh-CN: 从单跳的 Server-Timing 到本机 span 树，再到 X-Ray 服务地图：同一套 OpenTelemetry 插桩只换导出后端，找出“慢在哪一段”。
+  ja: 1 ホップの Server-Timing から、ローカルの span ツリー、さらに X-Ray のサービスマップへ。同じ OpenTelemetry の計装のままエクスポート先だけを替え、「どの区間が遅いか」を突き止めます。
+  en: "From single-hop Server-Timing to a local span tree to the X-Ray service map: keep the same OpenTelemetry instrumentation, change only the export backend, and find which segment is slow."
 difficulty: intermediate
 estimatedMinutes: 75
 timeLimitMinutes: 120
@@ -17,7 +29,13 @@ retain: {allowed: true, maxHours: 24}
 regions:
   supported: [ap-northeast-1]
 services:
-- {id: xray, name: AWS X-Ray, role: primary, module: tracing}
+- id: xray
+  name:
+    zh-CN: AWS X-Ray
+    ja: AWS X-Ray
+    en: AWS X-Ray
+  role: primary
+  module: tracing
 - {id: iam, role: context, module: iam}
 modules:
   target: [tracing]
@@ -36,7 +54,10 @@ startProfile:
     kind: module
     basis: credential
     set: {IAM_CREDENTIALS: role}
-    reason: 平台约定除 svc-ec2、svc-iam 外起始状态都带实例角色（C3）
+    reason:
+      zh-CN: 平台约定除 svc-ec2、svc-iam 外起始状态都带实例角色（C3）
+      ja: プラットフォームの取り決めにより、svc-ec2 と svc-iam 以外の開始状態にはインスタンスロールが付いています（C3）
+      en: By platform convention, every start state except svc-ec2 and svc-iam includes an instance role (C3)
   - item: image-processing
     kind: local
     set: {IMAGE_PROCESSOR: worker}
@@ -44,7 +65,12 @@ startProfile:
     kind: local
     set: {QUEUE_DRIVER: memory}
   - {item: featureFlags.lab.faults, kind: runtime, value: true}
-  - {item: preview-direct-https, kind: platform, reason: 预览使用方案 B 的 Let's Encrypt IP 证书（03 §6.2）}
+  - item: preview-direct-https
+    kind: platform
+    reason:
+      zh-CN: 预览使用方案 B 的 Let's Encrypt IP 证书（03 §6.2）
+      ja: プレビューには方式 B の Let's Encrypt IP 証明書を使います（03 §6.2）
+      en: The preview uses the option B Let's Encrypt IP certificate (03 §6.2)
   platform:
     preview: {directHttps: 'on'}
 targetModules:
@@ -52,7 +78,11 @@ targetModules:
 expectedWarnings: []
 cost: {tier: low}
 provision: {class: A}
-badge: {title: 慢点猎手}
+badge:
+  title:
+    zh-CN: 慢点猎手
+    ja: 遅延ハンター
+    en: Latency hunter
 tracks: [operations, performant, saa-main]
 saa:
   domains: [performance, resilient]

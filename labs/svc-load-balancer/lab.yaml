@@ -5,10 +5,22 @@ id: svc-load-balancer
 kind: service
 version: 0.1.0
 status: planned
-service: Elastic Load Balancing
-function: 负载均衡（ALB）
-title: Elastic Load Balancing：负载均衡（ALB）
-summary: 在实例前放一个跨 AZ 的 ALB：看健康检查、失效开放，以及“只有一个目标时 ALB 并不带来高可用”。
+service:
+  zh-CN: Elastic Load Balancing
+  ja: Elastic Load Balancing
+  en: Elastic Load Balancing
+function:
+  zh-CN: 负载均衡（ALB）
+  ja: ロードバランシング（ALB）
+  en: Load balancing (ALB)
+title:
+  zh-CN: Elastic Load Balancing：负载均衡（ALB）
+  ja: Elastic Load Balancing：ロードバランシング（ALB）
+  en: "Elastic Load Balancing: load balancing (ALB)"
+summary:
+  zh-CN: 在实例前放一个跨 AZ 的 ALB：看健康检查、失效开放，以及“只有一个目标时 ALB 并不带来高可用”。
+  ja: インスタンスの前に複数 AZ にまたがる ALB を置きます。ヘルスチェック、フェイルオープン、そして「ターゲットが 1 つだけなら ALB は高可用性をもたらさない」ことを確かめます。
+  en: "Put a multi-AZ ALB in front of the instance: look at health checks and fail-open, and see that an ALB with only one target does not give you high availability."
 difficulty: intermediate
 estimatedMinutes: 60
 timeLimitMinutes: 90
@@ -17,7 +29,13 @@ retain: {allowed: true, maxHours: 24}
 regions:
   supported: [ap-northeast-1]
 services:
-- {id: elb, name: Elastic Load Balancing, role: primary, module: load-balancer}
+- id: elb
+  name:
+    zh-CN: Elastic Load Balancing
+    ja: Elastic Load Balancing
+    en: Elastic Load Balancing
+  role: primary
+  module: load-balancer
 - {id: iam, role: context, module: iam}
 modules:
   target: [load-balancer]
@@ -33,8 +51,16 @@ startProfile:
     kind: module
     basis: credential
     set: {IAM_CREDENTIALS: role}
-    reason: 平台约定除 svc-ec2、svc-iam 外起始状态都带实例角色（C3）
-  - {item: preview-direct-https, kind: platform, reason: 预览使用方案 B 的 Let's Encrypt IP 证书（03 §6.2）}
+    reason:
+      zh-CN: 平台约定除 svc-ec2、svc-iam 外起始状态都带实例角色（C3）
+      ja: プラットフォームの取り決めにより、svc-ec2 と svc-iam 以外の開始状態にはインスタンスロールが付いています（C3）
+      en: By platform convention, every start state except svc-ec2 and svc-iam includes an instance role (C3)
+  - item: preview-direct-https
+    kind: platform
+    reason:
+      zh-CN: 预览使用方案 B 的 Let's Encrypt IP 证书（03 §6.2）
+      ja: プレビューには方式 B の Let's Encrypt IP 証明書を使います（03 §6.2）
+      en: The preview uses the option B Let's Encrypt IP certificate (03 §6.2)
   platform:
     preview: {directHttps: 'on'}
 targetModules:
@@ -42,7 +68,11 @@ targetModules:
 expectedWarnings: [SEC-002, DEP-011]
 cost: {tier: medium}
 provision: {class: A}
-badge: {title: 负载均衡}
+badge:
+  title:
+    zh-CN: 负载均衡
+    ja: ロードバランシング
+    en: Load balancing
 tracks: [networking, resilient, saa-main]
 saa:
   domains: [resilient, performance]

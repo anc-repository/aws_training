@@ -1,18 +1,45 @@
 checks:
   # ---- 起始状态
   - id: storage-local-baseline
-    title: 起始状态：照片由 EC2 本地磁盘提供
+    title:
+      zh-CN: 起始状态：照片由 EC2 本地磁盘提供
+      ja: 開始状態：写真は EC2 のローカルディスクから提供されている
+      en: "Start state: photos are served from the EC2 local disk"
     type: capability
     module: storage
     drift: { policy: once }
     assert:
-      - { path: $.driver, op: eq, value: local, label: 驱动 }
-      - { path: $.status, op: eq, value: 'off', label: 模块状态 }
-      - { path: $.localHealth, op: eq, value: ok, label: 本地实现健康 }
-    explain: 起始状态中 storage 尚未启用，上传字节写在 /var/lib/cloudalbum/uploads。
+      - path: $.driver
+        op: eq
+        value: local
+        label:
+          zh-CN: 驱动
+          ja: ドライバー
+          en: Driver
+      - path: $.status
+        op: eq
+        value: 'off'
+        label:
+          zh-CN: 模块状态
+          ja: モジュールの状態
+          en: Module status
+      - path: $.localHealth
+        op: eq
+        value: ok
+        label:
+          zh-CN: 本地实现健康
+          ja: ローカル実装が正常
+          en: Local implementation healthy
+    explain:
+      zh-CN: 起始状态中 storage 尚未启用，上传字节写在 /var/lib/cloudalbum/uploads。
+      ja: 開始状態では storage はまだ有効になっておらず、アップロードのバイトは /var/lib/cloudalbum/uploads に書き込まれます。
+      en: In the start state storage is not enabled yet, and upload bytes are written to /var/lib/cloudalbum/uploads.
 
   - id: data-volume-usage
-    title: 记录数据卷的使用率（只展示）
+    title:
+      zh-CN: 记录数据卷的使用率（只展示）
+      ja: データボリュームの使用率を記録する（表示のみ）
+      en: Record the data volume usage (display only)
     type: local
     on: lab
     checkId: disk-usage
@@ -20,22 +47,48 @@ checks:
     required: false
     drift: { policy: once }
     assert:
-      - { path: $.usedPct, op: exists, label: 数据卷使用率, severity: warn }
-    explain: 只展示，不判定；ebs-growth 选做步骤会把它压到阈值附近。
+      - path: $.usedPct
+        op: exists
+        label:
+          zh-CN: 数据卷使用率
+          ja: データボリュームの使用率
+          en: Data volume usage
+        severity: warn
+    explain:
+      zh-CN: 只展示，不判定；ebs-growth 选做步骤会把它压到阈值附近。
+      ja: 表示するだけで判定はしません。任意の ebs-growth ステップで、しきい値付近まで押し上げます。
+      en: Displayed only, not judged; the optional ebs-growth step pushes it close to the threshold.
 
   # ---- 接入
   - id: storage-wired
-    title: storage 已切换到 S3 并通过探针
+    title:
+      zh-CN: storage 已切换到 S3 并通过探针
+      ja: storage が S3 に切り替わり、プローブに合格した
+      en: storage has switched to S3 and passed the probe
     type: capability
     module: storage
     drift: { policy: must-hold, monitor: true }
     assert:
-      - { path: $.driver, op: eq, value: s3, label: 驱动 }
-      - { path: $, op: healthy, label: 状态正常（本卡 expectedWarnings 为空，即必须是 ok） }
+      - path: $.driver
+        op: eq
+        value: s3
+        label:
+          zh-CN: 驱动
+          ja: ドライバー
+          en: Driver
+      - path: $
+        op: healthy
+        label:
+          zh-CN: 状态正常（本卡 expectedWarnings 为空，即必须是 ok）
+          ja: 状態が正常（このカードの expectedWarnings は空なので ok でなければならない）
+          en: Healthy (this card's expectedWarnings is empty, so it must be ok)
     reproduce: { run: 'curl -s http://127.0.0.1/api/capabilities | jq ".modules.storage | {driver, status, detail}"', runsOn: lab }
 
   - id: media-url-s3
-    title: 应用签发的媒体 URL 是本环境 S3 桶的预签名地址
+    title:
+      zh-CN: 应用签发的媒体 URL 是本环境 S3 桶的预签名地址
+      ja: アプリが発行するメディア URL が、この環境の S3 バケットの署名付きアドレスである
+      en: The media URLs the app issues are presigned addresses of this environment's S3 bucket
     type: http-header
     from: lab
     target: self
@@ -43,16 +96,52 @@ checks:
     dependsOn: [storage-wired]
     drift: { policy: must-hold }
     assert:
-      - { path: $.status, op: eq, value: 200, label: 状态码 }
-      - { path: $.json.provider, op: eq, value: 'storage:s3', label: 签名方 }
-      - { path: $.json.signed, op: eq, value: true, label: 预签名 }
-      - { path: $.json.host, op: matches, value: '^cloudalbum-[a-z0-9]+-storage-(media|raw)-[0-9]{12}-[a-z0-9-]+\.s3\.', label: URL 的主机是本环境的桶 }
-      - { path: $.pathSegments.storage, op: startsWith, value: s3, label: 路径段 storage }
-    explain: 由实验机本地请求探测端点（引擎自动附带本机令牌 X-ATL-Probe-Token，06），不依赖浏览器；URL 的主机必须是本环境 storage 栈创建的桶。
+      - path: $.status
+        op: eq
+        value: 200
+        label:
+          zh-CN: 状态码
+          ja: ステータスコード
+          en: Status code
+      - path: $.json.provider
+        op: eq
+        value: 'storage:s3'
+        label:
+          zh-CN: 签名方
+          ja: 署名者
+          en: Signer
+      - path: $.json.signed
+        op: eq
+        value: true
+        label:
+          zh-CN: 预签名
+          ja: 署名付き
+          en: Presigned
+      - path: $.json.host
+        op: matches
+        value: '^cloudalbum-[a-z0-9]+-storage-(media|raw)-[0-9]{12}-[a-z0-9-]+\.s3\.'
+        label:
+          zh-CN: URL 的主机是本环境的桶
+          ja: URL のホストがこの環境のバケット
+          en: The URL host is this environment's bucket
+      - path: $.pathSegments.storage
+        op: startsWith
+        value: s3
+        label:
+          zh-CN: 路径段 storage
+          ja: 経路セグメント storage
+          en: Path segment storage
+    explain:
+      zh-CN: 由实验机本地请求探测端点（引擎自动附带本机令牌 X-ATL-Probe-Token，06），不依赖浏览器；URL 的主机必须是本环境 storage 栈创建的桶。
+      ja: ラボ用インスタンスからローカルにプローブ用エンドポイントへリクエストします（エンジンがローカルのトークン X-ATL-Probe-Token を自動で付けます、06）。ブラウザーには依存しません。URL のホストは、この環境の storage スタックが作成したバケットでなければなりません。
+      en: The probe endpoint is requested locally on the lab instance (the engine adds the local token X-ATL-Probe-Token automatically, 06), without relying on a browser; the URL host must be a bucket created by this environment's storage stack.
     reproduce: { run: 'curl -s -o /dev/null -D - "http://127.0.0.1/api/feed?limit=1" | grep -i "^x-cloudalbum-path:"', runsOn: lab }
 
   - id: upload-presign-seen
-    title: 最近的真实上传请求走了 S3 预签名
+    title:
+      zh-CN: 最近的真实上传请求走了 S3 预签名
+      ja: 最近の実際のアップロードリクエストが S3 の署名付き URL を使った
+      en: A recent real upload request used an S3 presigned URL
     type: local
     on: lab
     checkId: path-seen
@@ -60,12 +149,24 @@ checks:
     dependsOn: [storage-wired]
     drift: { policy: once }
     assert:
-      - { path: $.count, op: gte, value: 1, label: 出现次数 }
-    explain: 在应用预览中上传任意一张照片即可满足；探测请求不计入。
+      - path: $.count
+        op: gte
+        value: 1
+        label:
+          zh-CN: 出现次数
+          ja: 出現回数
+          en: Occurrences
+    explain:
+      zh-CN: 在应用预览中上传任意一张照片即可满足；探测请求不计入。
+      ja: アプリのプレビューで写真を 1 枚アップロードすれば満たせます。プローブのリクエストは数えません。
+      en: Upload any photo in the App preview to satisfy this; probe requests do not count.
 
   # ---- 桶配置（ownership：本会话的 storage 模块栈）
   - id: bucket-bpa
-    title: 原图桶的四项 Block Public Access 全部开启
+    title:
+      zh-CN: 原图桶的四项 Block Public Access 全部开启
+      ja: 元画像バケットの Block Public Access の 4 項目がすべて有効
+      en: All four Block Public Access settings are on for the original image bucket
     type: aws-readonly
     service: s3
     action: GetPublicAccessBlock
@@ -82,13 +183,32 @@ checks:
     manualFallback:
       where: { breadcrumb: [S3, '{{ var.rawBucket }}', 权限, 阻止公有访问], region: app }
       observed:
-        question: “阻止所有公有访问”显示什么？
+        question:
+          zh-CN: “阻止所有公有访问”显示什么？
+          ja: 「パブリックアクセスをすべてブロック」には何と表示されていますか？
+          en: What does "Block all public access" show?
         options:
-          - { value: 'on', label: 开启, expected: true }
-          - { value: 'off', label: 关闭, fixHint: 不要在控制台修改栈管理的配置；重新执行 scripts/module enable storage }
+          - value: 'on'
+            label:
+              zh-CN: 开启
+              ja: オン
+              en: On
+            expected: true
+          - value: 'off'
+            label:
+              zh-CN: 关闭
+              ja: オフ
+              en: Off
+            fixHint:
+              zh-CN: 不要在控制台修改栈管理的配置；重新执行 scripts/module enable storage
+              ja: スタックが管理する設定をコンソールで変更しないでください。scripts/module enable storage を再実行してください
+              en: Do not change stack-managed settings in the console; run scripts/module enable storage again
 
   - id: bucket-versioning
-    title: 原图桶开启了版本控制
+    title:
+      zh-CN: 原图桶开启了版本控制
+      ja: 元画像バケットでバージョニングが有効
+      en: Versioning is enabled on the original image bucket
     type: aws-readonly
     service: s3
     action: GetBucketVersioning
@@ -97,18 +217,39 @@ checks:
     ownership: { resource: '{{ var.rawBucketArn }}', mode: session }
     drift: { policy: must-hold }
     assert:
-      - { path: $.Status, op: eq, value: Enabled, label: 版本控制 }
+      - path: $.Status
+        op: eq
+        value: Enabled
+        label:
+          zh-CN: 版本控制
+          ja: バージョニング
+          en: Versioning
     reproduce: { run: 'aws s3api get-bucket-versioning --bucket {{ var.rawBucket }}', runsOn: workstation }
     manualFallback:
       where: { breadcrumb: [S3, '{{ var.rawBucket }}', 属性, 存储桶版本控制], region: app }
       observed:
-        question: “存储桶版本控制”显示什么？
+        question:
+          zh-CN: “存储桶版本控制”显示什么？
+          ja: 「バケットのバージョニング」には何と表示されていますか？
+          en: What does "Bucket Versioning" show?
         options:
-          - { value: enabled, label: 已启用, expected: true }
-          - { value: other, label: 已暂停或已禁用 }
+          - value: enabled
+            label:
+              zh-CN: 已启用
+              ja: 有効
+              en: Enabled
+            expected: true
+          - value: other
+            label:
+              zh-CN: 已暂停或已禁用
+              ja: 停止中または無効
+              en: Suspended or disabled
 
   - id: bucket-encryption
-    title: 原图桶默认加密（SSE-S3 或 SSE-KMS）
+    title:
+      zh-CN: 原图桶默认加密（SSE-S3 或 SSE-KMS）
+      ja: 元画像バケットのデフォルト暗号化（SSE-S3 または SSE-KMS）
+      en: Default encryption on the original image bucket (SSE-S3 or SSE-KMS)
     type: aws-readonly
     service: s3
     action: GetBucketEncryption
@@ -120,18 +261,36 @@ checks:
       - path: '$.ServerSideEncryptionConfiguration.Rules[0].ApplyServerSideEncryptionByDefault.SSEAlgorithm'
         op: in
         value: [AES256, 'aws:kms', 'aws:kms:dsse']
-        label: 默认加密算法
+        label:
+          zh-CN: 默认加密算法
+          ja: デフォルトの暗号化アルゴリズム
+          en: Default encryption algorithm
     reproduce: { run: 'aws s3api get-bucket-encryption --bucket {{ var.rawBucket }}', runsOn: workstation }
     manualFallback:
       where: { breadcrumb: [S3, '{{ var.rawBucket }}', 属性, 默认加密], region: app }
       observed:
-        question: “加密类型”显示什么？
+        question:
+          zh-CN: “加密类型”显示什么？
+          ja: 「暗号化タイプ」には何と表示されていますか？
+          en: What does "Encryption type" show?
         options:
-          - { value: sse, label: SSE-S3 或 SSE-KMS, expected: true }
-          - { value: none, label: 未加密 }
+          - value: sse
+            label:
+              zh-CN: SSE-S3 或 SSE-KMS
+              ja: SSE-S3 または SSE-KMS
+              en: SSE-S3 or SSE-KMS
+            expected: true
+          - value: none
+            label:
+              zh-CN: 未加密
+              ja: 暗号化されていない
+              en: Not encrypted
 
   - id: bucket-notification-eventbridge-only
-    title: 原图桶只开启了 EventBridge 投递（MUTEX-004）
+    title:
+      zh-CN: 原图桶只开启了 EventBridge 投递（MUTEX-004）
+      ja: 元画像バケットは EventBridge への配信だけが有効（MUTEX-004）
+      en: The original image bucket only has EventBridge delivery turned on (MUTEX-004)
     type: aws-readonly
     service: s3
     action: GetBucketNotificationConfiguration
@@ -140,33 +299,95 @@ checks:
     ownership: { resource: '{{ var.rawBucketArn }}', mode: session }
     drift: { policy: must-hold }
     assert:
-      - { path: $.EventBridgeConfiguration, op: exists, label: EventBridge 投递 }
-      - { path: $.LambdaFunctionConfigurations, op: absent, label: 没有 Lambda 目标 }
-      - { path: $.QueueConfigurations, op: absent, label: 没有 SQS 目标 }
-      - { path: $.TopicConfigurations, op: absent, label: 没有 SNS 目标 }
+      - path: $.EventBridgeConfiguration
+        op: exists
+        label:
+          zh-CN: EventBridge 投递
+          ja: EventBridge への配信
+          en: EventBridge delivery
+      - path: $.LambdaFunctionConfigurations
+        op: absent
+        label:
+          zh-CN: 没有 Lambda 目标
+          ja: Lambda の送信先がない
+          en: No Lambda target
+      - path: $.QueueConfigurations
+        op: absent
+        label:
+          zh-CN: 没有 SQS 目标
+          ja: SQS の送信先がない
+          en: No SQS target
+      - path: $.TopicConfigurations
+        op: absent
+        label:
+          zh-CN: 没有 SNS 目标
+          ja: SNS の送信先がない
+          en: No SNS target
     reproduce: { run: 'aws s3api get-bucket-notification-configuration --bucket {{ var.rawBucket }}', runsOn: workstation }
     manualFallback:
       where: { breadcrumb: [S3, '{{ var.rawBucket }}', 属性, 事件通知], region: app }
       observed:
-        question: “Amazon EventBridge”一栏显示什么？
+        question:
+          zh-CN: “Amazon EventBridge”一栏显示什么？
+          ja: 「Amazon EventBridge」の欄には何と表示されていますか？
+          en: What does the "Amazon EventBridge" field show?
         options:
-          - { value: 'on', label: 开启, expected: true }
-          - { value: 'off', label: 关闭 }
+          - value: 'on'
+            label:
+              zh-CN: 开启
+              ja: オン
+              en: On
+            expected: true
+          - value: 'off'
+            label:
+              zh-CN: 关闭
+              ja: オフ
+              en: Off
 
   # ---- 直传观察
   - id: put-target-answer
-    title: 说出浏览器的上传 PUT 请求发往哪里
+    title:
+      zh-CN: 说出浏览器的上传 PUT 请求发往哪里
+      ja: ブラウザーのアップロード PUT リクエストの送信先を答える
+      en: Say where the browser's upload PUT request goes
     type: manual
     spec:
       observed:
-        question: 在 DevTools 的 Network 面板中，上传原图的 PUT 请求的主机是什么？
+        question:
+          zh-CN: 在 DevTools 的 Network 面板中，上传原图的 PUT 请求的主机是什么？
+          ja: DevTools の Network パネルで、元画像をアップロードする PUT リクエストのホストは何ですか？
+          en: In the DevTools Network panel, what is the host of the PUT request that uploads the original image?
         options:
-          - { value: s3, label: 本环境原图桶的 S3 区域端点（带 X-Amz-Signature）, expected: true }
-          - { value: ec2, label: 实验机的弹性 IP（/api/storage/upload）, fixHint: 这说明 storage 仍是 local；先完成接入步骤 }
-          - { value: cloudfront, label: CloudFront 分配, fixHint: 本卡没有启用 cdn；CloudFront 不缓存 PUT }
+          - value: s3
+            label:
+              zh-CN: 本环境原图桶的 S3 区域端点（带 X-Amz-Signature）
+              ja: この環境の元画像バケットの S3 リージョンエンドポイント（X-Amz-Signature 付き）
+              en: The S3 Regional endpoint of this environment's original image bucket (with X-Amz-Signature)
+            expected: true
+          - value: ec2
+            label:
+              zh-CN: 实验机的弹性 IP（/api/storage/upload）
+              ja: ラボ用インスタンスの Elastic IP（/api/storage/upload）
+              en: The lab instance's Elastic IP (/api/storage/upload)
+            fixHint:
+              zh-CN: 这说明 storage 仍是 local；先完成接入步骤
+              ja: storage がまだ local であることを示しています。先に組み込みのステップを完了してください
+              en: This means storage is still local; finish the wiring step first
+          - value: cloudfront
+            label:
+              zh-CN: CloudFront 分配
+              ja: CloudFront ディストリビューション
+              en: A CloudFront distribution
+            fixHint:
+              zh-CN: 本卡没有启用 cdn；CloudFront 不缓存 PUT
+              ja: このカードでは cdn を有効にしていません。また CloudFront は PUT をキャッシュしません
+              en: This card does not enable cdn, and CloudFront does not cache PUT
 
   - id: lab-net-bytes
-    title: 记录实验机最近 5 分钟的网卡收发字节（只展示）
+    title:
+      zh-CN: 记录实验机最近 5 分钟的网卡收发字节（只展示）
+      ja: ラボ用インスタンスの直近 5 分間のネットワーク送受信バイトを記録する（表示のみ）
+      en: Record the lab instance's network bytes sent and received over the last 5 minutes (display only)
     type: local
     on: lab
     checkId: net-bytes
@@ -174,10 +395,20 @@ checks:
     required: false
     drift: { policy: once }
     assert:
-      - { path: $.available, op: eq, value: true, label: 采样可用, severity: warn }
+      - path: $.available
+        op: eq
+        value: true
+        label:
+          zh-CN: 采样可用
+          ja: サンプルが利用可能
+          en: Samples available
+        severity: warn
 
   - id: balloon-released
-    title: ebs-growth 结束后数据卷没有被占位文件占满
+    title:
+      zh-CN: ebs-growth 结束后数据卷没有被占位文件占满
+      ja: ebs-growth の終了後、データボリュームがダミーファイルで埋まっていない
+      en: After ebs-growth, the data volume is not filled by the placeholder file
     type: local
     on: lab
     checkId: disk-usage
@@ -185,13 +416,25 @@ checks:
     required: false
     drift: { policy: must-hold }
     assert:
-      - { path: $.usedPct, op: lt, value: 85, label: 数据卷使用率 < 85% }
-    explain: 脚本中途被打断时，在实验机执行 sudo experiments/storage/faults/balloon.sh release 释放占位文件。
+      - path: $.usedPct
+        op: lt
+        value: 85
+        label:
+          zh-CN: 数据卷使用率 < 85%
+          ja: データボリュームの使用率 < 85%
+          en: Data volume usage < 85%
+    explain:
+      zh-CN: 脚本中途被打断时，在实验机执行 sudo experiments/storage/faults/balloon.sh release 释放占位文件。
+      ja: スクリプトが途中で中断された場合は、ラボ用インスタンスで sudo experiments/storage/faults/balloon.sh release を実行してダミーファイルを解放してください。
+      en: If the script was interrupted, run sudo experiments/storage/faults/balloon.sh release on the lab instance to release the placeholder file.
     reproduce: { run: 'df -h /var/lib/cloudalbum', runsOn: lab }
 
   # ---- 回收验证
   - id: buckets-gone
-    title: 本会话的原图桶已删除
+    title:
+      zh-CN: 本会话的原图桶已删除
+      ja: このセッションの元画像バケットが削除された
+      en: This session's original image bucket has been deleted
     type: aws-readonly
     service: s3
     action: GetBucketLocation
@@ -203,7 +446,19 @@ checks:
     manualFallback:
       where: { breadcrumb: [S3, 存储桶], region: app }
       observed:
-        question: 列表中还能找到原图桶吗？
+        question:
+          zh-CN: 列表中还能找到原图桶吗？
+          ja: 一覧にまだ元画像バケットがありますか？
+          en: Can you still find the original image bucket in the list?
         options:
-          - { value: gone, label: 找不到, expected: true }
-          - { value: present, label: 还在 }
+          - value: gone
+            label:
+              zh-CN: 找不到
+              ja: 見つからない
+              en: Not found
+            expected: true
+          - value: present
+            label:
+              zh-CN: 还在
+              ja: まだある
+              en: Still there

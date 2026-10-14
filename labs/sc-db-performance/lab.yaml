@@ -5,11 +5,27 @@ id: sc-db-performance
 kind: scenario
 version: 0.1.0
 status: planned
-title: 数据库提速
-subtitle: RDS 只读副本 + ElastiCache + RDS Proxy
-summary: 热点读交给缓存，能接受秒级延迟的读交给只读副本，连接风暴交给连接池代理——三种手段各管一段，用路径头看清每个请求走了哪条路
-story: 时间线页面越来越慢：数据库 CPU 在晚高峰居高不下，大部分是重复的时间线与相册列表查询；运营每天还要跑几条重的统计查询，跑的时候前台也跟着变慢；最近为了应对高峰，团队把 api 进程数翻了一倍，结果数据库报 `too many connections`。DBA 给出三条建议：加缓存、加只读副本、加连接池代理。架构师要搞清楚它们分别解决什么问题、各自的代价，以及哪些请求能走哪条路。
-scenario: {question: 一个社交应用的个人主页读请求很多、同一用户的主页会被反复访问，数据允许数秒陈旧；数据库是 RDS for PostgreSQL，CPU 长期偏高。团队希望在改动最小的前提下显著降低数据库负载与响应时间。最合适的是？}
+title:
+  zh-CN: 数据库提速
+  ja: データベースの高速化
+  en: Faster databases
+subtitle:
+  zh-CN: RDS 只读副本 + ElastiCache + RDS Proxy
+  ja: RDS リードレプリカ + ElastiCache + RDS Proxy
+  en: RDS read replica + ElastiCache + RDS Proxy
+summary:
+  zh-CN: 热点读交给缓存，能接受秒级延迟的读交给只读副本，连接风暴交给连接池代理——三种手段各管一段，用路径头看清每个请求走了哪条路
+  ja: ホットな読み取りはキャッシュに、秒単位の遅延を許容できる読み取りはリードレプリカに、接続の嵐は接続プールのプロキシに任せます。3 つの手段がそれぞれの区間を受け持ち、経路ヘッダーで各リクエストがどの経路を通ったかを確かめます
+  en: "Hot reads go to the cache, reads that tolerate seconds of lag go to the read replica, and connection storms go to the connection-pooling proxy: each tool handles one part, and a path header shows which route every request took"
+story:
+  zh-CN: 时间线页面越来越慢：数据库 CPU 在晚高峰居高不下，大部分是重复的时间线与相册列表查询；运营每天还要跑几条重的统计查询，跑的时候前台也跟着变慢；最近为了应对高峰，团队把 api 进程数翻了一倍，结果数据库报 `too many connections`。DBA 给出三条建议：加缓存、加只读副本、加连接池代理。架构师要搞清楚它们分别解决什么问题、各自的代价，以及哪些请求能走哪条路。
+  ja: タイムラインのページがだんだん遅くなっています。夜のピーク時にデータベースの CPU が高止まりし、その大半は同じタイムラインとアルバム一覧のクエリの繰り返しです。運用チームは毎日いくつか重い集計クエリも実行し、その間はフロントも遅くなります。最近ピークに備えて api のプロセス数を 2 倍にしたところ、データベースが `too many connections` を返すようになりました。DBA の提案は 3 つ、キャッシュの追加、リードレプリカの追加、接続プールのプロキシの追加です。アーキテクトは、それぞれが何を解決し、どんな代償があり、どのリクエストがどの経路を通れるかを明らかにする必要があります。
+  en: "The timeline page keeps getting slower: database CPU stays high during the evening peak, mostly from repeated timeline and album list queries; the operations team also runs a few heavy reporting queries every day, and the front end slows down while they run; recently the team doubled the number of api processes for the peak, and the database started returning `too many connections`. The DBA suggests three things: add a cache, add a read replica, add a connection-pooling proxy. The architect needs to work out what each one solves, what it costs, and which requests can take which route."
+scenario:
+  question:
+    zh-CN: 一个社交应用的个人主页读请求很多、同一用户的主页会被反复访问，数据允许数秒陈旧；数据库是 RDS for PostgreSQL，CPU 长期偏高。团队希望在改动最小的前提下显著降低数据库负载与响应时间。最合适的是？
+    ja: あるソーシャルアプリでは、個人ページへの読み取りリクエストが多く、同じユーザーのページが繰り返しアクセスされます。データは数秒古くても許容されます。データベースは RDS for PostgreSQL で、CPU が常に高めです。変更を最小限に抑えつつ、データベースの負荷と応答時間を大きく下げたいと考えています。最も適切なのはどれですか？
+    en: A social app serves many reads of profile pages, the same user's page is requested again and again, and the data may be a few seconds stale. The database is RDS for PostgreSQL with consistently high CPU. The team wants to cut database load and response time significantly with minimal changes. What is the most suitable choice?
 difficulty: advanced
 estimatedMinutes: 150
 timeLimitMinutes: 240
@@ -39,7 +55,10 @@ startProfile:
     kind: module
     basis: credential
     set: {IAM_CREDENTIALS: role}
-    reason: 平台约定除 svc-ec2、svc-iam 外起始状态都带实例角色（C3）
+    reason:
+      zh-CN: 平台约定除 svc-ec2、svc-iam 外起始状态都带实例角色（C3）
+      ja: プラットフォームの取り決めにより、svc-ec2 と svc-iam 以外の開始状態にはインスタンスロールが付いています（C3）
+      en: By platform convention, every start state except svc-ec2 and svc-iam includes an instance role (C3)
   - item: secrets
     kind: module
     basis: closure
@@ -53,7 +72,12 @@ startProfile:
   - item: load-balancer
     kind: local
     set: {LB_LOCAL_WORKERS: 2}
-  - {item: preview-direct-https, kind: platform, reason: 预览使用方案 B 的 Let's Encrypt IP 证书（03 §6.2）}
+  - item: preview-direct-https
+    kind: platform
+    reason:
+      zh-CN: 预览使用方案 B 的 Let's Encrypt IP 证书（03 §6.2）
+      ja: プレビューには方式 B の Let's Encrypt IP 証明書を使います（03 §6.2）
+      en: The preview uses the option B Let's Encrypt IP certificate (03 §6.2)
   platform:
     preview: {directHttps: 'on'}
 targetModules:
@@ -66,7 +90,15 @@ targetModules:
 expectedWarnings: []
 cost: {tier: high}
 provision: {class: C}
-badge: {title: 数据库提速, short: 库提速}
+badge:
+  title:
+    zh-CN: 数据库提速
+    ja: データベースの高速化
+    en: Faster databases
+  short:
+    zh-CN: 库提速
+    ja: DB 高速化
+    en: Faster DB
 tracks: [performant, saa-main]
 saa:
   domains: [performance, resilient, cost]

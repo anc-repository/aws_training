@@ -1,25 +1,61 @@
 # 起始状态（before）断言：一律 drift once（C3、04 §3.5 第 9 条）
 checks:
   - id: tls-off
-    title: 起始状态：tls 未启用，Nginx 用自签名证书
+    title:
+      zh-CN: 起始状态：tls 未启用，Nginx 用自签名证书
+      ja: 開始状態：tls は有効になっておらず、Nginx は自己署名証明書を使っている
+      en: "Start state: tls is not enabled and Nginx uses a self-signed certificate"
     type: capability
     module: tls
     drift: { policy: once }
     assert:
-      - { path: $.driver, op: eq, value: selfsigned, label: 驱动 }
-      - { path: $.status, op: eq, value: 'off', label: 状态 }
-    explain: 本卡关闭了平台的方案 B 预览，所以起点是 L0 的自签名证书（TLS_MODE=selfsigned）。
+      - path: $.driver
+        op: eq
+        value: selfsigned
+        label:
+          zh-CN: 驱动
+          ja: ドライバー
+          en: Driver
+      - path: $.status
+        op: eq
+        value: 'off'
+        label:
+          zh-CN: 状态
+          ja: 状態
+          en: Status
+    explain:
+      zh-CN: 本卡关闭了平台的方案 B 预览，所以起点是 L0 的自签名证书（TLS_MODE=selfsigned）。
+      ja: このカードではプラットフォームの方式 B のプレビューを無効にしているので、出発点は L0 の自己署名証明書（TLS_MODE=selfsigned）です。
+      en: This card turns off the platform's option B preview, so the starting point is L0's self-signed certificate (TLS_MODE=selfsigned).
     reproduce: { run: 'curl -s http://127.0.0.1/api/capabilities | jq "{https, tls: .modules.tls | {driver, status}}"', runsOn: lab }
 
   - id: direct-selfsigned
-    title: 起始状态：实验机 443 上的证书由 CN=cloudalbum-l0 自签名，不受信任
+    title:
+      zh-CN: 起始状态：实验机 443 上的证书由 CN=cloudalbum-l0 自签名，不受信任
+      ja: 開始状態：ラボ用インスタンスの 443 の証明書は CN=cloudalbum-l0 による自己署名で、信頼されていない
+      en: "Start state: the certificate on the lab instance's 443 is self-signed by CN=cloudalbum-l0 and not trusted"
     type: local
     on: lab
     checkId: tls-handshake
     args: { target: self }
     drift: { policy: once }
     assert:
-      - { path: $.issuer, op: eq, value: cloudalbum-l0, label: 签发者 }
-      - { path: $.authorized, op: eq, value: false, label: 不受信任 }
-    explain: 从实验机本机握手 127.0.0.1:443 读出证书（等价于 openssl s_client）；自签名证书的签发者就是它自己。
+      - path: $.issuer
+        op: eq
+        value: cloudalbum-l0
+        label:
+          zh-CN: 签发者
+          ja: 発行者
+          en: Issuer
+      - path: $.authorized
+        op: eq
+        value: false
+        label:
+          zh-CN: 不受信任
+          ja: 信頼されていない
+          en: Not trusted
+    explain:
+      zh-CN: 从实验机本机握手 127.0.0.1:443 读出证书（等价于 openssl s_client）；自签名证书的签发者就是它自己。
+      ja: ラボ用インスタンス自身から 127.0.0.1:443 とハンドシェイクして証明書を読み取ります（openssl s_client と同等）。自己署名証明書の発行者は自分自身です。
+      en: The certificate is read by handshaking with 127.0.0.1:443 on the lab instance itself (equivalent to openssl s_client); a self-signed certificate's issuer is itself.
     reproduce: { run: 'openssl s_client -connect 127.0.0.1:443 </dev/null 2>/dev/null | openssl x509 -noout -issuer -subject -dates', runsOn: lab }

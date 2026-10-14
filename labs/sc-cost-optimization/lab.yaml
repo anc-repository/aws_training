@@ -5,11 +5,27 @@ id: sc-cost-optimization
 kind: scenario
 version: 0.1.0
 status: planned
-title: 成本优化
-subtitle: Budgets + Cost Explorer + S3 存储类别 + Spot / Graviton
-summary: 先装护栏、再找钱花在哪，然后从存储类别、处理器架构与购买方式三个方向各省一次，并且清楚每种省法的代价
-story: 项目上线三个月后，月账单比预期高出一截，但没人说得清钱花在哪：有人忘了关的实验资源，有人把所有原图都放在 S3 Standard，所有服务器都是 x86 按需实例。CFO 要求两件事：第一，以后超支之前要有人收到通知；第二，在不影响用户的前提下给出三条立竿见影的降本措施，并说明每条措施的风险。
-scenario: {question: 一个视频转码服务：任务可以重试，处理量随白天上传量波动很大；另有一组稳定运行 24 小时的 API 服务器，预计三年不变。哪种购买方式组合成本最低且风险可控？}
+title:
+  zh-CN: 成本优化
+  ja: コスト最適化
+  en: Cost optimization
+subtitle:
+  zh-CN: Budgets + Cost Explorer + S3 存储类别 + Spot / Graviton
+  ja: Budgets + Cost Explorer + S3 ストレージクラス + Spot / Graviton
+  en: Budgets + Cost Explorer + S3 storage classes + Spot / Graviton
+summary:
+  zh-CN: 先装护栏、再找钱花在哪，然后从存储类别、处理器架构与购买方式三个方向各省一次，并且清楚每种省法的代价
+  ja: まずガードレールを設け、次にお金がどこに使われているかを調べます。そのうえでストレージクラス、プロセッサーアーキテクチャ、購入方法の 3 つの方向からそれぞれ 1 回ずつ節約し、各方法の代償もはっきりさせます
+  en: Put guardrails in place first, then find where the money goes, then save once each through storage classes, processor architecture and purchase options, knowing the cost of each saving
+story:
+  zh-CN: 项目上线三个月后，月账单比预期高出一截，但没人说得清钱花在哪：有人忘了关的实验资源，有人把所有原图都放在 S3 Standard，所有服务器都是 x86 按需实例。CFO 要求两件事：第一，以后超支之前要有人收到通知；第二，在不影响用户的前提下给出三条立竿见影的降本措施，并说明每条措施的风险。
+  ja: プロジェクトの公開から 3 か月、月々の請求額が想定を大きく上回っていますが、お金がどこに使われているかを誰も説明できません。誰かが止め忘れた実験用リソースがあり、元画像はすべて S3 Standard に置かれ、サーバーはすべて x86 のオンデマンドインスタンスです。CFO の要求は 2 つです。1 つ目は、今後は予算超過の前に誰かに通知が届くこと。2 つ目は、ユーザーに影響を与えずにすぐ効果の出るコスト削減策を 3 つ示し、それぞれのリスクを説明することです。
+  en: "Three months after launch, the monthly bill is well above plan, but nobody can say where the money goes: someone forgot to shut down lab resources, every original image sits in S3 Standard, and every server is an x86 On-Demand instance. The CFO asks for two things: first, someone must be notified before the budget is exceeded; second, three cost cuts that take effect immediately without affecting users, each with its risks explained."
+scenario:
+  question:
+    zh-CN: 一个视频转码服务：任务可以重试，处理量随白天上传量波动很大；另有一组稳定运行 24 小时的 API 服务器，预计三年不变。哪种购买方式组合成本最低且风险可控？
+    ja: ある動画変換サービスでは、ジョブは再試行でき、処理量は日中のアップロード量によって大きく変動します。別に 24 時間安定して稼働する API サーバー群があり、3 年間は変わらない見込みです。コストが最も低く、リスクも管理できる購入方法の組み合わせはどれですか？
+    en: A video transcoding service has retryable jobs whose volume swings widely with daytime uploads; separately, a group of API servers runs steadily 24 hours a day and is expected to stay unchanged for three years. Which combination of purchase options has the lowest cost with manageable risk?
 difficulty: intermediate
 estimatedMinutes: 120
 timeLimitMinutes: 180
@@ -48,13 +64,21 @@ startProfile:
     kind: module
     basis: credential
     set: {IAM_CREDENTIALS: role}
-    reason: 平台约定除 svc-ec2、svc-iam 外起始状态都带实例角色（C3）
+    reason:
+      zh-CN: 平台约定除 svc-ec2、svc-iam 外起始状态都带实例角色（C3）
+      ja: プラットフォームの取り決めにより、svc-ec2 と svc-iam 以外の開始状態にはインスタンスロールが付いています（C3）
+      en: By platform convention, every start state except svc-ec2 and svc-iam includes an instance role (C3)
   - item: storage
     kind: module
     basis: context
     contextKind: protected-data
     set: {STORAGE_DRIVER: s3}
-  - {item: preview-direct-https, kind: platform, reason: 预览使用方案 B 的 Let's Encrypt IP 证书（03 §6.2）}
+  - item: preview-direct-https
+    kind: platform
+    reason:
+      zh-CN: 预览使用方案 B 的 Let's Encrypt IP 证书（03 §6.2）
+      ja: プレビューには方式 B の Let's Encrypt IP 証明書を使います（03 §6.2）
+      en: The preview uses the option B Let's Encrypt IP certificate (03 §6.2)
   platform:
     preview: {directHttps: 'on'}
 targetModules:
@@ -67,9 +91,20 @@ platformOps:
   op: enable
   module: cost
   args: {activateCostAllocationTags: true}
-  title: 激活成本分配标签
+  title:
+    zh-CN: 激活成本分配标签
+    ja: コスト配分タグを有効化
+    en: Activate cost allocation tags
   optional: true
-badge: {title: 成本优化, short: 省钱}
+badge:
+  title:
+    zh-CN: 成本优化
+    ja: コスト最適化
+    en: Cost optimization
+  short:
+    zh-CN: 省钱
+    ja: 節約
+    en: Savings
 tracks: [cost-optimized, saa-main]
 saa:
   domains: [cost, performance]

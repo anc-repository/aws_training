@@ -9,32 +9,105 @@ id: svc-notification
 kind: service
 version: 1.0.0
 status: beta
-service: Amazon SNS
-function: 通知扇出与订阅过滤
-title: Amazon SNS：通知扇出与订阅过滤
-subtitle: 逐个发信 → 一次 Publish + 订阅过滤
-summary: 把“应用逐个发邮件”的站外通知换成一次 SNS Publish，按订阅过滤策略扇出到邮件订阅与模块自带的 SQS 收件队列。
-story: |
-  L0 中“有人评论了你的照片”这类事件由 EC2 写站内信，再逐个调用 EmailPort 发邮件：接收人越多、渠道越多，EC2 干的活越多，
-  sync 档下这些时间全部算在发评论的请求里。这张卡片把站外扇出交给 Amazon SNS：应用只 Publish 一次，带上 userId / audience
-  消息属性，由订阅的过滤策略决定谁收到；模块自带的 SQS 收件队列收到每条事件的副本，worker 据此记账。
+service:
+  zh-CN: Amazon SNS
+  ja: Amazon SNS
+  en: Amazon SNS
+function:
+  zh-CN: 通知扇出与订阅过滤
+  ja: 通知のファンアウトとサブスクリプションフィルター
+  en: Notification fan-out and subscription filtering
+title:
+  zh-CN: Amazon SNS：通知扇出与订阅过滤
+  ja: Amazon SNS：通知のファンアウトとサブスクリプションフィルター
+  en: "Amazon SNS: notification fan-out and subscription filtering"
+subtitle:
+  zh-CN: 逐个发信 → 一次 Publish + 订阅过滤
+  ja: 1 通ずつ送信 → 1 回の Publish + サブスクリプションフィルター
+  en: One email at a time → one Publish + subscription filtering
+summary:
+  zh-CN: 把“应用逐个发邮件”的站外通知换成一次 SNS Publish，按订阅过滤策略扇出到邮件订阅与模块自带的 SQS 收件队列。
+  ja: 「アプリがメールを 1 通ずつ送る」外部通知を 1 回の SNS Publish に置き換え、サブスクリプションフィルターポリシーに従ってメールのサブスクリプションとモジュール付属の SQS 受信キューにファンアウトします。
+  en: Replace off-site notifications sent "one email at a time by the app" with a single SNS Publish that fans out, by subscription filter policy, to email subscriptions and the module's own SQS inbox queue.
+story:
+  zh-CN: |
+    L0 中“有人评论了你的照片”这类事件由 EC2 写站内信，再逐个调用 EmailPort 发邮件：接收人越多、渠道越多，EC2 干的活越多，
+    sync 档下这些时间全部算在发评论的请求里。这张卡片把站外扇出交给 Amazon SNS：应用只 Publish 一次，带上 userId / audience
+    消息属性，由订阅的过滤策略决定谁收到；模块自带的 SQS 收件队列收到每条事件的副本，worker 据此记账。
+  ja: |
+    L0 では「誰かがあなたの写真にコメントした」といったイベントについて、EC2 がサイト内メッセージを書き込み、さらに EmailPort を 1 件ずつ呼び出してメールを送ります。受信者やチャネルが増えるほど EC2 の仕事が増え、
+    sync 階層ではその時間がすべてコメント投稿のリクエストに含まれます。このカードでは外部へのファンアウトを Amazon SNS に任せます。アプリは userId / audience のメッセージ属性を付けて 1 回 Publish するだけで、
+    誰が受け取るかはサブスクリプションのフィルターポリシーが決めます。モジュール付属の SQS 受信キューは各イベントのコピーを受け取り、worker はそれをもとに記録します。
+  en: |
+    At L0, an event like "someone commented on your photo" makes EC2 write an in-app message and then call EmailPort once per recipient: the more recipients and channels, the more work EC2 does,
+    and on the sync tier all of that time counts toward the comment request. This card hands off-site fan-out to Amazon SNS: the app publishes once with userId / audience
+    message attributes, and the subscriptions' filter policies decide who receives it; the module's own SQS inbox queue gets a copy of every event, and the worker records deliveries from it.
 objectives:
-  - { text: 用 SNS + SQS 扇出解释“推送式一对多”与 SQS 竞争消费的区别, domain: resilient, relatesTo: after }
-  - { text: 用订阅过滤策略让每位用户只收到与自己有关的通知, domain: resilient, relatesTo: subscribe-users }
-  - { text: 说清邮件订阅为什么要确认、为什么事务性邮件不该用 SNS, domain: resilient, relatesTo: enable }
-  - { text: 看懂 Publish 耗时与接收人数无关, domain: performance, relatesTo: after }
+  - text:
+      zh-CN: 用 SNS + SQS 扇出解释“推送式一对多”与 SQS 竞争消费的区别
+      ja: SNS + SQS のファンアウトで「プッシュ型の 1 対多」と SQS の競合コンシューマーの違いを説明する
+      en: Use SNS + SQS fan-out to explain push-based one-to-many versus SQS competing consumers
+    domain: resilient
+    relatesTo: after
+  - text:
+      zh-CN: 用订阅过滤策略让每位用户只收到与自己有关的通知
+      ja: サブスクリプションフィルターポリシーで、各ユーザーが自分に関係する通知だけを受け取るようにする
+      en: Use subscription filter policies so each user only receives notifications about them
+    domain: resilient
+    relatesTo: subscribe-users
+  - text:
+      zh-CN: 说清邮件订阅为什么要确认、为什么事务性邮件不该用 SNS
+      ja: メールのサブスクリプションに確認が必要な理由と、トランザクションメールに SNS を使うべきでない理由を説明できる
+      en: Explain why email subscriptions need confirmation and why transactional email should not use SNS
+    domain: resilient
+    relatesTo: enable
+  - text:
+      zh-CN: 看懂 Publish 耗时与接收人数无关
+      ja: Publish の所要時間が受信者数と無関係であることを読み取る
+      en: See that Publish time does not depend on the number of recipients
+    domain: performance
+    relatesTo: after
 difficulty: beginner
 estimatedMinutes: 60
 timeLimitMinutes: 90
 extensions: { maxCount: 2, minutesEach: 30 }
-retain: { allowed: true, maxHours: 24, reason: 只有按请求计费的 SNS 与 SQS；保留后可以在 sc-event-fanout 中继续 }
+retain:
+  allowed: true
+  maxHours: 24
+  reason:
+    zh-CN: 只有按请求计费的 SNS 与 SQS；保留后可以在 sc-event-fanout 中继续
+    ja: リクエスト課金の SNS と SQS だけです。保持すれば sc-event-fanout で続きから使えます
+    en: Only request-billed SNS and SQS; if you keep the environment, you can continue in sc-event-fanout
 regions:
   supported: [ap-northeast-1]
 services:
-  - { id: sns, name: Amazon SNS, role: primary, module: notification }
-  - { id: sqs, name: Amazon SQS（模块自带收件队列与订阅级 DLQ）, role: context, module: notification }
-  - { id: iam, name: AWS IAM（实例角色）, role: context, module: iam }
-  - { id: cloudwatch, name: Amazon CloudWatch（SNS 指标）, role: observed }
+  - id: sns
+    name:
+      zh-CN: Amazon SNS
+      ja: Amazon SNS
+      en: Amazon SNS
+    role: primary
+    module: notification
+  - id: sqs
+    name:
+      zh-CN: Amazon SQS（模块自带收件队列与订阅级 DLQ）
+      ja: Amazon SQS（モジュール付属の受信キューとサブスクリプション単位の DLQ）
+      en: Amazon SQS (the module's inbox queue and subscription-level DLQ)
+    role: context
+    module: notification
+  - id: iam
+    name:
+      zh-CN: AWS IAM（实例角色）
+      ja: AWS IAM（インスタンスロール）
+      en: AWS IAM (instance role)
+    role: context
+    module: iam
+  - id: cloudwatch
+    name:
+      zh-CN: Amazon CloudWatch（SNS 指标）
+      ja: Amazon CloudWatch（SNS のメトリクス）
+      en: Amazon CloudWatch (SNS metrics)
+    role: observed
 modules: { target: [notification], start: [iam], context: [], related: [email, queue] }
 prerequisites:
   cards:
@@ -44,17 +117,47 @@ prerequisites:
     - { id: sc-event-fanout, kind: soft }
   learnerInputs:
     - { id: notify-email }
-  knowledge: [电子邮件的 + 子地址（plus addressing）, JSON]
+  knowledge:
+    - zh-CN: 电子邮件的 + 子地址（plus addressing）
+      ja: メールアドレスの + サブアドレス（plus addressing）
+      en: Email + sub-addressing (plus addressing)
+    - zh-CN: JSON
+      ja: JSON
+      en: JSON
 
 startProfile:
   provisions:
-    - { item: iam, kind: module, basis: credential, set: { IAM_CREDENTIALS: role },
-        reason: 平台约定除 svc-ec2、svc-iam 外起始状态都带实例角色（C3）；notification 本身也是 credentials required（CRED-001） }
-    - { item: mgmt-channel, kind: platform, reason: 实验机挂只含 AmazonSSMManagedInstanceCore 的 CloudAlbumAppRole，是平台的管理通道，不是应用权限 }
-    - { item: workstation, kind: platform, reason: 每个会话一台工作台，用于运行 scripts/module、AWS CLI 与对比实验 }
-    - { item: preview-direct-https, kind: platform, reason: 预览使用方案 B 的 Let's Encrypt IP 证书（03 §6.2）；本卡不涉及 tls，保持开启 }
+    - item: iam
+      kind: module
+      basis: credential
+      set: { IAM_CREDENTIALS: role }
+      reason:
+        zh-CN: 平台约定除 svc-ec2、svc-iam 外起始状态都带实例角色（C3）；notification 本身也是 credentials required（CRED-001）
+        ja: プラットフォームの取り決めにより、svc-ec2 と svc-iam 以外の開始状態にはインスタンスロールが付いています（C3）。notification 自体も credentials required です（CRED-001）
+        en: By platform convention, every start state except svc-ec2 and svc-iam includes an instance role (C3); notification itself is also credentials required (CRED-001)
+    - item: mgmt-channel
+      kind: platform
+      reason:
+        zh-CN: 实验机挂只含 AmazonSSMManagedInstanceCore 的 CloudAlbumAppRole，是平台的管理通道，不是应用权限
+        ja: ラボ用インスタンスには AmazonSSMManagedInstanceCore だけを含む CloudAlbumAppRole が付いています。これはプラットフォームの管理チャネルであり、アプリの権限ではありません
+        en: The lab instance carries CloudAlbumAppRole with only AmazonSSMManagedInstanceCore. It is the platform's management channel, not an app permission
+    - item: workstation
+      kind: platform
+      reason:
+        zh-CN: 每个会话一台工作台，用于运行 scripts/module、AWS CLI 与对比实验
+        ja: セッションごとに 1 台のワークベンチがあり、scripts/module、AWS CLI、比較実験の実行に使います
+        en: Each session has one workbench for running scripts/module, the AWS CLI and comparison experiments
+    - item: preview-direct-https
+      kind: platform
+      reason:
+        zh-CN: 预览使用方案 B 的 Let's Encrypt IP 证书（03 §6.2）；本卡不涉及 tls，保持开启
+        ja: プレビューには方式 B の Let's Encrypt IP 証明書を使います（03 §6.2）。このカードは tls に関係しないため、有効のままにします
+        en: The preview uses the option B Let's Encrypt IP certificate (03 §6.2); this card does not involve tls, so it stays on
   platform: { preview: { directHttps: 'on' } }
-  reason: notification 的 requires 为空，不依赖 email 与 queue（SNS → SQS 扇出用的是本模块自带的收件队列）；起始状态是 L0 + 实例角色（档位 atl/svc-notification/default）
+  reason:
+    zh-CN: notification 的 requires 为空，不依赖 email 与 queue（SNS → SQS 扇出用的是本模块自带的收件队列）；起始状态是 L0 + 实例角色（档位 atl/svc-notification/default）
+    ja: notification の requires は空で、email と queue には依存しません（SNS → SQS のファンアウトにはこのモジュール付属の受信キューを使います）。開始状態は L0 ＋インスタンスロールです（プロファイル atl/svc-notification/default）
+    en: notification has no requires and does not depend on email or queue (SNS → SQS fan-out uses this module's own inbox queue); the start state is L0 plus the instance role (profile atl/svc-notification/default)
 targetModules:
   - { id: notification, driver: sns, fromDriver: db, wireStep: enable, adoptsExisting: false }
 expectedWarnings: []
@@ -64,29 +167,92 @@ platform:
 provision: { class: A }
 
 variables:
-  topicArn: { label: 通知主题 ARN, from: derived, fillFrom: stack.notification.EnvNotifyTopicArn }
-  inboxUrl: { label: 收件队列 URL, from: derived, fillFrom: stack.notification.EnvNotifyInboxQueueUrl }
-  inboxArn: { label: 收件队列 ARN, from: derived, fillFrom: stack.notification.InfoInboxQueueArn }
-  dlqUrl: { label: 订阅级 DLQ URL, from: derived, fillFrom: stack.notification.EnvNotifyDlqUrl }
+  topicArn:
+    label:
+      zh-CN: 通知主题 ARN
+      ja: 通知トピックの ARN
+      en: Notification topic ARN
+    from: derived
+    fillFrom: stack.notification.EnvNotifyTopicArn
+  inboxUrl:
+    label:
+      zh-CN: 收件队列 URL
+      ja: 受信キューの URL
+      en: Inbox queue URL
+    from: derived
+    fillFrom: stack.notification.EnvNotifyInboxQueueUrl
+  inboxArn:
+    label:
+      zh-CN: 收件队列 ARN
+      ja: 受信キューの ARN
+      en: Inbox queue ARN
+    from: derived
+    fillFrom: stack.notification.InfoInboxQueueArn
+  dlqUrl:
+    label:
+      zh-CN: 订阅级 DLQ URL
+      ja: サブスクリプション単位の DLQ の URL
+      en: Subscription-level DLQ URL
+    from: derived
+    fillFrom: stack.notification.EnvNotifyDlqUrl
 
 cost:
   currency: USD
   tier: low
-  mainDrivers: [SNS 发布与投递（邮件协议单价高于 SQS）, 收件队列的 SQS 请求]
+  mainDrivers:
+    - zh-CN: SNS 发布与投递（邮件协议单价高于 SQS）
+      ja: SNS の発行と配信（メールプロトコルの単価は SQS より高い）
+      en: SNS publishes and deliveries (the email protocol costs more per unit than SQS)
+    - zh-CN: 收件队列的 SQS 请求
+      ja: 受信キューへの SQS リクエスト
+      en: SQS requests to the inbox queue
   basis:
-    - { ref: start-profile, note: 实验机 EC2、EBS（根卷与数据卷）、公网 IPv4 }
-    - { ref: workstation, note: 工作台 EC2、EBS、公网 IPv4 }
-    - { key: sns-requests, pricingKey: sns.requests, billing: usage, quantity: 1, unit: requests,
-        assumedUsagePerHour: 200, source: target, whenRetained: true, note: Publish 与按协议计的投递（邮件、SQS）；学习规模通常在免费额度内 }
-    - { key: sqs-requests, pricingKey: sqs.requests, billing: usage, quantity: 1, unit: requests,
-        assumedUsagePerHour: 2000, source: target, whenRetained: true, note: worker 对收件队列的长轮询（空队列也计请求） }
+    - ref: start-profile
+      note:
+        zh-CN: 实验机 EC2、EBS（根卷与数据卷）、公网 IPv4
+        ja: ラボ用インスタンスの EC2、EBS（ルートボリュームとデータボリューム）、パブリック IPv4
+        en: Lab instance EC2, EBS (root and data volumes) and public IPv4
+    - ref: workstation
+      note:
+        zh-CN: 工作台 EC2、EBS、公网 IPv4
+        ja: ワークベンチの EC2、EBS、パブリック IPv4
+        en: Workbench EC2, EBS and public IPv4
+    - key: sns-requests
+      pricingKey: sns.requests
+      billing: usage
+      quantity: 1
+      unit: requests
+      assumedUsagePerHour: 200
+      source: target
+      whenRetained: true
+      note:
+        zh-CN: Publish 与按协议计的投递（邮件、SQS）；学习规模通常在免费额度内
+        ja: Publish とプロトコルごとの配信（メール、SQS）。学習規模なら通常は無料利用枠に収まります
+        en: Publish plus per-protocol deliveries (email, SQS); learning scale usually stays within the free tier
+    - key: sqs-requests
+      pricingKey: sqs.requests
+      billing: usage
+      quantity: 1
+      unit: requests
+      assumedUsagePerHour: 2000
+      source: target
+      whenRetained: true
+      note:
+        zh-CN: worker 对收件队列的长轮询（空队列也计请求）
+        ja: worker による受信キューのロングポーリング（空のキューでもリクエストとして課金）
+        en: The worker's long polling of the inbox queue (billed as requests even when the queue is empty)
   assumptions:
-    - 主题空闲时没有费用；不使用短信与移动推送；单价以官方定价为准
+    - zh-CN: 主题空闲时没有费用；不使用短信与移动推送；单价以官方定价为准
+      ja: トピックがアイドルのときは費用がかかりません。SMS とモバイルプッシュは使いません。正確な単価は公式の料金表を確認してください
+      en: An idle topic costs nothing; SMS and mobile push are not used; check the official pricing for unit prices
 
 steps:
   - id: seed
     type: cli
-    title: 准备 3 个测试用户（+u1～+u3）
+    title:
+      zh-CN: 准备 3 个测试用户（+u1～+u3）
+      ja: テストユーザーを 3 人用意する（+u1～+u3）
+      en: Prepare 3 test users (+u1 to +u3)
     manual: manual/10-seed.md
     panel: terminal-workstation
     estMinutes: 5
@@ -94,7 +260,10 @@ steps:
 
   - id: baseline
     type: experiment
-    title: 记录 before：逐个调用 EmailPort 的扇出
+    title:
+      zh-CN: 记录 before：逐个调用 EmailPort 的扇出
+      ja: before を記録：EmailPort を 1 件ずつ呼び出すファンアウト
+      en: "Record before: fan-out by calling EmailPort once per recipient"
     manual: manual/20-baseline.md
     experiment: { module: notification, id: fanout, label: before }
     requires: { steps: [seed] }
@@ -105,29 +274,56 @@ steps:
   - id: enable
     type: script
     wire: true
-    title: 接入 SNS：部署主题、收件队列与运维订阅
+    title:
+      zh-CN: 接入 SNS：部署主题、收件队列与运维订阅
+      ja: SNS を組み込む：トピック、受信キュー、運用担当のサブスクリプションをデプロイ
+      en: "Wire in SNS: deploy the topic, inbox queue and operations subscription"
     manual: manual/30-enable.md
     methods: [script]
     requires: { steps: [baseline] }
     panel: terminal-workstation
     estMinutes: 8
-    startsBilling: { class: usage, pricingKeys: [sns.requests, sqs.requests], note: 按请求与投递计费 }
-    wait: { typicalMinutes: 4, maxMinutes: 15, text: 部署主题与两条队列，然后到邮箱点击运维订阅的确认链接 }
+    startsBilling:
+      class: usage
+      pricingKeys: [sns.requests, sqs.requests]
+      note:
+        zh-CN: 按请求与投递计费
+        ja: リクエストと配信に応じた課金
+        en: Billed per request and delivery
+    wait:
+      typicalMinutes: 4
+      maxMinutes: 15
+      text:
+        zh-CN: 部署主题与两条队列，然后到邮箱点击运维订阅的确认链接
+        ja: トピックと 2 つのキューをデプロイし、メールボックスで運用担当のサブスクリプションの確認リンクをクリックします
+        en: Deploy the topic and two queues, then click the confirmation link for the operations subscription in your mailbox
     checks: [notification-wired, notification-path-seen, topic-subscriptions, inbox-queue-policy]
 
   - id: subscribe-users
     type: cli
-    title: 为测试用户建带过滤策略的邮件订阅
+    title:
+      zh-CN: 为测试用户建带过滤策略的邮件订阅
+      ja: テストユーザーにフィルターポリシー付きのメールサブスクリプションを作成する
+      en: Create email subscriptions with filter policies for the test users
     manual: manual/40-subscribe-users.md
     requires: { steps: [enable] }
     panel: terminal-workstation
     estMinutes: 10
-    wait: { typicalMinutes: 5, maxMinutes: 15, text: 3 封确认邮件，逐个点击 }
+    wait:
+      typicalMinutes: 5
+      maxMinutes: 15
+      text:
+        zh-CN: 3 封确认邮件，逐个点击
+        ja: 確認メール 3 通のリンクを 1 つずつクリックします
+        en: Click the links in the 3 confirmation emails one by one
     checks: [user-subscriptions, user-filter-policy]
 
   - id: after
     type: experiment
-    title: 记录 after：一次 Publish 的扇出
+    title:
+      zh-CN: 记录 after：一次 Publish 的扇出
+      ja: after を記録：1 回の Publish によるファンアウト
+      en: "Record after: fan-out with a single Publish"
     manual: manual/50-after.md
     experiment: { module: notification, id: fanout, label: after }
     requires: { steps: [subscribe-users] }
@@ -137,18 +333,30 @@ steps:
 
   - id: filter
     type: experiment
-    title: 只发给 u1：订阅过滤策略
+    title:
+      zh-CN: 只发给 u1：订阅过滤策略
+      ja: u1 だけに送る：サブスクリプションフィルターポリシー
+      en: "Send to u1 only: subscription filter policy"
     manual: manual/55-filter.md
     experiment: { module: notification, id: filter, label: after }
     requires: { steps: [after] }
     panel: terminal-workstation
     estMinutes: 6
-    wait: { typicalMinutes: 3, maxMinutes: 10, text: SNS 指标有分钟级延迟 }
+    wait:
+      typicalMinutes: 3
+      maxMinutes: 10
+      text:
+        zh-CN: SNS 指标有分钟级延迟
+        ja: SNS のメトリクスには分単位の遅延があります
+        en: SNS metrics lag by minutes
     checks: [exp-filter-after, filtered-out-metric]
 
   - id: worker-stop
     type: observe
-    title: （观察）worker 停机时邮件照常到达
+    title:
+      zh-CN: （观察）worker 停机时邮件照常到达
+      ja: （観察）worker の停止中もメールはいつもどおり届く
+      en: (Observe) Emails still arrive while the worker is stopped
     manual: manual/60-worker-stop.md
     requires: { steps: [enable] }
     panel: terminal-lab
@@ -187,13 +395,24 @@ experiments:
     corroborateWith: [notification-wired]
 
 quiz: { file: quiz.yaml, draw: 3 }
-badge: { title: 一发多收, icon: assets/badge.svg }
+badge:
+  title:
+    zh-CN: 一发多收
+    ja: 一度の送信で多数に配信
+    en: One send, many receivers
+  icon: assets/badge.svg
 tracks: [resilient, saa-main, serverless]
 
 cleanup:
-  summary: 结束实验后，平台删除本次会话创建的通知主题、收件队列与订阅级 DLQ；主题删除后所有订阅（包括待确认的）随之删除。测试用户与站内信随实验机删除。
+  summary:
+    zh-CN: 结束实验后，平台删除本次会话创建的通知主题、收件队列与订阅级 DLQ；主题删除后所有订阅（包括待确认的）随之删除。测试用户与站内信随实验机删除。
+    ja: ラボの終了後、プラットフォームがこのセッションで作成した通知トピック、受信キュー、サブスクリプション単位の DLQ を削除します。トピックを削除すると、すべてのサブスクリプション（確認待ちのものを含む）も一緒に削除されます。テストユーザーとサイト内メッセージはラボ用インスタンスとともに削除されます。
+    en: When the lab ends, the platform deletes the notification topic, inbox queue and subscription-level DLQ this session created; deleting the topic also deletes all of its subscriptions (including pending ones). Test users and in-app messages are deleted with the lab instance.
   autoReclaim: true
-  dataRisk: [邮箱里收到的确认邮件与通知邮件留在你的邮箱中，无需处理]
+  dataRisk:
+    - zh-CN: 邮箱里收到的确认邮件与通知邮件留在你的邮箱中，无需处理
+      ja: メールボックスに届いた確認メールと通知メールはそのまま残ります。対応は不要です
+      en: Confirmation and notification emails stay in your mailbox; nothing to do
   learnerCreatedHints: []
   verify:
     - notification-topic-gone
@@ -201,14 +420,71 @@ cleanup:
 saa:
   domains: [resilient, performance]
   topics:
-    - { id: fan-out, title: SNS + SQS 扇出与竞争消费的区别, domain: resilient, relatesTo: after }
-    - { id: filter-policy, title: 订阅过滤策略（消息属性 / 消息体）, domain: resilient, relatesTo: filter }
-    - { id: confirm, title: 邮件订阅确认、原始消息传递、订阅级 DLQ, domain: resilient, relatesTo: enable }
-    - { id: source-arn, title: 队列策略中的 aws:SourceArn（混淆代理人）, domain: secure, relatesTo: enable }
+    - id: fan-out
+      title:
+        zh-CN: SNS + SQS 扇出与竞争消费的区别
+        ja: SNS + SQS のファンアウトと競合コンシューマーの違い
+        en: SNS + SQS fan-out versus competing consumers
+      domain: resilient
+      relatesTo: after
+    - id: filter-policy
+      title:
+        zh-CN: 订阅过滤策略（消息属性 / 消息体）
+        ja: サブスクリプションフィルターポリシー（メッセージ属性 / メッセージ本文）
+        en: Subscription filter policies (message attributes / message body)
+      domain: resilient
+      relatesTo: filter
+    - id: confirm
+      title:
+        zh-CN: 邮件订阅确认、原始消息传递、订阅级 DLQ
+        ja: メールサブスクリプションの確認、raw メッセージ配信、サブスクリプション単位の DLQ
+        en: Email subscription confirmation, raw message delivery and subscription-level DLQs
+      domain: resilient
+      relatesTo: enable
+    - id: source-arn
+      title:
+        zh-CN: 队列策略中的 aws:SourceArn（混淆代理人）
+        ja: キューポリシーの aws:SourceArn（混乱した代理問題）
+        en: aws:SourceArn in queue policies (the confused deputy problem)
+      domain: secure
+      relatesTo: enable
   confusables:
-    - { a: SNS, b: SQS, rule: SNS 推送式一对多（每个订阅一份副本）；SQS 拉取式多选一（一条消息只给一个消费者） }
-    - { a: SNS 邮件订阅, b: Amazon SES, rule: SNS 邮件要先确认、纯文本、所有订阅者内容相同、带退订尾注；事务性个性化邮件用 SES }
-    - { a: SNS, b: EventBridge, rule: SNS 按订阅扇出、过滤看消息属性或消息体；EventBridge 按规则匹配事件内容并路由到目标，另有归档与重放 }
+    - a:
+        zh-CN: SNS
+        ja: SNS
+        en: SNS
+      b:
+        zh-CN: SQS
+        ja: SQS
+        en: SQS
+      rule:
+        zh-CN: SNS 推送式一对多（每个订阅一份副本）；SQS 拉取式多选一（一条消息只给一个消费者）
+        ja: SNS はプッシュ型の 1 対多（サブスクリプションごとに 1 コピー）、SQS はプル型で 1 つが受け取る（1 つのメッセージは 1 つのコンシューマーだけに渡る）
+        en: SNS is push-based one-to-many (one copy per subscription); SQS is pull-based and one-of-many (each message goes to only one consumer)
+    - a:
+        zh-CN: SNS 邮件订阅
+        ja: SNS メールサブスクリプション
+        en: SNS email subscriptions
+      b:
+        zh-CN: Amazon SES
+        ja: Amazon SES
+        en: Amazon SES
+      rule:
+        zh-CN: SNS 邮件要先确认、纯文本、所有订阅者内容相同、带退订尾注；事务性个性化邮件用 SES
+        ja: SNS のメールは事前の確認が必要で、プレーンテキストのみ、全サブスクライバーに同じ内容が届き、配信停止のフッターが付きます。個別化されたトランザクションメールには SES を使います
+        en: SNS email needs prior confirmation, is plain text only, sends the same content to every subscriber and carries an unsubscribe footer; use SES for personalized transactional email
+    - a:
+        zh-CN: SNS
+        ja: SNS
+        en: SNS
+      b:
+        zh-CN: EventBridge
+        ja: EventBridge
+        en: EventBridge
+      rule:
+        zh-CN: SNS 按订阅扇出、过滤看消息属性或消息体；EventBridge 按规则匹配事件内容并路由到目标，另有归档与重放
+        ja: SNS はサブスクリプションごとにファンアウトし、フィルターはメッセージ属性かメッセージ本文を見ます。EventBridge はルールでイベントの内容を照合してターゲットにルーティングし、アーカイブと再生の機能もあります
+        en: SNS fans out per subscription and filters on message attributes or the message body; EventBridge matches event content with rules and routes to targets, and also offers archive and replay
 
 tags: [notification, sns, sqs, fan-out, filter-policy]
 

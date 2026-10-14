@@ -15,64 +15,222 @@ id: sc-edge-protection
 kind: scenario
 version: 1.0.0
 status: beta
-title: 边缘纵深防护
-subtitle: CloudFront + WAF（+ Shield Standard 与 GuardDuty 讲解）
-summary: 把撞库、扫描和恶意载荷挡在 CloudFront 边缘，锁死源站让攻击者无法绕过，并用源站日志证明被拦截的请求根本没有到达 EC2；最后弄清 Shield 与 GuardDuty 各管哪一层。
-story: |
-  相册上线一个月后，登录接口每天收到成千上万次撞库尝试，访问日志里满是 `/wp-login.php`、`/.env` 之类的扫描，偶尔还有一个 IP 用脚本反复刷首页。
-  现在只有一台 t4g.small，Nginx 的 `limit_req` 能挡住一部分，但每个恶意请求都已经消耗了实例的连接、TLS 与带宽。
-  CTO 要求：不扩容服务器，在流量进入东京区域之前就把它挡住，并且要证明攻击者不能直接打 EC2 绕过防护；同时想知道“是不是还要买 Shield Advanced、开 GuardDuty”。
+title:
+  zh-CN: 边缘纵深防护
+  ja: エッジでの多層防御
+  en: Defense in depth at the edge
+subtitle:
+  zh-CN: CloudFront + WAF（+ Shield Standard 与 GuardDuty 讲解）
+  ja: CloudFront + WAF（+ Shield Standard と GuardDuty の解説）
+  en: CloudFront + WAF (+ Shield Standard and GuardDuty explained)
+summary:
+  zh-CN: 把撞库、扫描和恶意载荷挡在 CloudFront 边缘，锁死源站让攻击者无法绕过，并用源站日志证明被拦截的请求根本没有到达 EC2；最后弄清 Shield 与 GuardDuty 各管哪一层。
+  ja: クレデンシャルスタッフィング、スキャン、悪意のあるペイロードを CloudFront のエッジで止め、オリジンをロックして攻撃者が迂回できないようにし、オリジンのログでブロックされたリクエストが EC2 にまったく届いていないことを証明します。最後に Shield と GuardDuty がそれぞれどの層を担当するかを整理します。
+  en: Stop credential stuffing, scans and malicious payloads at the CloudFront edge, lock down the origin so attackers cannot go around it, and prove with origin logs that blocked requests never reached EC2; finally, sort out which layer Shield and GuardDuty each cover.
+story:
+  zh-CN: |
+    相册上线一个月后，登录接口每天收到成千上万次撞库尝试，访问日志里满是 `/wp-login.php`、`/.env` 之类的扫描，偶尔还有一个 IP 用脚本反复刷首页。
+    现在只有一台 t4g.small，Nginx 的 `limit_req` 能挡住一部分，但每个恶意请求都已经消耗了实例的连接、TLS 与带宽。
+    CTO 要求：不扩容服务器，在流量进入东京区域之前就把它挡住，并且要证明攻击者不能直接打 EC2 绕过防护；同时想知道“是不是还要买 Shield Advanced、开 GuardDuty”。
+  ja: |
+    アルバムの公開から 1 か月、ログイン API には毎日何万回ものクレデンシャルスタッフィングが届き、アクセスログは `/wp-login.php` や `/.env` のようなスキャンだらけで、ときどき 1 つの IP がスクリプトでトップページを何度も更新しています。
+    今あるのは t4g.small が 1 台だけで、Nginx の `limit_req` で一部は防げますが、悪意のあるリクエストはどれもすでにインスタンスの接続、TLS、帯域を消費しています。
+    CTO の要求は、サーバーを増強せず、トラフィックが東京リージョンに入る前に止めること、そして攻撃者が EC2 に直接アクセスして防御を迂回できないことを証明することです。同時に「Shield Advanced を買ったり GuardDuty を有効にしたりする必要があるのか」も知りたがっています。
+  en: |
+    A month after the album launched, the sign-in API gets tens of thousands of credential stuffing attempts a day, the access log is full of scans like `/wp-login.php` and `/.env`, and now and then one IP hammers the home page with a script.
+    There is just one t4g.small, and Nginx's `limit_req` stops some of it, but every malicious request has already used the instance's connections, TLS and bandwidth.
+    The CTO wants it stopped before the traffic enters the Tokyo Region, without scaling up the server, and proof that attackers cannot go around the protection by hitting EC2 directly; the CTO also wants to know whether Shield Advanced and GuardDuty are needed.
 scenario:
-  question: 一个电商网站部署在 ALB 后面的 EC2 Auto Scaling 组中，前面有 CloudFront。登录接口遭受大量来自少数 IP 的撞库请求，同时有人直接访问 ALB 的 DNS 名称。要求在边缘限制每个 IP 的登录频率，并确保所有流量都经过防护。最合适的组合是？
-  constraints: [不扩容服务器, 恶意流量在进入区域前被拦截, 攻击者无法直连源站绕过防护, 照片上传不能被误杀]
+  question:
+    zh-CN: 一个电商网站部署在 ALB 后面的 EC2 Auto Scaling 组中，前面有 CloudFront。登录接口遭受大量来自少数 IP 的撞库请求，同时有人直接访问 ALB 的 DNS 名称。要求在边缘限制每个 IP 的登录频率，并确保所有流量都经过防护。最合适的组合是？
+    ja: ある EC サイトは ALB の背後の EC2 Auto Scaling グループにデプロイされ、前段に CloudFront があります。ログイン API が少数の IP からの大量のクレデンシャルスタッフィングを受けており、同時に ALB の DNS 名に直接アクセスする人もいます。エッジで IP ごとのログイン頻度を制限し、すべてのトラフィックが防御を通るようにする必要があります。最も適切な組み合わせはどれですか？
+    en: An e-commerce site runs in an EC2 Auto Scaling group behind an ALB, with CloudFront in front. The sign-in API is hit by heavy credential stuffing from a few IPs, and some people access the ALB's DNS name directly. You must limit sign-in frequency per IP at the edge and make sure all traffic goes through the protection. What is the most suitable combination?
+  constraints:
+    - zh-CN: 不扩容服务器
+      ja: サーバーを増強しない
+      en: Do not scale up the server
+    - zh-CN: 恶意流量在进入区域前被拦截
+      ja: 悪意のあるトラフィックをリージョンに入る前にブロックする
+      en: Block malicious traffic before it enters the Region
+    - zh-CN: 攻击者无法直连源站绕过防护
+      ja: 攻撃者がオリジンに直接アクセスして防御を迂回できない
+      en: Attackers cannot bypass the protection by reaching the origin directly
+    - zh-CN: 照片上传不能被误杀
+      ja: 写真のアップロードを誤ってブロックしない
+      en: Photo uploads must not be falsely blocked
   antiPatterns:
-    - 只开 WAF 不锁源站：攻击者直接打 EIP 就绕过了全部规则
-    - 只用前缀列表锁源站：别人的 CloudFront 分配也来自同一批网段，必须再校验自定义请求头
-    - 把 CLOUDFRONT 范围的 Web ACL 建在 ap-northeast-1：它只能在 us-east-1
-    - 托管规则组不经 Count 观察直接 Block：CRS 会误杀大请求体（照片上传）
-    - 以为 GuardDuty 能挡住 SQL 注入：它只检测、不阻断，也不分析 HTTP 内容
-    - 为了防撞库购买 Shield Advanced：撞库是七层滥用，靠 WAF 的限速与托管规则
+    - zh-CN: 只开 WAF 不锁源站：攻击者直接打 EIP 就绕过了全部规则
+      ja: WAF だけを有効にしてオリジンをロックしない：攻撃者が EIP に直接アクセスすれば、すべてのルールを迂回できる
+      en: "Enabling WAF without locking the origin: attackers hitting the EIP directly bypass every rule"
+    - zh-CN: 只用前缀列表锁源站：别人的 CloudFront 分配也来自同一批网段，必须再校验自定义请求头
+      ja: プレフィックスリストだけでオリジンをロックする：他人の CloudFront ディストリビューションも同じアドレス範囲から来るため、カスタムリクエストヘッダーも検証する必要がある
+      en: "Locking the origin with only the prefix list: other people's CloudFront distributions come from the same ranges, so a custom request header must also be checked"
+    - zh-CN: 把 CLOUDFRONT 范围的 Web ACL 建在 ap-northeast-1：它只能在 us-east-1
+      ja: CLOUDFRONT スコープの Web ACL を ap-northeast-1 に作る：us-east-1 にしか作れない
+      en: "Creating a CLOUDFRONT-scope Web ACL in ap-northeast-1: it can only be in us-east-1"
+    - zh-CN: 托管规则组不经 Count 观察直接 Block：CRS 会误杀大请求体（照片上传）
+      ja: マネージドルールグループを Count で観察せずにいきなり Block にする：CRS が大きなリクエストボディ（写真のアップロード）を誤ってブロックする
+      en: "Switching managed rule groups straight to Block without observing in Count: CRS falsely blocks large request bodies (photo uploads)"
+    - zh-CN: 以为 GuardDuty 能挡住 SQL 注入：它只检测、不阻断，也不分析 HTTP 内容
+      ja: GuardDuty で SQL インジェクションを止められると考える：検出するだけでブロックせず、HTTP の内容も分析しない
+      en: "Thinking GuardDuty can stop SQL injection: it only detects, never blocks, and does not analyze HTTP content"
+    - zh-CN: 为了防撞库购买 Shield Advanced：撞库是七层滥用，靠 WAF 的限速与托管规则
+      ja: クレデンシャルスタッフィング対策に Shield Advanced を購入する：クレデンシャルスタッフィングはレイヤー 7 の悪用で、WAF のレート制限とマネージドルールで対処する
+      en: "Buying Shield Advanced against credential stuffing: credential stuffing is layer 7 abuse, handled by WAF rate limits and managed rules"
 objectives:
-  - { text: 说清 WAF 的挂载点与范围：CLOUDFRONT 范围的 Web ACL 在 us-east-1, domain: secure, relatesTo: enable-waf }
-  - { text: 用托管前缀列表加自定义请求头锁定源站，并用安全组规则证明无法绕过, domain: secure, relatesTo: verify-lock }
-  - { text: 托管规则组先 Count 观察误杀，再切到 Block, domain: secure, relatesTo: observe-count }
-  - { text: 用源站日志的服务端证据区分“边缘拦截”与“源站 Nginx 拒绝”, domain: secure, relatesTo: switch-block }
-  - { text: 比较 Nginx 精确限速与 WAF 速率规则的窗口聚合, domain: resilient, relatesTo: after }
-  - { text: 区分 Shield Standard、Shield Advanced、WAF 与 GuardDuty 各管哪一层, domain: secure, relatesTo: layers }
+  - text:
+      zh-CN: 说清 WAF 的挂载点与范围：CLOUDFRONT 范围的 Web ACL 在 us-east-1
+      ja: WAF の関連付け先とスコープを説明できる：CLOUDFRONT スコープの Web ACL は us-east-1 にある
+      en: "Explain where WAF attaches and its scopes: CLOUDFRONT-scope Web ACLs live in us-east-1"
+    domain: secure
+    relatesTo: enable-waf
+  - text:
+      zh-CN: 用托管前缀列表加自定义请求头锁定源站，并用安全组规则证明无法绕过
+      ja: マネージドプレフィックスリストとカスタムリクエストヘッダーでオリジンをロックし、セキュリティグループのルールで迂回できないことを示す
+      en: Lock down the origin with the managed prefix list plus a custom request header, and prove with security group rules that it cannot be bypassed
+    domain: secure
+    relatesTo: verify-lock
+  - text:
+      zh-CN: 托管规则组先 Count 观察误杀，再切到 Block
+      ja: マネージドルールグループはまず Count で誤検知を観察し、その後 Block に切り替える
+      en: Observe false positives with managed rule groups in Count first, then switch to Block
+    domain: secure
+    relatesTo: observe-count
+  - text:
+      zh-CN: 用源站日志的服务端证据区分“边缘拦截”与“源站 Nginx 拒绝”
+      ja: オリジンのログというサーバー側の証拠で、「エッジでのブロック」と「オリジンの Nginx による拒否」を区別する
+      en: Use server-side evidence from origin logs to tell "blocked at the edge" from "refused by Nginx at the origin"
+    domain: secure
+    relatesTo: switch-block
+  - text:
+      zh-CN: 比较 Nginx 精确限速与 WAF 速率规则的窗口聚合
+      ja: Nginx の正確なレート制限と WAF のレートベースのルールのウィンドウ集計を比較する
+      en: Compare Nginx's precise rate limiting with the windowed aggregation of WAF rate-based rules
+    domain: resilient
+    relatesTo: after
+  - text:
+      zh-CN: 区分 Shield Standard、Shield Advanced、WAF 与 GuardDuty 各管哪一层
+      ja: Shield Standard、Shield Advanced、WAF、GuardDuty がそれぞれどの層を担当するかを区別する
+      en: Tell which layer Shield Standard, Shield Advanced, WAF and GuardDuty each cover
+    domain: secure
+    relatesTo: layers
 difficulty: intermediate
 estimatedMinutes: 90
 timeLimitMinutes: 150
 extensions: { maxCount: 2, minutesEach: 30 }
-retain: { allowed: true, maxHours: 24, reason: Web ACL 按月计费（按存续折算），分配的禁用与删除较慢；保留后可以继续观察 WAF 日志与采样请求 }
+retain:
+  allowed: true
+  maxHours: 24
+  reason:
+    zh-CN: Web ACL 按月计费（按存续折算），分配的禁用与删除较慢；保留后可以继续观察 WAF 日志与采样请求
+    ja: Web ACL は月額課金（存続期間で按分）で、ディストリビューションの無効化と削除には時間がかかります。保持すれば WAF のログとサンプリングされたリクエストを引き続き観察できます
+    en: The Web ACL is billed monthly (prorated by lifetime), and disabling and deleting distributions is slow; if you keep the environment, you can keep watching WAF logs and sampled requests
 regions:
   supported: [ap-northeast-1]
   alsoUses: [global, us-east-1]
 services:
-  - { id: cloudfront, name: Amazon CloudFront（分配、源站锁定）, role: primary, module: cdn }
-  - { id: waf, name: AWS WAF（CLOUDFRONT 范围的 Web ACL、托管规则组、速率规则、IP 集合）, role: primary, module: waf }
-  - { id: ec2, name: Amazon EC2（源站：安全组与 8080 源站监听器）, role: supporting, module: ec2 }
-  - { id: cloudwatch-logs, name: Amazon CloudWatch Logs（WAF 日志，us-east-1）, role: observed }
-  - { id: shield, name: AWS Shield Standard（只讲解，不订阅 Advanced）, role: observed }
-  - { id: guardduty, name: Amazon GuardDuty（只讲解，本版不启用）, role: observed }
-  - { id: iam, name: AWS IAM（实例角色）, role: context, module: iam }
+  - id: cloudfront
+    name:
+      zh-CN: Amazon CloudFront（分配、源站锁定）
+      ja: Amazon CloudFront（ディストリビューション、オリジンのロック）
+      en: Amazon CloudFront (distribution, origin lock-down)
+    role: primary
+    module: cdn
+  - id: waf
+    name:
+      zh-CN: AWS WAF（CLOUDFRONT 范围的 Web ACL、托管规则组、速率规则、IP 集合）
+      ja: AWS WAF（CLOUDFRONT スコープの Web ACL、マネージドルールグループ、レートベースのルール、IP セット）
+      en: AWS WAF (CLOUDFRONT-scope Web ACL, managed rule groups, rate-based rules, IP set)
+    role: primary
+    module: waf
+  - id: ec2
+    name:
+      zh-CN: Amazon EC2（源站：安全组与 8080 源站监听器）
+      ja: Amazon EC2（オリジン：セキュリティグループと 8080 のオリジンリスナー）
+      en: "Amazon EC2 (origin: security groups and the 8080 origin listener)"
+    role: supporting
+    module: ec2
+  - id: cloudwatch-logs
+    name:
+      zh-CN: Amazon CloudWatch Logs（WAF 日志，us-east-1）
+      ja: Amazon CloudWatch Logs（WAF のログ、us-east-1）
+      en: Amazon CloudWatch Logs (WAF logs, us-east-1)
+    role: observed
+  - id: shield
+    name:
+      zh-CN: AWS Shield Standard（只讲解，不订阅 Advanced）
+      ja: AWS Shield Standard（解説のみ。Advanced はサブスクライブしない）
+      en: AWS Shield Standard (explained only; Advanced is not subscribed)
+    role: observed
+  - id: guardduty
+    name:
+      zh-CN: Amazon GuardDuty（只讲解，本版不启用）
+      ja: Amazon GuardDuty（解説のみ。このバージョンでは有効にしない）
+      en: Amazon GuardDuty (explained only; not enabled in this version)
+    role: observed
+  - id: iam
+    name:
+      zh-CN: AWS IAM（实例角色）
+      ja: AWS IAM（インスタンスロール）
+      en: AWS IAM (instance role)
+    role: context
+    module: iam
 modules: { target: [cdn, waf], start: [iam], context: [], related: [threat-detection, logging, monitoring, tls, dns] }
 prerequisites:
   cards:
     - { id: svc-cdn, kind: soft }
     - { id: svc-waf, kind: soft }
   learnerInputs: []
-  knowledge: [HTTP 状态码与请求头, 安全组规则的基本结构, 七层与三/四层防护的区别]
+  knowledge:
+    - zh-CN: HTTP 状态码与请求头
+      ja: HTTP ステータスコードとリクエストヘッダー
+      en: HTTP status codes and request headers
+    - zh-CN: 安全组规则的基本结构
+      ja: セキュリティグループのルールの基本構造
+      en: The basic structure of security group rules
+    - zh-CN: 七层与三/四层防护的区别
+      ja: レイヤー 7 とレイヤー 3/4 の防御の違い
+      en: Layer 7 vs layer 3/4 protection
 
 startProfile:
   provisions:
-    - { item: iam, kind: module, basis: credential, set: { IAM_CREDENTIALS: role },
-        reason: 平台约定除 svc-ec2、svc-iam 外起始状态都带实例角色（C3）；waf 的 BlocklistPort 同步 IP 集合、读取 Web ACL，cdn 的失效按钮与控制面探针都靠它 }
-    - { item: mgmt-channel, kind: platform, reason: 实验机挂只含 AmazonSSMManagedInstanceCore 的 CloudAlbumAppRole，是平台的管理通道，不是应用权限 }
-    - { item: workstation, kind: platform, reason: 每个会话一台工作台，用于运行 scripts/module、AWS CLI 与对比实验；它的公网出口就是“管理员 IP” }
-    - { item: check-bundle, kind: platform, reason: 检查包随 CloudAlbum 发布包安装在实验机的 /opt/atl（06 PM-04） }
-    - { item: preview-direct-https, kind: platform, reason: 预览使用方案 B 的 Let's Encrypt IP 证书（03 §6.2）；锁定源站后直连预览被安全组挡住，预览改用分配域名，会话内无需续期 }
+    - item: iam
+      kind: module
+      basis: credential
+      set: { IAM_CREDENTIALS: role }
+      reason:
+        zh-CN: 平台约定除 svc-ec2、svc-iam 外起始状态都带实例角色（C3）；waf 的 BlocklistPort 同步 IP 集合、读取 Web ACL，cdn 的失效按钮与控制面探针都靠它
+        ja: プラットフォームの取り決めにより、svc-ec2 と svc-iam 以外の開始状態にはインスタンスロールが付いています（C3）。waf の BlocklistPort による IP セットの同期と Web ACL の読み取り、cdn の無効化ボタンとコントロールプレーンのプローブはどれもこれに依存します
+        en: By platform convention, every start state except svc-ec2 and svc-iam includes an instance role (C3); waf's BlocklistPort syncing the IP set and reading the Web ACL, and cdn's invalidation button and control plane probes, all rely on it
+    - item: mgmt-channel
+      kind: platform
+      reason:
+        zh-CN: 实验机挂只含 AmazonSSMManagedInstanceCore 的 CloudAlbumAppRole，是平台的管理通道，不是应用权限
+        ja: ラボ用インスタンスには AmazonSSMManagedInstanceCore だけを含む CloudAlbumAppRole が付いています。これはプラットフォームの管理チャネルであり、アプリの権限ではありません
+        en: The lab instance carries CloudAlbumAppRole with only AmazonSSMManagedInstanceCore. It is the platform's management channel, not an app permission
+    - item: workstation
+      kind: platform
+      reason:
+        zh-CN: 每个会话一台工作台，用于运行 scripts/module、AWS CLI 与对比实验；它的公网出口就是“管理员 IP”
+        ja: セッションごとに 1 台のワークベンチがあり、scripts/module、AWS CLI、比較実験の実行に使います。そのパブリックな送信元が「管理者 IP」になります
+        en: Each session has one workbench for running scripts/module, the AWS CLI and comparison experiments; its public egress address is the "admin IP"
+    - item: check-bundle
+      kind: platform
+      reason:
+        zh-CN: 检查包随 CloudAlbum 发布包安装在实验机的 /opt/atl（06 PM-04）
+        ja: チェックパッケージは CloudAlbum のリリースパッケージとともにラボ用インスタンスの /opt/atl にインストールされます（06 PM-04）
+        en: The check package is installed with the CloudAlbum release package in /opt/atl on the lab instance (06 PM-04)
+    - item: preview-direct-https
+      kind: platform
+      reason:
+        zh-CN: 预览使用方案 B 的 Let's Encrypt IP 证书（03 §6.2）；锁定源站后直连预览被安全组挡住，预览改用分配域名，会话内无需续期
+        ja: プレビューには方式 B の Let's Encrypt IP 証明書を使います（03 §6.2）。オリジンをロックすると直接アクセスのプレビューはセキュリティグループで遮られるので、プレビューはディストリビューションのドメイン名に切り替わり、セッション中の更新は不要です
+        en: The preview uses the option B Let's Encrypt IP certificate (03 §6.2); once the origin is locked the security group blocks the direct preview, so the preview switches to the distribution domain and needs no renewal during the session
   platform: { preview: { directHttps: 'on' } }
-  reason: 起始状态是 L0 + 实例角色（档位 atl/sc-edge-protection/default）。storage 刻意保持本地：照片经 /api/storage/upload 上传，大请求体会触发 CRS 的 SizeRestrictions_BODY，这正是“误杀与调优”的观察点；waf 的挂载点选 cdn（CLOUDFRONT 范围，没有按小时计费）
+  reason:
+    zh-CN: 起始状态是 L0 + 实例角色（档位 atl/sc-edge-protection/default）。storage 刻意保持本地：照片经 /api/storage/upload 上传，大请求体会触发 CRS 的 SizeRestrictions_BODY，这正是“误杀与调优”的观察点；waf 的挂载点选 cdn（CLOUDFRONT 范围，没有按小时计费）
+    ja: 開始状態は L0 ＋インスタンスロールです（プロファイル atl/sc-edge-protection/default）。storage はあえてローカルのままにしています。写真は /api/storage/upload でアップロードされ、大きなリクエストボディが CRS の SizeRestrictions_BODY に一致することが、まさに「誤検知と調整」の観察ポイントだからです。waf の関連付け先には cdn を選びます（CLOUDFRONT スコープで、時間課金がない）
+    en: "The start state is L0 plus the instance role (profile atl/sc-edge-protection/default). storage is deliberately kept local: photos upload through /api/storage/upload, and their large request bodies trigger CRS's SizeRestrictions_BODY, which is exactly the \"false positives and tuning\" observation point; waf attaches to cdn (CLOUDFRONT scope, no hourly billing)"
 targetModules:
   - id: cdn
     driver: cloudfront
@@ -89,39 +247,143 @@ platform:
 provision: { class: A, cleanupBudgetMinutes: 90 }
 
 variables:
-  distributionId: { label: 分配 ID, from: derived, fillFrom: stack.cdn.EnvCdnDistributionId, pattern: '^E[A-Z0-9]{8,20}$' }
-  cdnDomain: { label: 分配域名, from: derived, fillFrom: stack.cdn.InfoDistributionDomainName, pattern: '^[a-z0-9]+\.cloudfront\.net$' }
-  originSgId: { label: 源站安全组, from: derived, fillFrom: stack.cdn.InfoOriginSecurityGroupId, pattern: '^sg-[0-9a-f]{8,17}$' }
-  webAclArn: { label: Web ACL ARN, from: derived, fillFrom: stack.waf.EnvWafWebAclArn, pattern: '^arn:aws[a-z-]*:wafv2:us-east-1:\d{12}:global/webacl/[^/]+/[0-9a-f-]+$' }
-  webAclId: { label: Web ACL ID, from: derived, fillFrom: stack.waf.InfoWebAclId }
-  webAclName: { label: Web ACL 名称, from: derived, fillFrom: stack.waf.InfoWebAclName, example: cloudalbum-e7k2m9qx-acl }
-  logGroup: { label: WAF 日志组, from: derived, fillFrom: stack.waf.EnvWafLogGroup, example: aws-waf-logs-cloudalbum-e7k2m9qx }
+  distributionId:
+    label:
+      zh-CN: 分配 ID
+      ja: ディストリビューション ID
+      en: Distribution ID
+    from: derived
+    fillFrom: stack.cdn.EnvCdnDistributionId
+    pattern: '^E[A-Z0-9]{8,20}$'
+  cdnDomain:
+    label:
+      zh-CN: 分配域名
+      ja: ディストリビューションのドメイン名
+      en: Distribution domain name
+    from: derived
+    fillFrom: stack.cdn.InfoDistributionDomainName
+    pattern: '^[a-z0-9]+\.cloudfront\.net$'
+  originSgId:
+    label:
+      zh-CN: 源站安全组
+      ja: オリジンのセキュリティグループ
+      en: Origin security group
+    from: derived
+    fillFrom: stack.cdn.InfoOriginSecurityGroupId
+    pattern: '^sg-[0-9a-f]{8,17}$'
+  webAclArn:
+    label:
+      zh-CN: Web ACL ARN
+      ja: Web ACL の ARN
+      en: Web ACL ARN
+    from: derived
+    fillFrom: stack.waf.EnvWafWebAclArn
+    pattern: '^arn:aws[a-z-]*:wafv2:us-east-1:\d{12}:global/webacl/[^/]+/[0-9a-f-]+$'
+  webAclId:
+    label:
+      zh-CN: Web ACL ID
+      ja: Web ACL の ID
+      en: Web ACL ID
+    from: derived
+    fillFrom: stack.waf.InfoWebAclId
+  webAclName:
+    label:
+      zh-CN: Web ACL 名称
+      ja: Web ACL の名前
+      en: Web ACL name
+    from: derived
+    fillFrom: stack.waf.InfoWebAclName
+    example: cloudalbum-e7k2m9qx-acl
+  logGroup:
+    label:
+      zh-CN: WAF 日志组
+      ja: WAF のロググループ
+      en: WAF log group
+    from: derived
+    fillFrom: stack.waf.EnvWafLogGroup
+    example: aws-waf-logs-cloudalbum-e7k2m9qx
 
 cost:
   currency: USD
   tier: low
-  mainDrivers: [WAF Web ACL 与规则（按月，按存续折算）, WAF 请求检查（按百万请求）, WAF 日志写入 CloudWatch Logs, CloudFront 请求与出网]
+  mainDrivers:
+    - zh-CN: WAF Web ACL 与规则（按月，按存续折算）
+      ja: WAF の Web ACL とルール（月額、存続期間で按分）
+      en: WAF Web ACL and rules (monthly, prorated by lifetime)
+    - zh-CN: WAF 请求检查（按百万请求）
+      ja: WAF のリクエスト検査（100 万リクエスト単位）
+      en: WAF request inspection (per million requests)
+    - zh-CN: WAF 日志写入 CloudWatch Logs
+      ja: WAF のログの CloudWatch Logs への書き込み
+      en: WAF logs written to CloudWatch Logs
+    - zh-CN: CloudFront 请求与出网
+      ja: CloudFront のリクエストとデータ転送（アウト）
+      en: CloudFront requests and data transfer out
   basis:
-    - { ref: start-profile, note: 实验机 EC2、EBS（根卷与数据卷）、公网 IPv4 }
-    - { ref: workstation, note: 工作台 EC2、EBS、公网 IPv4 }
+    - ref: start-profile
+      note:
+        zh-CN: 实验机 EC2、EBS（根卷与数据卷）、公网 IPv4
+        ja: ラボ用インスタンスの EC2、EBS（ルートボリュームとデータボリューム）、パブリック IPv4
+        en: Lab instance EC2, EBS (root and data volumes) and public IPv4
+    - ref: workstation
+      note:
+        zh-CN: 工作台 EC2、EBS、公网 IPv4
+        ja: ワークベンチの EC2、EBS、パブリック IPv4
+        en: Workbench EC2, EBS and public IPv4
     - { key: cf-requests, pricingKey: cloudfront.requests.https, billing: usage, quantity: 1, unit: requests,
         assumedUsagePerHour: 5000, source: target, whenRetained: false }
     - { key: cf-dto, pricingKey: cloudfront.dto, billing: usage, quantity: 1, unit: GB,
         assumedUsagePerHour: 0.2, source: target, whenRetained: false }
-    - { key: waf-acl, pricingKey: waf.web-acl, billing: monthly, quantity: 1, unit: month, source: target, whenRetained: true,
-        note: Web ACL 按月（按存续折算）；自定义规则各按月，AWS 托管规则组（本卡用到的几组）不另收订阅费 }
-    - { key: waf-requests, pricingKey: waf.requests, billing: usage, quantity: 1, unit: requests,
-        assumedUsagePerHour: 3000, source: target, whenRetained: false, note: 按百万请求检查 }
-    - { key: waf-logs, pricingKey: logs.ingestion, billing: usage, quantity: 1, unit: GB,
-        assumedUsagePerHour: 0.02, source: target, whenRetained: false, note: 只投递 BLOCK / COUNT 记录 }
+    - key: waf-acl
+      pricingKey: waf.web-acl
+      billing: monthly
+      quantity: 1
+      unit: month
+      source: target
+      whenRetained: true
+      note:
+        zh-CN: Web ACL 按月（按存续折算）；自定义规则各按月，AWS 托管规则组（本卡用到的几组）不另收订阅费
+        ja: Web ACL は月額（存続期間で按分）。カスタムルールはそれぞれ月額で、AWS マネージドルールグループ（このカードで使うもの）には別途サブスクリプション料金はかかりません
+        en: The Web ACL is monthly (prorated by lifetime); custom rules are each monthly, and the AWS managed rule groups used in this card have no extra subscription fee
+    - key: waf-requests
+      pricingKey: waf.requests
+      billing: usage
+      quantity: 1
+      unit: requests
+      assumedUsagePerHour: 3000
+      source: target
+      whenRetained: false
+      note:
+        zh-CN: 按百万请求检查
+        ja: 100 万リクエスト単位で検査
+        en: Inspection per million requests
+    - key: waf-logs
+      pricingKey: logs.ingestion
+      billing: usage
+      quantity: 1
+      unit: GB
+      assumedUsagePerHour: 0.02
+      source: target
+      whenRetained: false
+      note:
+        zh-CN: 只投递 BLOCK / COUNT 记录
+        ja: BLOCK / COUNT の記録だけを配信
+        en: Only BLOCK / COUNT records are delivered
   assumptions:
-    - 攻击脚本都是短轮次、略高于阈值的低速率，请求量与费用都很小；以官方定价为准
-    - Shield Standard 对 CloudFront 自动生效、不另收费；本卡不订阅 Shield Advanced，不启用 GuardDuty
+    - zh-CN: 攻击脚本都是短轮次、略高于阈值的低速率，请求量与费用都很小；以官方定价为准
+      ja: 攻撃スクリプトはどれも短いラウンドで、しきい値をわずかに上回る低いレートなので、リクエスト量も費用もごくわずかです。正確な料金は公式の料金表を確認してください
+      en: The attack scripts all run short rounds at low rates just above the thresholds, so request volume and cost are tiny; check the official pricing
+    - zh-CN: Shield Standard 对 CloudFront 自动生效、不另收费；本卡不订阅 Shield Advanced，不启用 GuardDuty
+      ja: Shield Standard は CloudFront に自動で適用され、追加料金はかかりません。このカードでは Shield Advanced をサブスクライブせず、GuardDuty も有効にしません
+      en: Shield Standard applies to CloudFront automatically at no extra charge; this card does not subscribe to Shield Advanced or enable GuardDuty
 
 steps:
   - id: baseline
     type: experiment
-    title: 基线攻击（一）：直连 Nginx 的限速，每个请求都到达 EC2
+    title:
+      zh-CN: 基线攻击（一）：直连 Nginx 的限速，每个请求都到达 EC2
+      ja: ベースラインの攻撃（1）：直接アクセスで Nginx のレート制限、どのリクエストも EC2 に届く
+      en: "Baseline attack (1): Nginx rate limiting on direct access, every request reaches EC2"
     manual: manual/10-baseline.md
     experiment: { module: waf, id: flood, label: before }
     panel: terminal-workstation
@@ -130,7 +392,10 @@ steps:
 
   - id: baseline-payloads
     type: experiment
-    title: 基线攻击（二）：Nginx 正则对编码变体的漏网
+    title:
+      zh-CN: 基线攻击（二）：Nginx 正则对编码变体的漏网
+      ja: ベースラインの攻撃（2）：Nginx の正規表現がエンコードのバリエーションを見逃す
+      en: "Baseline attack (2): Nginx regexes miss encoding variants"
     manual: manual/15-baseline-payloads.md
     experiment: { module: waf, id: payloads, label: before }
     panel: terminal-workstation
@@ -140,19 +405,37 @@ steps:
   - id: enable-cdn
     type: script
     wire: true
-    title: 建分配，入口改走边缘，直连只留给管理员 IP
+    title:
+      zh-CN: 建分配，入口改走边缘，直连只留给管理员 IP
+      ja: ディストリビューションを作り、入口をエッジ経由に変え、直接アクセスは管理者 IP にだけ残す
+      en: Create the distribution, move the entry to the edge, and keep direct access for the admin IP only
     manual: manual/20-enable-cdn.md
     methods: [script]
     requires: { steps: [baseline, baseline-payloads] }
     panel: terminal-workstation
     estMinutes: 15
-    startsBilling: { class: usage, pricingKeys: [cloudfront.requests.https, cloudfront.dto], note: 按量计费 }
-    wait: { typicalMinutes: 6, maxMinutes: 20, text: 分配状态从“正在部署”变为“已启用”，实验机安全组收紧 80/443 }
+    startsBilling:
+      class: usage
+      pricingKeys: [cloudfront.requests.https, cloudfront.dto]
+      note:
+        zh-CN: 按量计费
+        ja: 使用量課金
+        en: Billed by usage
+    wait:
+      typicalMinutes: 6
+      maxMinutes: 20
+      text:
+        zh-CN: 分配状态从“正在部署”变为“已启用”，实验机安全组收紧 80/443
+        ja: ディストリビューションの状態が「デプロイ中」から「有効」になり、ラボ用インスタンスのセキュリティグループで 80/443 が締められます
+        en: The distribution goes from "Deploying" to "Enabled", and the lab instance's security group tightens 80/443
     checks: [svc-cdn/cap-cdn-healthy, svc-cdn/entry-cloudfront, svc-cdn/distribution-deployed]
 
   - id: verify-lock
     type: cli
-    title: 验证源站已锁定：安全组、8080 校验头与外部直连
+    title:
+      zh-CN: 验证源站已锁定：安全组、8080 校验头与外部直连
+      ja: オリジンがロックされたことを確認：セキュリティグループ、8080 の検証ヘッダー、外部からの直接アクセス
+      en: "Verify the origin is locked: security groups, the 8080 verification header and external direct access"
     manual: manual/30-verify-lock.md
     requires: { steps: [enable-cdn] }
     panel: terminal-workstation
@@ -162,19 +445,37 @@ steps:
   - id: enable-waf
     type: script
     wire: true
-    title: 挂上 Web ACL（us-east-1，托管规则组先 Count）
+    title:
+      zh-CN: 挂上 Web ACL（us-east-1，托管规则组先 Count）
+      ja: Web ACL を関連付ける（us-east-1、マネージドルールグループはまず Count）
+      en: Associate the Web ACL (us-east-1, managed rule groups on Count first)
     manual: manual/40-enable-waf.md
     methods: [script]
     requires: { steps: [verify-lock] }
     panel: terminal-workstation
     estMinutes: 12
-    startsBilling: { class: usage, pricingKeys: [waf.web-acl, waf.requests, logs.ingestion], note: Web ACL 按月（按存续折算）、请求与日志按量 }
-    wait: { typicalMinutes: 6, maxMinutes: 20, text: 部署 us-east-1 的 Web ACL，再把 WebAclArn 注入 cdn 栈，分配重新部署 }
+    startsBilling:
+      class: usage
+      pricingKeys: [waf.web-acl, waf.requests, logs.ingestion]
+      note:
+        zh-CN: Web ACL 按月（按存续折算）、请求与日志按量
+        ja: Web ACL は月額（存続期間で按分）、リクエストとログは使用量課金
+        en: Web ACL monthly (prorated by lifetime); requests and logs billed by usage
+    wait:
+      typicalMinutes: 6
+      maxMinutes: 20
+      text:
+        zh-CN: 部署 us-east-1 的 Web ACL，再把 WebAclArn 注入 cdn 栈，分配重新部署
+        ja: us-east-1 に Web ACL をデプロイし、WebAclArn を cdn スタックに注入して、ディストリビューションを再デプロイします
+        en: Deploy the Web ACL in us-east-1, inject WebAclArn into the cdn stack, and redeploy the distribution
     checks: [cap-waf-healthy, svc-waf/webacl-count, svc-waf/entry-waf, distribution-webacl, webacl-rules]
 
   - id: observe-count
     type: experiment
-    title: Count 模式下观察误杀
+    title:
+      zh-CN: Count 模式下观察误杀
+      ja: Count モードで誤検知を観察する
+      en: Observe false positives in Count mode
     manual: manual/50-observe-count.md
     experiment: { module: waf, id: false-positive, label: after }
     requires: { steps: [enable-waf] }
@@ -184,18 +485,30 @@ steps:
 
   - id: switch-block
     type: script
-    title: 切到 Block，并用源站日志证明拦截发生在边缘
+    title:
+      zh-CN: 切到 Block，并用源站日志证明拦截发生在边缘
+      ja: Block に切り替え、オリジンのログでブロックがエッジで起きたことを証明する
+      en: Switch to Block and prove with origin logs that blocking happens at the edge
     manual: manual/55-switch-block.md
     methods: [script]
     requires: { steps: [observe-count] }
     panel: terminal-workstation
     estMinutes: 8
-    wait: { typicalMinutes: 3, maxMinutes: 10, text: Web ACL 更新托管规则组动作 }
+    wait:
+      typicalMinutes: 3
+      maxMinutes: 10
+      text:
+        zh-CN: Web ACL 更新托管规则组动作
+        ja: Web ACL がマネージドルールグループのアクションを更新します
+        en: The Web ACL updates the managed rule group's action
     checks: [svc-waf/webacl-block, svc-waf/block-not-at-origin]
 
   - id: after
     type: experiment
-    title: 对比实验：同一套限速攻击打向边缘
+    title:
+      zh-CN: 对比实验：同一套限速攻击打向边缘
+      ja: 比較実験：同じレート制限の攻撃をエッジに向ける
+      en: "Comparison experiment: the same rate-limit attack aimed at the edge"
     manual: manual/60-after.md
     experiment: { module: waf, id: flood, label: after }
     requires: { steps: [switch-block] }
@@ -205,7 +518,10 @@ steps:
 
   - id: after-payloads
     type: experiment
-    title: 对比实验：同一组载荷打向边缘
+    title:
+      zh-CN: 对比实验：同一组载荷打向边缘
+      ja: 比較実験：同じペイロード一式をエッジに向ける
+      en: "Comparison experiment: the same payloads aimed at the edge"
     manual: manual/65-after-payloads.md
     experiment: { module: waf, id: payloads, label: after }
     requires: { steps: [switch-block] }
@@ -215,7 +531,10 @@ steps:
 
   - id: layers
     type: observe
-    title: 分层：Shield Standard 与 Advanced、GuardDuty 各管什么
+    title:
+      zh-CN: 分层：Shield Standard 与 Advanced、GuardDuty 各管什么
+      ja: レイヤー：Shield Standard と Advanced、GuardDuty がそれぞれ何を担当するか
+      en: "Layers: what Shield Standard and Advanced and GuardDuty each cover"
     manual: manual/70-layers.md
     requires: { steps: [enable-waf] }
     panel: console
@@ -259,17 +578,44 @@ experiments:
     corroborateWith: [cap-waf-healthy]
 
 quiz: { file: quiz.yaml, draw: 3 }
-badge: { title: 边缘纵深防护, short: 边缘防护, icon: assets/badge.svg }
+badge:
+  title:
+    zh-CN: 边缘纵深防护
+    ja: エッジでの多層防御
+    en: Defense in depth at the edge
+  short:
+    zh-CN: 边缘防护
+    ja: エッジ防御
+    en: Edge protection
+  icon: assets/badge.svg
 tracks: [networking, saa-main, secure]
 
 cleanup:
-  summary: 结束实验后，平台先用空的 WebAclArn 更新 cdn 栈解除关联（分配重新部署数分钟），再删除 us-east-1 的 Web ACL 与 IP 集合，然后禁用并删除分配、源站安全组与 8080 监听器；实验机安全组恢复 80/443 的默认放行随实验机一起删除。WAF 日志组按数据保护约定保留到回收器清理阶段。
+  summary:
+    zh-CN: 结束实验后，平台先用空的 WebAclArn 更新 cdn 栈解除关联（分配重新部署数分钟），再删除 us-east-1 的 Web ACL 与 IP 集合，然后禁用并删除分配、源站安全组与 8080 监听器；实验机安全组恢复 80/443 的默认放行随实验机一起删除。WAF 日志组按数据保护约定保留到回收器清理阶段。
+    ja: ラボの終了後、プラットフォームはまず空の WebAclArn で cdn スタックを更新して関連付けを解除し（ディストリビューションの再デプロイに数分）、その後 us-east-1 の Web ACL と IP セットを削除し、続いてディストリビューション、オリジンのセキュリティグループ、8080 のリスナーを無効にして削除します。ラボ用インスタンスのセキュリティグループで 80/443 を締めた設定は、ラボ用インスタンスとともに削除されます。WAF のロググループはデータ保護の取り決めにより、回収処理のクリーンアップ段階まで保持されます。
+    en: When the lab ends, the platform first updates the cdn stack with an empty WebAclArn to disassociate it (the distribution redeploys for a few minutes), then deletes the Web ACL and IP set in us-east-1, and then disables and deletes the distribution, the origin security group and the 8080 listener; the tightened 80/443 on the lab instance's security group goes away with the lab instance. The WAF log group is kept until the reclaimer's cleanup stage under the data protection convention.
   autoReclaim: true
-  dataRisk: [没有业务数据；实验机、denylist.conf 与照片随会话删除，报告中保留证据摘要]
+  dataRisk:
+    - zh-CN: 没有业务数据；实验机、denylist.conf 与照片随会话删除，报告中保留证据摘要
+      ja: 業務データはありません。ラボ用インスタンス、denylist.conf、写真はセッションとともに削除され、レポートには証拠の要約が残ります
+      en: No business data; the lab instance, denylist.conf and photos are deleted with the session, and the report keeps an evidence summary
   learnerCreatedHints:
-    - { resourceType: 'AWS::WAFv2::WebACL', how: 先用空的 WebAclArn 更新 cdn 栈解除关联，再删除 }
-    - { resourceType: 'AWS::CloudFront::Distribution', how: 先禁用，状态变为已部署后再删除 }
-    - { resourceType: 'AWS::Logs::LogGroup', how: 日志组保留（us-east-1）；不需要时手动删除 aws-waf-logs-cloudalbum-<env> }
+    - resourceType: 'AWS::WAFv2::WebACL'
+      how:
+        zh-CN: 先用空的 WebAclArn 更新 cdn 栈解除关联，再删除
+        ja: まず空の WebAclArn で cdn スタックを更新して関連付けを解除し、その後削除します
+        en: First update the cdn stack with an empty WebAclArn to disassociate, then delete
+    - resourceType: 'AWS::CloudFront::Distribution'
+      how:
+        zh-CN: 先禁用，状态变为已部署后再删除
+        ja: まず無効にし、状態がデプロイ済みになってから削除します
+        en: Disable first, then delete once the status is Deployed
+    - resourceType: 'AWS::Logs::LogGroup'
+      how:
+        zh-CN: 日志组保留（us-east-1）；不需要时手动删除 aws-waf-logs-cloudalbum-<env>
+        ja: ロググループは保持されます（us-east-1）。不要なら aws-waf-logs-cloudalbum-<env> を手動で削除してください
+        en: The log group is kept (us-east-1); delete aws-waf-logs-cloudalbum-<env> by hand if you do not need it
   verify:
     - svc-waf/webacl-gone
     - svc-cdn/dist-gone
@@ -277,16 +623,85 @@ cleanup:
 saa:
   domains: [secure, resilient, cost]
   topics:
-    - { id: mount-points, title: WAF 的挂载点与两种范围；CLOUDFRONT 范围的资源都在 us-east-1, domain: secure, relatesTo: enable-waf }
-    - { id: origin-lock, title: 源站保护：托管前缀列表 + 自定义请求头（S3 源用 OAC）, domain: secure, relatesTo: verify-lock }
-    - { id: count-then-block, title: 托管规则组先 Count 后 Block；规则动作覆盖与范围缩小语句, domain: secure, relatesTo: observe-count }
-    - { id: rate-based, title: 基于速率的规则按窗口聚合、在 CloudFront 后面按真实客户端 IP 计数, domain: resilient, relatesTo: after }
-    - { id: shield, title: Shield Standard（自动、免费）与 Shield Advanced（付费、DRT、成本保护）, domain: cost, relatesTo: layers }
-    - { id: layers, title: 安全组 / NACL、WAF、Shield、GuardDuty、Network Firewall 各管哪一层, domain: secure, relatesTo: layers }
+    - id: mount-points
+      title:
+        zh-CN: WAF 的挂载点与两种范围；CLOUDFRONT 范围的资源都在 us-east-1
+        ja: WAF の関連付け先と 2 つのスコープ。CLOUDFRONT スコープのリソースはすべて us-east-1 にある
+        en: Where WAF attaches and its two scopes; CLOUDFRONT-scope resources all live in us-east-1
+      domain: secure
+      relatesTo: enable-waf
+    - id: origin-lock
+      title:
+        zh-CN: 源站保护：托管前缀列表 + 自定义请求头（S3 源用 OAC）
+        ja: オリジンの保護：マネージドプレフィックスリスト + カスタムリクエストヘッダー（S3 オリジンは OAC）
+        en: "Origin protection: managed prefix list + custom request header (OAC for S3 origins)"
+      domain: secure
+      relatesTo: verify-lock
+    - id: count-then-block
+      title:
+        zh-CN: 托管规则组先 Count 后 Block；规则动作覆盖与范围缩小语句
+        ja: マネージドルールグループはまず Count、その後 Block。ルールアクションの上書きとスコープダウンステートメント
+        en: Managed rule groups go Count first, then Block; rule action overrides and scope-down statements
+      domain: secure
+      relatesTo: observe-count
+    - id: rate-based
+      title:
+        zh-CN: 基于速率的规则按窗口聚合、在 CloudFront 后面按真实客户端 IP 计数
+        ja: レートベースのルールはウィンドウで集計され、CloudFront の背後では実際のクライアント IP で数える
+        en: Rate-based rules aggregate over a window and count by the real client IP behind CloudFront
+      domain: resilient
+      relatesTo: after
+    - id: shield
+      title:
+        zh-CN: Shield Standard（自动、免费）与 Shield Advanced（付费、DRT、成本保护）
+        ja: Shield Standard（自動・無料）と Shield Advanced（有料、DRT、コスト保護）
+        en: Shield Standard (automatic, free) vs Shield Advanced (paid, DRT, cost protection)
+      domain: cost
+      relatesTo: layers
+    - id: layers
+      title:
+        zh-CN: 安全组 / NACL、WAF、Shield、GuardDuty、Network Firewall 各管哪一层
+        ja: セキュリティグループ / NACL、WAF、Shield、GuardDuty、Network Firewall がそれぞれどの層を担当するか
+        en: Which layer security groups / NACLs, WAF, Shield, GuardDuty and Network Firewall each cover
+      domain: secure
+      relatesTo: layers
   confusables:
-    - { a: 安全组 / NACL, b: AWS WAF, rule: 安全组与 NACL 在三/四层按 IP 与端口；WAF 在七层按 URI、请求头、速率与托管规则判断 }
-    - { a: Shield Standard, b: Shield Advanced, rule: Standard 对 CloudFront 等自动生效、不另收费；Advanced 按年订阅，含 DDoS 响应团队与成本保护 }
-    - { a: AWS WAF, b: Amazon GuardDuty, rule: WAF 在请求路径上检查并阻断；GuardDuty 分析 CloudTrail、VPC 流日志与 DNS 日志，只产生发现、不阻断 }
+    - a:
+        zh-CN: 安全组 / NACL
+        ja: セキュリティグループ / NACL
+        en: Security groups / NACLs
+      b:
+        zh-CN: AWS WAF
+        ja: AWS WAF
+        en: AWS WAF
+      rule:
+        zh-CN: 安全组与 NACL 在三/四层按 IP 与端口；WAF 在七层按 URI、请求头、速率与托管规则判断
+        ja: セキュリティグループと NACL はレイヤー 3/4 で IP とポートに基づいて動作します。WAF はレイヤー 7 で URI、リクエストヘッダー、レート、マネージドルールに基づいて判断します
+        en: Security groups and NACLs work at layers 3/4 on IPs and ports; WAF decides at layer 7 on URIs, request headers, rates and managed rules
+    - a:
+        zh-CN: Shield Standard
+        ja: Shield Standard
+        en: Shield Standard
+      b:
+        zh-CN: Shield Advanced
+        ja: Shield Advanced
+        en: Shield Advanced
+      rule:
+        zh-CN: Standard 对 CloudFront 等自动生效、不另收费；Advanced 按年订阅，含 DDoS 响应团队与成本保护
+        ja: Standard は CloudFront などに自動で適用され、追加料金はかかりません。Advanced は年単位のサブスクリプションで、DDoS レスポンスチームとコスト保護が付きます
+        en: Standard applies automatically to CloudFront and more at no extra charge; Advanced is an annual subscription with the DDoS response team and cost protection
+    - a:
+        zh-CN: AWS WAF
+        ja: AWS WAF
+        en: AWS WAF
+      b:
+        zh-CN: Amazon GuardDuty
+        ja: Amazon GuardDuty
+        en: Amazon GuardDuty
+      rule:
+        zh-CN: WAF 在请求路径上检查并阻断；GuardDuty 分析 CloudTrail、VPC 流日志与 DNS 日志，只产生发现、不阻断
+        ja: WAF はリクエストの経路上で検査してブロックします。GuardDuty は CloudTrail、VPC フローログ、DNS ログを分析し、検出結果を生成するだけでブロックはしません
+        en: WAF inspects and blocks on the request path; GuardDuty analyzes CloudTrail, VPC Flow Logs and DNS logs and only produces findings, never blocks
 
 tags: [cdn, waf, cloudfront, edge, origin-lock, shield, secure]
 

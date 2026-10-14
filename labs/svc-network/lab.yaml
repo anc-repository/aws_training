@@ -5,10 +5,22 @@ id: svc-network
 kind: service
 version: 0.1.0
 status: planned
-service: Amazon VPC
-function: 网络隔离
-title: Amazon VPC：网络隔离
-summary: 把实验机从默认 VPC 迁进自己设计的分层 VPC：看懂公有、应用、数据三层子网与路由表，用 Flow Logs 看见被拒绝的流量；也亲眼确认“只换 VPC、不换放置”并不会减少攻击面。
+service:
+  zh-CN: Amazon VPC
+  ja: Amazon VPC
+  en: Amazon VPC
+function:
+  zh-CN: 网络隔离
+  ja: ネットワークの分離
+  en: Network isolation
+title:
+  zh-CN: Amazon VPC：网络隔离
+  ja: Amazon VPC：ネットワークの分離
+  en: "Amazon VPC: network isolation"
+summary:
+  zh-CN: 把实验机从默认 VPC 迁进自己设计的分层 VPC：看懂公有、应用、数据三层子网与路由表，用 Flow Logs 看见被拒绝的流量；也亲眼确认“只换 VPC、不换放置”并不会减少攻击面。
+  ja: ラボ用インスタンスをデフォルト VPC から自分で設計した階層型 VPC に移します。パブリック、アプリ、データの 3 層のサブネットとルートテーブルを読み解き、Flow Logs で拒否されたトラフィックを可視化します。「VPC を変えるだけで配置を変えなければ攻撃対象領域は減らない」ことも自分の目で確かめます。
+  en: "Move the lab instance from the default VPC into a tiered VPC you design: understand the public, app and data subnet tiers and their route tables, and see rejected traffic in Flow Logs. You also confirm for yourself that changing the VPC without changing placement does not shrink the attack surface."
 difficulty: intermediate
 estimatedMinutes: 90
 timeLimitMinutes: 150
@@ -17,7 +29,13 @@ retain: {allowed: true, maxHours: 24}
 regions:
   supported: [ap-northeast-1]
 services:
-- {id: vpc, name: Amazon VPC, role: primary, module: network}
+- id: vpc
+  name:
+    zh-CN: Amazon VPC
+    ja: Amazon VPC
+    en: Amazon VPC
+  role: primary
+  module: network
 - {id: iam, role: context, module: iam}
 modules:
   target: [network]
@@ -34,8 +52,16 @@ startProfile:
     kind: module
     basis: credential
     set: {IAM_CREDENTIALS: role}
-    reason: 平台约定除 svc-ec2、svc-iam 外起始状态都带实例角色（C3）
-  - {item: preview-direct-https, kind: platform, reason: 预览使用方案 B 的 Let's Encrypt IP 证书（03 §6.2）}
+    reason:
+      zh-CN: 平台约定除 svc-ec2、svc-iam 外起始状态都带实例角色（C3）
+      ja: プラットフォームの取り決めにより、svc-ec2 と svc-iam 以外の開始状態にはインスタンスロールが付いています（C3）
+      en: By platform convention, every start state except svc-ec2 and svc-iam includes an instance role (C3)
+  - item: preview-direct-https
+    kind: platform
+    reason:
+      zh-CN: 预览使用方案 B 的 Let's Encrypt IP 证书（03 §6.2）
+      ja: プレビューには方式 B の Let's Encrypt IP 証明書を使います（03 §6.2）
+      en: The preview uses the option B Let's Encrypt IP certificate (03 §6.2)
   platform:
     preview: {directHttps: 'on'}
 targetModules:
@@ -45,7 +71,11 @@ targetModules:
 expectedWarnings: []
 cost: {tier: low}
 provision: {class: A}
-badge: {title: 自定义 VPC}
+badge:
+  title:
+    zh-CN: 自定义 VPC
+    ja: カスタム VPC
+    en: Custom VPC
 tracks: [cost-optimized, networking, saa-main, secure]
 saa:
   domains: [secure, resilient, cost]

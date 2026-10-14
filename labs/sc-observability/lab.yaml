@@ -5,11 +5,27 @@ id: sc-observability
 kind: scenario
 version: 0.1.0
 status: planned
-title: 可观测性
-subtitle: CloudWatch Logs + 指标与告警 + X-Ray + SNS
-summary: 日志、指标、链路三件套各回答一个问题——发生了什么、坏到什么程度、慢在哪一段；告警由 AWS 侧评估、经 SNS 送达，实例宕机也不会沉默
-story: 上周五晚上相册有一段时间上传很慢，周一才有人发现：日志在一台已经被替换的实例上找不到了；本地告警评估器跑在出问题的进程里，进程挂了它也跟着沉默；只知道“慢”，不知道慢在数据库、S3 还是队列。值班负责人要求：日志集中保留，实例没了也能查；关键故障几分钟内通过邮件通知到人，与实例是否存活无关；一次慢请求能顺着链路定位到具体的那一段。
-scenario: {question: 一个微服务应用部署在多台 EC2 与 Lambda 上，用户反馈某些请求偶发变慢，日志分散在各处。团队需要快速定位延迟发生在哪个服务调用上，并且尽量少改代码。最合适的是？}
+title:
+  zh-CN: 可观测性
+  ja: オブザーバビリティ
+  en: Observability
+subtitle:
+  zh-CN: CloudWatch Logs + 指标与告警 + X-Ray + SNS
+  ja: CloudWatch Logs + メトリクスとアラーム + X-Ray + SNS
+  en: CloudWatch Logs + metrics and alarms + X-Ray + SNS
+summary:
+  zh-CN: 日志、指标、链路三件套各回答一个问题——发生了什么、坏到什么程度、慢在哪一段；告警由 AWS 侧评估、经 SNS 送达，实例宕机也不会沉默
+  ja: ログ、メトリクス、トレースの 3 点セットは、それぞれ 1 つの問いに答えます。何が起きたか、どれほど悪いか、どの区間が遅いか。アラームは AWS 側で評価され SNS で届くため、インスタンスが落ちても沈黙しません
+  en: Logs, metrics and traces each answer one question — what happened, how bad it is, and which segment is slow; alarms are evaluated on the AWS side and delivered through SNS, so they do not go silent when the instance dies
+story:
+  zh-CN: 上周五晚上相册有一段时间上传很慢，周一才有人发现：日志在一台已经被替换的实例上找不到了；本地告警评估器跑在出问题的进程里，进程挂了它也跟着沉默；只知道“慢”，不知道慢在数据库、S3 还是队列。值班负责人要求：日志集中保留，实例没了也能查；关键故障几分钟内通过邮件通知到人，与实例是否存活无关；一次慢请求能顺着链路定位到具体的那一段。
+  ja: 先週の金曜の夜、アルバムのアップロードがしばらく遅くなっていましたが、気づいたのは月曜でした。ログはすでに置き換えられたインスタンス上にあって見つからず、ローカルのアラーム評価器は問題の起きたプロセスの中で動いていたので、プロセスが落ちると一緒に沈黙しました。「遅い」ことしかわからず、データベース、S3、キューのどこが遅いのかもわかりません。当番の責任者の要求は次のとおりです。ログを一元的に保持し、インスタンスがなくなっても調べられること。重大な障害は、インスタンスが生きているかどうかに関係なく、数分以内にメールで担当者に届くこと。1 件の遅いリクエストからトレースをたどって具体的な区間を特定できること。
+  en: 'Last Friday night uploads were slow for a while, and nobody noticed until Monday: the logs were on an instance that had already been replaced; the local alarm evaluator ran inside the failing process and went silent with it; all anyone knew was "slow", not whether the database, S3 or the queue was to blame. The on-call lead asks for: logs kept centrally and searchable after the instance is gone; critical failures emailed to a person within minutes, whether or not the instance is alive; and the ability to follow one slow request along its trace to the exact segment.'
+scenario:
+  question:
+    zh-CN: 一个微服务应用部署在多台 EC2 与 Lambda 上，用户反馈某些请求偶发变慢，日志分散在各处。团队需要快速定位延迟发生在哪个服务调用上，并且尽量少改代码。最合适的是？
+    ja: あるマイクロサービスアプリケーションは複数の EC2 と Lambda にデプロイされています。一部のリクエストがときどき遅くなるとの報告があり、ログはあちこちに分散しています。どのサービス呼び出しで遅延が発生しているかを素早く特定し、コードの変更はできるだけ少なくしたいと考えています。最も適切なのはどれですか？
+    en: A microservices application runs on several EC2 instances and Lambda functions. Users report that some requests are occasionally slow, and logs are scattered everywhere. The team needs to find quickly which service call the latency comes from, with as few code changes as possible. What is the most suitable choice?
 difficulty: intermediate
 estimatedMinutes: 120
 timeLimitMinutes: 180
@@ -41,23 +57,37 @@ startProfile:
     kind: module
     basis: credential
     set: {IAM_CREDENTIALS: role}
-    reason: 平台约定除 svc-ec2、svc-iam 外起始状态都带实例角色（C3）
+    reason:
+      zh-CN: 平台约定除 svc-ec2、svc-iam 外起始状态都带实例角色（C3）
+      ja: プラットフォームの取り決めにより、svc-ec2 と svc-iam 以外の開始状態にはインスタンスロールが付いています（C3）
+      en: By platform convention, every start state except svc-ec2 and svc-iam includes an instance role (C3)
   - item: storage
     kind: module
     basis: context
     contextKind: realism
     set: {STORAGE_DRIVER: s3}
-    reason: 让链路中出现 S3 调用
+    reason:
+      zh-CN: 让链路中出现 S3 调用
+      ja: トレースに S3 の呼び出しが現れるようにします
+      en: Puts S3 calls into the trace
   - item: queue
     kind: module
     basis: context
     contextKind: realism
     set: {QUEUE_DRIVER: sqs}
-    reason: 让链路中出现异步任务
+    reason:
+      zh-CN: 让链路中出现异步任务
+      ja: トレースに非同期ジョブが現れるようにします
+      en: Puts async jobs into the trace
   - item: image-processing
     kind: local
     set: {IMAGE_PROCESSOR: worker}
-  - {item: preview-direct-https, kind: platform, reason: 预览使用方案 B 的 Let's Encrypt IP 证书（03 §6.2）}
+  - item: preview-direct-https
+    kind: platform
+    reason:
+      zh-CN: 预览使用方案 B 的 Let's Encrypt IP 证书（03 §6.2）
+      ja: プレビューには方式 B の Let's Encrypt IP 証明書を使います（03 §6.2）
+      en: The preview uses the option B Let's Encrypt IP certificate (03 §6.2)
   platform:
     preview: {directHttps: 'on'}
 targetModules:
@@ -67,7 +97,15 @@ targetModules:
 expectedWarnings: []
 cost: {tier: low}
 provision: {class: A}
-badge: {title: 可观测性, short: 可观测}
+badge:
+  title:
+    zh-CN: 可观测性
+    ja: オブザーバビリティ
+    en: Observability
+  short:
+    zh-CN: 可观测
+    ja: 可観測性
+    en: Observable
 tracks: [operations, saa-main]
 saa:
   domains: [resilient, performance]

@@ -4,51 +4,159 @@ id: svc-storage
 kind: service
 version: 1.0.0
 status: beta
-service: Amazon S3
-function: 照片对象存储
-title: Amazon S3：照片对象存储
-subtitle: 上传字节从 EC2 网卡移到浏览器直传 S3
-summary: 把照片从 EC2 的 EBS 数据卷搬进 S3，上传改为预签名 URL 直传；用同一组压测对比 EC2 网卡入流量、API CPU 与数据卷水位的变化。
-story: |
-  CloudAlbum 只有一台 EC2：每张原图都要经 Nginx 流进 Node、写到 20 GiB 的数据卷上，
-  同一块盘上还有 SQLite、日志和本地备份。上传一多，CPU 被占满；盘一满，连评论都写不进去。
-  这一课把“存照片”交给 Amazon S3，EC2 只负责签发一个几 KB 的上传 URL。
+service:
+  zh-CN: Amazon S3
+  ja: Amazon S3
+  en: Amazon S3
+function:
+  zh-CN: 照片对象存储
+  ja: 写真のオブジェクトストレージ
+  en: Photo object storage
+title:
+  zh-CN: Amazon S3：照片对象存储
+  ja: Amazon S3：写真のオブジェクトストレージ
+  en: "Amazon S3: photo object storage"
+subtitle:
+  zh-CN: 上传字节从 EC2 网卡移到浏览器直传 S3
+  ja: アップロードのバイトを EC2 のネットワークカードからブラウザーによる S3 への直接アップロードへ
+  en: Upload bytes move from the EC2 network card to direct browser uploads to S3
+summary:
+  zh-CN: 把照片从 EC2 的 EBS 数据卷搬进 S3，上传改为预签名 URL 直传；用同一组压测对比 EC2 网卡入流量、API CPU 与数据卷水位的变化。
+  ja: 写真を EC2 の EBS データボリュームから S3 に移し、アップロードを署名付き URL による直接アップロードに切り替えます。同じ負荷テストで、EC2 のネットワーク受信量、API の CPU、データボリュームの使用量の変化を比較します。
+  en: Move photos from the EC2 EBS data volume into S3 and switch uploads to direct uploads with presigned URLs; the same load test compares EC2 network ingress, API CPU and data volume usage.
+story:
+  zh-CN: |
+    CloudAlbum 只有一台 EC2：每张原图都要经 Nginx 流进 Node、写到 20 GiB 的数据卷上，
+    同一块盘上还有 SQLite、日志和本地备份。上传一多，CPU 被占满；盘一满，连评论都写不进去。
+    这一课把“存照片”交给 Amazon S3，EC2 只负责签发一个几 KB 的上传 URL。
+  ja: |
+    CloudAlbum には EC2 が 1 台しかありません。元画像はすべて Nginx を通って Node に流れ込み、20 GiB のデータボリュームに書き込まれます。
+    同じディスクには SQLite、ログ、ローカルバックアップもあります。アップロードが増えると CPU が使い切られ、ディスクがいっぱいになるとコメントさえ書き込めません。
+    このレッスンでは「写真の保存」を Amazon S3 に任せ、EC2 は数 KB のアップロード用 URL を発行するだけにします。
+  en: |
+    CloudAlbum has a single EC2 instance: every original image flows through Nginx into Node and is written to a 20 GiB data volume,
+    which also holds SQLite, logs and local backups. More uploads max out the CPU, and when the disk fills up even comments cannot be written.
+    This lesson hands "storing photos" to Amazon S3, and EC2 only issues an upload URL of a few KB.
 objectives:
-  - { text: 说清预签名 URL 直传为什么能卸载应用服务器, domain: performance, relatesTo: enable }
-  - { text: 识别桶的安全基线：BPA、禁用 ACL、只允许 HTTPS、默认加密, domain: secure, relatesTo: inspect-bucket }
-  - { text: 用版本控制与生命周期兼顾防误删与成本, domain: cost, relatesTo: inspect-bucket }
-  - { text: 比较 S3 与 EBS 的耐久性与扩展方式, domain: resilient, relatesTo: after }
+  - text:
+      zh-CN: 说清预签名 URL 直传为什么能卸载应用服务器
+      ja: 署名付き URL による直接アップロードがアプリケーションサーバーの負荷を減らせる理由を説明できる
+      en: Explain why direct uploads with presigned URLs offload the application server
+    domain: performance
+    relatesTo: enable
+  - text:
+      zh-CN: 识别桶的安全基线：BPA、禁用 ACL、只允许 HTTPS、默认加密
+      ja: バケットのセキュリティベースラインを見分ける：BPA、ACL の無効化、HTTPS のみ許可、デフォルト暗号化
+      en: "Recognize a bucket's security baseline: BPA, ACLs disabled, HTTPS only and default encryption"
+    domain: secure
+    relatesTo: inspect-bucket
+  - text:
+      zh-CN: 用版本控制与生命周期兼顾防误删与成本
+      ja: バージョニングとライフサイクルで、誤削除の防止とコストを両立する
+      en: Use versioning and lifecycle rules to balance protection against accidental deletion with cost
+    domain: cost
+    relatesTo: inspect-bucket
+  - text:
+      zh-CN: 比较 S3 与 EBS 的耐久性与扩展方式
+      ja: S3 と EBS の耐久性と拡張方法を比較する
+      en: Compare the durability and scaling of S3 and EBS
+    domain: resilient
+    relatesTo: after
 difficulty: beginner
 estimatedMinutes: 60
 timeLimitMinutes: 90
 extensions: { maxCount: 2, minutesEach: 30 }
-retain: { allowed: true, maxHours: 24, reason: 只有按量计费的 S3；保留后可以继续浏览相册 }
+retain:
+  allowed: true
+  maxHours: 24
+  reason:
+    zh-CN: 只有按量计费的 S3；保留后可以继续浏览相册
+    ja: 使用量課金の S3 だけです。保持すればアルバムを引き続き閲覧できます
+    en: Only usage-billed S3; if you keep the environment, you can keep browsing the album
 provision: { class: A }
 regions:
   supported: [ap-northeast-1]
 services:
-  - { id: s3, name: Amazon S3, role: primary, module: storage }
-  - { id: iam, name: AWS IAM（实例角色，起始状态预置）, role: context, module: iam }
-  - { id: eventbridge, name: Amazon EventBridge（桶级事件投递，只开启不消费）, role: observed }
-  - { id: ebs, name: Amazon EBS（对照组）, role: observed, module: ec2 }
-  - { id: ssm-session-manager, name: AWS Systems Manager Session Manager（平台管理通道）, role: observed }
+  - id: s3
+    name:
+      zh-CN: Amazon S3
+      ja: Amazon S3
+      en: Amazon S3
+    role: primary
+    module: storage
+  - id: iam
+    name:
+      zh-CN: AWS IAM（实例角色，起始状态预置）
+      ja: AWS IAM（インスタンスロール。開始状態で事前準備済み）
+      en: AWS IAM (instance role, provisioned in the start state)
+    role: context
+    module: iam
+  - id: eventbridge
+    name:
+      zh-CN: Amazon EventBridge（桶级事件投递，只开启不消费）
+      ja: Amazon EventBridge（バケット単位のイベント配信。有効にするだけで消費しない）
+      en: Amazon EventBridge (bucket-level event delivery, turned on but not consumed)
+    role: observed
+  - id: ebs
+    name:
+      zh-CN: Amazon EBS（对照组）
+      ja: Amazon EBS（比較対象）
+      en: Amazon EBS (control group)
+    role: observed
+    module: ec2
+  - id: ssm-session-manager
+    name:
+      zh-CN: AWS Systems Manager Session Manager（平台管理通道）
+      ja: AWS Systems Manager Session Manager（プラットフォームの管理チャネル）
+      en: AWS Systems Manager Session Manager (platform management channel)
+    role: observed
 modules: { target: [storage], start: [iam], context: [], related: [cdn, kms, image-processing, shared-fs] }
 prerequisites:
   cards:
     - { id: svc-ec2, kind: soft }
     - { id: svc-iam, kind: soft }
   learnerInputs: []
-  knowledge: [HTTP PUT 与 Content-Type, 浏览器开发者工具的 Network 面板]
+  knowledge:
+    - zh-CN: HTTP PUT 与 Content-Type
+      ja: HTTP PUT と Content-Type
+      en: HTTP PUT and Content-Type
+    - zh-CN: 浏览器开发者工具的 Network 面板
+      ja: ブラウザーの開発者ツールの Network パネル
+      en: The Network panel of browser developer tools
 
 startProfile:
   provisions:
-    - { item: iam, kind: module, basis: credential, set: { IAM_CREDENTIALS: role },
-        reason: '平台约定除 svc-ec2、svc-iam 外起始状态都带实例角色（C3）；storage 本身也是 credentials: required（CRED-001）' }
-    - { item: mgmt-channel, kind: platform, reason: 实验机挂只含 AmazonSSMManagedInstanceCore 的 CloudAlbumAppRole，是平台的管理通道，不是应用权限 }
-    - { item: workstation, kind: platform, reason: 每个会话一台工作台，用于运行 scripts/module、AWS CLI 与压测 }
-    - { item: preview-direct-https, kind: platform, reason: 方案 B 的 Let's Encrypt IP 证书，供预览面板嵌入（03 §6.2）；本卡不涉及 tls，保持开启 }
+    - item: iam
+      kind: module
+      basis: credential
+      set: { IAM_CREDENTIALS: role }
+      reason:
+        zh-CN: '平台约定除 svc-ec2、svc-iam 外起始状态都带实例角色（C3）；storage 本身也是 credentials: required（CRED-001）'
+        ja: "プラットフォームの取り決めにより、svc-ec2 と svc-iam 以外の開始状態にはインスタンスロールが付いています（C3）。storage 自体も credentials: required です（CRED-001）"
+        en: "By platform convention, every start state except svc-ec2 and svc-iam includes an instance role (C3); storage itself is also credentials: required (CRED-001)"
+    - item: mgmt-channel
+      kind: platform
+      reason:
+        zh-CN: 实验机挂只含 AmazonSSMManagedInstanceCore 的 CloudAlbumAppRole，是平台的管理通道，不是应用权限
+        ja: ラボ用インスタンスには AmazonSSMManagedInstanceCore だけを含む CloudAlbumAppRole が付いています。これはプラットフォームの管理チャネルであり、アプリの権限ではありません
+        en: The lab instance carries CloudAlbumAppRole with only AmazonSSMManagedInstanceCore. It is the platform's management channel, not an app permission
+    - item: workstation
+      kind: platform
+      reason:
+        zh-CN: 每个会话一台工作台，用于运行 scripts/module、AWS CLI 与压测
+        ja: セッションごとに 1 台のワークベンチがあり、scripts/module、AWS CLI、負荷テストの実行に使います
+        en: Each session has one workbench for running scripts/module, the AWS CLI and load tests
+    - item: preview-direct-https
+      kind: platform
+      reason:
+        zh-CN: 方案 B 的 Let's Encrypt IP 证书，供预览面板嵌入（03 §6.2）；本卡不涉及 tls，保持开启
+        ja: プレビューパネルへの埋め込みに使う方式 B の Let's Encrypt IP 証明書です（03 §6.2）。このカードは tls に関係しないため、有効のままにします
+        en: The option B Let's Encrypt IP certificate used to embed the preview panel (03 §6.2); this card does not involve tls, so it stays on
   platform: { preview: { directHttps: 'on' } }
-  reason: storage 的 requires 为空，起始状态只有 L0 与 C3 规定的实例角色（档位 atl/svc-storage/default）
+  reason:
+    zh-CN: storage 的 requires 为空，起始状态只有 L0 与 C3 规定的实例角色（档位 atl/svc-storage/default）
+    ja: storage の requires は空です。開始状態は L0 と C3 が定めるインスタンスロールだけです（プロファイル atl/svc-storage/default）
+    en: storage has no requires; the start state is just L0 and the instance role required by C3 (profile atl/svc-storage/default)
 
 targetModules:
   - { id: storage, driver: s3, wireStep: enable, adoptsExisting: false }
@@ -59,31 +167,83 @@ platform:
   consoleLinks: [s3.bucket]
 
 variables:
-  rawBucket: { label: 原图桶, from: derived, fillFrom: stack.storage.EnvStorageS3RawBucket }
-  mediaBucket: { label: 展示桶, from: derived, fillFrom: stack.storage.EnvStorageS3MediaBucket }
-  rawBucketArn: { label: 原图桶 ARN, from: derived, fillFrom: stack.storage.InfoRawBucketArn }
+  rawBucket:
+    label:
+      zh-CN: 原图桶
+      ja: 元画像バケット
+      en: Original image bucket
+    from: derived
+    fillFrom: stack.storage.EnvStorageS3RawBucket
+  mediaBucket:
+    label:
+      zh-CN: 展示桶
+      ja: 表示用バケット
+      en: Display bucket
+    from: derived
+    fillFrom: stack.storage.EnvStorageS3MediaBucket
+  rawBucketArn:
+    label:
+      zh-CN: 原图桶 ARN
+      ja: 元画像バケットの ARN
+      en: Original image bucket ARN
+    from: derived
+    fillFrom: stack.storage.InfoRawBucketArn
 
 cost:
   currency: USD
   tier: low
-  mainDrivers: [S3 存储（含旧版本）, S3 PUT / GET 请求, 流出到互联网的流量]
+  mainDrivers:
+    - zh-CN: S3 存储（含旧版本）
+      ja: S3 ストレージ（古いバージョンを含む）
+      en: S3 storage (including old versions)
+    - zh-CN: S3 PUT / GET 请求
+      ja: S3 の PUT / GET リクエスト
+      en: S3 PUT / GET requests
+    - zh-CN: 流出到互联网的流量
+      ja: インターネットへのデータ転送（アウト）
+      en: Data transfer out to the internet
   basis:
-    - { ref: start-profile, note: 实验机 EC2、EBS（根卷与数据卷）、公网 IPv4；iam 不计费 }
-    - { ref: workstation, note: 工作台 EC2、EBS、公网 IPv4 }
-    - { key: s3-storage, pricingKey: s3.standard.storage, billing: usage, quantity: 1, unit: GB-month,
-        assumedUsagePerHour: 0.004, source: target, whenRetained: true, note: 约 3 GB 原图与缩略图留存，按小时折算 }
+    - ref: start-profile
+      note:
+        zh-CN: 实验机 EC2、EBS（根卷与数据卷）、公网 IPv4；iam 不计费
+        ja: ラボ用インスタンスの EC2、EBS（ルートボリュームとデータボリューム）、パブリック IPv4。iam は課金されません
+        en: Lab instance EC2, EBS (root and data volumes) and public IPv4; iam is free
+    - ref: workstation
+      note:
+        zh-CN: 工作台 EC2、EBS、公网 IPv4
+        ja: ワークベンチの EC2、EBS、パブリック IPv4
+        en: Workbench EC2, EBS and public IPv4
+    - key: s3-storage
+      pricingKey: s3.standard.storage
+      billing: usage
+      quantity: 1
+      unit: GB-month
+      assumedUsagePerHour: 0.004
+      source: target
+      whenRetained: true
+      note:
+        zh-CN: 约 3 GB 原图与缩略图留存，按小时折算
+        ja: 約 3 GB の元画像とサムネイルを保存した場合を時間単位に換算
+        en: About 3 GB of original images and thumbnails kept, prorated per hour
     - { key: s3-put, pricingKey: s3.requests.put, billing: usage, quantity: 1, unit: requests,
         assumedUsagePerHour: 2000, source: target, whenRetained: false }
     - { key: s3-get, pricingKey: s3.requests.get, billing: usage, quantity: 1, unit: requests,
         assumedUsagePerHour: 5000, source: target, whenRetained: false }
   assumptions:
-    - 压测按 fileMb=5、10 个并发 × 60 秒两轮估算；浏览器直传 S3 的入站流量不收费；以官方定价为准
-    - 预签名 GET 下载到浏览器与工作台的流出流量按量计费，学习规模下很小
+    - zh-CN: 压测按 fileMb=5、10 个并发 × 60 秒两轮估算；浏览器直传 S3 的入站流量不收费；以官方定价为准
+      ja: 負荷テストは fileMb=5、10 並列 × 60 秒を 2 回として見積もっています。ブラウザーから S3 への直接アップロードの受信トラフィックは無料です。正確な料金は公式の料金表を確認してください
+      en: The load test is estimated at fileMb=5, 10 concurrent clients × 60 seconds, twice; inbound traffic from direct browser uploads to S3 is free; check the official pricing
+    - zh-CN: 预签名 GET 下载到浏览器与工作台的流出流量按量计费，学习规模下很小
+      ja: 署名付き GET でブラウザーやワークベンチにダウンロードする送信トラフィックは使用量課金ですが、学習規模ではごくわずかです
+      en: Data transfer out for presigned GET downloads to the browser and workbench is billed by usage, and is tiny at learning scale
 
 steps:
   - id: orient
     type: observe
-    title: 观察起始状态：照片写在 EC2 的数据卷上
+    title:
+      zh-CN: 观察起始状态：照片写在 EC2 的数据卷上
+      ja: 開始状態を観察：写真は EC2 のデータボリュームに書かれている
+      en: "Observe the start state: photos are written to the EC2 data volume"
     manual: manual/10-orient.md
     estMinutes: 5
     panel: preview
@@ -93,7 +253,10 @@ steps:
 
   - id: baseline
     type: experiment
-    title: 记录基线（before）：上传经过 EC2
+    title:
+      zh-CN: 记录基线（before）：上传经过 EC2
+      ja: ベースライン（before）を記録：アップロードが EC2 を経由する
+      en: "Record the baseline (before): uploads go through EC2"
     manual: manual/20-baseline.md
     experiment: { module: storage, id: upload-burst, label: before }
     panel: terminal-workstation
@@ -103,19 +266,37 @@ steps:
   - id: enable
     type: script
     wire: true
-    title: 接入 S3：部署桶、迁移照片、切换驱动
+    title:
+      zh-CN: 接入 S3：部署桶、迁移照片、切换驱动
+      ja: S3 を組み込む：バケットをデプロイし、写真を移行し、ドライバーを切り替える
+      en: "Wire in S3: deploy the buckets, migrate photos and switch the driver"
     manual: manual/30-enable.md
     methods: [script]
     requires: { steps: [baseline] }
     panel: terminal-workstation
     estMinutes: 12
-    startsBilling: { class: usage, pricingKeys: [s3.standard.storage, s3.requests.put, s3.requests.get], note: 按量计费 }
-    wait: { typicalMinutes: 3, maxMinutes: 15, text: 部署两个桶、只读窗口内迁移已有照片、重启并跑深度探针 }
+    startsBilling:
+      class: usage
+      pricingKeys: [s3.standard.storage, s3.requests.put, s3.requests.get]
+      note:
+        zh-CN: 按量计费
+        ja: 使用量課金
+        en: Billed by usage
+    wait:
+      typicalMinutes: 3
+      maxMinutes: 15
+      text:
+        zh-CN: 部署两个桶、只读窗口内迁移已有照片、重启并跑深度探针
+        ja: 2 つのバケットをデプロイし、読み取り専用の時間帯に既存の写真を移行し、再起動して詳細プローブを実行します
+        en: Deploy two buckets, migrate existing photos during a read-only window, restart and run the deep probe
     checks: [storage-wired, media-url-s3, upload-presign-seen]
 
   - id: inspect-bucket
     type: console
-    title: 检查原图桶的安全与成本配置
+    title:
+      zh-CN: 检查原图桶的安全与成本配置
+      ja: 元画像バケットのセキュリティとコストの設定を確認する
+      en: Check the original image bucket's security and cost settings
     manual: manual/40-inspect-bucket.md
     methods: [console, cli]
     requires: { steps: [enable] }
@@ -125,7 +306,10 @@ steps:
 
   - id: observe-direct-upload
     type: observe
-    title: 亲眼看到浏览器直传 S3
+    title:
+      zh-CN: 亲眼看到浏览器直传 S3
+      ja: ブラウザーから S3 への直接アップロードを自分の目で確かめる
+      en: See the direct browser upload to S3 with your own eyes
     manual: manual/50-observe-direct-upload.md
     requires: { steps: [enable] }
     estMinutes: 8
@@ -136,7 +320,10 @@ steps:
 
   - id: after
     type: experiment
-    title: 记录 after：同一压测，上传不再经过 EC2
+    title:
+      zh-CN: 记录 after：同一压测，上传不再经过 EC2
+      ja: after を記録：同じ負荷テストで、アップロードはもう EC2 を経由しない
+      en: "Record after: the same load test, and uploads no longer go through EC2"
     manual: manual/60-after.md
     experiment: { module: storage, id: upload-burst, label: after }
     requires: { steps: [enable] }
@@ -146,9 +333,16 @@ steps:
 
   - id: sidebyside
     type: experiment
-    title: （选做）同部署侧路对比：local 与 s3 交替上传
+    title:
+      zh-CN: （选做）同部署侧路对比：local 与 s3 交替上传
+      ja: （任意）同じデプロイ内での並行比較：local と s3 で交互にアップロード
+      en: "(Optional) Side-by-side in the same deployment: alternate uploads through local and s3"
     manual: manual/70-sidebyside.md
-    optional: { reason: 与 before/after 结论方向一致，只看数量级 }
+    optional:
+      reason:
+        zh-CN: 与 before/after 结论方向一致，只看数量级
+        ja: before/after と結論の方向が同じで、桁だけを見ます
+        en: Points to the same conclusion as before/after; only the order of magnitude matters
     experiment: { module: storage, id: upload-sidebyside, label: after }
     requires: { steps: [enable] }
     estMinutes: 8
@@ -156,9 +350,16 @@ steps:
 
   - id: ebs-growth
     type: experiment
-    title: （选做）数据卷写满：上传不受影响，评论仍会失败
+    title:
+      zh-CN: （选做）数据卷写满：上传不受影响，评论仍会失败
+      ja: （任意）データボリュームを満杯にする：アップロードは影響を受けないが、コメントは失敗する
+      en: "(Optional) Fill the data volume: uploads are unaffected, but comments still fail"
     manual: manual/80-ebs-growth.md
-    optional: { reason: 会临时占满数据卷，结束时自动释放 }
+    optional:
+      reason:
+        zh-CN: 会临时占满数据卷，结束时自动释放
+        ja: データボリュームを一時的に満杯にします。終了時に自動で解放されます
+        en: Temporarily fills the data volume; it is released automatically at the end
     experiment: { module: storage, id: ebs-growth, label: after }
     requires: { steps: [enable] }
     estMinutes: 8
@@ -186,16 +387,28 @@ experiments:
   - { module: storage, id: ebs-growth, labels: [after], required: false, runner: workstation }
 
 quiz: { file: quiz.yaml, draw: 3 }
-badge: { title: S3 直传, icon: assets/badge.svg }
+badge:
+  title:
+    zh-CN: S3 直传
+    ja: S3 直接アップロード
+    en: S3 direct upload
+  icon: assets/badge.svg
 tracks: [cost-optimized, performant, quick-compare, saa-main, serverless]
 certificate: { enabled: false }
 
 cleanup:
-  summary: 结束实验后，平台会清空并删除本次会话创建的两个桶（含全部版本）与策略。不需要先 disable storage。
+  summary:
+    zh-CN: 结束实验后，平台会清空并删除本次会话创建的两个桶（含全部版本）与策略。不需要先 disable storage。
+    ja: ラボの終了後、プラットフォームがこのセッションで作成した 2 つのバケット（すべてのバージョンを含む）とポリシーを空にして削除します。先に storage を disable する必要はありません。
+    en: When the lab ends, the platform empties and deletes the two buckets this session created (including all versions) and their policies. You do not need to disable storage first.
   autoReclaim: true
   dataRisk:
-    - 上传到桶里的照片会被删除；版本控制保留的旧版本也会一起删除
-    - 实验机与其上的数据卷随会话删除，报告中只保留证据摘要
+    - zh-CN: 上传到桶里的照片会被删除；版本控制保留的旧版本也会一起删除
+      ja: バケットにアップロードした写真は削除されます。バージョニングで残った古いバージョンも一緒に削除されます
+      en: Photos uploaded to the buckets are deleted, together with the old versions kept by versioning
+    - zh-CN: 实验机与其上的数据卷随会话删除，报告中只保留证据摘要
+      ja: ラボ用インスタンスとそのデータボリュームはセッションとともに削除され、レポートには証拠の要約だけが残ります
+      en: The lab instance and its data volume are deleted with the session; the report keeps only an evidence summary
   learnerCreatedHints: []
   verify:
     - buckets-gone
@@ -203,13 +416,59 @@ cleanup:
 saa:
   domains: [performance, resilient, secure, cost]
   topics:
-    - { id: presigned-url, title: 预签名 URL 直传卸载应用服务器, domain: performance, relatesTo: enable }
-    - { id: bucket-baseline, title: BPA、BucketOwnerEnforced、SecureTransport、默认加密, domain: secure, relatesTo: inspect-bucket }
-    - { id: lifecycle, title: 版本控制、生命周期与存储类别的最短天数和最小尺寸, domain: cost, relatesTo: inspect-bucket }
-    - { id: durability, title: S3 跨多 AZ 与 EBS 单 AZ 的耐久性差别, domain: resilient, relatesTo: after }
+    - id: presigned-url
+      title:
+        zh-CN: 预签名 URL 直传卸载应用服务器
+        ja: 署名付き URL による直接アップロードでアプリケーションサーバーの負荷を減らす
+        en: Offloading the application server with direct presigned URL uploads
+      domain: performance
+      relatesTo: enable
+    - id: bucket-baseline
+      title:
+        zh-CN: BPA、BucketOwnerEnforced、SecureTransport、默认加密
+        ja: BPA、BucketOwnerEnforced、SecureTransport、デフォルト暗号化
+        en: BPA, BucketOwnerEnforced, SecureTransport and default encryption
+      domain: secure
+      relatesTo: inspect-bucket
+    - id: lifecycle
+      title:
+        zh-CN: 版本控制、生命周期与存储类别的最短天数和最小尺寸
+        ja: バージョニング、ライフサイクル、ストレージクラスの最短保存期間と最小サイズ
+        en: Versioning, lifecycle and the minimum storage duration and size of storage classes
+      domain: cost
+      relatesTo: inspect-bucket
+    - id: durability
+      title:
+        zh-CN: S3 跨多 AZ 与 EBS 单 AZ 的耐久性差别
+        ja: 複数 AZ にまたがる S3 と単一 AZ の EBS の耐久性の違い
+        en: The durability difference between multi-AZ S3 and single-AZ EBS
+      domain: resilient
+      relatesTo: after
   confusables:
-    - { a: S3 事件通知, b: S3 → EventBridge, rule: 同一事件类型的重叠前缀不能配置多个通知目标；EventBridge 可以多个规则各自消费 }
-    - { a: 网关型终端节点, b: 接口型终端节点, rule: S3 与 DynamoDB 的网关型不按小时计费；接口型按小时计费、可从本地网络访问 }
+    - a:
+        zh-CN: S3 事件通知
+        ja: S3 イベント通知
+        en: S3 event notifications
+      b:
+        zh-CN: S3 → EventBridge
+        ja: S3 → EventBridge
+        en: S3 → EventBridge
+      rule:
+        zh-CN: 同一事件类型的重叠前缀不能配置多个通知目标；EventBridge 可以多个规则各自消费
+        ja: 同じイベントタイプで重なるプレフィックスには複数の通知先を設定できません。EventBridge なら複数のルールがそれぞれ消費できます
+        en: Overlapping prefixes for the same event type cannot have several notification targets; with EventBridge, several rules can each consume the events
+    - a:
+        zh-CN: 网关型终端节点
+        ja: ゲートウェイ型エンドポイント
+        en: Gateway endpoint
+      b:
+        zh-CN: 接口型终端节点
+        ja: インターフェイス型エンドポイント
+        en: Interface endpoint
+      rule:
+        zh-CN: S3 与 DynamoDB 的网关型不按小时计费；接口型按小时计费、可从本地网络访问
+        ja: S3 と DynamoDB のゲートウェイ型は時間課金されません。インターフェイス型は時間課金で、オンプレミスのネットワークからもアクセスできます
+        en: Gateway endpoints for S3 and DynamoDB are not billed hourly; interface endpoints are billed hourly and can be reached from on-premises networks
 
 tags: [storage, s3, presigned-url, performance, beginner]
 

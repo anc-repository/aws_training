@@ -6,14 +6,36 @@ questions:
     type: single
     kind: scenario
     services: [waf, cloudfront]
-    stem: 网站在 CloudFront 后面。需要在请求到达 EC2 之前，限制单个 IP 对 `/api/auth/` 的 POST 请求速率。应该？
+    stem:
+      zh-CN: 网站在 CloudFront 后面。需要在请求到达 EC2 之前，限制单个 IP 对 `/api/auth/` 的 POST 请求速率。应该？
+      ja: ウェブサイトは CloudFront の背後にあります。リクエストが EC2 に届く前に、1 つの IP からの `/api/auth/` への POST リクエストのレートを制限する必要があります。どうすべきですか？
+      en: A website sits behind CloudFront. You need to limit the rate of POST requests to `/api/auth/` from a single IP before they reach EC2. What should you do?
     options:
-      - { id: a, text: 在关联到 CloudFront 的 Web ACL 中添加基于速率的规则，并把范围缩小为该路径与方法 }
-      - { id: b, text: 在实例安全组中限制来源 }
-      - { id: c, text: 在子网 NACL 中按 IP 拒绝 }
-      - { id: d, text: 依赖 Shield Standard 自动处理 }
+      - id: a
+        text:
+          zh-CN: 在关联到 CloudFront 的 Web ACL 中添加基于速率的规则，并把范围缩小为该路径与方法
+          ja: CloudFront に関連付けた Web ACL にレートベースのルールを追加し、範囲をそのパスとメソッドに絞る
+          en: Add a rate-based rule to the Web ACL associated with CloudFront, scoped down to that path and method
+      - id: b
+        text:
+          zh-CN: 在实例安全组中限制来源
+          ja: インスタンスのセキュリティグループで送信元を制限する
+          en: Restrict sources in the instance security group
+      - id: c
+        text:
+          zh-CN: 在子网 NACL 中按 IP 拒绝
+          ja: サブネットの NACL で IP ごとに拒否する
+          en: Deny by IP in the subnet NACL
+      - id: d
+        text:
+          zh-CN: 依赖 Shield Standard 自动处理
+          ja: Shield Standard の自動処理に任せる
+          en: Rely on Shield Standard to handle it automatically
     answer: [a]
-    explain: 安全组与 NACL 工作在三/四层，无法按 URI 与速率判断，而且在 CloudFront 后面看到的是边缘地址；Shield Standard 防网络 / 传输层 DDoS，不做应用层限速。
+    explain:
+      zh-CN: 安全组与 NACL 工作在三/四层，无法按 URI 与速率判断，而且在 CloudFront 后面看到的是边缘地址；Shield Standard 防网络 / 传输层 DDoS，不做应用层限速。
+      ja: セキュリティグループと NACL はレイヤー 3/4 で動作し、URI とレートでは判断できません。しかも CloudFront の背後で見えるのはエッジのアドレスです。Shield Standard はネットワーク層 / トランスポート層の DDoS を防ぐもので、アプリケーション層のレート制限は行いません。
+      en: Security groups and NACLs work at layers 3/4 and cannot judge by URI and rate, and behind CloudFront they only see edge addresses; Shield Standard protects against network/transport-layer DDoS and does no application-layer rate limiting.
     relatesTo: after
     difficulty: 1
   - id: waf-mount-points
@@ -21,14 +43,36 @@ questions:
     type: single
     kind: concept
     services: [waf]
-    stem: AWS WAF 的 Web ACL **不能**直接关联到下列哪个资源？
+    stem:
+      zh-CN: AWS WAF 的 Web ACL **不能**直接关联到下列哪个资源？
+      ja: AWS WAF の Web ACL を直接関連付けることが**できない**リソースはどれですか？
+      en: Which resource **cannot** be associated directly with an AWS WAF Web ACL?
     options:
-      - { id: a, text: Network Load Balancer }
-      - { id: b, text: Application Load Balancer }
-      - { id: c, text: CloudFront 分配 }
-      - { id: d, text: API Gateway REST API }
+      - id: a
+        text:
+          zh-CN: Network Load Balancer
+          ja: Network Load Balancer
+          en: Network Load Balancer
+      - id: b
+        text:
+          zh-CN: Application Load Balancer
+          ja: Application Load Balancer
+          en: Application Load Balancer
+      - id: c
+        text:
+          zh-CN: CloudFront 分配
+          ja: CloudFront ディストリビューション
+          en: A CloudFront distribution
+      - id: d
+        text:
+          zh-CN: API Gateway REST API
+          ja: API Gateway REST API
+          en: API Gateway REST API
     answer: [a]
-    explain: WAF 工作在七层，可关联 CloudFront、ALB、API Gateway REST API、AppSync、Cognito User Pool 等；不能关联 NLB、EC2 或 EIP。
+    explain:
+      zh-CN: WAF 工作在七层，可关联 CloudFront、ALB、API Gateway REST API、AppSync、Cognito User Pool 等；不能关联 NLB、EC2 或 EIP。
+      ja: WAF はレイヤー 7 で動作し、CloudFront、ALB、API Gateway REST API、AppSync、Cognito User Pool などに関連付けられます。NLB、EC2、EIP には関連付けられません。
+      en: WAF works at layer 7 and can be associated with CloudFront, ALB, API Gateway REST APIs, AppSync, Cognito user pools and more; it cannot be associated with NLB, EC2 or EIP.
     relatesTo: enable
     difficulty: 1
   - id: waf-cloudfront-scope
@@ -36,14 +80,36 @@ questions:
     type: multi
     kind: concept
     services: [waf, cloudfront]
-    stem: 关于 CLOUDFRONT 范围的 Web ACL，下列说法正确的是（选 2 项）？
+    stem:
+      zh-CN: 关于 CLOUDFRONT 范围的 Web ACL，下列说法正确的是（选 2 项）？
+      ja: CLOUDFRONT スコープの Web ACL について、正しいものはどれですか（2 つ選択）？
+      en: Which statements about CLOUDFRONT-scope Web ACLs are correct? (Choose two.)
     options:
-      - { id: a, text: Web ACL 必须创建在 us-east-1 }
-      - { id: b, text: 日志写入 CloudWatch Logs 时，日志组名称必须以 aws-waf-logs- 开头 }
-      - { id: c, text: 只能关联 ALB }
-      - { id: d, text: 不能使用 AWS 托管规则组 }
+      - id: a
+        text:
+          zh-CN: Web ACL 必须创建在 us-east-1
+          ja: Web ACL は us-east-1 に作成しなければならない
+          en: The Web ACL must be created in us-east-1
+      - id: b
+        text:
+          zh-CN: 日志写入 CloudWatch Logs 时，日志组名称必须以 aws-waf-logs- 开头
+          ja: ログを CloudWatch Logs に書き込む場合、ロググループの名前は aws-waf-logs- で始まらなければならない
+          en: When logging to CloudWatch Logs, the log group name must start with aws-waf-logs-
+      - id: c
+        text:
+          zh-CN: 只能关联 ALB
+          ja: ALB にしか関連付けられない
+          en: It can only be associated with an ALB
+      - id: d
+        text:
+          zh-CN: 不能使用 AWS 托管规则组
+          ja: AWS マネージドルールグループは使えない
+          en: AWS managed rule groups cannot be used
     answer: [a, b]
-    explain: CLOUDFRONT 范围的 Web ACL、IP 集合、日志目标都在 us-east-1，日志目标名称要以 aws-waf-logs- 开头；它关联 CloudFront 分配（关联 ALB 要用 REGIONAL 范围，C 错）；托管规则组两种范围都能用，新启用时先 Count 再 Block（D 错）。
+    explain:
+      zh-CN: CLOUDFRONT 范围的 Web ACL、IP 集合、日志目标都在 us-east-1，日志目标名称要以 aws-waf-logs- 开头；它关联 CloudFront 分配（关联 ALB 要用 REGIONAL 范围，C 错）；托管规则组两种范围都能用，新启用时先 Count 再 Block（D 错）。
+      ja: CLOUDFRONT スコープの Web ACL、IP セット、ログの送信先はすべて us-east-1 にあり、ログの送信先の名前は aws-waf-logs- で始まる必要があります。CloudFront ディストリビューションに関連付けます（ALB に関連付けるには REGIONAL スコープを使うので C は誤り）。マネージドルールグループはどちらのスコープでも使え、新しく有効にするときはまず Count、その後 Block にします（D は誤り）。
+      en: CLOUDFRONT-scope Web ACLs, IP sets and log destinations are all in us-east-1, and log destination names must start with aws-waf-logs-; it associates with CloudFront distributions (an ALB needs the REGIONAL scope, so C is wrong); managed rule groups work in both scopes, starting with Count and then Block when newly enabled (D is wrong).
     relatesTo: enable
     difficulty: 2
   - id: waf-count-first
@@ -51,13 +117,35 @@ questions:
     type: single
     kind: scenario
     services: [waf]
-    stem: 刚在 CloudFront 上启用了 AWS 托管的通用规则组（CRS），随后用户反映部分照片上传失败。最合理的第一步是？
+    stem:
+      zh-CN: 刚在 CloudFront 上启用了 AWS 托管的通用规则组（CRS），随后用户反映部分照片上传失败。最合理的第一步是？
+      ja: CloudFront で AWS マネージドの共通ルールグループ（CRS）を有効にしたところ、一部の写真のアップロードが失敗するとユーザーから報告がありました。最も妥当な最初の一歩はどれですか？
+      en: You just enabled the AWS managed common rule set (CRS) on CloudFront, and users report that some photo uploads fail. What is the most sensible first step?
     options:
-      - { id: a, text: 先用 Count 模式观察哪条规则命中（通常是 SizeRestrictions_BODY），再决定覆盖或排除 }
-      - { id: b, text: 立即删除整个 Web ACL }
-      - { id: c, text: 把实例的 client_max_body_size 调小 }
-      - { id: d, text: 关闭 CloudFront }
+      - id: a
+        text:
+          zh-CN: 先用 Count 模式观察哪条规则命中（通常是 SizeRestrictions_BODY），再决定覆盖或排除
+          ja: まず Count モードでどのルールが一致しているか（通常は SizeRestrictions_BODY）を観察し、それから上書きか除外かを決める
+          en: Observe in Count mode which rule matches (usually SizeRestrictions_BODY), then decide whether to override or exclude
+      - id: b
+        text:
+          zh-CN: 立即删除整个 Web ACL
+          ja: すぐに Web ACL 全体を削除する
+          en: Delete the whole Web ACL immediately
+      - id: c
+        text:
+          zh-CN: 把实例的 client_max_body_size 调小
+          ja: インスタンスの client_max_body_size を小さくする
+          en: Lower the instance's client_max_body_size
+      - id: d
+        text:
+          zh-CN: 关闭 CloudFront
+          ja: CloudFront を無効にする
+          en: Turn off CloudFront
     answer: [a]
-    explain: CRS 的 SizeRestrictions_BODY 会拦掉超过 8 KB 的请求体，导致上传失败；先 Count 观察、再用 RuleActionOverrides 改为 Count 或范围缩小排除上传路径，而不是停用防护。
+    explain:
+      zh-CN: CRS 的 SizeRestrictions_BODY 会拦掉超过 8 KB 的请求体，导致上传失败；先 Count 观察、再用 RuleActionOverrides 改为 Count 或范围缩小排除上传路径，而不是停用防护。
+      ja: CRS の SizeRestrictions_BODY は 8 KB を超えるリクエストボディをブロックするため、アップロードが失敗します。防御を止めるのではなく、まず Count で観察し、RuleActionOverrides で Count に変えるか、スコープダウンでアップロードのパスを除外します。
+      en: CRS's SizeRestrictions_BODY blocks request bodies over 8 KB, which breaks uploads; observe with Count first, then use RuleActionOverrides to change it to Count or a scope-down to exclude the upload path, instead of turning protection off.
     relatesTo: observe-count
     difficulty: 2

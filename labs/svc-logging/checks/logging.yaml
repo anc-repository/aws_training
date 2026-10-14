@@ -1,66 +1,161 @@
 checks:
   # ---- 起始状态（before 一律 once）
   - id: cap-logging-file
-    title: 起始状态：日志只写本地文件，logging 未启用
+    title:
+      zh-CN: 起始状态：日志只写本地文件，logging 未启用
+      ja: 開始状態：ログはローカルファイルにだけ書かれ、logging は有効になっていない
+      en: "Start state: logs are only written to local files and logging is not enabled"
     type: capability
     module: logging
     drift: { policy: once }
     assert:
-      - { path: $.driver, op: eq, value: file, label: 驱动 }
-      - { path: $.status, op: eq, value: 'off', label: 模块状态（本地实现） }
-    explain: LOG_DRIVER=file：api 与 worker 用 pino 写 JSON 行到数据卷 /var/lib/cloudalbum/logs/，logrotate 每日轮转保留 14 天。
+      - path: $.driver
+        op: eq
+        value: file
+        label:
+          zh-CN: 驱动
+          ja: ドライバー
+          en: Driver
+      - path: $.status
+        op: eq
+        value: 'off'
+        label:
+          zh-CN: 模块状态（本地实现）
+          ja: モジュールの状態（ローカル実装）
+          en: Module status (local implementation)
+    explain:
+      zh-CN: LOG_DRIVER=file：api 与 worker 用 pino 写 JSON 行到数据卷 /var/lib/cloudalbum/logs/，logrotate 每日轮转保留 14 天。
+      ja: LOG_DRIVER=file：api と worker は pino で JSON 行をデータボリュームの /var/lib/cloudalbum/logs/ に書き込み、logrotate が毎日ローテーションして 14 日分を保持します。
+      en: "LOG_DRIVER=file: the api and worker write JSON lines with pino to /var/lib/cloudalbum/logs/ on the data volume, and logrotate rotates them daily and keeps 14 days."
     reproduce: { run: 'curl -s http://127.0.0.1/api/capabilities | jq ".modules.logging | {driver, status, localHealth}"', runsOn: lab }
 
   - id: api-log-local
-    title: 本地日志文件在数据卷上（root 以外只有 cloudalbum 组可读）
+    title:
+      zh-CN: 本地日志文件在数据卷上（root 以外只有 cloudalbum 组可读）
+      ja: ローカルのログファイルがデータボリューム上にある（root 以外では cloudalbum グループだけが読める）
+      en: Local log files are on the data volume (readable only by the cloudalbum group besides root)
     type: local
     on: lab
     checkId: file-stat
     args: { path: /var/lib/cloudalbum/logs/api.log }
     drift: { policy: must-hold }
     assert:
-      - { path: $.exists, op: eq, value: true, label: 文件存在 }
-      - { path: $.mode, op: eq, value: '0640', label: 权限 }
-      - { path: $.owner, op: eq, value: 2001, label: 属主 UID（cloudalbum） }
-    explain: cloudwatch 档本地文件照写（它是兜底，也是 fail2ban 的输入），所以这一项在接入之后也一直成立。检查只读元数据，不读内容。
+      - path: $.exists
+        op: eq
+        value: true
+        label:
+          zh-CN: 文件存在
+          ja: ファイルが存在する
+          en: File exists
+      - path: $.mode
+        op: eq
+        value: '0640'
+        label:
+          zh-CN: 权限
+          ja: アクセス権
+          en: Permissions
+      - path: $.owner
+        op: eq
+        value: 2001
+        label:
+          zh-CN: 属主 UID（cloudalbum）
+          ja: 所有者の UID（cloudalbum）
+          en: Owner UID (cloudalbum)
+    explain:
+      zh-CN: cloudwatch 档本地文件照写（它是兜底，也是 fail2ban 的输入），所以这一项在接入之后也一直成立。检查只读元数据，不读内容。
+      ja: cloudwatch 階層でもローカルファイルへの書き込みは続きます（フォールバックであり、fail2ban の入力でもあります）。そのため、この項目は組み込み後も成り立ち続けます。チェックはメタデータだけを読み、内容は読みません。
+      en: The cloudwatch tier still writes local files (they are the fallback and fail2ban's input), so this item keeps holding after wiring. The check only reads metadata, never contents.
 
   # ---- 接入 CloudWatch Logs
   - id: cap-logging-cloudwatch
-    title: logging 已切换到 CloudWatch Logs，且状态正常
+    title:
+      zh-CN: logging 已切换到 CloudWatch Logs，且状态正常
+      ja: logging が CloudWatch Logs に切り替わり、状態が正常
+      en: logging has switched to CloudWatch Logs and is healthy
     type: capability
     module: logging
     drift: { policy: must-hold, monitor: true }
     assert:
-      - { path: $.driver, op: eq, value: cloudwatch, label: 驱动 }
-      - { path: $, op: healthy, label: 状态正常（本卡 expectedWarnings 为空，即必须是 ok） }
-      - { path: $.detail, op: contains, value: CloudWatch Logs, label: detail }
-    explain: 常规探针只看进程内发送器的状态（积压、丢弃、最近一次成功发送），不调用 AWS；深度探针另写一条 canary 测摄取延迟。
+      - path: $.driver
+        op: eq
+        value: cloudwatch
+        label:
+          zh-CN: 驱动
+          ja: ドライバー
+          en: Driver
+      - path: $
+        op: healthy
+        label:
+          zh-CN: 状态正常（本卡 expectedWarnings 为空，即必须是 ok）
+          ja: 状態が正常（このカードの expectedWarnings は空なので ok でなければならない）
+          en: Healthy (this card's expectedWarnings is empty, so it must be ok)
+      - path: $.detail
+        op: contains
+        value: CloudWatch Logs
+        label:
+          zh-CN: detail
+          ja: detail
+          en: detail
+    explain:
+      zh-CN: 常规探针只看进程内发送器的状态（积压、丢弃、最近一次成功发送），不调用 AWS；深度探针另写一条 canary 测摄取延迟。
+      ja: 通常のプローブはプロセス内の送信機の状態（滞留、破棄、最後に送信に成功した時刻）だけを見て、AWS は呼び出しません。詳細プローブは別に canary を 1 行書いて取り込みの遅延を測ります。
+      en: The regular probe only looks at the in-process shipper's state (backlog, drops, last successful send) and does not call AWS; the deep probe writes a separate canary line to measure ingestion latency.
     reproduce: { run: 'curl -s http://127.0.0.1/api/capabilities | jq ".modules.logging | {driver, status, detail}"', runsOn: lab }
 
   - id: module-state-logging
-    title: 实验机上 logging 已启用
+    title:
+      zh-CN: 实验机上 logging 已启用
+      ja: ラボ用インスタンスで logging が有効
+      en: logging is enabled on the lab instance
     type: local
     on: lab
     checkId: module-state
     args: { module: logging }
     drift: { policy: must-hold }
     assert:
-      - { path: $.modules.logging.enabled, op: eq, value: true, label: 已启用 }
-      - { path: $.modules.logging.driver, op: eq, value: cloudwatch, label: 驱动 }
+      - path: $.modules.logging.enabled
+        op: eq
+        value: true
+        label:
+          zh-CN: 已启用
+          ja: 有効
+          en: Enabled
+      - path: $.modules.logging.driver
+        op: eq
+        value: cloudwatch
+        label:
+          zh-CN: 驱动
+          ja: ドライバー
+          en: Driver
 
   - id: log-traffic
-    title: 一次真实请求经过 Nginx（产生一行访问日志）
+    title:
+      zh-CN: 一次真实请求经过 Nginx（产生一行访问日志）
+      ja: 実際のリクエストが 1 件 Nginx を通った（アクセスログが 1 行生成された）
+      en: A real request went through Nginx (producing one access log line)
     type: local
     on: lab
     checkId: http-probe
     args: { target: self, path: '/api/health/live?atlprobe={{ sample.nonce }}', method: GET }
     drift: { policy: once }
     assert:
-      - { path: '$.responses[0].status', op: eq, value: 200, label: 状态码 }
-    explain: logging 不出现在 X-CloudAlbum-Path 中；接入的证据是这行访问日志随后出现在本会话的 Nginx 日志组里（下一项）。
+      - path: '$.responses[0].status'
+        op: eq
+        value: 200
+        label:
+          zh-CN: 状态码
+          ja: ステータスコード
+          en: Status code
+    explain:
+      zh-CN: logging 不出现在 X-CloudAlbum-Path 中；接入的证据是这行访问日志随后出现在本会话的 Nginx 日志组里（下一项）。
+      ja: logging は X-CloudAlbum-Path には現れません。組み込みの証拠は、このアクセスログの行がその後このセッションの Nginx ロググループに現れることです（次の項目）。
+      en: logging does not appear in X-CloudAlbum-Path; the evidence of wiring is that this access log line then shows up in this session's Nginx log group (next item).
 
   - id: nginx-stream-shipped
-    title: 本实例的 Nginx 访问日志流出现在本会话的日志组中
+    title:
+      zh-CN: 本实例的 Nginx 访问日志流出现在本会话的日志组中
+      ja: このインスタンスの Nginx アクセスログのストリームが、このセッションのロググループに現れた
+      en: This instance's Nginx access log stream appears in this session's log group
     type: aws-readonly
     service: logs
     action: DescribeLogStreams
@@ -73,20 +168,49 @@ checks:
       - { path: $.logStreams, where: { logStreamName: '{{ target.instanceId }}/access' }, op: len_eq, value: 0 }
     drift: { policy: must-hold }
     assert:
-      - { path: $.logStreams, where: { logStreamName: '{{ target.instanceId }}/access' }, op: len_gte, value: 1, label: '日志流 <实例 ID>/access' }
-    explain: worker 增量读取 nginx-access.json，把新行批量 PutLogEvents 到 /cloudalbum/<env>/nginx 的 <实例 ID>/access；日志流只在第一次发送时创建。
+      - path: $.logStreams
+        where: { logStreamName: '{{ target.instanceId }}/access' }
+        op: len_gte
+        value: 1
+        label:
+          zh-CN: '日志流 <实例 ID>/access'
+          ja: ログストリーム <インスタンス ID>/access
+          en: Log stream <instance ID>/access
+    explain:
+      zh-CN: worker 增量读取 nginx-access.json，把新行批量 PutLogEvents 到 /cloudalbum/<env>/nginx 的 <实例 ID>/access；日志流只在第一次发送时创建。
+      ja: worker が nginx-access.json を差分で読み取り、新しい行を /cloudalbum/<env>/nginx の <インスタンス ID>/access にまとめて PutLogEvents します。ログストリームは最初の送信時にだけ作成されます。
+      en: The worker reads nginx-access.json incrementally and sends new lines in batches with PutLogEvents to <instance ID>/access in /cloudalbum/<env>/nginx; the log stream is created only on the first send.
     reproduce: { run: 'aws logs describe-log-streams --log-group-name /cloudalbum/{{ session.env }}/nginx --log-stream-name-prefix {{ target.instanceId }}/', runsOn: workstation }
     pitfalls: [shipper-backlog]
     manualFallback:
       where: { breadcrumb: [CloudWatch, 日志组, '/cloudalbum/{{ session.env }}/nginx', 日志流], region: app }
       observed:
-        question: 日志流列表里有以实验机实例 ID 开头、以 /access 结尾的日志流吗？
+        question:
+          zh-CN: 日志流列表里有以实验机实例 ID 开头、以 /access 结尾的日志流吗？
+          ja: ログストリームの一覧に、ラボ用インスタンスのインスタンス ID で始まり /access で終わるログストリームはありますか？
+          en: Is there a log stream in the list that starts with the lab instance's instance ID and ends with /access?
         options:
-          - { value: present, label: 有, expected: true }
-          - { value: absent, label: 没有, fixHint: 等一两分钟再看；仍然没有时看 logging 的 detail 是否提示发送积压或权限不足 }
+          - value: present
+            label:
+              zh-CN: 有
+              ja: ある
+              en: Yes
+            expected: true
+          - value: absent
+            label:
+              zh-CN: 没有
+              ja: ない
+              en: No
+            fixHint:
+              zh-CN: 等一两分钟再看；仍然没有时看 logging 的 detail 是否提示发送积压或权限不足
+              ja: 1～2 分待ってから再度確認してください。それでもない場合は、logging の detail に送信の滞留や権限不足が表示されていないか確認してください
+              en: Wait a minute or two and look again; if it is still missing, check whether logging's detail reports a send backlog or missing permissions
 
   - id: log-groups-retention
-    title: 两个日志组由本会话创建，并设置了 14 天保留期（不是“永不过期”）
+    title:
+      zh-CN: 两个日志组由本会话创建，并设置了 14 天保留期（不是“永不过期”）
+      ja: 2 つのロググループがこのセッションで作成され、保持期間が 14 日に設定されている（「失効しない」ではない）
+      en: Both log groups were created by this session and have a 14-day retention (not "Never expire")
     type: aws-readonly
     service: logs
     action: DescribeLogGroups
@@ -95,20 +219,56 @@ checks:
     ownership: { resource: 'arn:aws:logs:{{ session.region }}:{{ session.accountId }}:log-group:/cloudalbum/{{ session.env }}/app', mode: session }
     drift: { policy: must-hold }
     assert:
-      - { path: $.logGroups, where: { logGroupName: '/cloudalbum/{{ session.env }}/app', retentionInDays: 14 }, op: len_eq, value: 1, label: app 日志组保留 14 天 }
-      - { path: $.logGroups, where: { logGroupName: '/cloudalbum/{{ session.env }}/nginx', retentionInDays: 14 }, op: len_eq, value: 1, label: nginx 日志组保留 14 天 }
-    explain: 日志组默认永不过期，存储费只增不减；本模块用栈参数 RetentionInDays 设置保留期，日志组是 DeletionPolicy Retain 的数据资源。
+      - path: $.logGroups
+        where: { logGroupName: '/cloudalbum/{{ session.env }}/app', retentionInDays: 14 }
+        op: len_eq
+        value: 1
+        label:
+          zh-CN: app 日志组保留 14 天
+          ja: app ロググループの保持期間 14 日
+          en: app log group retention 14 days
+      - path: $.logGroups
+        where: { logGroupName: '/cloudalbum/{{ session.env }}/nginx', retentionInDays: 14 }
+        op: len_eq
+        value: 1
+        label:
+          zh-CN: nginx 日志组保留 14 天
+          ja: nginx ロググループの保持期間 14 日
+          en: nginx log group retention 14 days
+    explain:
+      zh-CN: 日志组默认永不过期，存储费只增不减；本模块用栈参数 RetentionInDays 设置保留期，日志组是 DeletionPolicy Retain 的数据资源。
+      ja: ロググループはデフォルトでは失効せず、保存料金は増える一方です。このモジュールはスタックのパラメーター RetentionInDays で保持期間を設定し、ロググループは DeletionPolicy Retain のデータリソースです。
+      en: Log groups never expire by default, so storage charges only grow; this module sets the retention with the stack parameter RetentionInDays, and the log groups are DeletionPolicy Retain data resources.
     reproduce: { run: 'aws logs describe-log-groups --log-group-name-prefix /cloudalbum/{{ session.env }}/ --query "logGroups[].[logGroupName,retentionInDays]" --output table', runsOn: workstation }
     manualFallback:
       where: { breadcrumb: [CloudWatch, 日志组], region: app }
       observed:
-        question: '/cloudalbum/{{ session.env }}/app 与 /nginx 的“保留”列显示什么？'
+        question:
+          zh-CN: '/cloudalbum/{{ session.env }}/app 与 /nginx 的“保留”列显示什么？'
+          ja: /cloudalbum/{{ session.env }}/app と /nginx の「保持」列には何と表示されていますか？
+          en: What does the "Retention" column show for /cloudalbum/{{ session.env }}/app and /nginx?
         options:
-          - { value: '14', label: 都是 2 周（14 天）, expected: true }
-          - { value: never, label: 永不过期, fixHint: 重新执行 scripts/module enable logging --param RetentionInDays=14 }
+          - value: '14'
+            label:
+              zh-CN: 都是 2 周（14 天）
+              ja: どちらも 2 週間（14 日）
+              en: Both 2 weeks (14 days)
+            expected: true
+          - value: never
+            label:
+              zh-CN: 永不过期
+              ja: 失効しない
+              en: Never expire
+            fixHint:
+              zh-CN: 重新执行 scripts/module enable logging --param RetentionInDays=14
+              ja: scripts/module enable logging --param RetentionInDays=14 を再実行してください
+              en: Run scripts/module enable logging --param RetentionInDays=14 again
 
   - id: metric-filters
-    title: 指标过滤器 AppErrors 写入命名空间 CloudAlbum/Logs
+    title:
+      zh-CN: 指标过滤器 AppErrors 写入命名空间 CloudAlbum/Logs
+      ja: メトリクスフィルター AppErrors が名前空間 CloudAlbum/Logs に書き込む
+      en: The AppErrors metric filter writes to the CloudAlbum/Logs namespace
     type: aws-readonly
     service: logs
     action: DescribeMetricFilters
@@ -117,26 +277,58 @@ checks:
     ownership: { resource: 'arn:aws:logs:{{ session.region }}:{{ session.accountId }}:log-group:/cloudalbum/{{ session.env }}/app', mode: session }
     drift: { policy: must-hold }
     assert:
-      - { path: $.metricFilters, where: { filterName: 'cloudalbum-{{ session.env }}-app-errors' }, op: len_eq, value: 1, label: AppErrors 过滤器 }
+      - path: $.metricFilters
+        where: { filterName: 'cloudalbum-{{ session.env }}-app-errors' }
+        op: len_eq
+        value: 1
+        label:
+          zh-CN: AppErrors 过滤器
+          ja: AppErrors フィルター
+          en: AppErrors filter
       - path: $.metricFilters
         op: some
-        label: 命名空间 CloudAlbum/Logs
+        label:
+          zh-CN: 命名空间 CloudAlbum/Logs
+          ja: 名前空間 CloudAlbum/Logs
+          en: Namespace CloudAlbum/Logs
         value:
           - { path: $.filterPattern, op: contains, value: '$.level = "error"' }
           - { path: '$.metricTransformations[0].metricNamespace', op: eq, value: CloudAlbum/Logs }
-    explain: 指标过滤器在摄取时匹配，只对创建之后的日志生效，不回溯。Nginx 日志组上还有 Nginx5xx（status ≥ 500）。
+    explain:
+      zh-CN: 指标过滤器在摄取时匹配，只对创建之后的日志生效，不回溯。Nginx 日志组上还有 Nginx5xx（status ≥ 500）。
+      ja: メトリクスフィルターは取り込み時に照合し、作成後のログにだけ適用され、過去にはさかのぼりません。Nginx ロググループには Nginx5xx（status ≥ 500）もあります。
+      en: Metric filters match at ingestion and only apply to logs after they are created, never retroactively. The Nginx log group also has Nginx5xx (status ≥ 500).
     reproduce: { run: 'aws logs describe-metric-filters --log-group-name /cloudalbum/{{ session.env }}/app --query "metricFilters[].[filterName,filterPattern]" --output table', runsOn: workstation }
     manualFallback:
       where: { breadcrumb: [CloudWatch, 日志组, '/cloudalbum/{{ session.env }}/app', 指标筛选条件], region: app }
       observed:
-        question: 有名为 cloudalbum-{{ session.env }}-app-errors 的指标筛选条件吗？它写入哪个命名空间？
+        question:
+          zh-CN: 有名为 cloudalbum-{{ session.env }}-app-errors 的指标筛选条件吗？它写入哪个命名空间？
+          ja: cloudalbum-{{ session.env }}-app-errors という名前のメトリクスフィルターはありますか？どの名前空間に書き込みますか？
+          en: Is there a metric filter named cloudalbum-{{ session.env }}-app-errors? Which namespace does it write to?
         options:
-          - { value: ok, label: 有，命名空间 CloudAlbum/Logs, expected: true }
-          - { value: missing, label: 没有, fixHint: 重新执行 scripts/module enable logging }
+          - value: ok
+            label:
+              zh-CN: 有，命名空间 CloudAlbum/Logs
+              ja: ある。名前空間は CloudAlbum/Logs
+              en: Yes, namespace CloudAlbum/Logs
+            expected: true
+          - value: missing
+            label:
+              zh-CN: 没有
+              ja: ない
+              en: No
+            fixHint:
+              zh-CN: 重新执行 scripts/module enable logging
+              ja: scripts/module enable logging を再実行してください
+              en: Run scripts/module enable logging again
 
   # ---- Logs Insights 与指标
   - id: metric-nginx5xx
-    title: 指标过滤器 Nginx5xx 生成了指标（5xx 进入了 CloudWatch 指标）
+    title:
+      zh-CN: 指标过滤器 Nginx5xx 生成了指标（5xx 进入了 CloudWatch 指标）
+      ja: メトリクスフィルター Nginx5xx がメトリクスを生成した（5xx が CloudWatch メトリクスに入った）
+      en: The Nginx5xx metric filter generated a metric (5xx reached CloudWatch metrics)
     type: aws-readonly
     service: cloudwatch
     action: ListMetrics
@@ -148,44 +340,111 @@ checks:
       - { path: $.Metrics, op: len_eq, value: 0 }
     drift: { policy: once }
     assert:
-      - { path: $.Metrics, op: len_gte, value: 1, label: CloudAlbum/Logs · Nginx5xx }
-    explain: 指标过滤器挂在本会话的 Nginx 日志组上（归属以日志组为准）；第一次匹配到 status ≥ 500 的行之后，指标才出现在列表中。
+      - path: $.Metrics
+        op: len_gte
+        value: 1
+        label:
+          zh-CN: CloudAlbum/Logs · Nginx5xx
+          ja: CloudAlbum/Logs · Nginx5xx
+          en: CloudAlbum/Logs · Nginx5xx
+    explain:
+      zh-CN: 指标过滤器挂在本会话的 Nginx 日志组上（归属以日志组为准）；第一次匹配到 status ≥ 500 的行之后，指标才出现在列表中。
+      ja: メトリクスフィルターはこのセッションの Nginx ロググループに付いています（所有はロググループで判断します）。status ≥ 500 の行に初めて一致した後で、メトリクスが一覧に現れます。
+      en: The metric filter is attached to this session's Nginx log group (ownership is judged by the log group); the metric appears in the list only after the first line with status ≥ 500 matches.
     reproduce: { run: 'aws cloudwatch list-metrics --namespace CloudAlbum/Logs', runsOn: workstation }
     pitfalls: [metric-filter-no-backfill]
     manualFallback:
       where: { breadcrumb: [CloudWatch, 指标, 所有指标, CloudAlbum/Logs], region: app }
       observed:
-        question: 命名空间 CloudAlbum/Logs 下能看到 Nginx5xx 吗？
+        question:
+          zh-CN: 命名空间 CloudAlbum/Logs 下能看到 Nginx5xx 吗？
+          ja: 名前空間 CloudAlbum/Logs の下に Nginx5xx が見えますか？
+          en: Can you see Nginx5xx under the CloudAlbum/Logs namespace?
         options:
-          - { value: present, label: 能, expected: true }
-          - { value: absent, label: 看不到, fixHint: 先按手册再注入一次 5xx 并制造几次请求；指标过滤器不回溯接入之前的日志 }
+          - value: present
+            label:
+              zh-CN: 能
+              ja: 見える
+              en: Yes
+            expected: true
+          - value: absent
+            label:
+              zh-CN: 看不到
+              ja: 見えない
+              en: No
+            fixHint:
+              zh-CN: 先按手册再注入一次 5xx 并制造几次请求；指标过滤器不回溯接入之前的日志
+              ja: 手順書に従ってもう一度 5xx を注入し、何回かリクエストを発生させてください。メトリクスフィルターは組み込み前のログにはさかのぼりません
+              en: Inject 5xx again as the manual describes and make some requests; metric filters do not go back to logs from before the wiring
 
   - id: insights-read
-    title: 说出 Logs Insights 的计费依据
+    title:
+      zh-CN: 说出 Logs Insights 的计费依据
+      ja: Logs Insights の課金の基準を答える
+      en: Name what Logs Insights bills by
     type: manual
     spec:
       observed:
-        question: 运行保存的查询 cloudalbum-{{ session.env }}/5xx-by-route 之后，结果面板下方的统计里，哪一项是 Logs Insights 的计费依据？
+        question:
+          zh-CN: 运行保存的查询 cloudalbum-{{ session.env }}/5xx-by-route 之后，结果面板下方的统计里，哪一项是 Logs Insights 的计费依据？
+          ja: 保存済みのクエリ cloudalbum-{{ session.env }}/5xx-by-route を実行した後、結果パネルの下の統計のうち、Logs Insights の課金の基準になるのはどれですか？
+          en: After running the saved query cloudalbum-{{ session.env }}/5xx-by-route, which statistic under the results panel is what Logs Insights bills by?
         options:
-          - { value: scanned, label: 扫描的字节数（Bytes scanned）, expected: true }
-          - { value: matched, label: 匹配的记录数, fixHint: Logs Insights 按扫描量计费；缩小时间范围、只选需要的日志组、先 filter 再 stats 都能减少扫描量 }
-          - { value: duration, label: 查询用时, fixHint: 用时不计费；看统计里的扫描字节 }
+          - value: scanned
+            label:
+              zh-CN: 扫描的字节数（Bytes scanned）
+              ja: スキャンしたバイト数（Bytes scanned）
+              en: Bytes scanned
+            expected: true
+          - value: matched
+            label:
+              zh-CN: 匹配的记录数
+              ja: 一致したレコード数
+              en: Records matched
+            fixHint:
+              zh-CN: Logs Insights 按扫描量计费；缩小时间范围、只选需要的日志组、先 filter 再 stats 都能减少扫描量
+              ja: Logs Insights はスキャン量で課金されます。時間範囲を狭める、必要なロググループだけを選ぶ、先に filter してから stats する、といった方法でスキャン量を減らせます
+              en: Logs Insights bills by data scanned; a narrower time range, selecting only the log groups you need, and filtering before stats all reduce the scan
+          - value: duration
+            label:
+              zh-CN: 查询用时
+              ja: クエリの所要時間
+              en: Query duration
+            fixHint:
+              zh-CN: 用时不计费；看统计里的扫描字节
+              ja: 所要時間は課金されません。統計のスキャンしたバイト数を見てください
+              en: Duration is not billed; look at bytes scanned in the statistics
 
   # ---- 选做：CloudWatch Agent
   - id: agent-running
-    title: CloudWatch Agent 在运行（Shipper=agent）
+    title:
+      zh-CN: CloudWatch Agent 在运行（Shipper=agent）
+      ja: CloudWatch エージェントが動作している（Shipper=agent）
+      en: The CloudWatch agent is running (Shipper=agent)
     type: local
     on: lab
     checkId: systemd-unit
     args: { unit: amazon-cloudwatch-agent }
     drift: { policy: must-hold }
     assert:
-      - { path: $.active, op: eq, value: active, label: 状态 }
-    explain: hostSetup 安装 amazon-cloudwatch-agent，把 logging 片段渲染为 cloudalbum-logging.json 后 append-config；应用只写本地文件。
+      - path: $.active
+        op: eq
+        value: active
+        label:
+          zh-CN: 状态
+          ja: 状態
+          en: Status
+    explain:
+      zh-CN: hostSetup 安装 amazon-cloudwatch-agent，把 logging 片段渲染为 cloudalbum-logging.json 后 append-config；应用只写本地文件。
+      ja: hostSetup が amazon-cloudwatch-agent をインストールし、logging の設定断片を cloudalbum-logging.json としてレンダリングしてから append-config します。アプリはローカルファイルに書くだけです。
+      en: hostSetup installs amazon-cloudwatch-agent, renders the logging snippet as cloudalbum-logging.json and runs append-config; the app only writes local files.
 
   # ---- 回收验证
   - id: logging-stack-gone
-    title: 本会话的 logging 栈已删除
+    title:
+      zh-CN: 本会话的 logging 栈已删除
+      ja: このセッションの logging スタックが削除された
+      en: This session's logging stack has been deleted
     type: aws-readonly
     service: cloudformation
     action: DescribeStacks
@@ -197,13 +456,49 @@ checks:
     manualFallback:
       where: { breadcrumb: [CloudFormation, 堆栈], region: app }
       observed:
-        question: 还能找到 cloudalbum-{{ session.env }}-logging 吗？
+        question:
+          zh-CN: 还能找到 cloudalbum-{{ session.env }}-logging 吗？
+          ja: cloudalbum-{{ session.env }}-logging はまだ見つかりますか？
+          en: Can you still find cloudalbum-{{ session.env }}-logging?
         options:
-          - { value: gone, label: 找不到, expected: true }
-          - { value: present, label: 还在 }
+          - value: gone
+            label:
+              zh-CN: 找不到
+              ja: 見つからない
+              en: Not found
+            expected: true
+          - value: present
+            label:
+              zh-CN: 还在
+              ja: まだある
+              en: Still there
 
 pitfalls:
-  - { id: shipper-backlog, title: 日志流迟迟不出现, match: [ { checkId: nginx-stream-shipped, result: pending } ],
-      cause: 发送器每 LOG_CW_FLUSH_MS（默认 2 秒）发送一批；权限尚未生效或日志组名不一致时会积压, fix: 看 logging 的 detail（积压条数、最近一次失败）；IAM 变更是最终一致的，等一两分钟 }
-  - { id: metric-filter-no-backfill, title: 指标还没有出现, match: [ { checkId: metric-nginx5xx, result: pending } ],
-      cause: 指标过滤器只对创建之后摄取的日志生效，接入之前的 5xx 不会被统计, fix: 再注入一次 5xx 并制造几十次请求，等几分钟 }
+  - id: shipper-backlog
+    title:
+      zh-CN: 日志流迟迟不出现
+      ja: ログストリームがなかなか現れない
+      en: The log stream does not show up
+    match: [ { checkId: nginx-stream-shipped, result: pending } ]
+    cause:
+      zh-CN: 发送器每 LOG_CW_FLUSH_MS（默认 2 秒）发送一批；权限尚未生效或日志组名不一致时会积压
+      ja: 送信機は LOG_CW_FLUSH_MS（デフォルト 2 秒）ごとに 1 バッチ送信します。権限がまだ反映されていないか、ロググループ名が一致しないと滞留します
+      en: The shipper sends a batch every LOG_CW_FLUSH_MS (2 seconds by default); it backs up if permissions have not taken effect yet or the log group name does not match
+    fix:
+      zh-CN: 看 logging 的 detail（积压条数、最近一次失败）；IAM 变更是最终一致的，等一两分钟
+      ja: logging の detail（滞留件数、直近の失敗）を確認してください。IAM の変更は結果整合性なので、1～2 分待ってください
+      en: Check logging's detail (backlog count, last failure); IAM changes are eventually consistent, so wait a minute or two
+  - id: metric-filter-no-backfill
+    title:
+      zh-CN: 指标还没有出现
+      ja: メトリクスがまだ現れない
+      en: The metric has not appeared yet
+    match: [ { checkId: metric-nginx5xx, result: pending } ]
+    cause:
+      zh-CN: 指标过滤器只对创建之后摄取的日志生效，接入之前的 5xx 不会被统计
+      ja: メトリクスフィルターは作成後に取り込まれたログにだけ適用されるため、組み込み前の 5xx は数えられません
+      en: Metric filters only apply to logs ingested after they are created, so 5xx from before the wiring are not counted
+    fix:
+      zh-CN: 再注入一次 5xx 并制造几十次请求，等几分钟
+      ja: もう一度 5xx を注入して数十回リクエストを発生させ、数分待ってください
+      en: Inject 5xx again, make a few dozen requests and wait a few minutes

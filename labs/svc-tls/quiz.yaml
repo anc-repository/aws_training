@@ -7,14 +7,36 @@ questions:
     type: single
     kind: concept
     services: [acm, cloudfront]
-    stem: 给 CloudFront 分配绑定自定义域名所需的 ACM 证书，应在哪个区域申请？
+    stem:
+      zh-CN: 给 CloudFront 分配绑定自定义域名所需的 ACM 证书，应在哪个区域申请？
+      ja: CloudFront ディストリビューションにカスタムドメインを設定するための ACM 証明書は、どのリージョンで申請すべきですか？
+      en: In which Region should you request the ACM certificate needed to bind a custom domain to a CloudFront distribution?
     options:
-      - { id: a, text: us-east-1 }
-      - { id: b, text: 源站所在区域 }
-      - { id: c, text: 任意区域，CloudFront 会自动复制 }
-      - { id: d, text: 与 Route 53 托管区域相同的区域 }
+      - id: a
+        text:
+          zh-CN: us-east-1
+          ja: us-east-1
+          en: us-east-1
+      - id: b
+        text:
+          zh-CN: 源站所在区域
+          ja: オリジンのあるリージョン
+          en: The origin's Region
+      - id: c
+        text:
+          zh-CN: 任意区域，CloudFront 会自动复制
+          ja: どのリージョンでもよく、CloudFront が自動でコピーする
+          en: Any Region; CloudFront copies it automatically
+      - id: d
+        text:
+          zh-CN: 与 Route 53 托管区域相同的区域
+          ja: Route 53 のホストゾーンと同じリージョン
+          en: The same Region as the Route 53 hosted zone
     answer: [a]
-    explain: CloudFront（以及 Cognito 托管登录页的自定义域名）只使用 us-east-1 的 ACM 证书；ALB 与区域型 API Gateway 使用资源所在区域的证书。
+    explain:
+      zh-CN: CloudFront（以及 Cognito 托管登录页的自定义域名）只使用 us-east-1 的 ACM 证书；ALB 与区域型 API Gateway 使用资源所在区域的证书。
+      ja: CloudFront（と Cognito のマネージドログインページのカスタムドメイン）は us-east-1 の ACM 証明書しか使いません。ALB とリージョン API Gateway は、リソースのあるリージョンの証明書を使います。
+      en: CloudFront (and custom domains for the Cognito managed login page) only use ACM certificates in us-east-1; ALBs and Regional API Gateway use certificates in the resource's Region.
     relatesTo: enable-tls
     difficulty: 1
   - id: tls-ec2-exam
@@ -22,14 +44,36 @@ questions:
     type: single
     kind: scenario
     services: [acm, elb]
-    stem: 按 SAA 考试的常见口径，公司希望用 ACM 签发的公有证书为运行在 EC2 上的网站提供 HTTPS，并由 ACM 自动续期。应该怎么做？
+    stem:
+      zh-CN: 按 SAA 考试的常见口径，公司希望用 ACM 签发的公有证书为运行在 EC2 上的网站提供 HTTPS，并由 ACM 自动续期。应该怎么做？
+      ja: SAA 試験の一般的な観点で、会社は ACM が発行したパブリック証明書を使って EC2 上で動くウェブサイトに HTTPS を提供し、ACM に自動で更新させたいと考えています。どうすべきですか？
+      en: By the usual SAA exam view, a company wants to serve HTTPS for a website on EC2 with a public certificate issued by ACM, renewed automatically by ACM. What should it do?
     options:
-      - { id: a, text: 在实例前放一个 ALB，把 ACM 证书挂在 HTTPS 监听器上 }
-      - { id: b, text: 从 ACM 导出普通公有证书装到 Nginx }
-      - { id: c, text: 把证书文件放进 S3 由实例下载 }
-      - { id: d, text: 用 ACM Private CA 签发公有证书 }
+      - id: a
+        text:
+          zh-CN: 在实例前放一个 ALB，把 ACM 证书挂在 HTTPS 监听器上
+          ja: インスタンスの前に ALB を置き、ACM 証明書を HTTPS リスナーに付ける
+          en: Put an ALB in front of the instances and attach the ACM certificate to an HTTPS listener
+      - id: b
+        text:
+          zh-CN: 从 ACM 导出普通公有证书装到 Nginx
+          ja: ACM から通常のパブリック証明書をエクスポートして Nginx に導入する
+          en: Export a regular public certificate from ACM and install it in Nginx
+      - id: c
+        text:
+          zh-CN: 把证书文件放进 S3 由实例下载
+          ja: 証明書ファイルを S3 に置き、インスタンスにダウンロードさせる
+          en: Put the certificate files in S3 for the instances to download
+      - id: d
+        text:
+          zh-CN: 用 ACM Private CA 签发公有证书
+          ja: ACM Private CA でパブリック証明書を発行する
+          en: Issue a public certificate with ACM Private CA
     answer: [a]
-    explain: ACM 集成证书的私钥不可导出，只能挂在 CloudFront、ALB、API Gateway 等集成服务上，由 ACM 托管续期。2026 年起的 ACME 端点能把证书装到自管服务器，但续期由客户端负责，不是“ACM 自动续期”；答题仍以考试结论为准。
+    explain:
+      zh-CN: ACM 集成证书的私钥不可导出，只能挂在 CloudFront、ALB、API Gateway 等集成服务上，由 ACM 托管续期。2026 年起的 ACME 端点能把证书装到自管服务器，但续期由客户端负责，不是“ACM 自动续期”；答题仍以考试结论为准。
+      ja: ACM 統合証明書の秘密鍵はエクスポートできず、CloudFront、ALB、API Gateway などの統合サービスにしか付けられず、ACM が更新を管理します。2026 年からの ACME エンドポイントでは自己管理のサーバーに証明書を導入できますが、更新はクライアントの責任で、「ACM による自動更新」ではありません。解答は引き続き試験の結論を基準にします。
+      en: The private keys of ACM integrated certificates cannot be exported; they only attach to integrated services such as CloudFront, ALB and API Gateway, with ACM managing renewal. The ACME endpoint available from 2026 can put certificates on self-managed servers, but renewal is the client's job, not "ACM auto-renewal"; exam answers still follow the exam view.
     relatesTo: two-columns
     difficulty: 2
   - id: tls-renewal-prereq
@@ -37,14 +81,36 @@ questions:
     type: multi
     kind: concept
     services: [acm]
-    stem: ACM 集成证书能够自动续期的前提包括哪两项？
+    stem:
+      zh-CN: ACM 集成证书能够自动续期的前提包括哪两项？
+      ja: ACM 統合証明書が自動で更新される前提はどれですか？2 つ選んでください。
+      en: Which two conditions must hold for an ACM integrated certificate to renew automatically?
     options:
-      - { id: a, text: DNS 验证记录仍然存在 }
-      - { id: b, text: 证书正在被集成服务使用 }
-      - { id: c, text: 证书私钥已经导出备份 }
-      - { id: d, text: 实例上运行着 certbot 定时器 }
+      - id: a
+        text:
+          zh-CN: DNS 验证记录仍然存在
+          ja: DNS 検証のレコードがまだ存在する
+          en: The DNS validation record still exists
+      - id: b
+        text:
+          zh-CN: 证书正在被集成服务使用
+          ja: 証明書が統合サービスで使用されている
+          en: The certificate is in use by an integrated service
+      - id: c
+        text:
+          zh-CN: 证书私钥已经导出备份
+          ja: 証明書の秘密鍵がエクスポートされてバックアップされている
+          en: The certificate's private key has been exported and backed up
+      - id: d
+        text:
+          zh-CN: 实例上运行着 certbot 定时器
+          ja: インスタンスで certbot のタイマーが動いている
+          en: A certbot timer runs on the instance
     answer: [a, b]
-    explain: DNS 验证的证书要靠保留的验证 CNAME 自动完成续期验证；ACM 只对正在使用的证书执行托管续期（以官方文档为准）；集成证书的私钥不可导出，certbot 只用于 ACME 或 Let's Encrypt 证书。
+    explain:
+      zh-CN: DNS 验证的证书要靠保留的验证 CNAME 自动完成续期验证；ACM 只对正在使用的证书执行托管续期（以官方文档为准）；集成证书的私钥不可导出，certbot 只用于 ACME 或 Let's Encrypt 证书。
+      ja: DNS 検証の証明書は、残しておいた検証用の CNAME によって更新時の検証が自動で完了します。ACM がマネージド更新を行うのは使用中の証明書だけです（公式ドキュメントを確認してください）。統合証明書の秘密鍵はエクスポートできず、certbot は ACME や Let's Encrypt の証明書にしか使いません。
+      en: DNS-validated certificates complete renewal validation automatically through the validation CNAME you kept; ACM only runs managed renewal for certificates in use (see the official documentation); integrated certificates' private keys cannot be exported, and certbot is only for ACME or Let's Encrypt certificates.
     relatesTo: after
     difficulty: 2
   - id: tls-hsts
@@ -52,13 +118,35 @@ questions:
     type: single
     kind: scenario
     services: [acm]
-    stem: 团队给只用自签名证书的测试站点开启了 HSTS（max-age 一年）。最可能的后果是？
+    stem:
+      zh-CN: 团队给只用自签名证书的测试站点开启了 HSTS（max-age 一年）。最可能的后果是？
+      ja: チームが自己署名証明書しか使っていないテストサイトで HSTS（max-age 1 年）を有効にしました。最も起こりうる結果はどれですか？
+      en: A team turned on HSTS (max-age one year) for a test site that only uses a self-signed certificate. What is the most likely result?
     options:
-      - { id: a, text: 浏览器在一年内拒绝访问该站点，用户无法点击“继续访问” }
-      - { id: b, text: 证书自动变为受信任 }
-      - { id: c, text: 浏览器改为用 HTTP 访问 }
-      - { id: d, text: 没有影响 }
+      - id: a
+        text:
+          zh-CN: 浏览器在一年内拒绝访问该站点，用户无法点击“继续访问”
+          ja: ブラウザーが 1 年間そのサイトへのアクセスを拒否し、ユーザーは「このまま進む」をクリックできない
+          en: Browsers refuse the site for a year, and users cannot click "Proceed anyway"
+      - id: b
+        text:
+          zh-CN: 证书自动变为受信任
+          ja: 証明書が自動で信頼されるようになる
+          en: The certificate automatically becomes trusted
+      - id: c
+        text:
+          zh-CN: 浏览器改为用 HTTP 访问
+          ja: ブラウザーが HTTP でアクセスするようになる
+          en: Browsers switch to HTTP
+      - id: d
+        text:
+          zh-CN: 没有影响
+          ja: 影響はない
+          en: No effect
     answer: [a]
-    explain: HSTS 要求浏览器只用有效证书的 HTTPS 访问，并记住 max-age 秒；自签名 + HSTS 会把用户锁在站外。max-age 要从小值开始，关闭 TLS 前先关闭 HSTS。
+    explain:
+      zh-CN: HSTS 要求浏览器只用有效证书的 HTTPS 访问，并记住 max-age 秒；自签名 + HSTS 会把用户锁在站外。max-age 要从小值开始，关闭 TLS 前先关闭 HSTS。
+      ja: HSTS は、有効な証明書を使った HTTPS でだけアクセスするようブラウザーに求め、max-age 秒間それを記憶させます。自己署名 + HSTS はユーザーをサイトから締め出します。max-age は小さな値から始め、TLS を無効にする前に HSTS を無効にします。
+      en: HSTS tells browsers to only use HTTPS with a valid certificate and to remember that for max-age seconds; self-signed + HSTS locks users out of the site. Start max-age small, and turn HSTS off before turning TLS off.
     relatesTo: force-https
     difficulty: 1

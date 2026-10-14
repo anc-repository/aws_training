@@ -6,14 +6,36 @@ questions:
     type: single
     kind: scenario
     services: [s3]
-    stem: 一个照片网站把上传请求先发给 EC2 上的应用，再由应用写入存储。高峰时 EC2 的网络与 CPU 被上传占满。用最少的运维改动卸载这部分负载，应该怎么做？
+    stem:
+      zh-CN: 一个照片网站把上传请求先发给 EC2 上的应用，再由应用写入存储。高峰时 EC2 的网络与 CPU 被上传占满。用最少的运维改动卸载这部分负载，应该怎么做？
+      ja: ある写真サイトでは、アップロードのリクエストをまず EC2 上のアプリに送り、アプリがストレージに書き込んでいます。ピーク時には EC2 のネットワークと CPU がアップロードで埋まります。運用の変更を最小限にしてこの負荷を減らすには、どうすべきですか？
+      en: A photo site sends upload requests to the app on EC2 first, and the app writes them to storage. At peak, EC2's network and CPU are saturated by uploads. How do you offload this with the fewest operational changes?
     options:
-      - { id: a, text: 把实例换成更大的规格 }
-      - { id: b, text: 由应用签发 S3 预签名 URL，浏览器直接把文件上传到 S3 }
-      - { id: c, text: 把上传目录改到 EFS }
-      - { id: d, text: 在 EC2 前加 CloudFront 缓存上传请求 }
+      - id: a
+        text:
+          zh-CN: 把实例换成更大的规格
+          ja: インスタンスをより大きなサイズに変更する
+          en: Switch to a larger instance size
+      - id: b
+        text:
+          zh-CN: 由应用签发 S3 预签名 URL，浏览器直接把文件上传到 S3
+          ja: アプリが S3 の署名付き URL を発行し、ブラウザーがファイルを S3 に直接アップロードする
+          en: Have the app issue S3 presigned URLs and let the browser upload files directly to S3
+      - id: c
+        text:
+          zh-CN: 把上传目录改到 EFS
+          ja: アップロード用ディレクトリを EFS に変更する
+          en: Move the upload directory to EFS
+      - id: d
+        text:
+          zh-CN: 在 EC2 前加 CloudFront 缓存上传请求
+          ja: EC2 の前に CloudFront を置いてアップロードリクエストをキャッシュする
+          en: Put CloudFront in front of EC2 to cache upload requests
     answer: [b]
-    explain: 预签名 URL 让应用只做鉴权与签名，字节不再经过服务器；更大的实例只是推迟问题；EFS 仍由应用接收字节；CloudFront 不缓存 PUT，上传仍会回源。
+    explain:
+      zh-CN: 预签名 URL 让应用只做鉴权与签名，字节不再经过服务器；更大的实例只是推迟问题；EFS 仍由应用接收字节；CloudFront 不缓存 PUT，上传仍会回源。
+      ja: 署名付き URL を使えばアプリは認可と署名だけを行い、バイトはサーバーを通りません。大きなインスタンスは問題を先送りするだけです。EFS でもバイトはアプリが受け取ります。CloudFront は PUT をキャッシュしないため、アップロードは結局オリジンに届きます。
+      en: With presigned URLs the app only authorizes and signs, and the bytes no longer pass through the server; a larger instance only postpones the problem; with EFS the app still receives the bytes; CloudFront does not cache PUT, so uploads still reach the origin.
     relatesTo: enable
     difficulty: 1
   - id: storage-lifecycle
@@ -21,14 +43,36 @@ questions:
     type: multi
     kind: scenario
     services: [s3]
-    stem: 原图处理完成后很少再读，但要防误删并控制成本。原图约数 MB，缩略图大多小于 128 KB。应该选择哪两项？
+    stem:
+      zh-CN: 原图处理完成后很少再读，但要防误删并控制成本。原图约数 MB，缩略图大多小于 128 KB。应该选择哪两项？
+      ja: 元画像は処理後ほとんど読まれませんが、誤削除を防ぎつつコストも抑える必要があります。元画像は数 MB、サムネイルの多くは 128 KB 未満です。選ぶべきものを 2 つ選んでください。
+      en: Original images are rarely read after processing, but must be protected against accidental deletion while keeping costs down. Originals are a few MB each, and most thumbnails are under 128 KB. Which two should you choose?
     options:
-      - { id: a, text: 开启版本控制，并配置非当前版本在 30 天后过期的生命周期规则 }
-      - { id: b, text: 用生命周期规则把原图（raw/ 前缀）的当前版本在 30 天后转为 S3 Standard-IA }
-      - { id: c, text: 把缩略图转为 S3 Intelligent-Tiering 以自动节省费用 }
-      - { id: d, text: 把桶设为公开读取，减少预签名 GET 的请求费 }
+      - id: a
+        text:
+          zh-CN: 开启版本控制，并配置非当前版本在 30 天后过期的生命周期规则
+          ja: バージョニングを有効にし、最新でないバージョンを 30 日後に失効させるライフサイクルルールを設定する
+          en: Turn on versioning and add a lifecycle rule that expires noncurrent versions after 30 days
+      - id: b
+        text:
+          zh-CN: 用生命周期规则把原图（raw/ 前缀）的当前版本在 30 天后转为 S3 Standard-IA
+          ja: ライフサイクルルールで、元画像（raw/ プレフィックス）の最新バージョンを 30 日後に S3 Standard-IA に移行する
+          en: Use a lifecycle rule to transition the current versions of originals (raw/ prefix) to S3 Standard-IA after 30 days
+      - id: c
+        text:
+          zh-CN: 把缩略图转为 S3 Intelligent-Tiering 以自动节省费用
+          ja: サムネイルを S3 Intelligent-Tiering に移して自動的に費用を節約する
+          en: Move thumbnails to S3 Intelligent-Tiering to save money automatically
+      - id: d
+        text:
+          zh-CN: 把桶设为公开读取，减少预签名 GET 的请求费
+          ja: バケットを公開読み取りにして、署名付き GET のリクエスト料金を減らす
+          en: Make the bucket publicly readable to cut presigned GET request charges
     answer: [a, b]
-    explain: 版本控制能恢复误删，非当前版本过期避免旧版本无限累积；Standard-IA 适合 MB 级、低频访问的原图。Intelligent-Tiering 对小于 128 KB 的对象不做自动分层；公开桶是安全风险。
+    explain:
+      zh-CN: 版本控制能恢复误删，非当前版本过期避免旧版本无限累积；Standard-IA 适合 MB 级、低频访问的原图。Intelligent-Tiering 对小于 128 KB 的对象不做自动分层；公开桶是安全风险。
+      ja: バージョニングで誤削除から復元でき、最新でないバージョンを失効させれば古いバージョンが際限なく溜まるのを防げます。Standard-IA は MB 単位でアクセス頻度の低い元画像に向いています。Intelligent-Tiering は 128 KB 未満のオブジェクトを自動で階層化しません。公開バケットはセキュリティ上のリスクです。
+      en: Versioning recovers from accidental deletion, and expiring noncurrent versions keeps old versions from piling up forever; Standard-IA suits MB-sized, infrequently accessed originals. Intelligent-Tiering does not auto-tier objects under 128 KB, and a public bucket is a security risk.
     relatesTo: inspect-bucket
     difficulty: 2
   - id: storage-gateway-endpoint
@@ -36,27 +80,71 @@ questions:
     type: single
     kind: scenario
     services: [s3, vpc]
-    stem: 私有子网中的 EC2 需要读写 S3，要求流量不经互联网，并且不产生 NAT 网关的数据处理费。最合适的是？
+    stem:
+      zh-CN: 私有子网中的 EC2 需要读写 S3，要求流量不经互联网，并且不产生 NAT 网关的数据处理费。最合适的是？
+      ja: プライベートサブネットの EC2 が S3 を読み書きする必要があります。トラフィックはインターネットを経由せず、NAT ゲートウェイのデータ処理料金も発生させないことが求められます。最も適切なのはどれですか？
+      en: EC2 in a private subnet needs to read and write S3, with no traffic over the internet and no NAT gateway data processing charges. What is the most suitable choice?
     options:
-      - { id: a, text: 为 S3 创建网关型 VPC 终端节点，并关联私有子网的路由表 }
-      - { id: b, text: 部署 NAT 网关 }
-      - { id: c, text: 与 S3 建立 VPC 对等连接 }
-      - { id: d, text: 给实例分配公网 IP }
+      - id: a
+        text:
+          zh-CN: 为 S3 创建网关型 VPC 终端节点，并关联私有子网的路由表
+          ja: S3 用のゲートウェイ型 VPC エンドポイントを作成し、プライベートサブネットのルートテーブルに関連付ける
+          en: Create a gateway VPC endpoint for S3 and associate it with the private subnets' route tables
+      - id: b
+        text:
+          zh-CN: 部署 NAT 网关
+          ja: NAT ゲートウェイをデプロイする
+          en: Deploy a NAT gateway
+      - id: c
+        text:
+          zh-CN: 与 S3 建立 VPC 对等连接
+          ja: S3 との VPC ピアリング接続を作成する
+          en: Create a VPC peering connection with S3
+      - id: d
+        text:
+          zh-CN: 给实例分配公网 IP
+          ja: インスタンスにパブリック IP を割り当てる
+          en: Assign public IPs to the instances
     answer: [a]
-    explain: S3（以及 DynamoDB）的网关型终端节点不按小时收费、不经 NAT；接口型终端节点也能私有访问 S3，但按小时计费；S3 不是 VPC，无法对等。
+    explain:
+      zh-CN: S3（以及 DynamoDB）的网关型终端节点不按小时收费、不经 NAT；接口型终端节点也能私有访问 S3，但按小时计费；S3 不是 VPC，无法对等。
+      ja: S3（と DynamoDB）のゲートウェイ型エンドポイントは時間課金がなく、NAT も経由しません。インターフェイス型エンドポイントでも S3 にプライベートにアクセスできますが、時間課金です。S3 は VPC ではないのでピアリングはできません。
+      en: Gateway endpoints for S3 (and DynamoDB) have no hourly charge and do not go through NAT; interface endpoints can also reach S3 privately but are billed hourly; S3 is not a VPC, so it cannot be peered.
     difficulty: 1
   - id: storage-bpa
     domain: secure
     type: single
     kind: concept
     services: [s3]
-    stem: 团队希望无论桶策略或 ACL 怎么写，账号里的桶都不会被意外公开。最直接的控制是？
+    stem:
+      zh-CN: 团队希望无论桶策略或 ACL 怎么写，账号里的桶都不会被意外公开。最直接的控制是？
+      ja: チームは、バケットポリシーや ACL がどう書かれていても、アカウント内のバケットが誤って公開されないようにしたいと考えています。最も直接的な制御はどれですか？
+      en: The team wants to make sure no bucket in the account is accidentally made public, however bucket policies or ACLs are written. What is the most direct control?
     options:
-      - { id: a, text: 开启账号级与桶级的 S3 Block Public Access }
-      - { id: b, text: 给每个对象设置 private ACL }
-      - { id: c, text: 开启默认加密 }
-      - { id: d, text: 开启版本控制 }
+      - id: a
+        text:
+          zh-CN: 开启账号级与桶级的 S3 Block Public Access
+          ja: アカウントレベルとバケットレベルの S3 Block Public Access を有効にする
+          en: Turn on S3 Block Public Access at the account and bucket level
+      - id: b
+        text:
+          zh-CN: 给每个对象设置 private ACL
+          ja: すべてのオブジェクトに private ACL を設定する
+          en: Set a private ACL on every object
+      - id: c
+        text:
+          zh-CN: 开启默认加密
+          ja: デフォルト暗号化を有効にする
+          en: Turn on default encryption
+      - id: d
+        text:
+          zh-CN: 开启版本控制
+          ja: バージョニングを有効にする
+          en: Turn on versioning
     answer: [a]
-    explain: Block Public Access 会忽略或拒绝公开的 ACL 与桶策略，是防止意外公开的总开关；加密与版本控制不控制访问范围。
+    explain:
+      zh-CN: Block Public Access 会忽略或拒绝公开的 ACL 与桶策略，是防止意外公开的总开关；加密与版本控制不控制访问范围。
+      ja: Block Public Access は公開の ACL とバケットポリシーを無視または拒否する、誤った公開を防ぐための総合スイッチです。暗号化とバージョニングはアクセス範囲を制御しません。
+      en: Block Public Access ignores or rejects public ACLs and bucket policies, making it the master switch against accidental exposure; encryption and versioning do not control who has access.
     relatesTo: inspect-bucket
     difficulty: 1

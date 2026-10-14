@@ -2,21 +2,50 @@
 schema: atl.track/v2
 id: resilient
 version: 1.0.0
-title: 弹性专项
-summary: 补强“设计弹性的架构”：单点与可替换的实例、解耦、跨 AZ 的高可用、备份与灾备。
-audience: 想补强 SAA“设计弹性的架构”领域的学员
+title:
+  zh-CN: 弹性专项
+  ja: 回復性パス
+  en: Resilience path
+summary:
+  zh-CN: 补强“设计弹性的架构”：单点与可替换的实例、解耦、跨 AZ 的高可用、备份与灾备。
+  ja: SAA の「回復性の高いアーキテクチャの設計」を強化します。単一障害点と置き換え可能なインスタンス、疎結合、複数 AZ による高可用性、バックアップと DR を扱います。
+  en: 'Strengthens the SAA domain "Design Resilient Architectures": single points of failure and replaceable instances, decoupling, multi-AZ high availability, and backup and disaster recovery.'
+audience:
+  zh-CN: 想补强 SAA“设计弹性的架构”领域的学员
+  ja: SAA の「回復性の高いアーキテクチャの設計」分野を強化したい受講者
+  en: Learners who want to strengthen the SAA domain "Design Resilient Architectures"
 domain: resilient
 stages:
   - id: s1-decouple
-    title: 单点与解耦
+    title:
+      zh-CN: 单点与解耦
+      ja: 単一障害点と疎結合
+      en: Single points of failure and decoupling
     items:
-      - { card: svc-ec2, role: required, note: 单点与可替换的实例 }
+      - card: svc-ec2
+        role: required
+        note:
+          zh-CN: 单点与可替换的实例
+          ja: 単一障害点と置き換え可能なインスタンス
+          en: Single points of failure and replaceable instances
       - { card: svc-queue, role: required }
-      - { group: g-messaging, title: 消息, pick: 1, cards: [svc-notification, sc-event-fanout] }
+      - group: g-messaging
+        title:
+          zh-CN: 消息
+          ja: メッセージング
+          en: Messaging
+        pick: 1
+        cards: [svc-notification, sc-event-fanout]
       - { card: sc-decoupling, role: required }
   - id: s2-ha
-    title: 高可用
-    note: svc-database、svc-autoscaling、sc-ha-web 含 RDS、ALB 与多台实例，是本路径的费用高点
+    title:
+      zh-CN: 高可用
+      ja: 高可用性
+      en: High availability
+    note:
+      zh-CN: svc-database、svc-autoscaling、sc-ha-web 含 RDS、ALB 与多台实例，是本路径的费用高点
+      ja: svc-database、svc-autoscaling、sc-ha-web には RDS、ALB、複数のインスタンスが含まれ、このパスで最も費用がかかります
+      en: svc-database, svc-autoscaling and sc-ha-web include RDS, an ALB and several instances; they are the most expensive part of this path
     items:
       - { card: svc-load-balancer, role: required }
       - { card: svc-database, role: required }
@@ -26,10 +55,28 @@ stages:
       - { card: svc-shared-fs, role: optional }
       - { card: svc-ami, role: optional }
   - id: s3-recovery
-    title: 备份与灾备
+    title:
+      zh-CN: 备份与灾备
+      ja: バックアップと DR
+      en: Backup and disaster recovery
     items:
       - { card: svc-backup, role: required }
-      - { group: g-dr, title: 灾备, pick: 1, cards: [sc-backup-dr, svc-dns], note: svc-dns 需要域名（故障转移），没有域名时选 sc-backup-dr }
+      - group: g-dr
+        title:
+          zh-CN: 灾备
+          ja: DR
+          en: Disaster recovery
+        pick: 1
+        cards: [sc-backup-dr, svc-dns]
+        note:
+          zh-CN: svc-dns 需要域名（故障转移），没有域名时选 sc-backup-dr
+          ja: svc-dns はドメイン名が必要です（フェイルオーバー）。ドメイン名がない場合は sc-backup-dr を選んでください
+          en: svc-dns needs a domain name (failover); without one, choose sc-backup-dr
       - { card: svc-workflow, role: optional }
 completion: { allowManual: true, minAutoRatio: 0.8, excludeSelfReported: true }
-certificate: { enabled: true, title: 弹性架构专项证书 }
+certificate:
+  enabled: true
+  title:
+    zh-CN: 弹性架构专项证书
+    ja: 回復性アーキテクチャパス修了証
+    en: Resilient architecture path certificate

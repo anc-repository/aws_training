@@ -6,14 +6,36 @@ questions:
     type: single
     kind: scenario
     services: [cloudfront, s3, kms]
-    stem: 照片桶使用 SSE-KMS（客户托管密钥）加密，要求用户只能经 CloudFront 读取对象。应该怎么配置？
+    stem:
+      zh-CN: 照片桶使用 SSE-KMS（客户托管密钥）加密，要求用户只能经 CloudFront 读取对象。应该怎么配置？
+      ja: 写真のバケットは SSE-KMS（カスタマー管理キー）で暗号化されており、ユーザーは CloudFront 経由でしかオブジェクトを読めないようにする必要があります。どう設定すべきですか？
+      en: The photo bucket is encrypted with SSE-KMS (a customer managed key), and users must only be able to read objects through CloudFront. How should you configure it?
     options:
-      - { id: a, text: 创建 OAI，桶策略只允许该 OAI 读取 }
-      - { id: b, text: 创建 OAC，桶策略允许 cloudfront.amazonaws.com 读取并用 AWS:SourceArn 限定分配，KMS 密钥策略允许该服务主体解密 }
-      - { id: c, text: 开启 S3 静态网站托管，把网站端点作为源站 }
-      - { id: d, text: 把对象 ACL 设为 public-read，再用 CloudFront 地理限制保护 }
+      - id: a
+        text:
+          zh-CN: 创建 OAI，桶策略只允许该 OAI 读取
+          ja: OAI を作成し、バケットポリシーでその OAI だけに読み取りを許可する
+          en: Create an OAI and let only that OAI read in the bucket policy
+      - id: b
+        text:
+          zh-CN: 创建 OAC，桶策略允许 cloudfront.amazonaws.com 读取并用 AWS:SourceArn 限定分配，KMS 密钥策略允许该服务主体解密
+          ja: OAC を作成し、バケットポリシーで cloudfront.amazonaws.com に読み取りを許可して AWS:SourceArn でディストリビューションを限定し、KMS キーポリシーでそのサービスプリンシパルに復号を許可する
+          en: Create an OAC, allow cloudfront.amazonaws.com to read in the bucket policy with AWS:SourceArn limiting the distribution, and let that service principal decrypt in the KMS key policy
+      - id: c
+        text:
+          zh-CN: 开启 S3 静态网站托管，把网站端点作为源站
+          ja: S3 の静的ウェブサイトホスティングを有効にし、ウェブサイトエンドポイントをオリジンにする
+          en: Turn on S3 static website hosting and use the website endpoint as the origin
+      - id: d
+        text:
+          zh-CN: 把对象 ACL 设为 public-read，再用 CloudFront 地理限制保护
+          ja: オブジェクトの ACL を public-read にして、CloudFront の地理的制限で保護する
+          en: Set object ACLs to public-read and protect them with CloudFront geo restriction
     answer: [b]
-    explain: OAI 不支持 SSE-KMS；网站端点不能使用 OAC，且要求桶公开；公开 ACL 违背“只能经 CloudFront”的要求，BucketOwnerEnforced 下 ACL 也已被禁用。
+    explain:
+      zh-CN: OAI 不支持 SSE-KMS；网站端点不能使用 OAC，且要求桶公开；公开 ACL 违背“只能经 CloudFront”的要求，BucketOwnerEnforced 下 ACL 也已被禁用。
+      ja: OAI は SSE-KMS に対応していません。ウェブサイトエンドポイントは OAC を使えず、バケットの公開が必要です。公開 ACL は「CloudFront 経由でのみ」という要件に反し、BucketOwnerEnforced のもとでは ACL も無効になっています。
+      en: OAI does not support SSE-KMS; website endpoints cannot use OAC and require a public bucket; public ACLs break the "only through CloudFront" requirement, and ACLs are disabled under BucketOwnerEnforced anyway.
     relatesTo: private-bucket
     difficulty: 2
   - id: sa-acm-region
@@ -21,29 +43,77 @@ questions:
     type: single
     kind: scenario
     services: [cloudfront, acm]
-    stem: 在 ap-northeast-1 申请的 ACM 证书状态已是 ISSUED，但在 CloudFront 分配的“自定义 SSL 证书”下拉框中选不到。最可能的原因是？
+    stem:
+      zh-CN: 在 ap-northeast-1 申请的 ACM 证书状态已是 ISSUED，但在 CloudFront 分配的“自定义 SSL 证书”下拉框中选不到。最可能的原因是？
+      ja: ap-northeast-1 で申請した ACM 証明書の状態はすでに ISSUED ですが、CloudFront ディストリビューションの「カスタム SSL 証明書」のドロップダウンで選べません。最も考えられる原因はどれですか？
+      en: An ACM certificate requested in ap-northeast-1 is already ISSUED, but it does not appear in the CloudFront distribution's "Custom SSL certificate" drop-down. What is the most likely cause?
     options:
-      - { id: a, text: 证书使用了 RSA 2048 密钥 }
-      - { id: b, text: CloudFront 只能使用 us-east-1 区域的 ACM 证书 }
-      - { id: c, text: CloudFront 只接受可导出的证书 }
-      - { id: d, text: 证书必须先上传到 IAM 证书存储 }
+      - id: a
+        text:
+          zh-CN: 证书使用了 RSA 2048 密钥
+          ja: 証明書が RSA 2048 の鍵を使っている
+          en: The certificate uses an RSA 2048 key
+      - id: b
+        text:
+          zh-CN: CloudFront 只能使用 us-east-1 区域的 ACM 证书
+          ja: CloudFront は us-east-1 リージョンの ACM 証明書しか使えない
+          en: CloudFront can only use ACM certificates in the us-east-1 Region
+      - id: c
+        text:
+          zh-CN: CloudFront 只接受可导出的证书
+          ja: CloudFront はエクスポート可能な証明書しか受け付けない
+          en: CloudFront only accepts exportable certificates
+      - id: d
+        text:
+          zh-CN: 证书必须先上传到 IAM 证书存储
+          ja: 証明書は先に IAM の証明書ストアにアップロードしなければならない
+          en: The certificate must first be uploaded to the IAM certificate store
     answer: [b]
-    explain: CloudFront 是全局服务，只读取 us-east-1 的 ACM 证书；RSA 2048 是受支持的算法；可导出证书与 IAM 证书存储都不是必需条件。
+    explain:
+      zh-CN: CloudFront 是全局服务，只读取 us-east-1 的 ACM 证书；RSA 2048 是受支持的算法；可导出证书与 IAM 证书存储都不是必需条件。
+      ja: CloudFront はグローバルなサービスで、us-east-1 の ACM 証明書しか読み取りません。RSA 2048 は対応しているアルゴリズムです。エクスポート可能な証明書も IAM の証明書ストアも必須条件ではありません。
+      en: CloudFront is a global service that only reads ACM certificates in us-east-1; RSA 2048 is a supported algorithm; neither exportable certificates nor the IAM certificate store are required.
     difficulty: 1
   - id: sa-versioning
     domain: cost
     type: multi
     kind: scenario
     services: [cloudfront]
-    stem: 前端发布新版 app.js 后部分用户仍拿到旧文件。哪两项能让新版本尽快生效，并且长期运维成本最低？
+    stem:
+      zh-CN: 前端发布新版 app.js 后部分用户仍拿到旧文件。哪两项能让新版本尽快生效，并且长期运维成本最低？
+      ja: フロントエンドの新しい app.js を公開した後も、一部のユーザーが古いファイルを受け取っています。新しいバージョンをできるだけ早く反映させ、長期的な運用コストも最も低くするものを 2 つ選んでください。
+      en: After releasing a new app.js, some users still get the old file. Which two make the new version take effect as soon as possible with the lowest long-term operating cost?
     options:
-      - { id: a, text: 构建时在文件名中加入内容哈希 }
-      - { id: b, text: 每次发布都对 /* 创建失效 }
-      - { id: c, text: 把 /assets/* 行为的最大 TTL 设为 0 }
-      - { id: d, text: index.html 使用 no-cache（或很短的 TTL），只在必要时失效它 }
-      - { id: e, text: 关闭 CloudFront 的自动压缩 }
+      - id: a
+        text:
+          zh-CN: 构建时在文件名中加入内容哈希
+          ja: ビルド時にファイル名にコンテンツのハッシュを入れる
+          en: Put a content hash in the file name at build time
+      - id: b
+        text:
+          zh-CN: 每次发布都对 /* 创建失效
+          ja: リリースのたびに /* の無効化を作成する
+          en: Create an invalidation for /* on every release
+      - id: c
+        text:
+          zh-CN: 把 /assets/* 行为的最大 TTL 设为 0
+          ja: /assets/* のビヘイビアの最大 TTL を 0 にする
+          en: Set the maximum TTL of the /assets/* behavior to 0
+      - id: d
+        text:
+          zh-CN: index.html 使用 no-cache（或很短的 TTL），只在必要时失效它
+          ja: index.html は no-cache（またはごく短い TTL）にし、必要なときだけ無効化する
+          en: Serve index.html with no-cache (or a very short TTL) and invalidate it only when needed
+      - id: e
+        text:
+          zh-CN: 关闭 CloudFront 的自动压缩
+          ja: CloudFront の自動圧縮を無効にする
+          en: Turn off CloudFront's automatic compression
     answer: [a, d]
-    explain: 带哈希的文件名天然是新对象，index.html 不长期缓存就能立即引用新文件。全量失效会让所有对象回源，超出免费额度的失效路径还要收费；TTL 为 0 失去了缓存的意义；压缩与版本无关。
+    explain:
+      zh-CN: 带哈希的文件名天然是新对象，index.html 不长期缓存就能立即引用新文件。全量失效会让所有对象回源，超出免费额度的失效路径还要收费；TTL 为 0 失去了缓存的意义；压缩与版本无关。
+      ja: ハッシュ付きのファイル名はそれ自体が新しいオブジェクトで、index.html を長くキャッシュしなければすぐに新しいファイルを参照できます。全体の無効化はすべてのオブジェクトをオリジンに戻らせ、無料枠を超えた無効化パスには料金もかかります。TTL を 0 にするとキャッシュの意味がなくなります。圧縮はバージョンとは関係ありません。
+      en: A hashed file name is a new object by nature, and an index.html that is not cached for long references the new file right away. A full invalidation sends every object back to the origin, and invalidation paths beyond the free quota cost money; a TTL of 0 defeats caching; compression has nothing to do with versions.
     relatesTo: invalidation
     difficulty: 2
   - id: sa-global-design
@@ -51,14 +121,36 @@ questions:
     type: single
     kind: scenario
     services: [cloudfront, s3, route53, acm]
-    stem: 一家图片社区把图片存放在 us-east-1 的 S3 桶中，全球用户反馈加载慢。要求降低全球访问延迟、桶不得公开、使用 media.example.com 与受信证书、运维工作量最少。哪个方案最合适？
+    stem:
+      zh-CN: 一家图片社区把图片存放在 us-east-1 的 S3 桶中，全球用户反馈加载慢。要求降低全球访问延迟、桶不得公开、使用 media.example.com 与受信证书、运维工作量最少。哪个方案最合适？
+      ja: ある画像コミュニティは画像を us-east-1 の S3 バケットに保存しており、世界中のユーザーから読み込みが遅いと報告されています。要件は、世界中からのアクセスの遅延を下げること、バケットを公開しないこと、media.example.com と信頼された証明書を使うこと、運用作業を最小限にすることです。最も適切な構成はどれですか？
+      en: "An image community stores images in an S3 bucket in us-east-1, and users worldwide report slow loading. Requirements: lower latency worldwide, the bucket must not be public, use media.example.com with a trusted certificate, minimal operational work. Which design is most suitable?"
     options:
-      - { id: a, text: CloudFront 以 S3 REST 端点为源并使用 OAC；在 us-east-1 申请 ACM 证书；Route 53 创建 Alias 指向分配 }
-      - { id: b, text: 在多个区域建桶并配置跨区域复制，用 Route 53 延迟路由指向各区域的 S3 网站端点 }
-      - { id: c, text: 开启 S3 Transfer Acceleration，把加速端点 CNAME 到 media.example.com }
-      - { id: d, text: 用 AWS Global Accelerator 指向 S3 桶 }
+      - id: a
+        text:
+          zh-CN: CloudFront 以 S3 REST 端点为源并使用 OAC；在 us-east-1 申请 ACM 证书；Route 53 创建 Alias 指向分配
+          ja: CloudFront で S3 の REST エンドポイントをオリジンにして OAC を使い、us-east-1 で ACM 証明書を申請し、Route 53 でディストリビューションを指す Alias を作成する
+          en: CloudFront with the S3 REST endpoint as the origin and OAC; an ACM certificate requested in us-east-1; a Route 53 Alias pointing at the distribution
+      - id: b
+        text:
+          zh-CN: 在多个区域建桶并配置跨区域复制，用 Route 53 延迟路由指向各区域的 S3 网站端点
+          ja: 複数のリージョンにバケットを作ってクロスリージョンレプリケーションを設定し、Route 53 のレイテンシーベースルーティングで各リージョンの S3 ウェブサイトエンドポイントを指す
+          en: Create buckets in several Regions with Cross-Region Replication, and use Route 53 latency-based routing to point at each Region's S3 website endpoint
+      - id: c
+        text:
+          zh-CN: 开启 S3 Transfer Acceleration，把加速端点 CNAME 到 media.example.com
+          ja: S3 Transfer Acceleration を有効にし、高速化エンドポイントを media.example.com に CNAME する
+          en: Turn on S3 Transfer Acceleration and CNAME the accelerated endpoint to media.example.com
+      - id: d
+        text:
+          zh-CN: 用 AWS Global Accelerator 指向 S3 桶
+          ja: AWS Global Accelerator で S3 バケットを指す
+          en: Point AWS Global Accelerator at the S3 bucket
     answer: [a]
-    explain: 边缘缓存解决延迟，OAC 让桶保持私有，ACM 免费自动续期，Alias 可以用于任何层级的域名。网站端点只支持 HTTP 且要求公开；Transfer Acceleration 不缓存；Global Accelerator 不能直接指向 S3。
+    explain:
+      zh-CN: 边缘缓存解决延迟，OAC 让桶保持私有，ACM 免费自动续期，Alias 可以用于任何层级的域名。网站端点只支持 HTTP 且要求公开；Transfer Acceleration 不缓存；Global Accelerator 不能直接指向 S3。
+      ja: エッジキャッシュで遅延を解決し、OAC でバケットをプライベートのままにし、ACM は無料で自動更新され、Alias はどの階層のドメイン名にも使えます。ウェブサイトエンドポイントは HTTP しか使えず公開が必要です。Transfer Acceleration はキャッシュしません。Global Accelerator は S3 を直接指せません。
+      en: Edge caching solves latency, OAC keeps the bucket private, ACM certificates are free and auto-renewed, and Alias works for a domain at any level. Website endpoints are HTTP only and must be public; Transfer Acceleration does not cache; Global Accelerator cannot point at S3 directly.
     relatesTo: after
     difficulty: 2
   - id: sa-apex-alias
@@ -66,12 +158,34 @@ questions:
     type: single
     kind: scenario
     services: [route53, cloudfront]
-    stem: 公司希望根域名 example.com 指向 CloudFront 分配，且 DNS 查询不要产生额外费用。应该怎么做？
+    stem:
+      zh-CN: 公司希望根域名 example.com 指向 CloudFront 分配，且 DNS 查询不要产生额外费用。应该怎么做？
+      ja: 会社はルートドメイン example.com を CloudFront ディストリビューションに向け、DNS クエリで追加の費用が発生しないようにしたいと考えています。どうすべきですか？
+      en: A company wants the root domain example.com to point at a CloudFront distribution without extra charges for DNS queries. What should it do?
     options:
-      - { id: a, text: 在根域名创建 CNAME 记录指向分配域名 }
-      - { id: b, text: 在 Route 53 中创建 A/AAAA Alias 记录指向该分配 }
-      - { id: c, text: 创建 A 记录，值为 dig 查到的几个 CloudFront 边缘 IP }
-      - { id: d, text: 创建两个分配，用加权记录各分 50% 流量 }
+      - id: a
+        text:
+          zh-CN: 在根域名创建 CNAME 记录指向分配域名
+          ja: ルートドメインにディストリビューションのドメイン名を指す CNAME レコードを作成する
+          en: Create a CNAME record at the root domain pointing at the distribution's domain name
+      - id: b
+        text:
+          zh-CN: 在 Route 53 中创建 A/AAAA Alias 记录指向该分配
+          ja: Route 53 でそのディストリビューションを指す A/AAAA の Alias レコードを作成する
+          en: Create A/AAAA Alias records in Route 53 pointing at the distribution
+      - id: c
+        text:
+          zh-CN: 创建 A 记录，值为 dig 查到的几个 CloudFront 边缘 IP
+          ja: dig で調べた CloudFront のエッジの IP をいくつか値にした A レコードを作成する
+          en: Create an A record whose values are a few CloudFront edge IPs found with dig
+      - id: d
+        text:
+          zh-CN: 创建两个分配，用加权记录各分 50% 流量
+          ja: ディストリビューションを 2 つ作り、加重レコードでトラフィックを 50% ずつに分ける
+          en: Create two distributions and split traffic 50/50 with weighted records
     answer: [b]
-    explain: 根域名不能有 CNAME；Alias 可用于根域名，指向 AWS 资源的 Alias 查询不收费；边缘 IP 会变化；同一备用域名同一时刻只能挂在一个分配上。
+    explain:
+      zh-CN: 根域名不能有 CNAME；Alias 可用于根域名，指向 AWS 资源的 Alias 查询不收费；边缘 IP 会变化；同一备用域名同一时刻只能挂在一个分配上。
+      ja: ルートドメインには CNAME を置けません。Alias はルートドメインにも使え、AWS リソースを指す Alias のクエリは無料です。エッジの IP は変わります。同じ代替ドメイン名を同時に付けられるディストリビューションは 1 つだけです。
+      en: The root domain cannot have a CNAME; Alias works at the root domain, and Alias queries to AWS resources are free; edge IPs change; an alternate domain name can only be on one distribution at a time.
     difficulty: 1

@@ -1,19 +1,43 @@
 # 起始状态（before）断言：一律 drift once（C3、04 §3.5 第 9 条）
 checks:
   - id: waf-nginx-baseline
-    title: 起始状态：WAF 是 EC2 上的 Nginx（WAF_MODE=nginx）
+    title:
+      zh-CN: 起始状态：WAF 是 EC2 上的 Nginx（WAF_MODE=nginx）
+      ja: 開始状態：WAF は EC2 上の Nginx（WAF_MODE=nginx）
+      en: "Start state: the WAF is Nginx on EC2 (WAF_MODE=nginx)"
     type: capability
     module: waf
     drift: { policy: once }
     assert:
-      - { path: $.driver, op: eq, value: nginx, label: 驱动 }
-    explain: 启用 AWS WAF 之前，限速与特征拦截都由实例上的 Nginx 完成，每个恶意请求都已经到达 EC2。
+      - path: $.driver
+        op: eq
+        value: nginx
+        label:
+          zh-CN: 驱动
+          ja: ドライバー
+          en: Driver
+    explain:
+      zh-CN: 启用 AWS WAF 之前，限速与特征拦截都由实例上的 Nginx 完成，每个恶意请求都已经到达 EC2。
+      ja: AWS WAF を有効にする前は、レート制限もシグネチャによるブロックもインスタンス上の Nginx が行っており、悪意のあるリクエストはすべて EC2 に届いています。
+      en: Before AWS WAF is enabled, rate limiting and signature blocking are both done by Nginx on the instance, and every malicious request has already reached EC2.
 
   - id: cdn-open-baseline
-    title: 起始状态：cdn 已启用但直连未锁定（CDN_DIRECT_ACCESS=open）
+    title:
+      zh-CN: 起始状态：cdn 已启用但直连未锁定（CDN_DIRECT_ACCESS=open）
+      ja: 開始状態：cdn は有効だが直接アクセスはロックされていない（CDN_DIRECT_ACCESS=open）
+      en: "Start state: cdn is enabled but direct access is not locked (CDN_DIRECT_ACCESS=open)"
     type: capability
     module: cdn
     drift: { policy: once }
     assert:
-      - { path: $.driver, op: eq, value: cloudfront, label: cdn 驱动 }
-    explain: 起始状态把 cdn 的直连入口开着，这样你能在第 2、3 步亲眼看到“可以绕过 WAF”，第 4 步再收紧。
+      - path: $.driver
+        op: eq
+        value: cloudfront
+        label:
+          zh-CN: cdn 驱动
+          ja: cdn のドライバー
+          en: cdn driver
+    explain:
+      zh-CN: 起始状态把 cdn 的直连入口开着，这样你能在第 2、3 步亲眼看到“可以绕过 WAF”，第 4 步再收紧。
+      ja: 開始状態では cdn の直接アクセスの入口を開けたままにしているので、ステップ 2、3 で「WAF を迂回できる」ことを自分の目で確かめられます。ステップ 4 で締めます。
+      en: The start state leaves cdn's direct entry open so you can see for yourself in steps 2 and 3 that WAF can be bypassed; step 4 tightens it.

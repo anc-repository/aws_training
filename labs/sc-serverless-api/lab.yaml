@@ -5,11 +5,27 @@ id: sc-serverless-api
 kind: scenario
 version: 0.1.0
 status: planned
-title: Serverless API
-subtitle: API Gateway + Lambda + DynamoDB
-summary: 把点赞、评论、分享链接整体搬到网关 + 函数 + 按需表上：停掉 EC2 上的 API 进程，社交功能照常可用
-story: 相册的点赞与评论流量在晚上集中爆发，白天几乎没有；每次发布重启 EC2 上的 API 进程，点赞都会失败几秒；热门照片的点赞计数在高并发下偶尔算错；过期的分享链接要靠定时任务清理，任务一停表就越来越大。产品希望社交功能“永不下线”，并且只为实际请求付费。
-scenario: {question: 一家初创公司的投票 API 流量极不均匀：活动期间每秒数千请求，平时几乎为零。要求：无需容量规划、为空闲时间付费最少、每个用户每题只能投一次。最合适的架构是？}
+title:
+  zh-CN: Serverless API
+  ja: Serverless API
+  en: Serverless API
+subtitle:
+  zh-CN: API Gateway + Lambda + DynamoDB
+  ja: API Gateway + Lambda + DynamoDB
+  en: API Gateway + Lambda + DynamoDB
+summary:
+  zh-CN: 把点赞、评论、分享链接整体搬到网关 + 函数 + 按需表上：停掉 EC2 上的 API 进程，社交功能照常可用
+  ja: いいね、コメント、共有リンクをまとめてゲートウェイ + 関数 + オンデマンドテーブルに移します。EC2 上の API プロセスを止めても、ソーシャル機能はそのまま使えます
+  en: "Move likes, comments and share links as a whole onto a gateway, functions and an on-demand table: stop the API process on EC2 and the social features keep working"
+story:
+  zh-CN: 相册的点赞与评论流量在晚上集中爆发，白天几乎没有；每次发布重启 EC2 上的 API 进程，点赞都会失败几秒；热门照片的点赞计数在高并发下偶尔算错；过期的分享链接要靠定时任务清理，任务一停表就越来越大。产品希望社交功能“永不下线”，并且只为实际请求付费。
+  ja: アルバムのいいねとコメントのトラフィックは夜に集中し、日中はほとんどありません。リリースのたびに EC2 上の API プロセスを再起動すると、数秒間いいねが失敗します。人気の写真のいいね数は高い同時実行下でときどき数え間違えます。期限切れの共有リンクは定期ジョブで掃除するしかなく、ジョブが止まるとテーブルはどんどん大きくなります。プロダクトチームは、ソーシャル機能を「決して止まらない」ものにし、実際のリクエストの分だけ支払いたいと考えています。
+  en: Likes and comments on the album spike in the evening and almost vanish during the day; every release restarts the API process on EC2 and likes fail for a few seconds; like counts on popular photos are occasionally wrong under high concurrency; expired share links can only be cleaned up by a scheduled job, and the table keeps growing whenever the job stops. The product team wants the social features to never go down, and to pay only for actual requests.
+scenario:
+  question:
+    zh-CN: 一家初创公司的投票 API 流量极不均匀：活动期间每秒数千请求，平时几乎为零。要求：无需容量规划、为空闲时间付费最少、每个用户每题只能投一次。最合适的架构是？
+    ja: あるスタートアップの投票 API はトラフィックが極めて不均一で、イベント中は毎秒数千リクエスト、普段はほぼゼロです。要件は、キャパシティ計画が不要であること、アイドル時間の支払いが最小であること、各ユーザーが各問題に 1 回しか投票できないことです。最も適切なアーキテクチャはどれですか？
+    en: "A startup's voting API has extremely uneven traffic: thousands of requests per second during events and almost none otherwise. Requirements: no capacity planning, minimal payment for idle time, and each user can vote only once per question. Which architecture is most suitable?"
 difficulty: intermediate
 estimatedMinutes: 90
 timeLimitMinutes: 150
@@ -38,8 +54,16 @@ startProfile:
     kind: module
     basis: credential
     set: {IAM_CREDENTIALS: role}
-    reason: 平台约定除 svc-ec2、svc-iam 外起始状态都带实例角色（C3）
-  - {item: preview-direct-https, kind: platform, reason: 预览使用方案 B 的 Let's Encrypt IP 证书（03 §6.2）}
+    reason:
+      zh-CN: 平台约定除 svc-ec2、svc-iam 外起始状态都带实例角色（C3）
+      ja: プラットフォームの取り決めにより、svc-ec2 と svc-iam 以外の開始状態にはインスタンスロールが付いています（C3）
+      en: By platform convention, every start state except svc-ec2 and svc-iam includes an instance role (C3)
+  - item: preview-direct-https
+    kind: platform
+    reason:
+      zh-CN: 预览使用方案 B 的 Let's Encrypt IP 证书（03 §6.2）
+      ja: プレビューには方式 B の Let's Encrypt IP 証明書を使います（03 §6.2）
+      en: The preview uses the option B Let's Encrypt IP certificate (03 §6.2)
   platform:
     preview: {directHttps: 'on'}
 targetModules:
@@ -51,7 +75,15 @@ targetModules:
 expectedWarnings: []
 cost: {tier: low}
 provision: {class: A}
-badge: {title: 无服务器 API, short: 无服务器}
+badge:
+  title:
+    zh-CN: 无服务器 API
+    ja: サーバーレス API
+    en: Serverless API
+  short:
+    zh-CN: 无服务器
+    ja: サーバーレス
+    en: Serverless
 tracks: [performant, saa-main, serverless]
 saa:
   domains: [performance, resilient, cost]

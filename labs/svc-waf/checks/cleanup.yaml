@@ -1,7 +1,10 @@
 # 回收后的验证（04 §3.2.12）：只允许 aws-readonly + expectError，结果写进报告的“清理”一节
 checks:
   - id: webacl-gone
-    title: 本会话的 Web ACL 已删除（us-east-1）
+    title:
+      zh-CN: 本会话的 Web ACL 已删除（us-east-1）
+      ja: このセッションの Web ACL が削除された（us-east-1）
+      en: This session's Web ACL has been deleted (us-east-1)
     type: aws-readonly
     service: wafv2
     action: GetWebACL
@@ -9,12 +12,31 @@ checks:
     params: { Name: '{{ var.webAclName }}', Scope: CLOUDFRONT, Id: '{{ var.webAclId }}' }
     expectError: WAFNonexistentItemException
     required: false
-    explain: 回收会先用空的 WebAclArn 更新 cdn 栈解除关联，再删除 Web ACL；之后按名称 / ID 查询应返回 WAFNonexistentItemException。
+    explain:
+      zh-CN: 回收会先用空的 WebAclArn 更新 cdn 栈解除关联，再删除 Web ACL；之后按名称 / ID 查询应返回 WAFNonexistentItemException。
+      ja: 回収ではまず空の WebAclArn で cdn スタックを更新して関連付けを解除し、その後 Web ACL を削除します。その後に名前 / ID で問い合わせると WAFNonexistentItemException が返るはずです。
+      en: Reclaim first updates the cdn stack with an empty WebAclArn to disassociate it, then deletes the Web ACL; a lookup by name / ID should then return WAFNonexistentItemException.
     reproduce: { run: 'aws wafv2 get-web-acl --region us-east-1 --scope CLOUDFRONT --name {{ var.webAclName }} --id {{ var.webAclId }}', runsOn: workstation }
     manualFallback:
       where: { breadcrumb: [WAF, Web ACLs, 'Global (CloudFront)'], region: us-east-1 }
       observed:
-        question: 列表里还能找到这个 Web ACL 吗？
+        question:
+          zh-CN: 列表里还能找到这个 Web ACL 吗？
+          ja: 一覧にまだこの Web ACL がありますか？
+          en: Can you still find this Web ACL in the list?
         options:
-          - { value: gone, label: 找不到, expected: true }
-          - { value: present, label: 还在（可能仍在解除关联）, fixHint: 仍处于关联状态的 Web ACL 无法删除，需要等分配重新部署完成 }
+          - value: gone
+            label:
+              zh-CN: 找不到
+              ja: 見つからない
+              en: Not found
+            expected: true
+          - value: present
+            label:
+              zh-CN: 还在（可能仍在解除关联）
+              ja: まだある（関連付けの解除中かもしれない）
+              en: Still there (it may still be disassociating)
+            fixHint:
+              zh-CN: 仍处于关联状态的 Web ACL 无法删除，需要等分配重新部署完成
+              ja: 関連付けられたままの Web ACL は削除できません。ディストリビューションの再デプロイが終わるのを待ってください
+              en: A Web ACL that is still associated cannot be deleted; wait for the distribution to finish redeploying

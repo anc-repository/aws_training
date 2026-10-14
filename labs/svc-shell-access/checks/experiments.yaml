@@ -1,6 +1,9 @@
 checks:
   - id: exp-probe-before
-    title: probe-port 的 before（SSH 基线：22 对工作台开放）有一条有效结果
+    title:
+      zh-CN: probe-port 的 before（SSH 基线：22 对工作台开放）有一条有效结果
+      ja: probe-port の before（SSH のベースライン：22 がワークベンチに開いている）に有効な結果が 1 件ある
+      en: "probe-port has one valid before result (SSH baseline: 22 open to the workbench)"
     type: experiment
     module: shell-access
     experiment: probe-port
@@ -8,7 +11,10 @@ checks:
     accept: [valid]
 
   - id: exp-probe-pair
-    title: probe-port 的 before 与 after 都有效且可比
+    title:
+      zh-CN: probe-port 的 before 与 after 都有效且可比
+      ja: probe-port の before と after がどちらも有効で比較できる
+      en: probe-port before and after are both valid and comparable
     type: experiment
     module: shell-access
     experiment: probe-port
@@ -16,7 +22,10 @@ checks:
     accept: [valid]
 
   - id: exp-session-audit
-    title: session-audit 的 after 有一条有效结果
+    title:
+      zh-CN: session-audit 的 after 有一条有效结果
+      ja: session-audit の after に有効な結果が 1 件ある
+      en: session-audit has one valid after result
     type: experiment
     module: shell-access
     experiment: session-audit

@@ -1,44 +1,104 @@
 # 接入：capability、实例上的模块状态、本会话 tls 栈（ownership）、证书本身；ACME 分支与回退分支用 when 区分（session.variant）
 checks:
   - id: acme-decision
-    title: 记录 preflight acme-endpoint 的结论
+    title:
+      zh-CN: 记录 preflight acme-endpoint 的结论
+      ja: preflight acme-endpoint の結論を記録する
+      en: Record the conclusion of preflight acme-endpoint
     type: manual
     spec:
-      confirm: 我执行了 scripts/module enable tls --domain … --dry-run，并读了 preflight acme-endpoint 那一行
+      confirm:
+        zh-CN: 我执行了 scripts/module enable tls --domain … --dry-run，并读了 preflight acme-endpoint 那一行
+        ja: scripts/module enable tls --domain … --dry-run を実行し、preflight acme-endpoint の行を読みました
+        en: I ran scripts/module enable tls --domain … --dry-run and read the preflight acme-endpoint line
       observed:
-        question: 计划里的 TLS_ACME 是什么？
+        question:
+          zh-CN: 计划里的 TLS_ACME 是什么？
+          ja: 計画の TLS_ACME は何ですか？
+          en: What is TLS_ACME in the plan?
         options:
-          - { value: 'on', label: 'on：ACME 端点可用，证书装进 Nginx', expected: true }
-          - { value: 'off', label: 'off：回退分支，证书只挂在 CloudFront / ALB 上', expected: true }
-    explain: 平台在开始前已按账号预检选好变体，手册只显示对应的一条分支；这里只是让你亲眼看到判断依据。
+          - value: 'on'
+            label:
+              zh-CN: 'on：ACME 端点可用，证书装进 Nginx'
+              ja: on：ACME エンドポイントが使え、証明書は Nginx に導入される
+              en: "on: the ACME endpoint is available and the certificate goes into Nginx"
+            expected: true
+          - value: 'off'
+            label:
+              zh-CN: 'off：回退分支，证书只挂在 CloudFront / ALB 上'
+              ja: off：フォールバックの分岐で、証明書は CloudFront / ALB にだけ付けられる
+              en: "off: the fallback branch, with the certificate only on CloudFront / ALB"
+            expected: true
+    explain:
+      zh-CN: 平台在开始前已按账号预检选好变体，手册只显示对应的一条分支；这里只是让你亲眼看到判断依据。
+      ja: プラットフォームは開始前にアカウントの事前チェックでバリアントを選んでおり、手順書には該当する分岐だけが表示されます。ここでは判断の根拠を自分の目で確かめるだけです。
+      en: The platform picked the variant with an account preflight before you started, and the manual only shows the matching branch; this just lets you see the basis of that decision yourself.
 
   - id: cap-tls-healthy
-    title: capabilities 中 tls 的驱动为 acm，且状态正常
+    title:
+      zh-CN: capabilities 中 tls 的驱动为 acm，且状态正常
+      ja: capabilities の tls のドライバーが acm で、状態が正常
+      en: tls's driver in capabilities is acm and it is healthy
     type: capability
     module: tls
     drift: { policy: must-hold, monitor: true }
     assert:
-      - { path: $.driver, op: eq, value: acm, label: 驱动 }
-      - { path: $, op: healthy, label: 状态正常（只允许本卡声明的预期警告） }
-    explain: tls 感知器在实验机上对各入口握手：ACME 分支要求直连证书由 Amazon 签发且覆盖你的域名；回退分支直连保持自签名是预期。
+      - path: $.driver
+        op: eq
+        value: acm
+        label:
+          zh-CN: 驱动
+          ja: ドライバー
+          en: Driver
+      - path: $
+        op: healthy
+        label:
+          zh-CN: 状态正常（只允许本卡声明的预期警告）
+          ja: 状態が正常（このカードで宣言された想定内の警告だけを許可）
+          en: Healthy (only the expected warnings declared by this card are allowed)
+    explain:
+      zh-CN: tls 感知器在实验机上对各入口握手：ACME 分支要求直连证书由 Amazon 签发且覆盖你的域名；回退分支直连保持自签名是预期。
+      ja: tls の検知処理はラボ用インスタンス上で各入口とハンドシェイクします。ACME の分岐では、直接アクセスの証明書が Amazon によって発行され、あなたのドメインを含んでいることを求めます。フォールバックの分岐では、直接アクセスが自己署名のままなのが想定どおりです。
+      en: "The tls sensor handshakes with each entry point on the lab instance: the ACME branch requires the direct certificate to be issued by Amazon and cover your domain; in the fallback branch, the direct entry staying self-signed is expected."
     reproduce: { run: 'curl -s http://127.0.0.1/api/capabilities | jq ".modules.tls | {driver, status, detail}"', runsOn: lab }
     pitfalls: [symlink-not-switched]
 
   - id: tls-module-state
-    title: 实验机上 tls 由 scripts/module 启用
+    title:
+      zh-CN: 实验机上 tls 由 scripts/module 启用
+      ja: ラボ用インスタンスで tls が scripts/module によって有効になっている
+      en: tls was enabled on the lab instance by scripts/module
     type: local
     on: lab
     checkId: module-state
     args: { module: tls }
     drift: { policy: must-hold }
     assert:
-      - { path: $.modules.tls.enabled, op: eq, value: true, label: 已启用 }
-      - { path: $.modules.tls.driver, op: eq, value: acm, label: 驱动 }
-    explain: tls 是纯基础设施型模块，接入证据是模块状态加上控制面证据（04 §3.5 第 3 条）。
+      - path: $.modules.tls.enabled
+        op: eq
+        value: true
+        label:
+          zh-CN: 已启用
+          ja: 有効
+          en: Enabled
+      - path: $.modules.tls.driver
+        op: eq
+        value: acm
+        label:
+          zh-CN: 驱动
+          ja: ドライバー
+          en: Driver
+    explain:
+      zh-CN: tls 是纯基础设施型模块，接入证据是模块状态加上控制面证据（04 §3.5 第 3 条）。
+      ja: tls は純粋なインフラ型のモジュールで、組み込みの証拠はモジュールの状態とコントロールプレーンの証拠です（04 §3.5 の 3 番目）。
+      en: tls is a pure infrastructure module; the evidence of wiring is the module status plus control plane evidence (04 §3.5 item 3).
     reproduce: { run: 'sudo cloudalbum module-state --module tls --json', runsOn: lab }
 
   - id: tls-stack
-    title: ACME 分支：本会话创建的 tls 栈（ACME 端点、域验证、签发角色）已就绪
+    title:
+      zh-CN: ACME 分支：本会话创建的 tls 栈（ACME 端点、域验证、签发角色）已就绪
+      ja: ACME の分岐：このセッションで作成した tls スタック（ACME エンドポイント、ドメイン検証、発行ロール）の準備ができている
+      en: "ACME branch: the tls stack this session created (ACME endpoint, domain validation, issuer role) is ready"
     type: aws-readonly
     service: cloudformation
     action: DescribeStacks
@@ -54,31 +114,65 @@ checks:
       maxWaitMinutes: 20
     drift: { policy: must-hold, monitor: true }
     assert:
-      - { path: '$.Stacks[0].StackStatus', op: in, value: [CREATE_COMPLETE, UPDATE_COMPLETE], label: 栈状态 }
+      - path: '$.Stacks[0].StackStatus'
+        op: in
+        value: [CREATE_COMPLETE, UPDATE_COMPLETE]
+        label:
+          zh-CN: 栈状态
+          ja: スタックの状態
+          en: Stack status
       - path: '$.Stacks[0].Outputs'
         where: { OutputKey: EnvTlsAcme }
         op: some
-        label: TLS_ACME=on
+        label:
+          zh-CN: TLS_ACME=on
+          ja: TLS_ACME=on
+          en: TLS_ACME=on
         value:
           - { path: $.OutputValue, op: eq, value: 'on' }
       - path: '$.Stacks[0].Outputs'
         where: { OutputKey: EnvTlsDomain }
         op: some
-        label: 证书域名
+        label:
+          zh-CN: 证书域名
+          ja: 証明書のドメイン
+          en: Certificate domain
         value:
           - { path: $.OutputValue, op: eq, value: '{{ learner.inputs.domain }}' }
-    explain: 栈是你在本会话中用 scripts/module 创建的；它的 ACME 端点只允许签发角色为 TLS_DOMAIN 申请证书。
+    explain:
+      zh-CN: 栈是你在本会话中用 scripts/module 创建的；它的 ACME 端点只允许签发角色为 TLS_DOMAIN 申请证书。
+      ja: このスタックはあなたがこのセッションで scripts/module を使って作成したものです。その ACME エンドポイントでは、発行ロールが TLS_DOMAIN の証明書を申請することだけが許可されています。
+      en: You created this stack with scripts/module in this session; its ACME endpoint only lets the issuer role request certificates for TLS_DOMAIN.
     reproduce: { run: 'aws cloudformation describe-stacks --stack-name cloudalbum-{{ session.env }}-tls --query "Stacks[0].[StackStatus,Outputs]"', runsOn: workstation }
     manualFallback:
       where: { breadcrumb: [CloudFormation, 栈, 'cloudalbum-{{ session.env }}-tls', 输出], region: app }
       observed:
-        question: 输出 EnvTlsAcme 与 EnvTlsDomain 的值是什么？
+        question:
+          zh-CN: 输出 EnvTlsAcme 与 EnvTlsDomain 的值是什么？
+          ja: 出力 EnvTlsAcme と EnvTlsDomain の値は何ですか？
+          en: What are the values of the outputs EnvTlsAcme and EnvTlsDomain?
         options:
-          - { value: ok, label: 'on 与 {{ learner.inputs.domain }}', expected: true }
-          - { value: other, label: 其他 / 没有这个栈, fixHint: '执行 scripts/module enable tls --domain {{ learner.inputs.domain }}' }
+          - value: ok
+            label:
+              zh-CN: 'on 与 {{ learner.inputs.domain }}'
+              ja: on と {{ learner.inputs.domain }}
+              en: on and {{ learner.inputs.domain }}
+            expected: true
+          - value: other
+            label:
+              zh-CN: 其他 / 没有这个栈
+              ja: その他 / このスタックがない
+              en: Something else / no such stack
+            fixHint:
+              zh-CN: '执行 scripts/module enable tls --domain {{ learner.inputs.domain }}'
+              ja: scripts/module enable tls --domain {{ learner.inputs.domain }} を実行してください
+              en: Run scripts/module enable tls --domain {{ learner.inputs.domain }}
 
   - id: tls-edge-stack
-    title: 回退分支：本会话创建的 tls-edge 栈（us-east-1 集成证书）已就绪
+    title:
+      zh-CN: 回退分支：本会话创建的 tls-edge 栈（us-east-1 集成证书）已就绪
+      ja: フォールバックの分岐：このセッションで作成した tls-edge スタック（us-east-1 の統合証明書）の準備ができている
+      en: "Fallback branch: the tls-edge stack this session created (us-east-1 integrated certificate) is ready"
     type: aws-readonly
     service: cloudformation
     action: DescribeStacks
@@ -94,25 +188,56 @@ checks:
       maxWaitMinutes: 20
     drift: { policy: must-hold, monitor: true }
     assert:
-      - { path: '$.Stacks[0].StackStatus', op: in, value: [CREATE_COMPLETE, UPDATE_COMPLETE], label: 栈状态 }
+      - path: '$.Stacks[0].StackStatus'
+        op: in
+        value: [CREATE_COMPLETE, UPDATE_COMPLETE]
+        label:
+          zh-CN: 栈状态
+          ja: スタックの状態
+          en: Stack status
       - path: '$.Stacks[0].Outputs'
         where: { OutputKey: EnvAcmCertArnEdge }
         op: some
-        label: us-east-1 的证书 ARN
+        label:
+          zh-CN: us-east-1 的证书 ARN
+          ja: us-east-1 の証明書の ARN
+          en: us-east-1 certificate ARN
         value:
           - { path: $.OutputValue, op: startsWith, value: 'arn:aws:acm:us-east-1:' }
-    explain: CloudFront 只能使用 us-east-1 的 ACM 证书，所以 tls 的 edge 栈部署在 us-east-1；在 ap-northeast-1 申请的证书在 CloudFront 中选不到。
+    explain:
+      zh-CN: CloudFront 只能使用 us-east-1 的 ACM 证书，所以 tls 的 edge 栈部署在 us-east-1；在 ap-northeast-1 申请的证书在 CloudFront 中选不到。
+      ja: CloudFront は us-east-1 の ACM 証明書しか使えないため、tls の edge スタックは us-east-1 にデプロイされます。ap-northeast-1 で申請した証明書は CloudFront で選択できません。
+      en: CloudFront can only use ACM certificates in us-east-1, so tls's edge stack is deployed in us-east-1; a certificate requested in ap-northeast-1 cannot be selected in CloudFront.
     reproduce: { run: 'aws cloudformation describe-stacks --region us-east-1 --stack-name cloudalbum-{{ session.env }}-tls-edge --query "Stacks[0].[StackStatus,Outputs]"', runsOn: workstation }
     manualFallback:
       where: { breadcrumb: [CloudFormation, 栈, 'cloudalbum-{{ session.env }}-tls-edge'], region: us-east-1 }
       observed:
-        question: 这个栈在哪个区域、状态是什么？
+        question:
+          zh-CN: 这个栈在哪个区域、状态是什么？
+          ja: このスタックはどのリージョンにあり、状態は何ですか？
+          en: Which Region is this stack in, and what is its status?
         options:
-          - { value: ok, label: 美国东部（弗吉尼亚北部），CREATE_COMPLETE 或 UPDATE_COMPLETE, expected: true }
-          - { value: waiting, label: CREATE_IN_PROGRESS, fixHint: 证书在等待 DNS 验证：把验证 CNAME 添加到你的 DNS }
+          - value: ok
+            label:
+              zh-CN: 美国东部（弗吉尼亚北部），CREATE_COMPLETE 或 UPDATE_COMPLETE
+              ja: 米国東部（バージニア北部）、CREATE_COMPLETE または UPDATE_COMPLETE
+              en: US East (N. Virginia), CREATE_COMPLETE or UPDATE_COMPLETE
+            expected: true
+          - value: waiting
+            label:
+              zh-CN: CREATE_IN_PROGRESS
+              ja: CREATE_IN_PROGRESS
+              en: CREATE_IN_PROGRESS
+            fixHint:
+              zh-CN: 证书在等待 DNS 验证：把验证 CNAME 添加到你的 DNS
+              ja: 証明書が DNS 検証を待っています。検証用の CNAME をあなたの DNS に追加してください
+              en: "The certificate is waiting for DNS validation: add the validation CNAME to your DNS"
 
   - id: direct-acme-cert
-    title: ACME 分支：实验机 443 上的证书由 Amazon 签发，覆盖你的域名
+    title:
+      zh-CN: ACME 分支：实验机 443 上的证书由 Amazon 签发，覆盖你的域名
+      ja: ACME の分岐：ラボ用インスタンスの 443 の証明書は Amazon が発行し、あなたのドメインを含む
+      en: "ACME branch: the certificate on the lab instance's 443 is issued by Amazon and covers your domain"
     type: local
     on: lab
     checkId: tls-handshake
@@ -120,14 +245,32 @@ checks:
     when: "session.variant != 'acme-off'"
     drift: { policy: must-hold, monitor: true }
     assert:
-      - { path: $.issuer, op: icontains, value: amazon, label: 签发者 }
-      - { path: $.subjectAltNames, op: contains, value: '{{ learner.inputs.domain }}', label: SAN 含你的域名 }
-    explain: 服务端证据：在实验机本机握手 127.0.0.1:443，读出 Nginx 真正在用的证书（Nginx 只有一张证书，不需要 SNI）。
+      - path: $.issuer
+        op: icontains
+        value: amazon
+        label:
+          zh-CN: 签发者
+          ja: 発行者
+          en: Issuer
+      - path: $.subjectAltNames
+        op: contains
+        value: '{{ learner.inputs.domain }}'
+        label:
+          zh-CN: SAN 含你的域名
+          ja: SAN にあなたのドメインを含む
+          en: SAN includes your domain
+    explain:
+      zh-CN: 服务端证据：在实验机本机握手 127.0.0.1:443，读出 Nginx 真正在用的证书（Nginx 只有一张证书，不需要 SNI）。
+      ja: サーバー側の証拠：ラボ用インスタンス自身から 127.0.0.1:443 とハンドシェイクし、Nginx が実際に使っている証明書を読み取ります（Nginx の証明書は 1 枚だけなので SNI は不要です）。
+      en: "Server-side evidence: handshake with 127.0.0.1:443 on the lab instance itself and read the certificate Nginx actually uses (Nginx has only one certificate, so no SNI is needed)."
     reproduce: { run: 'openssl s_client -connect 127.0.0.1:443 </dev/null 2>/dev/null | openssl x509 -noout -issuer -ext subjectAltName -dates', runsOn: lab }
     pitfalls: [symlink-not-switched]
 
   - id: tls-domain-entry
-    title: ACME 分支：平台经 https://<你的域名> 访问，证书受信任，路径头 tls=acm@nginx:acme
+    title:
+      zh-CN: ACME 分支：平台经 https://<你的域名> 访问，证书受信任，路径头 tls=acm@nginx:acme
+      ja: ACME の分岐：プラットフォームが https://<あなたのドメイン> にアクセスし、証明書が信頼され、経路ヘッダーが tls=acm@nginx:acme
+      en: "ACME branch: the platform reaches https://<your domain>, the certificate is trusted, and the path header shows tls=acm@nginx:acme"
     type: http-header
     from: platform
     target: tls-domain
@@ -137,13 +280,31 @@ checks:
     dependsOn: [tls-stack]
     drift: { policy: must-hold }
     assert:
-      - { path: $.status, op: eq, value: 200, label: 状态码 }
-      - { path: $.pathSegments.tls, op: eq, value: 'acm@nginx:acme', label: 路径头 tls 段 }
-    explain: 平台自己解析你的域名，解析结果必须落在本环境的入口集合中（实验机 EIP），并自动核对证书 SAN 包含该域名（04 §5.2.3）。
+      - path: $.status
+        op: eq
+        value: 200
+        label:
+          zh-CN: 状态码
+          ja: ステータスコード
+          en: Status code
+      - path: $.pathSegments.tls
+        op: eq
+        value: 'acm@nginx:acme'
+        label:
+          zh-CN: 路径头 tls 段
+          ja: 経路ヘッダーの tls 区間
+          en: The tls segment of the path header
+    explain:
+      zh-CN: 平台自己解析你的域名，解析结果必须落在本环境的入口集合中（实验机 EIP），并自动核对证书 SAN 包含该域名（04 §5.2.3）。
+      ja: プラットフォームが自分であなたのドメインを名前解決し、その結果はこの環境の入口の集合（ラボ用インスタンスの EIP）に含まれていなければなりません。証明書の SAN にそのドメインが含まれていることも自動で照合します（04 §5.2.3）。
+      en: The platform resolves your domain itself, the result must be within this environment's set of entry points (the lab instance's EIP), and it automatically checks that the certificate SAN includes the domain (04 §5.2.3).
     reproduce: { run: 'curl -sv https://{{ learner.inputs.domain }}/api/health/live 2>&1 | grep -E "issuer:|subject:|x-cloudalbum-path"', runsOn: workstation }
 
   - id: cdn-alias-entry
-    title: 回退分支：平台经分配的备用域名访问，证书 SAN 含你的域名
+    title:
+      zh-CN: 回退分支：平台经分配的备用域名访问，证书 SAN 含你的域名
+      ja: フォールバックの分岐：プラットフォームがディストリビューションの代替ドメイン名でアクセスし、証明書の SAN にあなたのドメインが含まれる
+      en: "Fallback branch: the platform reaches the distribution's alternate domain name, and the certificate SAN includes your domain"
     type: http-header
     from: platform
     target: cdn-alias
@@ -153,18 +314,36 @@ checks:
     dependsOn: [tls-edge-stack]
     drift: { policy: must-hold }
     assert:
-      - { path: $.status, op: eq, value: 200, label: 状态码 }
-      - { path: $.pathSegments.entry, op: startsWith, value: cloudfront, label: 入口链 }
+      - path: $.status
+        op: eq
+        value: 200
+        label:
+          zh-CN: 状态码
+          ja: ステータスコード
+          en: Status code
+      - path: $.pathSegments.entry
+        op: startsWith
+        value: cloudfront
+        label:
+          zh-CN: 入口链
+          ja: 入口チェーン
+          en: Entry chain
     corroborate:
       - id: alias-san
         via: builtin
         name: tls-san
         args: { expect: '{{ learner.inputs.domain }}', san: '{{$.tls.subjectAltNames}}' }
-    explain: 目标域名取自本会话分配的 Aliases（GetDistribution，带 ownership），证书 SAN 必须包含你的域名。
+    explain:
+      zh-CN: 目标域名取自本会话分配的 Aliases（GetDistribution，带 ownership），证书 SAN 必须包含你的域名。
+      ja: 対象のドメイン名は、このセッションのディストリビューションの Aliases（GetDistribution、所有の確認付き）から取得します。証明書の SAN にはあなたのドメインが含まれていなければなりません。
+      en: The target domain is taken from the Aliases of this session's distribution (GetDistribution, with ownership), and the certificate SAN must include your domain.
     reproduce: { run: 'curl -sv https://{{ learner.inputs.domain }}/api/health/live 2>&1 | grep -E "subjectAltName|x-cloudalbum-path"', runsOn: workstation }
 
   - id: acme-cert-listed
-    title: ACME 分支：ACM 中有本域名的 ACME 证书（ListCertificates 默认不列出它们）
+    title:
+      zh-CN: ACME 分支：ACM 中有本域名的 ACME 证书（ListCertificates 默认不列出它们）
+      ja: ACME の分岐：ACM にこのドメインの ACME 証明書がある（ListCertificates はデフォルトでは表示しない）
+      en: "ACME branch: ACM has an ACME certificate for this domain (ListCertificates does not list them by default)"
     type: aws-readonly
     service: acm
     action: ListCertificates
@@ -174,19 +353,48 @@ checks:
     dependsOn: [tls-stack]
     drift: { policy: once }
     assert:
-      - { path: $.CertificateSummaryList, where: { DomainName: '{{ learner.inputs.domain }}' }, op: len_gte, value: 1, label: ACME 证书 }
-    explain: ACME 证书出现在 ACM 证书清单中（CertificateKeyPairOrigin=ACME），但 ListCertificates 默认不列出，要加 ACME 过滤条件。
+      - path: $.CertificateSummaryList
+        where: { DomainName: '{{ learner.inputs.domain }}' }
+        op: len_gte
+        value: 1
+        label:
+          zh-CN: ACME 证书
+          ja: ACME 証明書
+          en: ACME certificate
+    explain:
+      zh-CN: ACME 证书出现在 ACM 证书清单中（CertificateKeyPairOrigin=ACME），但 ListCertificates 默认不列出，要加 ACME 过滤条件。
+      ja: ACME 証明書は ACM の証明書一覧に現れます（CertificateKeyPairOrigin=ACME）が、ListCertificates はデフォルトでは表示しないため、ACME のフィルター条件を付ける必要があります。
+      en: ACME certificates appear in ACM's certificate list (CertificateKeyPairOrigin=ACME), but ListCertificates does not list them by default; you need an ACME filter.
     reproduce: { run: 'aws acm list-certificates --certificate-key-pair-origins ACME --query "CertificateSummaryList[].[DomainName,CertificateArn]"', runsOn: workstation }
     manualFallback:
       where: { breadcrumb: [Certificate Manager, 列出证书], region: app }
       observed:
-        question: 用“密钥对来源：ACME”筛选后，能看到 {{ learner.inputs.domain }} 的证书吗？
+        question:
+          zh-CN: 用“密钥对来源：ACME”筛选后，能看到 {{ learner.inputs.domain }} 的证书吗？
+          ja: 「キーペアのオリジン：ACME」で絞り込むと、{{ learner.inputs.domain }} の証明書が見えますか？
+          en: 'After filtering by "Key pair origin: ACME", can you see the certificate for {{ learner.inputs.domain }}?'
         options:
-          - { value: yes, label: 能，状态为已颁发, expected: true }
-          - { value: no, label: 看不到, fixHint: 不加 ACME 筛选时列表默认不显示 ACME 证书 }
+          - value: yes
+            label:
+              zh-CN: 能，状态为已颁发
+              ja: 見える。状態は発行済み
+              en: Yes, with status Issued
+            expected: true
+          - value: no
+            label:
+              zh-CN: 看不到
+              ja: 見えない
+              en: No
+            fixHint:
+              zh-CN: 不加 ACME 筛选时列表默认不显示 ACME 证书
+              ja: ACME で絞り込まないと、一覧にはデフォルトで ACME 証明書が表示されません
+              en: Without the ACME filter, the list does not show ACME certificates by default
 
   - id: acme-cert-issued
-    title: ACME 分支：这张证书由本环境的签发角色申请，状态为已颁发
+    title:
+      zh-CN: ACME 分支：这张证书由本环境的签发角色申请，状态为已颁发
+      ja: ACME の分岐：この証明書はこの環境の発行ロールが申請したもので、状態は発行済み
+      en: "ACME branch: this certificate was requested by this environment's issuer role and is Issued"
     type: aws-readonly
     service: acm
     action: DescribeCertificate
@@ -202,21 +410,57 @@ checks:
       maxWaitMinutes: 20
     drift: { policy: once }
     assert:
-      - { path: $.Certificate.Status, op: eq, value: ISSUED, label: 状态 }
-      - { path: $.Certificate.DomainName, op: eq, value: '{{ learner.inputs.domain }}', label: 域名 }
-      - { path: $.Certificate.CertificateKeyPairOrigin, op: eq, value: ACME, label: 密钥对来源 }
-    explain: 证书由本环境 tls 栈中的签发角色 cloudalbum-<env>-acme-issuer 的会话申请（04 §5.2.4 第 2 条：本环境栈成员角色即创建证据）。
+      - path: $.Certificate.Status
+        op: eq
+        value: ISSUED
+        label:
+          zh-CN: 状态
+          ja: 状態
+          en: Status
+      - path: $.Certificate.DomainName
+        op: eq
+        value: '{{ learner.inputs.domain }}'
+        label:
+          zh-CN: 域名
+          ja: ドメイン
+          en: Domain
+      - path: $.Certificate.CertificateKeyPairOrigin
+        op: eq
+        value: ACME
+        label:
+          zh-CN: 密钥对来源
+          ja: キーペアのオリジン
+          en: Key pair origin
+    explain:
+      zh-CN: 证书由本环境 tls 栈中的签发角色 cloudalbum-<env>-acme-issuer 的会话申请（04 §5.2.4 第 2 条：本环境栈成员角色即创建证据）。
+      ja: 証明書はこの環境の tls スタックの発行ロール cloudalbum-<env>-acme-issuer のセッションが申請しました（04 §5.2.4 の 2 番目：この環境のスタックのメンバーであるロールが作成の証拠になります）。
+      en: "The certificate was requested by a session of the issuer role cloudalbum-<env>-acme-issuer in this environment's tls stack (04 §5.2.4 item 2: a role that is a member of this environment's stack is the evidence of creation)."
     reproduce: { run: 'aws acm describe-certificate --certificate-arn <ARN> --query "Certificate.[Status,DomainName,CertificateKeyPairOrigin,NotAfter]"', runsOn: workstation }
     manualFallback:
       where: { breadcrumb: [Certificate Manager, 列出证书], region: app }
       observed:
-        question: 这张 ACME 证书的状态与有效期大约是多久？
+        question:
+          zh-CN: 这张 ACME 证书的状态与有效期大约是多久？
+          ja: この ACME 証明書の状態と有効期間はおよそどれくらいですか？
+          en: What are this ACME certificate's status and approximate validity?
         options:
-          - { value: ok, label: 已颁发，约 45 天, expected: true }
-          - { value: other, label: 其他 }
+          - value: ok
+            label:
+              zh-CN: 已颁发，约 45 天
+              ja: 発行済み、約 45 日
+              en: Issued, about 45 days
+            expected: true
+          - value: other
+            label:
+              zh-CN: 其他
+              ja: その他
+              en: Something else
 
   - id: edge-cert-issued
-    title: 回退分支：us-east-1 的集成证书已颁发，并被 CloudFront 使用
+    title:
+      zh-CN: 回退分支：us-east-1 的集成证书已颁发，并被 CloudFront 使用
+      ja: フォールバックの分岐：us-east-1 の統合証明書が発行済みで、CloudFront で使われている
+      en: "Fallback branch: the us-east-1 integrated certificate is issued and used by CloudFront"
     type: aws-readonly
     service: acm
     action: DescribeCertificate
@@ -232,32 +476,91 @@ checks:
       maxWaitMinutes: 20
     drift: { policy: must-hold }
     assert:
-      - { path: $.Certificate.Status, op: eq, value: ISSUED, label: 状态 }
-      - { path: $.Certificate.InUseBy, op: len_gte, value: 1, label: 被 CloudFront 使用 }
-    explain: 集成证书由 tls-edge 栈申请（DNS 验证），挂到本会话分配的 Aliases 上；ACM 只对正在使用的证书执行托管续期。
+      - path: $.Certificate.Status
+        op: eq
+        value: ISSUED
+        label:
+          zh-CN: 状态
+          ja: 状態
+          en: Status
+      - path: $.Certificate.InUseBy
+        op: len_gte
+        value: 1
+        label:
+          zh-CN: 被 CloudFront 使用
+          ja: CloudFront で使用中
+          en: In use by CloudFront
+    explain:
+      zh-CN: 集成证书由 tls-edge 栈申请（DNS 验证），挂到本会话分配的 Aliases 上；ACM 只对正在使用的证书执行托管续期。
+      ja: 統合証明書は tls-edge スタックが申請し（DNS 検証）、このセッションのディストリビューションの Aliases に付けられています。ACM がマネージド更新を行うのは使用中の証明書だけです。
+      en: The integrated certificate is requested by the tls-edge stack (DNS validation) and attached to the Aliases of this session's distribution; ACM only runs managed renewal for certificates that are in use.
     reproduce: { run: 'aws acm describe-certificate --region us-east-1 --certificate-arn <ACM_CERT_ARN_EDGE> --query "Certificate.[Status,InUseBy,RenewalEligibility]"', runsOn: workstation }
     manualFallback:
       where: { breadcrumb: [Certificate Manager, 列出证书], region: us-east-1 }
       observed:
-        question: 证书的“正在使用”一栏是什么？
+        question:
+          zh-CN: 证书的“正在使用”一栏是什么？
+          ja: 証明書の「使用中」の欄には何と表示されていますか？
+          en: What does the certificate's "In use" field show?
         options:
-          - { value: yes, label: 是（关联了 CloudFront 分配）, expected: true }
-          - { value: no, label: 否, fixHint: tls 启用后 scripts/module 会把证书注入 cdn；必要时重新执行 scripts/module enable cdn }
+          - value: yes
+            label:
+              zh-CN: 是（关联了 CloudFront 分配）
+              ja: はい（CloudFront ディストリビューションに関連付け済み）
+              en: Yes (associated with a CloudFront distribution)
+            expected: true
+          - value: no
+            label:
+              zh-CN: 否
+              ja: いいえ
+              en: No
+            fixHint:
+              zh-CN: tls 启用后 scripts/module 会把证书注入 cdn；必要时重新执行 scripts/module enable cdn
+              ja: tls を有効にすると scripts/module が証明書を cdn に注入します。必要なら scripts/module enable cdn を再実行してください
+              en: After tls is enabled, scripts/module injects the certificate into cdn; if needed, run scripts/module enable cdn again
 
   - id: exam-vs-new
-    title: 两道判断：ACME 证书能否挂到 CloudFront；考试口径下 ACM 证书能否装到 EC2
+    title:
+      zh-CN: 两道判断：ACME 证书能否挂到 CloudFront；考试口径下 ACM 证书能否装到 EC2
+      ja: 2 つの判断：ACME 証明書は CloudFront に付けられるか、試験の観点で ACM 証明書は EC2 に導入できるか
+      en: "Two judgments: can an ACME certificate go on CloudFront, and by the exam's view can an ACM certificate be installed on EC2?"
     type: manual
     spec:
-      confirm: 我在 ACM 控制台用 ACME 过滤条件找到了证书，并看了它的来源与续期方式
+      confirm:
+        zh-CN: 我在 ACM 控制台用 ACME 过滤条件找到了证书，并看了它的来源与续期方式
+        ja: ACM コンソールで ACME のフィルター条件を使って証明書を見つけ、そのオリジンと更新方法を確認しました
+        en: I found the certificate in the ACM console with the ACME filter and looked at its origin and renewal method
       observed:
-        question: 按 SAA 考试的常见口径，ACM 签发的公有证书能否直接装到 EC2 的 Nginx 上？
+        question:
+          zh-CN: 按 SAA 考试的常见口径，ACM 签发的公有证书能否直接装到 EC2 的 Nginx 上？
+          ja: SAA 試験の一般的な観点では、ACM が発行したパブリック証明書を EC2 の Nginx に直接導入できますか？
+          en: By the usual SAA exam view, can a public certificate issued by ACM be installed directly in Nginx on EC2?
         options:
-          - { value: no, label: 不能：要在 EC2 终止 TLS，答案是前面加 ALB / CloudFront 或导入第三方证书, expected: true }
-          - { value: yes, label: 能, fixHint: 2026 年的 ACME 端点是新能力，答题仍以“ACM 证书只挂在集成服务上”为准 }
-    explain: 原生手动确认（04 §5.2.6）：分清考试结论与 2026 新能力。
+          - value: no
+            label:
+              zh-CN: 不能：要在 EC2 终止 TLS，答案是前面加 ALB / CloudFront 或导入第三方证书
+              ja: できない：EC2 で TLS を終端するなら、答えは前に ALB / CloudFront を置くか、サードパーティーの証明書をインポートすること
+              en: "No: to terminate TLS on EC2, the answer is to put an ALB / CloudFront in front, or import a third-party certificate"
+            expected: true
+          - value: yes
+            label:
+              zh-CN: 能
+              ja: できる
+              en: Yes
+            fixHint:
+              zh-CN: 2026 年的 ACME 端点是新能力，答题仍以“ACM 证书只挂在集成服务上”为准
+              ja: 2026 年の ACME エンドポイントは新しい機能です。試験の解答は引き続き「ACM 証明書は統合サービスにしか付けられない」を基準にしてください
+              en: The 2026 ACME endpoint is a new capability; exam answers still follow "ACM certificates only attach to integrated services"
+    explain:
+      zh-CN: 原生手动确认（04 §5.2.6）：分清考试结论与 2026 新能力。
+      ja: 本来の手動確認（04 §5.2.6）：試験の結論と 2026 年の新機能を区別します。
+      en: "Native manual confirmation (04 §5.2.6): tell the exam answer from the 2026 capability."
 
   - id: http-redirects-https
-    title: （选做）直连的 http:// 被 301 到 https://
+    title:
+      zh-CN: （选做）直连的 http:// 被 301 到 https://
+      ja: （任意）直接アクセスの http:// が https:// に 301 でリダイレクトされる
+      en: (Optional) Direct http:// gets a 301 to https://
     type: http-header
     from: platform
     target: public-ip
@@ -266,21 +569,59 @@ checks:
     required: false
     drift: { policy: once }
     assert:
-      - { path: $.status, op: eq, value: 301, label: 状态码 }
-      - { path: $.headers.location, op: startsWith, value: 'https://', label: 跳转目标 }
-    explain: 跳转只针对直连入口（ec2 的 $ca_https_redirect：回环地址与 ACME HTTP-01 不跳转，CloudFront / ALB 后面不会循环）。
+      - path: $.status
+        op: eq
+        value: 301
+        label:
+          zh-CN: 状态码
+          ja: ステータスコード
+          en: Status code
+      - path: $.headers.location
+        op: startsWith
+        value: 'https://'
+        label:
+          zh-CN: 跳转目标
+          ja: リダイレクト先
+          en: Redirect target
+    explain:
+      zh-CN: 跳转只针对直连入口（ec2 的 $ca_https_redirect：回环地址与 ACME HTTP-01 不跳转，CloudFront / ALB 后面不会循环）。
+      ja: リダイレクトは直接アクセスの入口だけが対象です（ec2 の $ca_https_redirect：ループバックアドレスと ACME HTTP-01 はリダイレクトせず、CloudFront / ALB の背後でループすることもありません）。
+      en: "The redirect only applies to the direct entry point (ec2's $ca_https_redirect: loopback addresses and ACME HTTP-01 are not redirected, and there is no loop behind CloudFront / ALB)."
     reproduce: { run: 'curl -sI http://{{ target.publicIp }}/ | grep -iE "^(HTTP|location)"', runsOn: workstation }
 
   - id: no-dep-015
-    title: （选做）开启 TLS_FORCE_HTTPS 后 tls 仍然正常（没有 DEP-015）
+    title:
+      zh-CN: （选做）开启 TLS_FORCE_HTTPS 后 tls 仍然正常（没有 DEP-015）
+      ja: （任意）TLS_FORCE_HTTPS を有効にした後も tls は正常（DEP-015 なし）
+      en: (Optional) tls is still healthy after turning on TLS_FORCE_HTTPS (no DEP-015)
     type: capability
     module: tls
     required: false
     drift: { policy: once }
     assert:
-      - { path: $, op: healthy, label: 状态正常 }
-    explain: DEP-015：自签名 + HSTS 会把用户锁在站外，所以只有直连用受信任证书时才能开启。
+      - path: $
+        op: healthy
+        label:
+          zh-CN: 状态正常
+          ja: 状態が正常
+          en: Healthy
+    explain:
+      zh-CN: DEP-015：自签名 + HSTS 会把用户锁在站外，所以只有直连用受信任证书时才能开启。
+      ja: DEP-015：自己署名 + HSTS はユーザーをサイトから締め出してしまうため、直接アクセスで信頼された証明書を使っているときにしか有効にできません。
+      en: "DEP-015: self-signed + HSTS locks users out of the site, so it can only be turned on when the direct entry uses a trusted certificate."
 
 pitfalls:
-  - { id: symlink-not-switched, title: Nginx 仍在用旧证书, match: [ { checkId: direct-acme-cert, result: fail }, { checkId: cap-tls-healthy, result: fail } ],
-      cause: 证书已签发，但 /etc/cloudalbum/tls/server.* 符号链接没有切换，或 Nginx 没有 reload, fix: 在实验机上执行 sudo /usr/local/lib/cloudalbum/run-hostsetup.sh tls apply }
+  - id: symlink-not-switched
+    title:
+      zh-CN: Nginx 仍在用旧证书
+      ja: Nginx がまだ古い証明書を使っている
+      en: Nginx is still using the old certificate
+    match: [ { checkId: direct-acme-cert, result: fail }, { checkId: cap-tls-healthy, result: fail } ]
+    cause:
+      zh-CN: 证书已签发，但 /etc/cloudalbum/tls/server.* 符号链接没有切换，或 Nginx 没有 reload
+      ja: 証明書は発行されたが、/etc/cloudalbum/tls/server.* のシンボリックリンクが切り替わっていないか、Nginx が reload されていない
+      en: The certificate was issued, but the /etc/cloudalbum/tls/server.* symlinks were not switched, or Nginx was not reloaded
+    fix:
+      zh-CN: 在实验机上执行 sudo /usr/local/lib/cloudalbum/run-hostsetup.sh tls apply
+      ja: ラボ用インスタンスで sudo /usr/local/lib/cloudalbum/run-hostsetup.sh tls apply を実行してください
+      en: Run sudo /usr/local/lib/cloudalbum/run-hostsetup.sh tls apply on the lab instance

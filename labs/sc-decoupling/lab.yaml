@@ -5,11 +5,27 @@ id: sc-decoupling
 kind: scenario
 version: 0.1.0
 status: planned
-title: 削峰与重试
-subtitle: SQS + EC2 worker + Lambda + DLQ
-summary: 用 SQS 把“接收请求”和“处理任务”拆开：重启不丢任务、坏消息进死信队列，再让 Lambda 以受控的并发消费同一类积压
-story: 节日活动当晚，用户一次上传几百张照片。为了让上传接口快一点，团队把缩略图改成“先放进进程内队列，后台慢慢做”，接口确实快了——直到一次发布重启，几百个排队中的任务连同“上传成功”通知一起消失；还有一张损坏的图片让 worker 反复崩溃、拖住了后面所有任务。运维希望：任务与进程生命周期解耦；坏消息被隔离且可以重放；高峰期间处理能力可以扩展，但不能把下游压垮。
-scenario: {question: 一个订单系统在促销期间收到的订单量是平时的数十倍，后端库存服务每秒只能处理固定数量的请求，超量时会报错。要求订单一个都不能丢，用户提交后立刻得到“已受理”。最合适的方案是？}
+title:
+  zh-CN: 削峰与重试
+  ja: ピーク平準化と再試行
+  en: Load leveling and retries
+subtitle:
+  zh-CN: SQS + EC2 worker + Lambda + DLQ
+  ja: SQS + EC2 worker + Lambda + DLQ
+  en: SQS + EC2 worker + Lambda + DLQ
+summary:
+  zh-CN: 用 SQS 把“接收请求”和“处理任务”拆开：重启不丢任务、坏消息进死信队列，再让 Lambda 以受控的并发消费同一类积压
+  ja: SQS で「リクエストの受け付け」と「ジョブの処理」を切り離します。再起動してもジョブは失われず、不正なメッセージはデッドレターキューに入ります。さらに Lambda に制御された同時実行数で同じ種類の滞留を処理させます
+  en: "Use SQS to separate accepting requests from processing jobs: restarts lose no jobs, bad messages go to a dead-letter queue, and Lambda then works through the same kind of backlog at a controlled concurrency"
+story:
+  zh-CN: 节日活动当晚，用户一次上传几百张照片。为了让上传接口快一点，团队把缩略图改成“先放进进程内队列，后台慢慢做”，接口确实快了——直到一次发布重启，几百个排队中的任务连同“上传成功”通知一起消失；还有一张损坏的图片让 worker 反复崩溃、拖住了后面所有任务。运维希望：任务与进程生命周期解耦；坏消息被隔离且可以重放；高峰期间处理能力可以扩展，但不能把下游压垮。
+  ja: お祭りイベントの夜、ユーザーは一度に数百枚の写真をアップロードします。アップロード API を速くするため、チームはサムネイル生成を「まずプロセス内のキューに入れ、バックグラウンドでゆっくり処理する」方式に変えました。API は確かに速くなりましたが、あるリリースで再起動した際に、キューに並んでいた数百のジョブが「アップロード成功」の通知とともに消えてしまいました。さらに、1 枚の壊れた画像のせいで worker がクラッシュを繰り返し、後続のすべてのジョブが止まりました。運用チームの希望は、ジョブをプロセスのライフサイクルから切り離すこと、不正なメッセージを隔離して再処理できること、ピーク時に処理能力を拡張できるが下流を押しつぶさないことです。
+  en: On the night of a holiday event, users upload hundreds of photos at once. To make the upload API faster, the team changed thumbnails to "put it in an in-process queue first and work through it in the background". The API did get faster — until a release restarted the process and hundreds of queued jobs disappeared together with their "upload succeeded" notifications; and one corrupt image made the worker crash again and again, holding up every job behind it. Operations wants jobs decoupled from the process lifecycle, bad messages isolated and replayable, and processing capacity that can scale at peak without overwhelming downstream systems.
+scenario:
+  question:
+    zh-CN: 一个订单系统在促销期间收到的订单量是平时的数十倍，后端库存服务每秒只能处理固定数量的请求，超量时会报错。要求订单一个都不能丢，用户提交后立刻得到“已受理”。最合适的方案是？
+    ja: ある注文システムでは、セール期間中に通常の数十倍の注文が届きます。バックエンドの在庫サービスは毎秒一定数のリクエストしか処理できず、超えるとエラーになります。注文は 1 件も失ってはならず、ユーザーには送信後すぐに「受け付けました」と返す必要があります。最も適切な構成はどれですか？
+    en: An order system receives dozens of times its normal order volume during a sale. The backend inventory service can only handle a fixed number of requests per second and returns errors beyond that. No order may be lost, and users must get "accepted" immediately after submitting. What is the most suitable design?
 difficulty: intermediate
 estimatedMinutes: 90
 timeLimitMinutes: 150
@@ -38,7 +54,10 @@ startProfile:
     kind: module
     basis: credential
     set: {IAM_CREDENTIALS: role}
-    reason: 平台约定除 svc-ec2、svc-iam 外起始状态都带实例角色（C3）
+    reason:
+      zh-CN: 平台约定除 svc-ec2、svc-iam 外起始状态都带实例角色（C3）
+      ja: プラットフォームの取り決めにより、svc-ec2 と svc-iam 以外の開始状態にはインスタンスロールが付いています（C3）
+      en: By platform convention, every start state except svc-ec2 and svc-iam includes an instance role (C3)
   - item: storage
     kind: module
     basis: closure
@@ -50,7 +69,12 @@ startProfile:
   - item: image-processing
     kind: local
     set: {IMAGE_PROCESSOR: worker}
-  - {item: preview-direct-https, kind: platform, reason: 预览使用方案 B 的 Let's Encrypt IP 证书（03 §6.2）}
+  - item: preview-direct-https
+    kind: platform
+    reason:
+      zh-CN: 预览使用方案 B 的 Let's Encrypt IP 证书（03 §6.2）
+      ja: プレビューには方式 B の Let's Encrypt IP 証明書を使います（03 §6.2）
+      en: The preview uses the option B Let's Encrypt IP certificate (03 §6.2)
   platform:
     preview: {directHttps: 'on'}
 targetModules:
@@ -62,7 +86,15 @@ targetModules:
 expectedWarnings: []
 cost: {tier: low}
 provision: {class: A}
-badge: {title: 削峰与重试, short: 削峰重试}
+badge:
+  title:
+    zh-CN: 削峰与重试
+    ja: ピーク平準化と再試行
+    en: Load leveling and retries
+  short:
+    zh-CN: 削峰重试
+    ja: 平準化と再試行
+    en: Leveling and retries
 tracks: [resilient, saa-main, serverless]
 saa:
   domains: [resilient, performance]
