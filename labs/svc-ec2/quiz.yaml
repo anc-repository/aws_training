@@ -6,14 +6,28 @@ questions:
     type: single
     kind: scenario
     services: [ec2, ebs]
-    stem: 一台 EC2 上的应用需要在“换实例类型、换 AMI、重建实例”之后保留上传文件与配置，并且能单独做快照。最合适的做法是？
+    stem:
+      zh-CN: 一台 EC2 上的应用需要在“换实例类型、换 AMI、重建实例”之后保留上传文件与配置，并且能单独做快照。最合适的做法是？
+      ja: EC2 上のアプリで、「インスタンスタイプの変更、AMI の変更、インスタンスの作り直し」の後もアップロードしたファイルと設定を残し、単独でスナップショットも取れるようにしたいと考えています。最も適切な方法はどれですか？
+      en: An app on EC2 must keep its uploaded files and configuration across instance type changes, AMI changes and instance rebuilds, and must be able to snapshot them separately. What is the best approach?
     options:
-      - { id: a, text: 把数据放在实例存储上 }
-      - { id: b, text: 放在单独的 EBS 数据卷上，并让它的 DeleteOnTermination=false }
-      - { id: c, text: 放在根卷上并保持 DeleteOnTermination=true }
-      - { id: d, text: 放在 /tmp }
+      - { id: a, text: { zh-CN: 把数据放在实例存储上, ja: データをインスタンスストアに置く, en: Put the data on instance store } }
+      - id: b
+        text:
+          zh-CN: 放在单独的 EBS 数据卷上，并让它的 DeleteOnTermination=false
+          ja: 独立した EBS データボリュームに置き、DeleteOnTermination=false にする
+          en: Put it on a separate EBS data volume with DeleteOnTermination=false
+      - id: c
+        text:
+          zh-CN: 放在根卷上并保持 DeleteOnTermination=true
+          ja: ルートボリュームに置き、DeleteOnTermination=true のままにする
+          en: Put it on the root volume and keep DeleteOnTermination=true
+      - { id: d, text: { zh-CN: 放在 /tmp, ja: /tmp に置く, en: Put it in /tmp } }
     answer: [b]
-    explain: 实例存储在实例停止、终止或硬件故障时丢失；根卷默认随实例终止而删除；独立 EBS 卷的生命周期与实例无关，可以改挂到新实例、单独快照与扩容。EBS 卷绑定 AZ，跨 AZ 只能经快照。
+    explain:
+      zh-CN: 实例存储在实例停止、终止或硬件故障时丢失；根卷默认随实例终止而删除；独立 EBS 卷的生命周期与实例无关，可以改挂到新实例、单独快照与扩容。EBS 卷绑定 AZ，跨 AZ 只能经快照。
+      ja: インスタンスストアはインスタンスの停止、終了、ハードウェア障害で失われます。ルートボリュームは既定でインスタンスの終了時に削除されます。独立した EBS ボリュームのライフサイクルはインスタンスと無関係で、新しいインスタンスへのアタッチし直し、単独でのスナップショットや拡張ができます。EBS ボリュームは AZ に固定されており、AZ をまたぐにはスナップショットを経由するしかありません。
+      en: Instance store is lost when the instance stops, terminates or has a hardware failure; the root volume is deleted on termination by default; a separate EBS volume has a lifecycle independent of the instance and can be attached to a new instance, snapshotted and grown on its own. EBS volumes are tied to an AZ, and only snapshots can cross AZs.
     relatesTo: host-inspect
     difficulty: 1
   - id: ec2-imdsv2
@@ -21,14 +35,20 @@ questions:
     type: single
     kind: scenario
     services: [ec2]
-    stem: 安全团队担心 Web 应用的 SSRF 漏洞被用来读取实例角色凭证。下列哪项措施最直接？
+    stem:
+      zh-CN: 安全团队担心 Web 应用的 SSRF 漏洞被用来读取实例角色凭证。下列哪项措施最直接？
+      ja: セキュリティチームは、Web アプリの SSRF 脆弱性を悪用してインスタンスロールの認証情報が読み取られることを懸念しています。最も直接的な対策はどれですか？
+      en: The security team worries that an SSRF bug in a web app could be used to read the instance role's credentials. Which measure addresses this most directly?
     options:
-      - { id: a, text: 强制使用 IMDSv2（HttpTokens=required） }
-      - { id: b, text: 关闭安全组的全部出站规则 }
-      - { id: c, text: 用 NACL 拒绝 169.254.169.254 }
-      - { id: d, text: 把实例换到更大的实例类型 }
+      - { id: a, text: { zh-CN: 强制使用 IMDSv2（HttpTokens=required）, ja: IMDSv2 の使用を強制する（HttpTokens=required）, en: Require IMDSv2 (HttpTokens=required) } }
+      - { id: b, text: { zh-CN: 关闭安全组的全部出站规则, ja: セキュリティグループのアウトバウンドルールをすべて削除する, en: Remove all outbound rules from the security group } }
+      - { id: c, text: { zh-CN: 用 NACL 拒绝 169.254.169.254, ja: NACL で 169.254.169.254 を拒否する, en: Deny 169.254.169.254 with a NACL } }
+      - { id: d, text: { zh-CN: 把实例换到更大的实例类型, ja: より大きなインスタンスタイプに変更する, en: Move to a larger instance type } }
     answer: [a]
-    explain: IMDSv2 要求先用 PUT 请求取得会话令牌并在请求头中携带，典型的 SSRF 只能让服务器发出 GET 请求。实例元数据服务是实例本地的链路地址，NACL 与安全组都控制不了它。
+    explain:
+      zh-CN: IMDSv2 要求先用 PUT 请求取得会话令牌并在请求头中携带，典型的 SSRF 只能让服务器发出 GET 请求。实例元数据服务是实例本地的链路地址，NACL 与安全组都控制不了它。
+      ja: IMDSv2 では、まず PUT リクエストでセッショントークンを取得し、それをリクエストヘッダーに付ける必要があります。典型的な SSRF でサーバーに送らせられるのは GET リクエストだけです。インスタンスメタデータサービスはインスタンスローカルのリンクローカルアドレスなので、NACL でもセキュリティグループでも制御できません。
+      en: IMDSv2 requires a PUT request to get a session token, which then goes in a request header; a typical SSRF can only make the server send GET requests. The instance metadata service is a link-local address local to the instance, which neither NACLs nor security groups control.
     relatesTo: imds
     difficulty: 1
   - id: ec2-eip
@@ -36,13 +56,27 @@ questions:
     type: multi
     kind: concept
     services: [ec2]
-    stem: 关于弹性 IP 与公网 IPv4，正确的是哪两项？
+    stem:
+      zh-CN: 关于弹性 IP 与公网 IPv4，正确的是哪两项？
+      ja: Elastic IP とパブリック IPv4 について、正しいものを 2 つ選んでください。
+      en: Which two statements about Elastic IPs and public IPv4 are correct?
     options:
-      - { id: a, text: 没有 EIP 的实例停止再启动后，自动分配的公网 IPv4 通常会改变 }
-      - { id: b, text: 未关联到运行中实例的 EIP 不收费 }
-      - { id: c, text: 公网 IPv4 地址（包括 EIP）按小时计费 }
-      - { id: d, text: EIP 可以直接迁移到另一个区域使用 }
+      - id: a
+        text:
+          zh-CN: 没有 EIP 的实例停止再启动后，自动分配的公网 IPv4 通常会改变
+          ja: EIP のないインスタンスを停止して再起動すると、自動割り当てのパブリック IPv4 は通常変わる
+          en: When an instance without an EIP is stopped and started, its auto-assigned public IPv4 usually changes
+      - { id: b, text: { zh-CN: 未关联到运行中实例的 EIP 不收费, ja: 実行中のインスタンスに関連付けられていない EIP は無料, en: An EIP that is not associated with a running instance is free } }
+      - id: c
+        text:
+          zh-CN: 公网 IPv4 地址（包括 EIP）按小时计费
+          ja: パブリック IPv4 アドレス（EIP を含む）は時間課金される
+          en: Public IPv4 addresses (including EIPs) are billed by the hour
+      - { id: d, text: { zh-CN: EIP 可以直接迁移到另一个区域使用, ja: EIP はそのまま別のリージョンに移して使える, en: An EIP can be moved to another Region as is } }
     answer: [a, c]
-    explain: AWS 对所有公网 IPv4 地址按小时计费，未关联的 EIP 同样计费；EIP 是区域资源，不能跨区域使用。
+    explain:
+      zh-CN: AWS 对所有公网 IPv4 地址按小时计费，未关联的 EIP 同样计费；EIP 是区域资源，不能跨区域使用。
+      ja: AWS はすべてのパブリック IPv4 アドレスを時間課金し、関連付けられていない EIP も課金されます。EIP はリージョン単位のリソースで、リージョンをまたいで使うことはできません。
+      en: AWS bills every public IPv4 address by the hour, unassociated EIPs included; an EIP is a Regional resource and cannot be used in another Region.
     relatesTo: spof
     difficulty: 1

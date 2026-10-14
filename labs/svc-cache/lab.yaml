@@ -9,47 +9,127 @@ id: svc-cache
 kind: service
 version: 1.0.0
 status: beta
-service: Amazon ElastiCache
-function: 共享缓存
-title: Amazon ElastiCache：共享缓存
-subtitle: 每次查库 → ElastiCache（Valkey）旁路缓存
-summary: 给时间线加上 ElastiCache（Valkey），用同一部署里的逐请求 A/B 看“命中省掉几次查库”，再看清谁能连到缓存、缓存故障时请求为什么不失败。
-story: |
-  L0 的时间线每次都查库。读多写少的接口最适合旁路缓存：先读缓存，未命中再查库并回填。
-  这张卡片在默认 VPC 里建一个单节点的 ElastiCache（Valkey），用同一部署里的逐请求 A/B 对比命中与不命中，
-  再确认只有实验机的安全组能连到 6379，以及缓存故障时应用按未命中处理（fail-open）。
+service:
+  zh-CN: Amazon ElastiCache
+  ja: Amazon ElastiCache
+  en: Amazon ElastiCache
+function:
+  zh-CN: 共享缓存
+  ja: 共有キャッシュ
+  en: Shared cache
+title:
+  zh-CN: Amazon ElastiCache：共享缓存
+  ja: Amazon ElastiCache：共有キャッシュ
+  en: "Amazon ElastiCache: shared cache"
+subtitle:
+  zh-CN: 每次查库 → ElastiCache（Valkey）旁路缓存
+  ja: 毎回データベースに問い合わせ → ElastiCache（Valkey）のキャッシュアサイド
+  en: A database query every time → ElastiCache (Valkey) cache-aside
+summary:
+  zh-CN: 给时间线加上 ElastiCache（Valkey），用同一部署里的逐请求 A/B 看“命中省掉几次查库”，再看清谁能连到缓存、缓存故障时请求为什么不失败。
+  ja: タイムラインに ElastiCache（Valkey）を追加します。同じデプロイ内でリクエストごとの A/B により「ヒットでデータベースへの問い合わせが何回減るか」を確かめ、誰がキャッシュに接続できるか、キャッシュが故障してもリクエストが失敗しない理由を確認します。
+  en: Add ElastiCache (Valkey) to the timeline. A per-request A/B in the same deployment shows how many database queries a hit saves, then you check who can connect to the cache and why requests do not fail when the cache does.
+story:
+  zh-CN: |
+    L0 的时间线每次都查库。读多写少的接口最适合旁路缓存：先读缓存，未命中再查库并回填。
+    这张卡片在默认 VPC 里建一个单节点的 ElastiCache（Valkey），用同一部署里的逐请求 A/B 对比命中与不命中，
+    再确认只有实验机的安全组能连到 6379，以及缓存故障时应用按未命中处理（fail-open）。
+  ja: |
+    L0 のタイムラインは毎回データベースに問い合わせます。読み取りが多く書き込みが少ない API は、キャッシュアサイドに最も向いています。まずキャッシュを読み、ミスしたらデータベースに問い合わせてキャッシュに書き戻します。
+    このカードではデフォルト VPC に単一ノードの ElastiCache（Valkey）を作り、同じデプロイ内のリクエストごとの A/B でヒットとミスを比較します。
+    さらに、ラボ用インスタンスのセキュリティグループだけが 6379 に接続できること、キャッシュが故障したときアプリがミスとして処理すること（fail-open）を確認します。
+  en: |
+    At L0 the timeline queries the database every time. Read-heavy, write-light APIs are the best fit for cache-aside: read the cache first, and on a miss query the database and fill the cache.
+    This card builds a single-node ElastiCache (Valkey) in the default VPC and compares hits and misses with a per-request A/B in the same deployment,
+    then confirms that only the lab instance's security group can reach 6379, and that the app treats a cache failure as a miss (fail-open).
 objectives:
-  - { text: 用旁路缓存与 TTL 解释“命中时 DB 查询为 0”, domain: performance, relatesTo: after }
-  - { text: 说清 ElastiCache 只能在 VPC 内访问，以及安全组链的作用, domain: secure, relatesTo: inspect }
-  - { text: 理解非权威端口的 fail-open：缓存故障不能让请求失败, domain: resilient, relatesTo: enable }
-  - { text: 比较进程内缓存与共享缓存的取舍, domain: performance, relatesTo: memory }
+  - text:
+      zh-CN: 用旁路缓存与 TTL 解释“命中时 DB 查询为 0”
+      ja: キャッシュアサイドと TTL を使って「ヒット時はデータベースへの問い合わせが 0 回」を説明する
+      en: Use cache-aside and TTLs to explain why a hit makes zero database queries
+    domain: performance
+    relatesTo: after
+  - text:
+      zh-CN: 说清 ElastiCache 只能在 VPC 内访问，以及安全组链的作用
+      ja: ElastiCache は VPC 内からしかアクセスできないこと、セキュリティグループの連鎖の役割を説明できる
+      en: Explain that ElastiCache is only reachable from inside the VPC, and what chained security groups do
+    domain: secure
+    relatesTo: inspect
+  - text:
+      zh-CN: 理解非权威端口的 fail-open：缓存故障不能让请求失败
+      ja: 権威を持たないポートの fail-open を理解する：キャッシュの故障でリクエストを失敗させてはならない
+      en: "Understand fail-open for non-authoritative ports: a cache failure must not fail requests"
+    domain: resilient
+    relatesTo: enable
+  - { text: { zh-CN: 比较进程内缓存与共享缓存的取舍, ja: プロセス内キャッシュと共有キャッシュのトレードオフを比較する, en: Compare the trade-offs of in-process and shared caches }, domain: performance, relatesTo: memory }
 difficulty: intermediate
 estimatedMinutes: 90
 timeLimitMinutes: 150
 extensions: { maxCount: 2, minutesEach: 30 }
-retain: { allowed: true, maxHours: 8, reason: 节点按小时计费；保留后可以在 sc-db-performance 中继续 }
+retain:
+  allowed: true
+  maxHours: 8
+  reason:
+    zh-CN: 节点按小时计费；保留后可以在 sc-db-performance 中继续
+    ja: ノードは時間課金です。保持すれば sc-db-performance で続きから使えます
+    en: Nodes are billed hourly; if you keep the environment, you can continue in sc-db-performance
 regions:
   supported: [ap-northeast-1]
 services:
-  - { id: elasticache, name: Amazon ElastiCache（Valkey，节点模式）, role: primary, module: cache }
-  - { id: vpc, name: Amazon VPC（默认 VPC、sg-cache）, role: observed }
-  - { id: iam, name: AWS IAM（实例角色，深度探针的 Describe 权限）, role: context, module: iam }
-  - { id: cloudwatch, name: Amazon CloudWatch（CacheHits、CacheMisses）, role: observed }
+  - { id: elasticache, name: { zh-CN: Amazon ElastiCache（Valkey，节点模式）, ja: Amazon ElastiCache（Valkey、ノードモード）, en: "Amazon ElastiCache (Valkey, node-based)" }, role: primary, module: cache }
+  - { id: vpc, name: { zh-CN: Amazon VPC（默认 VPC、sg-cache）, ja: Amazon VPC（デフォルト VPC、sg-cache）, en: "Amazon VPC (default VPC, sg-cache)" }, role: observed }
+  - id: iam
+    name:
+      zh-CN: AWS IAM（实例角色，深度探针的 Describe 权限）
+      ja: AWS IAM（インスタンスロール、詳細プローブ用の Describe 権限）
+      en: AWS IAM (instance role; Describe permissions for the deep probe)
+    role: context
+    module: iam
+  - id: cloudwatch
+    name:
+      zh-CN: Amazon CloudWatch（CacheHits、CacheMisses）
+      ja: Amazon CloudWatch（CacheHits、CacheMisses）
+      en: Amazon CloudWatch (CacheHits, CacheMisses)
+    role: observed
 modules: { target: [cache], start: [iam], context: [], related: [database, load-balancer, autoscaling] }
 prerequisites:
   cards:
     - { id: svc-ec2, kind: soft }
-  knowledge: [键值存储与 TTL, 安全组的来源可以是另一个安全组]
+  knowledge: [{ zh-CN: 键值存储与 TTL, ja: キーバリューストアと TTL, en: Key-value stores and TTLs }, { zh-CN: 安全组的来源可以是另一个安全组, ja: セキュリティグループのソースには別のセキュリティグループを指定できる, en: A security group's source can be another security group }]
 
 startProfile:
   provisions:
-    - { item: iam, kind: module, basis: credential, set: { IAM_CREDENTIALS: role },
-        reason: 平台约定除 svc-ec2、svc-iam 外起始状态都带实例角色（C3）；ElastiCache 的深度探针（Describe）因此可用 }
-    - { item: mgmt-channel, kind: platform, reason: 实验机挂只含 AmazonSSMManagedInstanceCore 的 CloudAlbumAppRole，是平台的管理通道，不是应用权限 }
-    - { item: workstation, kind: platform, reason: 每个会话一台工作台，用于运行 scripts/module、AWS CLI 与对比实验 }
-    - { item: preview-direct-https, kind: platform, reason: 预览使用方案 B 的 Let's Encrypt IP 证书；本卡不涉及 tls，保持开启 }
+    - item: iam
+      kind: module
+      basis: credential
+      set: { IAM_CREDENTIALS: role }
+      reason:
+        zh-CN: 平台约定除 svc-ec2、svc-iam 外起始状态都带实例角色（C3）；ElastiCache 的深度探针（Describe）因此可用
+        ja: プラットフォームの取り決めにより、svc-ec2 と svc-iam 以外の開始状態にはインスタンスロールが付いています（C3）。これにより ElastiCache の詳細プローブ（Describe）が使えます
+        en: By platform convention, every start state except svc-ec2 and svc-iam includes an instance role (C3), which makes the ElastiCache deep probe (Describe) work
+    - item: mgmt-channel
+      kind: platform
+      reason:
+        zh-CN: 实验机挂只含 AmazonSSMManagedInstanceCore 的 CloudAlbumAppRole，是平台的管理通道，不是应用权限
+        ja: ラボ用インスタンスには AmazonSSMManagedInstanceCore だけを含む CloudAlbumAppRole が付いています。これはプラットフォームの管理チャネルであり、アプリの権限ではありません
+        en: The lab instance carries CloudAlbumAppRole with only AmazonSSMManagedInstanceCore. It is the platform's management channel, not an app permission
+    - item: workstation
+      kind: platform
+      reason:
+        zh-CN: 每个会话一台工作台，用于运行 scripts/module、AWS CLI 与对比实验
+        ja: セッションごとに 1 台のワークベンチがあり、scripts/module、AWS CLI、比較実験の実行に使います
+        en: Each session has one workbench for running scripts/module, the AWS CLI and comparison experiments
+    - item: preview-direct-https
+      kind: platform
+      reason:
+        zh-CN: 预览使用方案 B 的 Let's Encrypt IP 证书；本卡不涉及 tls，保持开启
+        ja: プレビューには方式 B の Let's Encrypt IP 証明書を使います。このカードは tls に関係しないため、有効のままにします
+        en: The preview uses the option B Let's Encrypt IP certificate; this card does not involve tls, so it stays on
   platform: { preview: { directHttps: 'on' } }
-  reason: cache 的 requires 为空，子网与 sg-cache 在默认 VPC 中；起始状态是 L0 + 实例角色（档位 atl/svc-cache/default）
+  reason:
+    zh-CN: cache 的 requires 为空，子网与 sg-cache 在默认 VPC 中；起始状态是 L0 + 实例角色（档位 atl/svc-cache/default）
+    ja: cache の requires は空で、サブネットと sg-cache はデフォルト VPC にあります。開始状態は L0 ＋インスタンスロールです（プロファイル atl/svc-cache/default）
+    en: cache has no requires, and its subnets and sg-cache live in the default VPC; the start state is L0 plus the instance role (profile atl/svc-cache/default)
 targetModules:
   - { id: cache, driver: redis, wireStep: enable, adoptsExisting: false }
 expectedWarnings: []
@@ -59,25 +139,45 @@ platform:
 provision: { class: A }
 
 variables:
-  redisUrl: { label: 缓存地址, from: derived, fillFrom: stack.cache.EnvRedisUrl }
-  replicationGroupId: { label: 复制组 ID, from: derived, fillFrom: stack.cache.InfoReplicationGroupId }
+  redisUrl: { label: { zh-CN: 缓存地址, ja: キャッシュのアドレス, en: Cache address }, from: derived, fillFrom: stack.cache.EnvRedisUrl }
+  replicationGroupId: { label: { zh-CN: 复制组 ID, ja: レプリケーショングループ ID, en: Replication group ID }, from: derived, fillFrom: stack.cache.InfoReplicationGroupId }
 
 cost:
   currency: USD
   tier: medium
-  mainDrivers: [ElastiCache 节点小时（单节点 cache.t4g.micro）]
+  mainDrivers:
+    - zh-CN: ElastiCache 节点小时（单节点 cache.t4g.micro）
+      ja: ElastiCache のノード時間（単一ノード cache.t4g.micro）
+      en: ElastiCache node hours (a single cache.t4g.micro node)
   basis:
-    - { ref: start-profile, note: 实验机 EC2、EBS（根卷与数据卷）、公网 IPv4 }
-    - { ref: workstation, note: 工作台 EC2、EBS、公网 IPv4 }
-    - { key: elasticache-node, pricingKey: elasticache.node, billing: hourly, quantity: 1, source: target, whenRetained: true,
-        note: cache.t4g.micro 单节点、无副本；从创建开始按小时计费 }
+    - ref: start-profile
+      note:
+        zh-CN: 实验机 EC2、EBS（根卷与数据卷）、公网 IPv4
+        ja: ラボ用インスタンスの EC2、EBS（ルートボリュームとデータボリューム）、パブリック IPv4
+        en: Lab instance EC2, EBS (root and data volumes) and public IPv4
+    - { ref: workstation, note: { zh-CN: 工作台 EC2、EBS、公网 IPv4, ja: ワークベンチの EC2、EBS、パブリック IPv4, en: "Workbench EC2, EBS and public IPv4" } }
+    - key: elasticache-node
+      pricingKey: elasticache.node
+      billing: hourly
+      quantity: 1
+      source: target
+      whenRetained: true
+      note:
+        zh-CN: cache.t4g.micro 单节点、无副本；从创建开始按小时计费
+        ja: cache.t4g.micro の単一ノードでレプリカなし。作成した時点から時間課金されます
+        en: A single cache.t4g.micro node with no replicas, billed hourly from creation
   assumptions:
-    - 节点模式、Replicas=0；Serverless 变体只在手册中选读（有最低存储计费量），以官方定价为准
+    - zh-CN: 节点模式、Replicas=0；Serverless 变体只在手册中选读（有最低存储计费量），以官方定价为准
+      ja: ノードモード、Replicas=0 です。Serverless 版は手順書の参考扱いです（最低ストレージ課金量があります）。正確な料金は公式の料金表を確認してください
+      en: Node-based with Replicas=0; the Serverless variant is only further reading in the manual (it has a minimum billed storage); check the official pricing
 
 steps:
   - id: orient
     type: observe
-    title: 观察没有缓存的时间线
+    title:
+      zh-CN: 观察没有缓存的时间线
+      ja: キャッシュのないタイムラインを観察する
+      en: Look at the timeline without a cache
     manual: manual/10-orient.md
     panel: preview
     estMinutes: 5
@@ -85,7 +185,10 @@ steps:
 
   - id: baseline
     type: experiment
-    title: 记录 before：时间线读压测（无缓存）
+    title:
+      zh-CN: 记录 before：时间线读压测（无缓存）
+      ja: before を記録：タイムラインの読み取り負荷試験（キャッシュなし）
+      en: "Record before: timeline read load test (no cache)"
     manual: manual/20-baseline.md
     experiment: { module: cache, id: feed-read, label: before }
     requires: { steps: [orient] }
@@ -95,9 +198,16 @@ steps:
 
   - id: memory
     type: experiment
-    title: （选做）进程内缓存对照：本地档 memory
+    title:
+      zh-CN: （选做）进程内缓存对照：本地档 memory
+      ja: （任意）プロセス内キャッシュとの比較：ローカル階層 memory
+      en: "(Optional) Compare with an in-process cache: the local memory tier"
     manual: manual/30-memory.md
-    optional: { reason: 单进程下只能看到命中延迟，看不到多进程的不一致 }
+    optional:
+      reason:
+        zh-CN: 单进程下只能看到命中延迟，看不到多进程的不一致
+        ja: 単一プロセスではヒット時のレイテンシーしか見えず、複数プロセス間の不整合は見えません
+        en: With a single process you only see hit latency, not the inconsistency between processes
     experiment: { module: cache, id: feed-read, label: memory }
     requires: { steps: [baseline] }
     estMinutes: 10
@@ -106,19 +216,31 @@ steps:
   - id: enable
     type: script
     wire: true
-    title: 接入 ElastiCache：建复制组并切换驱动
+    title:
+      zh-CN: 接入 ElastiCache：建复制组并切换驱动
+      ja: ElastiCache を組み込む：レプリケーショングループを作成してドライバーを切り替える
+      en: "Wire in ElastiCache: create a replication group and switch the driver"
     manual: manual/40-enable.md
     methods: [script]
     requires: { steps: [baseline] }
     panel: terminal-workstation
     estMinutes: 20
-    startsBilling: { class: hourly, pricingKeys: [elasticache.node], note: 节点从创建开始按小时计费 }
-    wait: { typicalMinutes: 10, maxMinutes: 25, text: 创建复制组、写 env、重启、SET / GET / DEL 探针 }
+    startsBilling: { class: hourly, pricingKeys: [elasticache.node], note: { zh-CN: 节点从创建开始按小时计费, ja: ノードは作成した時点から時間課金されます, en: Nodes are billed hourly from creation } }
+    wait:
+      typicalMinutes: 10
+      maxMinutes: 25
+      text:
+        zh-CN: 创建复制组、写 env、重启、SET / GET / DEL 探针
+        ja: レプリケーショングループの作成、env の書き込み、再起動、SET / GET / DEL プローブを行います
+        en: Creating the replication group, writing env, restarting, and the SET / GET / DEL probe
     checks: [cache-wired, cache-hit-probe, cache-replication-group]
 
   - id: inspect
     type: cli
-    title: 谁能连到缓存
+    title:
+      zh-CN: 谁能连到缓存
+      ja: 誰がキャッシュに接続できるか
+      en: Who can connect to the cache
     manual: manual/50-inspect.md
     requires: { steps: [enable] }
     panel: terminal-workstation
@@ -127,7 +249,10 @@ steps:
 
   - id: after
     type: experiment
-    title: 记录 after：同一部署内逐请求 A/B
+    title:
+      zh-CN: 记录 after：同一部署内逐请求 A/B
+      ja: after を記録：同じデプロイ内でのリクエストごとの A/B
+      en: "Record after: per-request A/B in the same deployment"
     manual: manual/60-after.md
     experiment: { module: cache, id: feed-read, label: after }
     requires: { steps: [enable] }
@@ -137,9 +262,16 @@ steps:
 
   - id: fail-open
     type: experiment
-    title: （选做）缓存故障：撤销 sg-cache 入站规则，请求仍然成功
+    title:
+      zh-CN: （选做）缓存故障：撤销 sg-cache 入站规则，请求仍然成功
+      ja: （任意）キャッシュの故障：sg-cache のインバウンドルールを取り消しても、リクエストは成功する
+      en: "(Optional) Cache failure: revoke the sg-cache inbound rule and requests still succeed"
     manual: manual/70-fail-open.md
-    optional: { reason: 需要在工作台临时修改安全组；时间不足时跳过 }
+    optional:
+      reason:
+        zh-CN: 需要在工作台临时修改安全组；时间不足时跳过
+        ja: ワークベンチでセキュリティグループを一時的に変更する必要があります。時間がなければスキップしてください
+        en: You need to change a security group temporarily from the workbench; skip it if you are short of time
     experiment: { module: cache, id: fail-open, label: after }
     requires: { steps: [enable] }
     estMinutes: 10
@@ -172,13 +304,19 @@ experiments:
     corroborateWith: [cache-wired]
 
 quiz: { file: quiz.yaml, draw: 3 }
-badge: { title: 缓存命中, icon: assets/badge.svg }
+badge: { title: { zh-CN: 缓存命中, ja: キャッシュヒット, en: Cache hit }, icon: assets/badge.svg }
 tracks: [performant, quick-compare, saa-main]
 
 cleanup:
-  summary: 结束实验后，平台删除本次会话的复制组、子网组与 sg-cache（缓存没有权威数据）。
+  summary:
+    zh-CN: 结束实验后，平台删除本次会话的复制组、子网组与 sg-cache（缓存没有权威数据）。
+    ja: ラボを終了すると、プラットフォームがこのセッションのレプリケーショングループ、サブネットグループ、sg-cache を削除します（キャッシュには権威データがありません）。
+    en: When you end the lab, the platform deletes this session's replication group, subnet group and sg-cache (the cache holds no authoritative data).
   autoReclaim: true
-  dataRisk: [缓存中的数据随复制组删除；权威数据在数据库中，不受影响]
+  dataRisk:
+    - zh-CN: 缓存中的数据随复制组删除；权威数据在数据库中，不受影响
+      ja: キャッシュ内のデータはレプリケーショングループとともに削除されます。権威データはデータベースにあり、影響を受けません
+      en: Cached data goes away with the replication group; the authoritative data is in the database and is not affected
   learnerCreatedHints: []
   verify:
     - cache-gone
@@ -186,13 +324,53 @@ cleanup:
 saa:
   domains: [performance, resilient, cost]
   topics:
-    - { id: cache-aside, title: 旁路缓存、TTL 与用版本号失效, domain: performance, relatesTo: after }
-    - { id: vpc-only, title: ElastiCache 只能在 VPC 内访问；安全组链、TLS、AUTH / RBAC, domain: secure, relatesTo: inspect }
-    - { id: fail-open, title: 非权威端口的 fail-open；击穿与 single-flight, domain: resilient, relatesTo: fail-open }
-    - { id: engines, title: Valkey / Redis OSS 与 Memcached；节点模式与 Serverless, domain: cost, relatesTo: enable }
+    - { id: cache-aside, title: { zh-CN: 旁路缓存、TTL 与用版本号失效, ja: キャッシュアサイド、TTL、バージョン番号による無効化, en: "Cache-aside, TTLs and invalidation by version number" }, domain: performance, relatesTo: after }
+    - id: vpc-only
+      title:
+        zh-CN: ElastiCache 只能在 VPC 内访问；安全组链、TLS、AUTH / RBAC
+        ja: ElastiCache は VPC 内からのみアクセス可能。セキュリティグループの連鎖、TLS、AUTH / RBAC
+        en: ElastiCache is reachable only inside the VPC; chained security groups, TLS, AUTH / RBAC
+      domain: secure
+      relatesTo: inspect
+    - id: fail-open
+      title:
+        zh-CN: 非权威端口的 fail-open；击穿与 single-flight
+        ja: 権威を持たないポートの fail-open。キャッシュブレイクダウンと single-flight
+        en: Fail-open for non-authoritative ports; cache stampedes and single-flight
+      domain: resilient
+      relatesTo: fail-open
+    - id: engines
+      title:
+        zh-CN: Valkey / Redis OSS 与 Memcached；节点模式与 Serverless
+        ja: Valkey / Redis OSS と Memcached。ノードモードと Serverless
+        en: Valkey / Redis OSS vs Memcached; node-based vs Serverless
+      domain: cost
+      relatesTo: enable
   confusables:
-    - { a: ElastiCache, b: DAX, rule: DAX 是 DynamoDB 专用、API 兼容的直通缓存；ElastiCache 需要应用自己实现缓存逻辑 }
-    - { a: Valkey / Redis OSS, b: Memcached, rule: 节点式 Memcached 多线程、无复制、无持久化；Valkey / Redis OSS 支持副本、Multi-AZ 故障转移与快照 }
+    - a:
+        zh-CN: ElastiCache
+        ja: ElastiCache
+        en: ElastiCache
+      b:
+        zh-CN: DAX
+        ja: DAX
+        en: DAX
+      rule:
+        zh-CN: DAX 是 DynamoDB 专用、API 兼容的直通缓存；ElastiCache 需要应用自己实现缓存逻辑
+        ja: DAX は DynamoDB 専用で API 互換のリードスルー／ライトスルーキャッシュです。ElastiCache ではキャッシュのロジックをアプリ自身が実装する必要があります
+        en: DAX is a DynamoDB-only, API-compatible read-through/write-through cache; with ElastiCache the app has to implement the caching logic itself
+    - a:
+        zh-CN: Valkey / Redis OSS
+        ja: Valkey / Redis OSS
+        en: Valkey / Redis OSS
+      b:
+        zh-CN: Memcached
+        ja: Memcached
+        en: Memcached
+      rule:
+        zh-CN: 节点式 Memcached 多线程、无复制、无持久化；Valkey / Redis OSS 支持副本、Multi-AZ 故障转移与快照
+        ja: ノードベースの Memcached はマルチスレッドで、レプリケーションも永続化もありません。Valkey / Redis OSS はレプリカ、マルチ AZ のフェイルオーバー、スナップショットに対応します
+        en: Node-based Memcached is multi-threaded with no replication and no persistence; Valkey / Redis OSS supports replicas, Multi-AZ failover and snapshots
 
 tags: [cache, elasticache, valkey, cache-aside, vpc]
 

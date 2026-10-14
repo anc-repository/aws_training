@@ -6,14 +6,28 @@ questions:
     type: single
     kind: scenario
     services: [ses]
-    stem: 新账号中的应用调用 SES 给注册用户发邮件，只有少数地址能收到，其余报“地址未验证”。原因与做法是？
+    stem:
+      zh-CN: 新账号中的应用调用 SES 给注册用户发邮件，只有少数地址能收到，其余报“地址未验证”。原因与做法是？
+      ja: 新しいアカウントのアプリが SES で登録ユーザーにメールを送っていますが、届くのは一部のアドレスだけで、残りは「アドレスが未検証」というエラーになります。原因と対処はどれですか？
+      en: An app in a new account sends email to registered users through SES, but only a few addresses receive it and the rest fail with "address not verified". What is the cause and the fix?
     options:
-      - { id: a, text: 账号处于 SES 沙盒，只能发给已验证的身份；需要申请生产访问 }
-      - { id: b, text: 需要先为每个用户创建 SNS 订阅 }
-      - { id: c, text: EC2 的出站 25 端口被限制，需要申请解除 }
-      - { id: d, text: 需要为 SES 开启 VPC 终端节点 }
+      - id: a
+        text:
+          zh-CN: 账号处于 SES 沙盒，只能发给已验证的身份；需要申请生产访问
+          ja: アカウントが SES サンドボックスにあり、検証済みの ID にしか送れない。本番アクセスを申請する必要がある
+          en: The account is in the SES sandbox and can only send to verified identities; request production access
+      - { id: b, text: { zh-CN: 需要先为每个用户创建 SNS 订阅, ja: ユーザーごとに先に SNS サブスクリプションを作成する必要がある, en: An SNS subscription must be created for each user first } }
+      - id: c
+        text:
+          zh-CN: EC2 的出站 25 端口被限制，需要申请解除
+          ja: EC2 のアウトバウンドの 25 番ポートが制限されているので、解除を申請する必要がある
+          en: Outbound port 25 on EC2 is restricted and must be unblocked
+      - { id: d, text: { zh-CN: 需要为 SES 开启 VPC 终端节点, ja: SES 用の VPC エンドポイントを有効にする必要がある, en: A VPC endpoint for SES must be enabled } }
     answer: [a]
-    explain: 沙盒按区域生效，收件人必须已验证；走 SES API 不涉及 25 端口。
+    explain:
+      zh-CN: 沙盒按区域生效，收件人必须已验证；走 SES API 不涉及 25 端口。
+      ja: サンドボックスはリージョン単位で適用され、受信者は検証済みでなければなりません。SES API を使う場合、25 番ポートは関係ありません。
+      en: The sandbox applies per Region and recipients must be verified; going through the SES API has nothing to do with port 25.
     relatesTo: sandbox
     difficulty: 1
   - id: ses-deliverability
@@ -21,14 +35,28 @@ questions:
     type: multi
     kind: concept
     services: [ses]
-    stem: 提高从 SES 发出的邮件的认证与送达率，应该做哪三项？
+    stem:
+      zh-CN: 提高从 SES 发出的邮件的认证与送达率，应该做哪三项？
+      ja: SES から送るメールの認証と到達率を上げるには、どの 3 つを行うべきですか？
+      en: Which three things improve authentication and deliverability of email sent from SES?
     options:
-      - { id: a, text: 为发件域开启 Easy DKIM }
-      - { id: b, text: 配置自定义 MAIL FROM 域，使 SPF 与发件域对齐 }
-      - { id: c, text: 发布 DMARC 记录 }
-      - { id: d, text: 改为从 EC2 弹性 IP 用 25 端口直接投递 }
+      - { id: a, text: { zh-CN: 为发件域开启 Easy DKIM, ja: 送信元ドメインで Easy DKIM を有効にする, en: Turn on Easy DKIM for the sending domain } }
+      - id: b
+        text:
+          zh-CN: 配置自定义 MAIL FROM 域，使 SPF 与发件域对齐
+          ja: カスタム MAIL FROM ドメインを設定し、SPF を送信元ドメインとそろえる
+          en: Set up a custom MAIL FROM domain so SPF aligns with the sending domain
+      - { id: c, text: { zh-CN: 发布 DMARC 记录, ja: DMARC レコードを公開する, en: Publish a DMARC record } }
+      - id: d
+        text:
+          zh-CN: 改为从 EC2 弹性 IP 用 25 端口直接投递
+          ja: EC2 の Elastic IP から 25 番ポートで直接配信するように変える
+          en: Switch to delivering directly from the EC2 Elastic IP over port 25
     answer: [a, b, c]
-    explain: DKIM、SPF、DMARC 三者配合；从 EC2 IP 直接投递信誉差，且 25 端口默认受限。
+    explain:
+      zh-CN: DKIM、SPF、DMARC 三者配合；从 EC2 IP 直接投递信誉差，且 25 端口默认受限。
+      ja: DKIM、SPF、DMARC の 3 つを組み合わせます。EC2 の IP から直接配信すると評価が低く、さらに 25 番ポートは既定で制限されています。
+      en: DKIM, SPF and DMARC work together; delivering directly from an EC2 IP has a poor reputation, and port 25 is restricted by default.
     relatesTo: headers
     difficulty: 1
   - id: ses-feedback
@@ -36,14 +64,28 @@ questions:
     type: single
     kind: scenario
     services: [ses, sns, sqs]
-    stem: 要自动跟踪退信与投诉，并停止向无效地址发信，同时不让 EC2 开放入站端口。应该怎么做？
+    stem:
+      zh-CN: 要自动跟踪退信与投诉，并停止向无效地址发信，同时不让 EC2 开放入站端口。应该怎么做？
+      ja: バウンスと苦情を自動で追跡し、無効なアドレスへの送信を止めたいと考えています。ただし EC2 でインバウンドのポートは開けたくありません。どうすべきですか？
+      en: You want to track bounces and complaints automatically and stop sending to invalid addresses, without opening any inbound port on EC2. What should you do?
     options:
-      - { id: a, text: 定期登录控制台查看信誉面板 }
-      - { id: b, text: 为配置集添加事件目标到 SNS，再由 SQS 订阅，应用轮询处理；配合抑制列表 }
-      - { id: c, text: 让 SES 通过 HTTP 回调 EC2 }
-      - { id: d, text: 用 CloudWatch Logs 订阅 SES 的发送日志 }
+      - { id: a, text: { zh-CN: 定期登录控制台查看信誉面板, ja: 定期的にコンソールにログインして評価のダッシュボードを見る, en: Log in to the console regularly and check the reputation dashboard } }
+      - id: b
+        text:
+          zh-CN: 为配置集添加事件目标到 SNS，再由 SQS 订阅，应用轮询处理；配合抑制列表
+          ja: 設定セットに SNS へのイベント送信先を追加し、SQS でサブスクライブして、アプリがポーリングで処理する。抑制リストも併用する
+          en: Add an SNS event destination to the configuration set, subscribe SQS to it, and have the app poll and process it, together with the suppression list
+      - { id: c, text: { zh-CN: 让 SES 通过 HTTP 回调 EC2, ja: SES から EC2 に HTTP でコールバックさせる, en: Have SES call back EC2 over HTTP } }
+      - id: d
+        text:
+          zh-CN: 用 CloudWatch Logs 订阅 SES 的发送日志
+          ja: CloudWatch Logs で SES の送信ログをサブスクライブする
+          en: Subscribe to SES sending logs with CloudWatch Logs
     answer: [b]
-    explain: 配置集事件经 SNS → SQS 回流，应用主动拉取，不需要入站端口；抑制列表兜底。
+    explain:
+      zh-CN: 配置集事件经 SNS → SQS 回流，应用主动拉取，不需要入站端口；抑制列表兜底。
+      ja: 設定セットのイベントは SNS → SQS で還流し、アプリが自分から取りに行くため、インバウンドのポートは不要です。抑制リストが最後の砦になります。
+      en: Configuration set events flow back through SNS → SQS and the app pulls them, so no inbound port is needed; the suppression list is the safety net.
     relatesTo: after
     difficulty: 1
   - id: ses-vs-sns-email
@@ -51,26 +93,54 @@ questions:
     type: single
     kind: concept
     services: [ses, sns]
-    stem: 下面哪种邮件最适合用 SNS 邮件订阅而不是 SES 发送？
+    stem:
+      zh-CN: 下面哪种邮件最适合用 SNS 邮件订阅而不是 SES 发送？
+      ja: 次のうち、SES ではなく SNS のメールサブスクリプションで送るのに最も向いているメールはどれですか？
+      en: Which of these emails is best sent through an SNS email subscription rather than SES?
     options:
-      - { id: a, text: 注册验证码 }
-      - { id: b, text: 带个人链接的找回密码邮件 }
-      - { id: c, text: 运维人员订阅的告警广播（纯文本即可） }
-      - { id: d, text: 带 HTML 模板的每周摘要 }
+      - { id: a, text: { zh-CN: 注册验证码, ja: 登録時の確認コード, en: A sign-up verification code } }
+      - { id: b, text: { zh-CN: 带个人链接的找回密码邮件, ja: 個人用のリンクが入ったパスワード再設定メール, en: A password reset email with a personal link } }
+      - id: c
+        text:
+          zh-CN: 运维人员订阅的告警广播（纯文本即可）
+          ja: 運用担当者がサブスクライブするアラートのブロードキャスト（テキストのみで十分）
+          en: An alert broadcast that operators subscribe to (plain text is fine)
+      - { id: d, text: { zh-CN: 带 HTML 模板的每周摘要, ja: HTML テンプレートを使った週次のダイジェスト, en: A weekly digest built from an HTML template } }
     answer: [c]
-    explain: SNS 邮件订阅适合需要先确认、内容对所有订阅者相同的广播；事务性与个性化邮件用 SES。
+    explain:
+      zh-CN: SNS 邮件订阅适合需要先确认、内容对所有订阅者相同的广播；事务性与个性化邮件用 SES。
+      ja: SNS のメールサブスクリプションは、事前の確認が必要で、内容がすべてのサブスクライバーで同じブロードキャストに向いています。トランザクションメールや個人宛てのメールには SES を使います。
+      en: SNS email subscriptions suit broadcasts that are confirmed first and identical for every subscriber; transactional and personalized email goes through SES.
     difficulty: 1
   - id: ses-smtp
     domain: secure
     type: single
     kind: concept
     services: [ses, iam]
-    stem: 一个老系统只能通过 SMTP 发信，要改为经 SES 发送。凭证应该怎么准备？
+    stem:
+      zh-CN: 一个老系统只能通过 SMTP 发信，要改为经 SES 发送。凭证应该怎么准备？
+      ja: 古いシステムが SMTP でしかメールを送れず、これを SES 経由の送信に変えたいと考えています。認証情報はどう用意すべきですか？
+      en: A legacy system can only send through SMTP and needs to send through SES instead. How should the credentials be prepared?
     options:
-      - { id: a, text: 使用 AWS 账号的根用户密码 }
-      - { id: b, text: 从一个只允许 ses:SendRawEmail 的 IAM 用户派生 SMTP 凭证，经 587 端口（STARTTLS）连接 SES 的 SMTP 端点 }
-      - { id: c, text: 直接使用 EC2 实例角色的临时凭证作为 SMTP 密码 }
-      - { id: d, text: 在 EC2 上安装 postfix，用 25 端口直接投递 }
+      - { id: a, text: { zh-CN: 使用 AWS 账号的根用户密码, ja: AWS アカウントのルートユーザーのパスワードを使う, en: Use the AWS account root user's password } }
+      - id: b
+        text:
+          zh-CN: 从一个只允许 ses:SendRawEmail 的 IAM 用户派生 SMTP 凭证，经 587 端口（STARTTLS）连接 SES 的 SMTP 端点
+          ja: ses:SendRawEmail だけを許可した IAM ユーザーから SMTP 認証情報を派生させ、587 番ポート（STARTTLS）で SES の SMTP エンドポイントに接続する
+          en: Derive SMTP credentials from an IAM user that is only allowed ses:SendRawEmail, and connect to the SES SMTP endpoint on port 587 (STARTTLS)
+      - id: c
+        text:
+          zh-CN: 直接使用 EC2 实例角色的临时凭证作为 SMTP 密码
+          ja: EC2 インスタンスロールの一時的な認証情報をそのまま SMTP パスワードとして使う
+          en: Use the EC2 instance role's temporary credentials directly as the SMTP password
+      - id: d
+        text:
+          zh-CN: 在 EC2 上安装 postfix，用 25 端口直接投递
+          ja: EC2 に postfix をインストールし、25 番ポートで直接配信する
+          en: Install postfix on EC2 and deliver directly over port 25
     answer: [b]
-    explain: SES 的 SMTP 接口使用从 IAM 用户派生的 SMTP 凭证；走 API 时直接用 IAM 签名（实例角色），不需要 SMTP 凭证。
+    explain:
+      zh-CN: SES 的 SMTP 接口使用从 IAM 用户派生的 SMTP 凭证；走 API 时直接用 IAM 签名（实例角色），不需要 SMTP 凭证。
+      ja: SES の SMTP インターフェイスでは、IAM ユーザーから派生させた SMTP 認証情報を使います。API を使う場合は IAM 署名（インスタンスロール）をそのまま使うため、SMTP 認証情報は不要です。
+      en: The SES SMTP interface uses SMTP credentials derived from an IAM user; through the API you sign with IAM directly (the instance role), so no SMTP credentials are needed.
     difficulty: 2

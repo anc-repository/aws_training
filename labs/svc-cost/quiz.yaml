@@ -7,14 +7,28 @@ questions:
     type: single
     kind: scenario
     services: [budgets]
-    stem: 财务要求在某个项目的月度费用“预计”将超出预算时提前收到邮件，并能按项目区分费用。最合适的做法是？
+    stem:
+      zh-CN: 财务要求在某个项目的月度费用“预计”将超出预算时提前收到邮件，并能按项目区分费用。最合适的做法是？
+      ja: 経理部門は、あるプロジェクトの月額費用が予算を超えると「予測」された時点でメールを受け取り、費用をプロジェクトごとに区別したいと考えています。最も適切な方法はどれですか？
+      en: Finance wants an email as soon as a project's monthly cost is forecast to exceed its budget, and wants costs separated by project. What is the best approach?
     options:
-      - { id: a, text: 在 us-east-1 创建 CloudWatch EstimatedCharges 告警 }
-      - { id: b, text: 激活项目的成本分配标签，用 AWS Budgets 按该标签建成本预算，并配置“预测花费超过 100%”的通知 }
-      - { id: c, text: 每天在 Cost Explorer 中手工查看 }
-      - { id: d, text: 使用 AWS Trusted Advisor 的成本检查 }
+      - id: a
+        text:
+          zh-CN: 在 us-east-1 创建 CloudWatch EstimatedCharges 告警
+          ja: us-east-1 に CloudWatch の EstimatedCharges アラームを作成する
+          en: Create a CloudWatch EstimatedCharges alarm in us-east-1
+      - id: b
+        text:
+          zh-CN: 激活项目的成本分配标签，用 AWS Budgets 按该标签建成本预算，并配置“预测花费超过 100%”的通知
+          ja: プロジェクトのコスト配分タグを有効化し、AWS Budgets でそのタグのコスト予算を作成して、「予測支出が 100% を超える」通知を設定する
+          en: Activate the project's cost allocation tag, create a cost budget for that tag in AWS Budgets, and add a "forecasted spend above 100%" notification
+      - { id: c, text: { zh-CN: 每天在 Cost Explorer 中手工查看, ja: 毎日 Cost Explorer を手動で確認する, en: Check Cost Explorer by hand every day } }
+      - { id: d, text: { zh-CN: 使用 AWS Trusted Advisor 的成本检查, ja: AWS Trusted Advisor のコストチェックを使う, en: Use the AWS Trusted Advisor cost checks } }
     answer: [b]
-    explain: Budgets 支持按成本分配标签筛选，并能基于预测发出告警（需要足够的用量历史才会生成预测）；EstimatedCharges 不能按标签区分，也不做预测；Trusted Advisor 只给优化建议。
+    explain:
+      zh-CN: Budgets 支持按成本分配标签筛选，并能基于预测发出告警（需要足够的用量历史才会生成预测）；EstimatedCharges 不能按标签区分，也不做预测；Trusted Advisor 只给优化建议。
+      ja: Budgets はコスト配分タグで絞り込め、予測に基づいてアラートを出せます（予測の作成には十分な使用履歴が必要です）。EstimatedCharges はタグで区別できず、予測もしません。Trusted Advisor は最適化の提案をするだけです。
+      en: Budgets can filter by cost allocation tag and alert on forecasts (forecasts need enough usage history to appear); EstimatedCharges cannot separate by tag and does not forecast; Trusted Advisor only gives optimization advice.
     relatesTo: enable
     difficulty: 1
   - id: cost-tag-missing
@@ -22,14 +36,24 @@ questions:
     type: single
     kind: scenario
     services: [cost-explorer]
-    stem: 给资源打上 Project 标签后，在 Cost Explorer 中按 Project 分组却看不到任何费用。最可能的原因是？
+    stem:
+      zh-CN: 给资源打上 Project 标签后，在 Cost Explorer 中按 Project 分组却看不到任何费用。最可能的原因是？
+      ja: リソースに Project タグを付けましたが、Cost Explorer で Project 別にグループ化しても費用がまったく表示されません。最も可能性の高い原因はどれですか？
+      en: Resources were tagged with Project, but grouping by Project in Cost Explorer shows no costs at all. What is the most likely cause?
     options:
-      - { id: a, text: 标签值里含有中文 }
-      - { id: b, text: 用户定义的标签必须先在 Billing 中激活为成本分配标签，激活有延迟，且不追溯激活前的费用 }
-      - { id: c, text: 需要为实例开启详细监控 }
-      - { id: d, text: 资源必须部署在 us-east-1 }
+      - { id: a, text: { zh-CN: 标签值里含有中文, ja: タグの値に中国語が含まれている, en: The tag value contains Chinese characters } }
+      - id: b
+        text:
+          zh-CN: 用户定义的标签必须先在 Billing 中激活为成本分配标签，激活有延迟，且不追溯激活前的费用
+          ja: ユーザー定義タグは、まず Billing でコスト配分タグとして有効化する必要がある。有効化には時間がかかり、有効化前の費用にはさかのぼらない
+          en: User-defined tags must first be activated as cost allocation tags in Billing; activation takes time and does not apply to costs from before it
+      - { id: c, text: { zh-CN: 需要为实例开启详细监控, ja: インスタンスの詳細モニタリングを有効にする必要がある, en: Detailed monitoring must be turned on for the instances } }
+      - { id: d, text: { zh-CN: 资源必须部署在 us-east-1, ja: リソースは us-east-1 にデプロイしなければならない, en: The resources must be deployed in us-east-1 } }
     answer: [b]
-    explain: 只有激活后的成本分配标签才会出现在成本数据的分组中，并且从激活生效之后开始累计。
+    explain:
+      zh-CN: 只有激活后的成本分配标签才会出现在成本数据的分组中，并且从激活生效之后开始累计。
+      ja: 有効化したコスト配分タグだけがコストデータのグループに現れ、集計は有効化が反映された後から始まります。
+      en: Only activated cost allocation tags appear as groups in cost data, and they only accumulate from the point the activation takes effect.
     relatesTo: tags
     difficulty: 1
   - id: cost-budget-action
@@ -37,14 +61,28 @@ questions:
     type: single
     kind: scenario
     services: [budgets]
-    stem: 一个开发账号要求在月度花费超过阈值时，自动阻止开发者继续创建资源，而不仅仅是发通知。最合适的是？
+    stem:
+      zh-CN: 一个开发账号要求在月度花费超过阈值时，自动阻止开发者继续创建资源，而不仅仅是发通知。最合适的是？
+      ja: ある開発用アカウントでは、月の支出がしきい値を超えたら通知するだけでなく、開発者がそれ以上リソースを作成できないよう自動で止めたいと考えています。最も適切なのはどれですか？
+      en: A development account should automatically stop developers from creating more resources once monthly spend crosses a threshold, not just send a notification. What fits best?
     options:
-      - { id: a, text: 配置 AWS Budgets Actions，在超过阈值时附加拒绝策略（IAM 策略或 SCP） }
-      - { id: b, text: 创建 CloudWatch 告警并配置 terminate 动作 }
-      - { id: c, text: 启用 Cost Anomaly Detection }
-      - { id: d, text: 购买预留实例 }
+      - id: a
+        text:
+          zh-CN: 配置 AWS Budgets Actions，在超过阈值时附加拒绝策略（IAM 策略或 SCP）
+          ja: AWS Budgets Actions を設定し、しきい値を超えたら拒否ポリシー（IAM ポリシーまたは SCP）をアタッチする
+          en: Set up AWS Budgets Actions to attach a deny policy (an IAM policy or SCP) when the threshold is crossed
+      - id: b
+        text:
+          zh-CN: 创建 CloudWatch 告警并配置 terminate 动作
+          ja: CloudWatch アラームを作成し、terminate アクションを設定する
+          en: Create a CloudWatch alarm with a terminate action
+      - { id: c, text: { zh-CN: 启用 Cost Anomaly Detection, ja: Cost Anomaly Detection を有効にする, en: Turn on Cost Anomaly Detection } }
+      - { id: d, text: { zh-CN: 购买预留实例, ja: リザーブドインスタンスを購入する, en: Buy Reserved Instances } }
     answer: [a]
-    explain: Budgets Actions 可以附加 IAM 策略或 SCP、停止 EC2 / RDS 实例；它依据的账单数据有延迟，适合作为月度护栏。B 只能作用于单个实例；C 只做异常检测与通知；D 与阻止创建无关。
+    explain:
+      zh-CN: Budgets Actions 可以附加 IAM 策略或 SCP、停止 EC2 / RDS 实例；它依据的账单数据有延迟，适合作为月度护栏。B 只能作用于单个实例；C 只做异常检测与通知；D 与阻止创建无关。
+      ja: Budgets Actions は IAM ポリシーや SCP のアタッチ、EC2 / RDS インスタンスの停止ができます。使う請求データには遅れがあるため、月次のガードレールに向いています。B は個々のインスタンスにしか作用しません。C は異常の検出と通知だけです。D は作成を止めることとは関係ありません。
+      en: Budgets Actions can attach IAM policies or SCPs and stop EC2 / RDS instances; the billing data behind it lags, which makes it suitable as a monthly guardrail. B only acts on a single instance; C only detects anomalies and notifies; D has nothing to do with blocking creation.
     relatesTo: budget-action
     difficulty: 2
   - id: cost-credits
@@ -52,14 +90,20 @@ questions:
     type: single
     kind: concept
     services: [budgets]
-    stem: 一个使用抵扣额度的新账号设置了月度成本预算，几周来净花费一直接近 0、从未告警，但额度在快速减少。应如何调整预算？
+    stem:
+      zh-CN: 一个使用抵扣额度的新账号设置了月度成本预算，几周来净花费一直接近 0、从未告警，但额度在快速减少。应如何调整预算？
+      ja: クレジットを使っている新しいアカウントで月次のコスト予算を設定しました。数週間、正味の支出はずっと 0 に近くアラートは一度も出ていませんが、クレジットは急速に減っています。予算をどう調整すべきですか？
+      en: A new account that runs on credits set up a monthly cost budget. For weeks the net spend has stayed near 0 and no alert has fired, but the credits are shrinking fast. How should the budget be adjusted?
     options:
-      - { id: a, text: 把预算类型改为用量预算 }
-      - { id: b, text: 在预算的成本类型中不计入抵扣额度（credits） }
-      - { id: c, text: 把告警阈值改为 1% }
-      - { id: d, text: 改用 CloudWatch 账单告警 }
+      - { id: a, text: { zh-CN: 把预算类型改为用量预算, ja: 予算のタイプを使用量予算に変更する, en: Change the budget type to a usage budget } }
+      - { id: b, text: { zh-CN: 在预算的成本类型中不计入抵扣额度（credits）, ja: 予算のコストタイプでクレジット（credits）を含めないようにする, en: Exclude credits from the budget's cost types } }
+      - { id: c, text: { zh-CN: 把告警阈值改为 1%, ja: アラートのしきい値を 1% にする, en: Set the alert threshold to 1% } }
+      - { id: d, text: { zh-CN: 改用 CloudWatch 账单告警, ja: CloudWatch の請求アラームに切り替える, en: Switch to a CloudWatch billing alarm } }
     answer: [b]
-    explain: 计入抵扣额度时，额度会把费用抵成 0，预算看到的是净额；不计入抵扣额度，才能看到真实用量。阈值再低也看不到被抵掉的部分。
+    explain:
+      zh-CN: 计入抵扣额度时，额度会把费用抵成 0，预算看到的是净额；不计入抵扣额度，才能看到真实用量。阈值再低也看不到被抵掉的部分。
+      ja: クレジットを含めると、クレジットが費用を 0 まで相殺し、予算に見えるのは正味の金額です。クレジットを含めない場合に初めて実際の使用量が見えます。しきい値をどれだけ下げても、相殺された分は見えません。
+      en: With credits included, they offset costs down to 0 and the budget only sees the net amount; excluding credits is the only way to see real usage. No threshold, however low, can see what the credits absorbed.
     relatesTo: enable
     difficulty: 2
   - id: cost-hourly-resources
@@ -67,13 +111,23 @@ questions:
     type: multi
     kind: concept
     services: [budgets]
-    stem: 实验结束后哪两类资源即使“没有流量”也会继续按小时计费，最需要记得关掉？
+    stem:
+      zh-CN: 实验结束后哪两类资源即使“没有流量”也会继续按小时计费，最需要记得关掉？
+      ja: ラボの終了後も、「トラフィックがなくても」時間課金され続けるため、最も忘れずに止めるべきリソースを 2 つ選んでください。
+      en: Which two kinds of resources keep being billed by the hour after a lab even with no traffic, and are the most important to remember to turn off?
     options:
-      - { id: a, text: 未关联也未释放的公网 IPv4（弹性 IP） }
-      - { id: b, text: NAT Gateway }
-      - { id: c, text: 没有对象的 S3 桶 }
-      - { id: d, text: 没有订阅的 SNS 主题 }
+      - id: a
+        text:
+          zh-CN: 未关联也未释放的公网 IPv4（弹性 IP）
+          ja: 関連付けも解放もされていないパブリック IPv4（Elastic IP）
+          en: Public IPv4 addresses (Elastic IPs) that are neither associated nor released
+      - { id: b, text: { zh-CN: NAT Gateway, ja: NAT Gateway, en: NAT Gateway } }
+      - { id: c, text: { zh-CN: 没有对象的 S3 桶, ja: オブジェクトのない S3 バケット, en: An S3 bucket with no objects } }
+      - { id: d, text: { zh-CN: 没有订阅的 SNS 主题, ja: サブスクリプションのない SNS トピック, en: An SNS topic with no subscriptions } }
     answer: [a, b]
-    explain: 公网 IPv4 与 NAT Gateway 都按小时计费，与流量无关；空桶与空主题没有按小时费用。本地清单正是按“哪些资源按小时计费”列出的。
+    explain:
+      zh-CN: 公网 IPv4 与 NAT Gateway 都按小时计费，与流量无关；空桶与空主题没有按小时费用。本地清单正是按“哪些资源按小时计费”列出的。
+      ja: パブリック IPv4 と NAT Gateway はどちらもトラフィックに関係なく時間課金されます。空のバケットや空のトピックには時間単位の料金はありません。ローカルの一覧は、まさに「どのリソースが時間課金か」で並んでいます。
+      en: "Public IPv4 and NAT Gateway are both billed by the hour regardless of traffic; empty buckets and empty topics have no hourly charge. The local list is organized by exactly that: which resources are billed by the hour."
     relatesTo: orient
     difficulty: 1

@@ -1,6 +1,9 @@
 checks:
   - id: exp-whoami-before
-    title: whoami 的 before（应用不用凭证）有一条有效结果
+    title:
+      zh-CN: whoami 的 before（应用不用凭证）有一条有效结果
+      ja: whoami の before（アプリが認証情報を使わない）に有効な結果が 1 件ある
+      en: whoami has a valid before result (the app uses no credentials)
     type: experiment
     module: iam
     experiment: whoami
@@ -8,7 +11,10 @@ checks:
     accept: [valid]
 
   - id: exp-whoami-pair
-    title: whoami 的 before 与 after 都有效且可比
+    title:
+      zh-CN: whoami 的 before 与 after 都有效且可比
+      ja: whoami の before と after がどちらも有効で比較可能
+      en: whoami before and after are both valid and comparable
     type: experiment
     module: iam
     experiment: whoami

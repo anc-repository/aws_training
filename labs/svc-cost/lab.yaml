@@ -10,33 +10,78 @@ id: svc-cost
 kind: service
 version: 1.0.0
 status: beta
-service: AWS Budgets
-function: 费用护栏与告警
-title: AWS Budgets：费用护栏与告警
-subtitle: 本地计费资源清单 → AWS Budgets 月度预算 + Cost Explorer
-summary: 给项目装上费用护栏：本地计费资源清单“快而粗”，AWS Budgets 与 Cost Explorer“准而慢”，把两者并排看清。
-story: |
-  本地估算启用即出现（“RDS 刚被打开”），但它只知道经 scripts/module 启用的本项目模块，看不到真实账单、数据传输与请求类费用。
-  这张卡片用 AWS Budgets 按 Project 标签与账号总额各建一个月度预算，实际花费超过阈值或预测会超支时发邮件与 SNS 通知；
-  Cost Explorer 按 Module 标签给出真实的费用分布——但它们比本地清单晚了数小时到一天。
+service:
+  zh-CN: AWS Budgets
+  ja: AWS Budgets
+  en: AWS Budgets
+function:
+  zh-CN: 费用护栏与告警
+  ja: コストのガードレールとアラート
+  en: Cost guardrails and alerts
+title:
+  zh-CN: AWS Budgets：费用护栏与告警
+  ja: AWS Budgets：コストのガードレールとアラート
+  en: "AWS Budgets: cost guardrails and alerts"
+subtitle:
+  zh-CN: 本地计费资源清单 → AWS Budgets 月度预算 + Cost Explorer
+  ja: ローカルの課金リソース一覧 → AWS Budgets の月次予算＋ Cost Explorer
+  en: Local list of billed resources → AWS Budgets monthly budgets + Cost Explorer
+summary:
+  zh-CN: 给项目装上费用护栏：本地计费资源清单“快而粗”，AWS Budgets 与 Cost Explorer“准而慢”，把两者并排看清。
+  ja: プロジェクトにコストのガードレールを付けます。ローカルの課金リソース一覧は「速いが粗い」、AWS Budgets と Cost Explorer は「正確だが遅い」。この 2 つを並べて違いを確かめます。
+  en: Put cost guardrails on the project. The local list of billed resources is fast but rough, AWS Budgets and Cost Explorer are accurate but slow — look at them side by side.
+story:
+  zh-CN: |
+    本地估算启用即出现（“RDS 刚被打开”），但它只知道经 scripts/module 启用的本项目模块，看不到真实账单、数据传输与请求类费用。
+    这张卡片用 AWS Budgets 按 Project 标签与账号总额各建一个月度预算，实际花费超过阈值或预测会超支时发邮件与 SNS 通知；
+    Cost Explorer 按 Module 标签给出真实的费用分布——但它们比本地清单晚了数小时到一天。
+  ja: |
+    ローカルの見積もりは有効化した瞬間に現れます（「RDS がたった今有効になった」）。しかし、scripts/module で有効にしたこのプロジェクトのモジュールしか知らず、実際の請求額、データ転送、リクエスト系の料金は見えません。
+    このカードでは AWS Budgets で Project タグとアカウント全体の月次予算を 1 つずつ作り、実際の支出がしきい値を超えたとき、または超過が予測されたときにメールと SNS で通知します。
+    Cost Explorer は Module タグごとに実際のコストの内訳を示します。ただし、どちらもローカルの一覧より数時間から 1 日遅れます。
+  en: |
+    The local estimate appears the moment something is enabled ("RDS was just turned on"), but it only knows this project's modules enabled through scripts/module and cannot see the real bill, data transfer or request charges.
+    This card uses AWS Budgets to create one monthly budget for the Project tag and one for the whole account, with email and SNS notifications when actual spend crosses a threshold or is forecast to go over;
+    Cost Explorer shows the real cost breakdown by the Module tag — but both lag behind the local list by hours to a day.
 objectives:
-  - { text: 用成本分配标签 + 预算把“项目的钱”与“账号的钱”分开看, domain: cost, relatesTo: enable }
-  - { text: 说清 Budgets、Cost Explorer、账单告警各自的时效与用途, domain: cost, relatesTo: side-by-side }
-  - { text: 理解抵扣额度为什么会掩盖真实用量, domain: cost, relatesTo: enable }
-  - { text: 识别按小时计费的资源（公网 IPv4、NAT、RDS…）, domain: cost, relatesTo: orient }
+  - text:
+      zh-CN: 用成本分配标签 + 预算把“项目的钱”与“账号的钱”分开看
+      ja: コスト配分タグと予算を使って「プロジェクトのお金」と「アカウントのお金」を分けて見る
+      en: Use cost allocation tags and budgets to separate the project's money from the account's money
+    domain: cost
+    relatesTo: enable
+  - text:
+      zh-CN: 说清 Budgets、Cost Explorer、账单告警各自的时效与用途
+      ja: Budgets、Cost Explorer、請求アラームそれぞれの反映の速さと用途を説明できる
+      en: Explain how fresh Budgets, Cost Explorer and billing alarms are and what each is for
+    domain: cost
+    relatesTo: side-by-side
+  - { text: { zh-CN: 理解抵扣额度为什么会掩盖真实用量, ja: クレジットが実際の使用量を覆い隠してしまう理由を理解する, en: Understand why credits can hide real usage }, domain: cost, relatesTo: enable }
+  - text:
+      zh-CN: 识别按小时计费的资源（公网 IPv4、NAT、RDS…）
+      ja: 時間課金のリソース（パブリック IPv4、NAT、RDS など）を見分ける
+      en: Recognize resources that are billed by the hour (public IPv4, NAT, RDS …)
+    domain: cost
+    relatesTo: orient
 difficulty: beginner
 estimatedMinutes: 45
 timeLimitMinutes: 90
 extensions: { maxCount: 1, minutesEach: 30 }
-retain: { allowed: true, maxHours: 24, reason: 普通预算的监控与通知免费；保留后可以在第二天看到账单数据与可能的预算告警 }
+retain:
+  allowed: true
+  maxHours: 24
+  reason:
+    zh-CN: 普通预算的监控与通知免费；保留后可以在第二天看到账单数据与可能的预算告警
+    ja: 通常の予算の監視と通知は無料です。保持すれば翌日に請求データと予算アラートの有無を確認できます
+    en: Monitoring and notifications for regular budgets are free; if you keep the environment, you can see the billing data and any budget alerts the next day
 regions:
   supported: [ap-northeast-1]
   alsoUses: [global, us-east-1]
 services:
-  - { id: budgets, name: AWS Budgets, role: primary, module: cost }
-  - { id: cost-explorer, name: AWS Cost Explorer, role: supporting, module: cost }
-  - { id: sns, name: Amazon SNS（模块自带 cost 主题）, role: supporting, module: cost }
-  - { id: iam, name: AWS IAM（实例角色）, role: context, module: iam }
+  - { id: budgets, name: { zh-CN: AWS Budgets, ja: AWS Budgets, en: AWS Budgets }, role: primary, module: cost }
+  - { id: cost-explorer, name: { zh-CN: AWS Cost Explorer, ja: AWS Cost Explorer, en: AWS Cost Explorer }, role: supporting, module: cost }
+  - { id: sns, name: { zh-CN: Amazon SNS（模块自带 cost 主题）, ja: Amazon SNS（モジュール付属の cost トピック）, en: Amazon SNS (the module's own cost topic) }, role: supporting, module: cost }
+  - { id: iam, name: { zh-CN: AWS IAM（实例角色）, ja: AWS IAM（インスタンスロール）, en: AWS IAM (instance role) }, role: context, module: iam }
 modules: { target: [cost], start: [iam], context: [], related: [] }
 prerequisites:
   cards:
@@ -46,18 +91,47 @@ prerequisites:
     - { id: cost-tags-active }
     - { id: notify-email }
     - { id: budget-amounts }
-  knowledge: [成本分配标签, 月度账单与预测]
+  knowledge: [{ zh-CN: 成本分配标签, ja: コスト配分タグ, en: Cost allocation tags }, { zh-CN: 月度账单与预测, ja: 月次の請求と予測, en: Monthly bills and forecasts }]
 
 startProfile:
   provisions:
-    - { item: iam, kind: module, basis: credential, set: { IAM_CREDENTIALS: role },
-        reason: 平台约定除 svc-ec2、svc-iam 外起始状态都带实例角色（C3）；cost 是 credentials optional，启用后顶栏直接并排显示本地清单与 Budgets }
-    - { item: mgmt-channel, kind: platform, reason: 实验机挂只含 AmazonSSMManagedInstanceCore 的 CloudAlbumAppRole，是平台的管理通道，不是应用权限 }
-    - { item: workstation, kind: platform, reason: 每个会话一台工作台，用于运行 scripts/module、AWS CLI 与对比实验 }
-    - { item: check-bundle, kind: platform, reason: 检查包随 CloudAlbum 发布包安装在实验机的 /opt/atl（06 PM-04） }
-    - { item: preview-direct-https, kind: platform, reason: 预览使用方案 B 的 Let's Encrypt IP 证书（03 §6.2）；本卡不涉及 tls，保持开启 }
+    - item: iam
+      kind: module
+      basis: credential
+      set: { IAM_CREDENTIALS: role }
+      reason:
+        zh-CN: 平台约定除 svc-ec2、svc-iam 外起始状态都带实例角色（C3）；cost 是 credentials optional，启用后顶栏直接并排显示本地清单与 Budgets
+        ja: プラットフォームの取り決めにより、svc-ec2 と svc-iam 以外の開始状態にはインスタンスロールが付いています（C3）。cost は認証情報が任意のモジュールで、有効化するとトップバーにローカルの一覧と Budgets が並んで表示されます
+        en: By platform convention, every start state except svc-ec2 and svc-iam includes an instance role (C3); credentials are optional for cost, and once it is enabled the top bar shows the local list and Budgets side by side
+    - item: mgmt-channel
+      kind: platform
+      reason:
+        zh-CN: 实验机挂只含 AmazonSSMManagedInstanceCore 的 CloudAlbumAppRole，是平台的管理通道，不是应用权限
+        ja: ラボ用インスタンスには AmazonSSMManagedInstanceCore だけを含む CloudAlbumAppRole が付いています。これはプラットフォームの管理チャネルであり、アプリの権限ではありません
+        en: The lab instance carries CloudAlbumAppRole with only AmazonSSMManagedInstanceCore. It is the platform's management channel, not an app permission
+    - item: workstation
+      kind: platform
+      reason:
+        zh-CN: 每个会话一台工作台，用于运行 scripts/module、AWS CLI 与对比实验
+        ja: セッションごとに 1 台のワークベンチがあり、scripts/module、AWS CLI、比較実験の実行に使います
+        en: Each session has one workbench for running scripts/module, the AWS CLI and comparison experiments
+    - item: check-bundle
+      kind: platform
+      reason:
+        zh-CN: 检查包随 CloudAlbum 发布包安装在实验机的 /opt/atl（06 PM-04）
+        ja: チェックバンドルは CloudAlbum のリリースパッケージとともにラボ用インスタンスの /opt/atl にインストールされます（06 PM-04）
+        en: The check bundle is installed with the CloudAlbum release package in /opt/atl on the lab instance (06 PM-04)
+    - item: preview-direct-https
+      kind: platform
+      reason:
+        zh-CN: 预览使用方案 B 的 Let's Encrypt IP 证书（03 §6.2）；本卡不涉及 tls，保持开启
+        ja: プレビューには方式 B の Let's Encrypt IP 証明書を使います（03 §6.2）。このカードは tls に関係しないため、有効のままにします
+        en: The preview uses the option B Let's Encrypt IP certificate (03 §6.2); this card does not involve tls, so it stays on
   platform: { preview: { directHttps: 'on' } }
-  reason: cost 的 requires 为空；起始状态是 L0 + 实例角色（档位 atl/svc-cost/default）。本地估算在 L0 就在运行
+  reason:
+    zh-CN: cost 的 requires 为空；起始状态是 L0 + 实例角色（档位 atl/svc-cost/default）。本地估算在 L0 就在运行
+    ja: cost の requires は空です。開始状態は L0 ＋インスタンスロールです（プロファイル atl/svc-cost/default）。ローカルの見積もりは L0 の時点ですでに動いています
+    en: cost has no requires; the start state is L0 plus the instance role (profile atl/svc-cost/default). The local estimate is already running at L0
 targetModules:
   - { id: cost, driver: budgets, fromDriver: local,
       params: { ProjectBudgetLimit: '{{ var.projectBudgetLimit }}', AccountBudgetLimit: '{{ var.accountBudgetLimit }}', AlertEmail: '{{ learner.inputs.notify-email }}', EnableBudgetAction: 'false' },
@@ -67,8 +141,18 @@ workstation: { required: true, tools: [aws-cli, node, jq], savingsMode: ok }
 platform:
   consoleLinks: [budgets.home, iam.role]
   accountImpact:
-    - { id: budgets, scope: account, resource: 预算, revert: delete }
-    - { id: cost-allocation-tags, scope: account, resource: 成本分配标签激活状态, revert: keep, note: 不撤销（停用会让按标签的历史分组出现断档） }
+    - { id: budgets, scope: account, resource: { zh-CN: 预算, ja: 予算, en: Budgets }, revert: delete }
+    - id: cost-allocation-tags
+      scope: account
+      resource:
+        zh-CN: 成本分配标签激活状态
+        ja: コスト配分タグの有効化状態
+        en: Cost allocation tag activation
+      revert: keep
+      note:
+        zh-CN: 不撤销（停用会让按标签的历史分组出现断档）
+        ja: 元に戻しません（無効にするとタグ別の履歴の集計に空白ができるため）
+        en: Not reverted (deactivating would leave a gap in the tag-based history)
 provision: { class: A }
 
 platformOps:
@@ -76,38 +160,79 @@ platformOps:
     op: enable
     module: cost
     args: { activateCostAllocationTags: true }
-    title: 激活成本分配标签
+    title:
+      zh-CN: 激活成本分配标签
+      ja: コスト配分タグを有効化
+      en: Activate cost allocation tags
     optional: true
 
 variables:
   projectBudgetLimit:
-    label: 项目预算金额
+    label:
+      zh-CN: 项目预算金额
+      ja: プロジェクト予算の金額
+      en: Project budget amount
     from: input
     pattern: '^[0-9]{1,6}(\.[0-9]{1,2})?$'
-    help: 账单币种的月度金额，由你根据自己的承受能力决定（与前置输入 budget-amounts 相同）；本项目不提供参考价格
+    help:
+      zh-CN: 账单币种的月度金额，由你根据自己的承受能力决定（与前置输入 budget-amounts 相同）；本项目不提供参考价格
+      ja: 請求通貨での月額です。自分が負担できる範囲で決めてください（事前入力 budget-amounts と同じ値）。このプロジェクトは参考価格を提供しません
+      en: A monthly amount in your billing currency that you decide based on what you can afford (the same as the budget-amounts pre-input); this project does not provide reference prices
   accountBudgetLimit:
-    label: 账号预算金额
+    label:
+      zh-CN: 账号预算金额
+      ja: アカウント予算の金額
+      en: Account budget amount
     from: input
     pattern: '^[0-9]{1,6}(\.[0-9]{1,2})?$'
-    help: 兜住没有标签的费用与账号里的其他花费；同样由你决定
-  costTopicArn: { label: cost 主题 ARN, from: derived, fillFrom: stack.cost.EnvCostTopicArn }
+    help:
+      zh-CN: 兜住没有标签的费用与账号里的其他花费；同样由你决定
+      ja: タグのない費用とアカウント内のその他の支出を受け止める予算です。これもあなたが決めます
+      en: Catches untagged costs and any other spend in the account; you decide this one too
+  costTopicArn: { label: { zh-CN: cost 主题 ARN, ja: cost トピックの ARN, en: cost topic ARN }, from: derived, fillFrom: stack.cost.EnvCostTopicArn }
 
 cost:
   currency: USD
   tier: low
-  mainDrivers: [Cost Explorer API 请求（本卡最多一次）, 启用了 Actions 的预算（选做）]
+  mainDrivers:
+    - zh-CN: Cost Explorer API 请求（本卡最多一次）
+      ja: Cost Explorer API のリクエスト（このカードでは最大 1 回）
+      en: Cost Explorer API requests (at most one in this card)
+    - zh-CN: 启用了 Actions 的预算（选做）
+      ja: Actions を有効にした予算（任意）
+      en: Budgets with Actions enabled (optional)
   basis:
-    - { ref: start-profile, note: 实验机 EC2、EBS（根卷与数据卷）、公网 IPv4 }
-    - { ref: workstation, note: 工作台 EC2、EBS、公网 IPv4 }
-    - { key: budget-action, pricingKey: budgets.actions, billing: usage, quantity: 1, unit: Budget-Days, assumedUsagePerHour: 0.04, source: target,
-        optional: true, whenRetained: true, note: 只有选做步骤开启预算动作时才有；每月前两个启用了 Actions 的预算免费（以官方定价为准） }
+    - ref: start-profile
+      note:
+        zh-CN: 实验机 EC2、EBS（根卷与数据卷）、公网 IPv4
+        ja: ラボ用インスタンスの EC2、EBS（ルートボリュームとデータボリューム）、パブリック IPv4
+        en: Lab instance EC2, EBS (root and data volumes) and public IPv4
+    - { ref: workstation, note: { zh-CN: 工作台 EC2、EBS、公网 IPv4, ja: ワークベンチの EC2、EBS、パブリック IPv4, en: "Workbench EC2, EBS and public IPv4" } }
+    - key: budget-action
+      pricingKey: budgets.actions
+      billing: usage
+      quantity: 1
+      unit: Budget-Days
+      assumedUsagePerHour: 0.04
+      source: target
+      optional: true
+      whenRetained: true
+      note:
+        zh-CN: 只有选做步骤开启预算动作时才有；每月前两个启用了 Actions 的预算免费（以官方定价为准）
+        ja: 任意のステップで予算アクションを有効にしたときだけ発生します。Actions を有効にした予算は毎月 2 つまで無料です（正確な料金は公式の料金表を確認してください）
+        en: Only when the optional step turns on a budget action; the first two budgets with Actions each month are free (check the official pricing)
   assumptions:
-    - 普通预算的监控与通知免费；Cost Explorer API 按请求计费，本卡只在步骤 7 手动刷新一次；单价以官方定价为准
+    - zh-CN: 普通预算的监控与通知免费；Cost Explorer API 按请求计费，本卡只在步骤 7 手动刷新一次；单价以官方定价为准
+      ja: 通常の予算の監視と通知は無料です。Cost Explorer API はリクエストごとに課金され、このカードではステップ 7 で 1 回だけ手動で更新します。単価は公式の料金表を確認してください
+      en: Monitoring and notifications for regular budgets are free; the Cost Explorer API is billed per request, and this card only refreshes once, by hand, in step 7; check the official pricing for unit prices
 
 steps:
   - id: orient
     type: observe
-    title: 起始状态：本地计费资源清单（启用即出现，不是账单）
+    title:
+      zh-CN: 起始状态：本地计费资源清单（启用即出现，不是账单）
+      ja: 開始状態：ローカルの課金リソース一覧（有効化した瞬間に現れるが、請求書ではない）
+      en: "Start state: the local list of billed resources (appears instantly, but it is not a bill)"
     manual: manual/10-orient.md
     panel: preview
     estMinutes: 5
@@ -115,9 +240,16 @@ steps:
 
   - id: rates
     type: code
-    title: （选做）抄录单价：注明出处与日期才参与估算
+    title:
+      zh-CN: （选做）抄录单价：注明出处与日期才参与估算
+      ja: （任意）単価を書き写す：出典と日付を明記したものだけが見積もりに使われる
+      en: "(Optional) Copy unit prices: only prices with a source and a date count toward the estimate"
     manual: manual/20-rates.md
-    optional: { reason: 本项目不提供任何默认单价，金额只来自你注明出处的抄录 }
+    optional:
+      reason:
+        zh-CN: 本项目不提供任何默认单价，金额只来自你注明出处的抄录
+        ja: このプロジェクトは既定の単価を一切提供しません。金額はあなたが出典を明記して書き写した単価からだけ計算されます
+        en: This project provides no default prices at all; amounts only come from prices you copied with a stated source
     requires: { steps: [orient] }
     panel: terminal-lab
     estMinutes: 10
@@ -125,7 +257,10 @@ steps:
 
   - id: tags
     type: cli
-    title: 检查成本分配标签是否已激活
+    title:
+      zh-CN: 检查成本分配标签是否已激活
+      ja: コスト配分タグが有効になっているか確認する
+      en: Check whether the cost allocation tags are active
     manual: manual/30-tags.md
     requires: { steps: [orient] }
     panel: terminal-workstation
@@ -135,28 +270,43 @@ steps:
   - id: enable
     type: script
     wire: true
-    title: 接入 Budgets：项目预算、账号预算与 cost 主题
+    title:
+      zh-CN: 接入 Budgets：项目预算、账号预算与 cost 主题
+      ja: Budgets を組み込む：プロジェクト予算、アカウント予算、cost トピック
+      en: "Wire in Budgets: project budget, account budget and the cost topic"
     manual: manual/40-enable.md
     methods: [script]
     requires: { steps: [tags] }
     panel: terminal-workstation
     estMinutes: 10
-    wait: { typicalMinutes: 3, maxMinutes: 15, text: 部署预算与主题，然后到邮箱确认订阅 }
+    wait:
+      typicalMinutes: 3
+      maxMinutes: 15
+      text:
+        zh-CN: 部署预算与主题，然后到邮箱确认订阅
+        ja: 予算とトピックをデプロイしてから、メールボックスでサブスクリプションを確認します
+        en: Deploying the budgets and the topic, then confirming the subscription from your mailbox
     checks: [cost-wired, cost-module-state, budgets-exist]
 
   - id: confirm-subscription
     type: observe
-    title: 在邮箱中确认 cost 主题的订阅
+    title:
+      zh-CN: 在邮箱中确认 cost 主题的订阅
+      ja: メールボックスで cost トピックのサブスクリプションを確認する
+      en: Confirm the cost topic subscription from your mailbox
     manual: manual/50-confirm-subscription.md
     requires: { steps: [enable] }
     panel: preview
     estMinutes: 5
-    wait: { typicalMinutes: 2, maxMinutes: 15, text: 确认邮件可能落在垃圾邮件箱 }
+    wait: { typicalMinutes: 2, maxMinutes: 15, text: { zh-CN: 确认邮件可能落在垃圾邮件箱, ja: 確認メールが迷惑メールフォルダーに入っていることがあります, en: The confirmation email may land in your spam folder } }
     checks: [cost-subscription-confirmed, cost-subscription-manual]
 
   - id: side-by-side
     type: observe
-    title: 并排对照：本地清单（立即）与 Budgets（滞后）
+    title:
+      zh-CN: 并排对照：本地清单（立即）与 Budgets（滞后）
+      ja: 並べて比べる：ローカルの一覧（即時）と Budgets（遅れて反映）
+      en: "Side by side: the local list (instant) and Budgets (delayed)"
     manual: manual/60-side-by-side.md
     requires: { steps: [enable] }
     panel: preview
@@ -165,9 +315,12 @@ steps:
 
   - id: tag-coverage
     type: experiment
-    title: （选做）Cost Explorer：按 Module 标签看“无标签”费用
+    title:
+      zh-CN: （选做）Cost Explorer：按 Module 标签看“无标签”费用
+      ja: （任意）Cost Explorer：Module タグで「タグなし」の費用を見る
+      en: "(Optional) Cost Explorer: look at untagged costs by the Module tag"
     manual: manual/70-tag-coverage.md
-    optional: { reason: Cost Explorer API 按请求计费 }
+    optional: { reason: { zh-CN: Cost Explorer API 按请求计费, ja: Cost Explorer API はリクエストごとに課金されます, en: The Cost Explorer API is billed per request } }
     experiment: { module: cost, id: tag-coverage, label: after }
     requires: { steps: [enable] }
     panel: terminal-workstation
@@ -176,14 +329,27 @@ steps:
 
   - id: budget-action
     type: script
-    title: （选做）预算动作：只作用于金丝雀角色
+    title:
+      zh-CN: （选做）预算动作：只作用于金丝雀角色
+      ja: （任意）予算アクション：カナリアロールにだけ作用させる
+      en: "(Optional) Budget action: only act on a canary role"
     manual: manual/80-budget-action.md
     methods: [script]
-    optional: { reason: 启用了 Actions 的预算超出免费数量后按天计费 }
+    optional:
+      reason:
+        zh-CN: 启用了 Actions 的预算超出免费数量后按天计费
+        ja: Actions を有効にした予算は、無料の数を超えると日単位で課金されます
+        en: Budgets with Actions are billed per day beyond the free number
     requires: { steps: [enable] }
     panel: terminal-workstation
     estMinutes: 8
-    startsBilling: { class: usage, pricingKeys: [budgets.actions], note: 每月前两个启用了 Actions 的预算免费（以官方定价为准） }
+    startsBilling:
+      class: usage
+      pricingKeys: [ budgets.actions ]
+      note:
+        zh-CN: 每月前两个启用了 Actions 的预算免费（以官方定价为准）
+        ja: Actions を有効にした予算は毎月 2 つまで無料です（正確な料金は公式の料金表を確認してください）
+        en: The first two budgets with Actions each month are free (check the official pricing)
     checks: [ { ref: budget-action-canary, required: false } ]
 
 finalChecks:
@@ -210,13 +376,19 @@ experiments:
     corroborateWith: [cost-healthy-or-tag-pending]
 
 quiz: { file: quiz.yaml, draw: 3 }
-badge: { title: 费用护栏, icon: assets/badge.svg }
+badge: { title: { zh-CN: 费用护栏, ja: コストのガードレール, en: Cost guardrails }, icon: assets/badge.svg }
 tracks: [cost-optimized, saa-main]
 
 cleanup:
-  summary: 结束实验后，平台删除本次会话的 cost 栈：两个预算、预算动作、金丝雀角色与 cost 主题（预算是全局资源，回收器在 us-east-1 侧核对）。成本分配标签保持激活，不随卡片停用。平台的 atl-platform-guard 预算不属于本卡，不要修改。
+  summary:
+    zh-CN: 结束实验后，平台删除本次会话的 cost 栈：两个预算、预算动作、金丝雀角色与 cost 主题（预算是全局资源，回收器在 us-east-1 侧核对）。成本分配标签保持激活，不随卡片停用。平台的 atl-platform-guard 预算不属于本卡，不要修改。
+    ja: ラボを終了すると、プラットフォームがこのセッションの cost スタック（2 つの予算、予算アクション、カナリアロール、cost トピック）を削除します（予算はグローバルリソースのため、回収処理は us-east-1 側で照合します）。コスト配分タグは有効のままで、カードとともに無効にはしません。プラットフォームの atl-platform-guard 予算はこのカードのものではないので、変更しないでください。
+    en: "When you end the lab, the platform deletes this session's cost stack: the two budgets, the budget action, the canary role and the cost topic (budgets are global, so the reclaimer checks them on the us-east-1 side). The cost allocation tags stay active and are not deactivated with the card. The platform's atl-platform-guard budget does not belong to this card; do not change it."
   autoReclaim: true
-  dataRisk: [实验机上的 cost-rates.yaml 随实验机删除；想保留抄录的单价，结束前自己复制一份]
+  dataRisk:
+    - zh-CN: 实验机上的 cost-rates.yaml 随实验机删除；想保留抄录的单价，结束前自己复制一份
+      ja: ラボ用インスタンス上の cost-rates.yaml はインスタンスとともに削除されます。書き写した単価を残したい場合は、終了前に自分でコピーしてください
+      en: cost-rates.yaml on the lab instance is deleted with the instance; if you want to keep the prices you copied, make your own copy before you end the lab
   learnerCreatedHints: []
   verify:
     - cost-stack-gone
@@ -224,13 +396,59 @@ cleanup:
 saa:
   domains: [cost]
   topics:
-    - { id: budgets-vs-explorer, title: Budgets、Cost Explorer 与 Cost Anomaly Detection 的分工, domain: cost, relatesTo: side-by-side }
-    - { id: allocation-tags, title: 成本分配标签必须激活、有延迟、不追溯；组织中由管理账号激活, domain: cost, relatesTo: tags }
-    - { id: budget-actions, title: Budgets Actions 可以附加 IAM 策略或 SCP、停止 EC2 / RDS, domain: cost, relatesTo: budget-action }
-    - { id: hourly-resources, title: 识别按小时计费的资源（公网 IPv4、NAT Gateway、Interface Endpoint、RDS）, domain: cost, relatesTo: orient }
+    - id: budgets-vs-explorer
+      title:
+        zh-CN: Budgets、Cost Explorer 与 Cost Anomaly Detection 的分工
+        ja: Budgets、Cost Explorer、Cost Anomaly Detection の役割分担
+        en: How Budgets, Cost Explorer and Cost Anomaly Detection divide the work
+      domain: cost
+      relatesTo: side-by-side
+    - id: allocation-tags
+      title:
+        zh-CN: 成本分配标签必须激活、有延迟、不追溯；组织中由管理账号激活
+        ja: コスト配分タグは有効化が必要で、反映に時間がかかり、過去にさかのぼらない。Organizations では管理アカウントが有効化する
+        en: Cost allocation tags must be activated, take time to apply and are not retroactive; in an organization the management account activates them
+      domain: cost
+      relatesTo: tags
+    - id: budget-actions
+      title:
+        zh-CN: Budgets Actions 可以附加 IAM 策略或 SCP、停止 EC2 / RDS
+        ja: Budgets Actions は IAM ポリシーや SCP のアタッチ、EC2 / RDS の停止ができる
+        en: Budgets Actions can attach IAM policies or SCPs and stop EC2 / RDS
+      domain: cost
+      relatesTo: budget-action
+    - id: hourly-resources
+      title:
+        zh-CN: 识别按小时计费的资源（公网 IPv4、NAT Gateway、Interface Endpoint、RDS）
+        ja: 時間課金のリソース（パブリック IPv4、NAT Gateway、Interface Endpoint、RDS）を見分ける
+        en: Recognize resources billed by the hour (public IPv4, NAT Gateway, interface endpoints, RDS)
+      domain: cost
+      relatesTo: orient
   confusables:
-    - { a: AWS Budgets, b: CloudWatch 账单告警, rule: Budgets 能按标签筛选、支持预测告警与 Actions；EstimatedCharges 账单告警只在 us-east-1、只看总额与按服务的估算值 }
-    - { a: 实际花费告警, b: 预测花费告警, rule: 预测需要约 5 周的用量历史才会生成（以官方为准）；新账号前几周只能靠实际花费阈值 }
+    - a:
+        zh-CN: AWS Budgets
+        ja: AWS Budgets
+        en: AWS Budgets
+      b:
+        zh-CN: CloudWatch 账单告警
+        ja: CloudWatch の請求アラーム
+        en: CloudWatch billing alarms
+      rule:
+        zh-CN: Budgets 能按标签筛选、支持预测告警与 Actions；EstimatedCharges 账单告警只在 us-east-1、只看总额与按服务的估算值
+        ja: Budgets はタグで絞り込め、予測アラートと Actions に対応します。EstimatedCharges の請求アラームは us-east-1 だけで、合計額とサービス別の見積もりしか見られません
+        en: Budgets can filter by tag and supports forecast alerts and Actions; EstimatedCharges billing alarms exist only in us-east-1 and only see the total and per-service estimates
+    - a:
+        zh-CN: 实际花费告警
+        ja: 実際の支出のアラート
+        en: Actual spend alerts
+      b:
+        zh-CN: 预测花费告警
+        ja: 予測支出のアラート
+        en: Forecasted spend alerts
+      rule:
+        zh-CN: 预测需要约 5 周的用量历史才会生成（以官方为准）；新账号前几周只能靠实际花费阈值
+        ja: 予測は約 5 週間分の使用履歴がないと作成されません（正確な条件は公式ドキュメントを確認してください）。新しいアカウントの最初の数週間は、実際の支出のしきい値だけが頼りです
+        en: Forecasts need about 5 weeks of usage history before they appear (see the official docs); for the first weeks of a new account, only actual spend thresholds work
 
 tags: [cost, budgets, cost-explorer, tags, governance]
 

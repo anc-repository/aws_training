@@ -6,14 +6,24 @@ questions:
     type: single
     kind: scenario
     services: [elasticache, ec2]
-    stem: Auto Scaling 组中的 Web 实例把会话保存在本机内存里，缩容后用户被随机登出。要以最低延迟解决，应该怎么做？
+    stem:
+      zh-CN: Auto Scaling 组中的 Web 实例把会话保存在本机内存里，缩容后用户被随机登出。要以最低延迟解决，应该怎么做？
+      ja: Auto Scaling グループの Web インスタンスがセッションをローカルメモリに保存しており、スケールインするとユーザーがランダムにサインアウトされます。最小のレイテンシーで解決するにはどうすべきですか？
+      en: Web instances in an Auto Scaling group keep sessions in local memory, and users are signed out at random after a scale-in. What is the lowest-latency fix?
     options:
-      - { id: a, text: 在 ALB 上开启粘性会话 }
-      - { id: b, text: 把会话放进 Amazon ElastiCache（Valkey / Redis OSS） }
-      - { id: c, text: 把会话写进每台实例的 EBS 卷 }
-      - { id: d, text: 把会话写进 S3 }
+      - { id: a, text: { zh-CN: 在 ALB 上开启粘性会话, ja: ALB でスティッキーセッションを有効にする, en: Turn on sticky sessions on the ALB } }
+      - id: b
+        text:
+          zh-CN: 把会话放进 Amazon ElastiCache（Valkey / Redis OSS）
+          ja: セッションを Amazon ElastiCache（Valkey / Redis OSS）に保存する
+          en: Store sessions in Amazon ElastiCache (Valkey / Redis OSS)
+      - { id: c, text: { zh-CN: 把会话写进每台实例的 EBS 卷, ja: セッションを各インスタンスの EBS ボリュームに書き込む, en: Write sessions to each instance's EBS volume } }
+      - { id: d, text: { zh-CN: 把会话写进 S3, ja: セッションを S3 に書き込む, en: Write sessions to S3 } }
     answer: [b]
-    explain: 会话外置到共享的内存存储，实例才是无状态的。粘性会话在缩容或实例故障时仍会丢会话；EBS 不共享；S3 延迟高。
+    explain:
+      zh-CN: 会话外置到共享的内存存储，实例才是无状态的。粘性会话在缩容或实例故障时仍会丢会话；EBS 不共享；S3 延迟高。
+      ja: セッションを共有のインメモリストアに外出しして初めて、インスタンスはステートレスになります。スティッキーセッションではスケールインやインスタンスの障害でセッションが失われます。EBS は共有されず、S3 はレイテンシーが高すぎます。
+      en: Only moving sessions out to a shared in-memory store makes the instances stateless. Sticky sessions still lose sessions on scale-in or instance failure; EBS is not shared; S3 has high latency.
     relatesTo: after
     difficulty: 1
   - id: cache-engines
@@ -21,14 +31,20 @@ questions:
     type: multi
     kind: concept
     services: [elasticache]
-    stem: 在自行设计的节点式集群（非 Serverless）中，与 ElastiCache for Memcached 相比，只有 Valkey / Redis OSS 引擎提供的能力是哪两项？
+    stem:
+      zh-CN: 在自行设计的节点式集群（非 Serverless）中，与 ElastiCache for Memcached 相比，只有 Valkey / Redis OSS 引擎提供的能力是哪两项？
+      ja: 自分で設計するノードベースのクラスター（Serverless ではない）で、ElastiCache for Memcached と比べて Valkey / Redis OSS エンジンだけが提供する機能を 2 つ選んでください。
+      en: In a self-designed node-based cluster (not Serverless), which two capabilities does only the Valkey / Redis OSS engine offer compared with ElastiCache for Memcached?
     options:
-      - { id: a, text: 副本与 Multi-AZ 自动故障转移 }
-      - { id: b, text: 多线程的简单键值缓存 }
-      - { id: c, text: 备份与恢复（快照） }
-      - { id: d, text: 在 VPC 内通过安全组控制访问 }
+      - { id: a, text: { zh-CN: 副本与 Multi-AZ 自动故障转移, ja: レプリカとマルチ AZ の自動フェイルオーバー, en: Replicas and Multi-AZ automatic failover } }
+      - { id: b, text: { zh-CN: 多线程的简单键值缓存, ja: マルチスレッドのシンプルなキーバリューキャッシュ, en: A simple multi-threaded key-value cache } }
+      - { id: c, text: { zh-CN: 备份与恢复（快照）, ja: バックアップと復元（スナップショット）, en: Backup and restore (snapshots) } }
+      - { id: d, text: { zh-CN: 在 VPC 内通过安全组控制访问, ja: VPC 内でセキュリティグループによってアクセスを制御する, en: Access control with security groups inside a VPC } }
     answer: [a, c]
-    explain: 节点式 Memcached 是多线程、无复制、无持久化的纯缓存；两种引擎都部署在 VPC 内、都用安全组控制。
+    explain:
+      zh-CN: 节点式 Memcached 是多线程、无复制、无持久化的纯缓存；两种引擎都部署在 VPC 内、都用安全组控制。
+      ja: ノードベースの Memcached はマルチスレッドで、レプリケーションも永続化もない純粋なキャッシュです。どちらのエンジンも VPC 内にデプロイされ、セキュリティグループで制御されます。
+      en: Node-based Memcached is a pure multi-threaded cache with no replication and no persistence; both engines are deployed in a VPC and controlled with security groups.
     relatesTo: enable
     difficulty: 2
   - id: cache-dax
@@ -36,27 +52,43 @@ questions:
     type: single
     kind: scenario
     services: [dynamodb]
-    stem: 一个读多写少的 DynamoDB 表需要微秒级读延迟，并且希望不改写应用的缓存逻辑。应选择？
+    stem:
+      zh-CN: 一个读多写少的 DynamoDB 表需要微秒级读延迟，并且希望不改写应用的缓存逻辑。应选择？
+      ja: 読み取りが多く書き込みが少ない DynamoDB テーブルで、マイクロ秒単位の読み取りレイテンシーが必要です。アプリのキャッシュロジックは書き換えたくありません。何を選ぶべきですか？
+      en: A read-heavy, write-light DynamoDB table needs microsecond read latency, and the team does not want to rewrite the app's caching logic. What should it choose?
     options:
-      - { id: a, text: ElastiCache for Valkey 旁路缓存 }
-      - { id: b, text: DynamoDB Accelerator（DAX） }
-      - { id: c, text: DynamoDB 全局表 }
-      - { id: d, text: 提高预置的读容量 }
+      - { id: a, text: { zh-CN: ElastiCache for Valkey 旁路缓存, ja: ElastiCache for Valkey によるキャッシュアサイド, en: Cache-aside with ElastiCache for Valkey } }
+      - { id: b, text: { zh-CN: DynamoDB Accelerator（DAX）, ja: DynamoDB Accelerator（DAX）, en: DynamoDB Accelerator (DAX) } }
+      - { id: c, text: { zh-CN: DynamoDB 全局表, ja: DynamoDB グローバルテーブル, en: DynamoDB global tables } }
+      - { id: d, text: { zh-CN: 提高预置的读容量, ja: プロビジョニングされた読み込みキャパシティを増やす, en: Increase the provisioned read capacity } }
     answer: [b]
-    explain: DAX 是 DynamoDB 专用、API 兼容的直通缓存；ElastiCache 需要应用自己实现缓存逻辑；全局表解决多区域，不解决延迟到微秒。
+    explain:
+      zh-CN: DAX 是 DynamoDB 专用、API 兼容的直通缓存；ElastiCache 需要应用自己实现缓存逻辑；全局表解决多区域，不解决延迟到微秒。
+      ja: DAX は DynamoDB 専用で API 互換のリードスルー／ライトスルーキャッシュです。ElastiCache ではキャッシュのロジックをアプリ自身が実装する必要があります。グローバルテーブルはマルチリージョンの課題を解決するもので、レイテンシーをマイクロ秒にはしません。
+      en: DAX is a DynamoDB-only, API-compatible read-through/write-through cache; with ElastiCache the app has to implement the caching logic itself; global tables solve multi-Region needs, not microsecond latency.
     difficulty: 1
   - id: cache-sg-source
     domain: secure
     type: single
     kind: scenario
     services: [elasticache, vpc]
-    stem: 只允许应用服务器访问 ElastiCache，且应用服务器会随 Auto Scaling 增减、IP 不固定。缓存安全组的入站规则应该怎么写？
+    stem:
+      zh-CN: 只允许应用服务器访问 ElastiCache，且应用服务器会随 Auto Scaling 增减、IP 不固定。缓存安全组的入站规则应该怎么写？
+      ja: ElastiCache へのアクセスをアプリサーバーだけに許可したいです。アプリサーバーは Auto Scaling で増減し、IP は固定されていません。キャッシュのセキュリティグループのインバウンドルールはどう書くべきですか？
+      en: Only the app servers should be able to reach ElastiCache, and they scale in and out with Auto Scaling, so their IPs change. How should the cache security group's inbound rule be written?
     options:
-      - { id: a, text: 来源为 0.0.0.0/0，依靠 AUTH 令牌保护 }
-      - { id: b, text: 来源为应用服务器所在子网的 CIDR }
-      - { id: c, text: 来源为应用服务器的安全组 }
-      - { id: d, text: 给缓存分配公网端点并用 IAM 策略限制 }
+      - { id: a, text: { zh-CN: 来源为 0.0.0.0/0，依靠 AUTH 令牌保护, ja: ソースを 0.0.0.0/0 にし、AUTH トークンで保護する, en: "Source 0.0.0.0/0, protected by an AUTH token" } }
+      - { id: b, text: { zh-CN: 来源为应用服务器所在子网的 CIDR, ja: ソースをアプリサーバーがあるサブネットの CIDR にする, en: Source is the CIDR of the app servers' subnet } }
+      - { id: c, text: { zh-CN: 来源为应用服务器的安全组, ja: ソースをアプリサーバーのセキュリティグループにする, en: Source is the app servers' security group } }
+      - id: d
+        text:
+          zh-CN: 给缓存分配公网端点并用 IAM 策略限制
+          ja: キャッシュにパブリックエンドポイントを割り当て、IAM ポリシーで制限する
+          en: Give the cache a public endpoint and restrict it with an IAM policy
     answer: [c]
-    explain: 安全组可以引用另一个安全组，只有挂着该安全组的网卡被放行，与 IP 无关；子网 CIDR 会放行同子网的其他资源；ElastiCache 没有公网端点。
+    explain:
+      zh-CN: 安全组可以引用另一个安全组，只有挂着该安全组的网卡被放行，与 IP 无关；子网 CIDR 会放行同子网的其他资源；ElastiCache 没有公网端点。
+      ja: セキュリティグループは別のセキュリティグループを参照でき、そのセキュリティグループが付いたネットワークインターフェイスだけが IP に関係なく許可されます。サブネットの CIDR では同じサブネットのほかのリソースも許可されてしまいます。ElastiCache にはパブリックエンドポイントがありません。
+      en: A security group can reference another security group, which allows only network interfaces carrying that group, regardless of IP; a subnet CIDR would also allow other resources in the same subnet; ElastiCache has no public endpoint.
     relatesTo: inspect
     difficulty: 1

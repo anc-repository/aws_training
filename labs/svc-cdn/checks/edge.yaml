@@ -1,7 +1,10 @@
 # 边缘命中与认证接口不缓存（04 §11.3）：平台自己发请求，并用源站日志、对端 IP 段、证书 SAN 佐证
 checks:
   - id: edge-cache-observed
-    title: 经 CloudFront 的同一请求先 Miss 后 Hit，命中的那次没有回源
+    title:
+      zh-CN: 经 CloudFront 的同一请求先 Miss 后 Hit，命中的那次没有回源
+      ja: CloudFront 経由の同じリクエストが Miss の後に Hit になり、ヒットしたほうはオリジンに戻らない
+      en: The same request through CloudFront is a Miss and then a Hit, and the hit never reaches the origin
     type: http-header
     from: platform
     target: cdn
@@ -14,14 +17,14 @@ checks:
     wait: { typicalMinutes: 3, maxMinutes: 15 }
     drift: { policy: must-hold }
     assert:
-      - { path: $.first.status, op: eq, value: 200, label: 第 1 次状态码 }
-      - { path: $.first.headers.x-amz-cf-id, op: exists, label: 第 1 次带 X-Amz-Cf-Id }
-      - { path: $.first.headers.x-cache, op: icontains, value: 'miss from cloudfront', label: 第 1 次 X-Cache }
-      - { path: $.first.pathSegments.entry, op: startsWith, value: cloudfront, label: 入口链 }
-      - { path: $.last.status, op: eq, value: 200, label: 第 2 次状态码 }
-      - { path: $.last.headers.x-cache, op: icontains, value: 'hit from cloudfront', label: 第 2 次 X-Cache }
-      - { path: $.last.headers.age, op: exists, label: 第 2 次带 Age }
-      - { path: $.last.json.now, op: eq, value: '{{$.first.json.now}}', label: 两次时间戳相同（同一份缓存） }
+      - { path: $.first.status, op: eq, value: 200, label: { zh-CN: 第 1 次状态码, ja: 1 回目のステータスコード, en: 1st status code } }
+      - { path: $.first.headers.x-amz-cf-id, op: exists, label: { zh-CN: 第 1 次带 X-Amz-Cf-Id, ja: 1 回目に X-Amz-Cf-Id あり, en: 1st has X-Amz-Cf-Id } }
+      - { path: $.first.headers.x-cache, op: icontains, value: 'miss from cloudfront', label: { zh-CN: 第 1 次 X-Cache, ja: 1 回目の X-Cache, en: 1st X-Cache } }
+      - { path: $.first.pathSegments.entry, op: startsWith, value: cloudfront, label: { zh-CN: 入口链, ja: 入口チェーン, en: Entry chain } }
+      - { path: $.last.status, op: eq, value: 200, label: { zh-CN: 第 2 次状态码, ja: 2 回目のステータスコード, en: 2nd status code } }
+      - { path: $.last.headers.x-cache, op: icontains, value: 'hit from cloudfront', label: { zh-CN: 第 2 次 X-Cache, ja: 2 回目の X-Cache, en: 2nd X-Cache } }
+      - { path: $.last.headers.age, op: exists, label: { zh-CN: 第 2 次带 Age, ja: 2 回目に Age あり, en: 2nd has Age } }
+      - { path: $.last.json.now, op: eq, value: '{{$.first.json.now}}', label: { zh-CN: 两次时间戳相同（同一份缓存）, ja: 2 回のタイムスタンプが同じ（同じキャッシュ）, en: Same timestamp both times (same cached copy) } }
     corroborate:
       - id: edge-network
         via: builtin
@@ -39,23 +42,29 @@ checks:
           nonce: '{{ sample.nonce }}'
           cfIds: ['{{$.first.headers.x-amz-cf-id}}', '{{$.last.headers.x-amz-cf-id}}']
         assert:
-          - { path: $.nonce.count, op: eq, value: 1, label: 源站收到带本次 nonce 的请求数 }
-          - { path: '$.nonce.ports[0]', op: eq, value: 8080, label: 回源端口 }
-          - { path: '$.cfIds[1].seen', op: eq, value: false, label: 命中的那次没有回源 }
-          - { path: '$.cfIds[0].seen', op: eq, value: true, label: Miss 那次的 Cf-Id 出现在源站日志, severity: warn }
+          - { path: $.nonce.count, op: eq, value: 1, label: { zh-CN: 源站收到带本次 nonce 的请求数, ja: 今回の nonce 付きでオリジンが受けたリクエスト数, en: Requests with this nonce received by the origin } }
+          - { path: '$.nonce.ports[0]', op: eq, value: 8080, label: { zh-CN: 回源端口, ja: オリジンへのリクエストのポート, en: Origin request port } }
+          - { path: '$.cfIds[1].seen', op: eq, value: false, label: { zh-CN: 命中的那次没有回源, ja: ヒットしたほうはオリジンに戻っていない, en: The hit did not reach the origin } }
+          - { path: '$.cfIds[0].seen', op: eq, value: true, label: { zh-CN: Miss 那次的 Cf-Id 出现在源站日志, ja: Miss のときの Cf-Id がオリジンのログにある, en: The Miss's Cf-Id is in the origin log }, severity: warn }
       - id: origin-clean
         via: local
         checkId: http-probe
         args: { target: self, path: '/api/public/now?atlprobe={{ sample.nonce }}-direct', method: GET }
         assert:
-          - { path: '$.responses[0].headers.x-amz-cf-id', op: absent, label: 直连响应不带 X-Amz-Cf-Id }
-          - { path: '$.responses[0].headers.x-cache', op: absent, label: 直连响应不带 X-Cache }
-    explain: 平台自己请求本会话分配的域名两次，再到源站日志里核对：nonce 只出现一次，说明第二次由边缘返回。
+          - { path: '$.responses[0].headers.x-amz-cf-id', op: absent, label: { zh-CN: 直连响应不带 X-Amz-Cf-Id, ja: 直接アクセスのレスポンスに X-Amz-Cf-Id がない, en: Direct response has no X-Amz-Cf-Id } }
+          - { path: '$.responses[0].headers.x-cache', op: absent, label: { zh-CN: 直连响应不带 X-Cache, ja: 直接アクセスのレスポンスに X-Cache がない, en: Direct response has no X-Cache } }
+    explain:
+      zh-CN: 平台自己请求本会话分配的域名两次，再到源站日志里核对：nonce 只出现一次，说明第二次由边缘返回。
+      ja: プラットフォーム自身がこのセッションのディストリビューションのドメインに 2 回リクエストし、オリジンのログと照合します。nonce が 1 回しか現れなければ、2 回目はエッジから返されたことになります。
+      en: "The platform itself requests this session's distribution domain twice and then checks the origin log: if the nonce appears only once, the second response came from the edge."
     reproduce: { run: 'curl -sI "https://{{ var.cdnDomain }}/api/public/now?atlprobe=$(date +%s)"', runsOn: workstation }
     pitfalls: [micro-cache-missing, spoofed-headers]
 
   - id: api-not-cached
-    title: 认证类接口经 CloudFront 两次都不命中缓存
+    title:
+      zh-CN: 认证类接口经 CloudFront 两次都不命中缓存
+      ja: 認証が必要な API は CloudFront 経由で 2 回ともキャッシュにヒットしない
+      en: Authenticated APIs miss the cache both times through CloudFront
     type: http-header
     from: platform
     target: cdn
@@ -66,18 +75,57 @@ checks:
     dependsOn: [distribution-deployed]
     drift: { policy: must-hold }
     assert:
-      - { path: $.first.headers.cache-control, op: icontains, value: no-store, label: 源站声明不可缓存 }
-      - { path: $.first.headers.x-cache, op: icontains, value: 'miss from cloudfront', label: 第 1 次 X-Cache }
-      - { path: $.last.headers.x-cache, op: icontains, value: 'miss from cloudfront', label: 第 2 次 X-Cache }
-      - { path: $.last.json.now, op: neq, value: '{{$.first.json.now}}', label: 两次时间戳不同 }
-    explain: 个性化 API 必须放在不缓存的行为里；探测端点代表“需要登录的接口”，两次都应回源（一次性探测令牌由引擎自动取得）。
+      - { path: $.first.headers.cache-control, op: icontains, value: no-store, label: { zh-CN: 源站声明不可缓存, ja: オリジンがキャッシュ不可を宣言, en: Origin declares no caching } }
+      - { path: $.first.headers.x-cache, op: icontains, value: 'miss from cloudfront', label: { zh-CN: 第 1 次 X-Cache, ja: 1 回目の X-Cache, en: 1st X-Cache } }
+      - { path: $.last.headers.x-cache, op: icontains, value: 'miss from cloudfront', label: { zh-CN: 第 2 次 X-Cache, ja: 2 回目の X-Cache, en: 2nd X-Cache } }
+      - { path: $.last.json.now, op: neq, value: '{{$.first.json.now}}', label: { zh-CN: 两次时间戳不同, ja: 2 回のタイムスタンプが異なる, en: Different timestamps } }
+    explain:
+      zh-CN: 个性化 API 必须放在不缓存的行为里；探测端点代表“需要登录的接口”，两次都应回源（一次性探测令牌由引擎自动取得）。
+      ja: 個人ごとの API はキャッシュしないビヘイビアに置く必要があります。プローブ用エンドポイントは「ログインが必要な API」の代表で、2 回ともオリジンに戻るはずです（使い捨てのプローブトークンはエンジンが自動で取得します）。
+      en: Personalized APIs must sit in a behavior that does not cache. The probe endpoint stands in for "an API that needs login", so both requests should reach the origin (the engine fetches the one-time probe token automatically).
     reproduce: { run: 'curl -sI "https://{{ var.cdnDomain }}/api/lab/probe/now" | grep -iE "^(x-cache|cache-control):"', runsOn: workstation }
     pitfalls: [api-in-cached-behavior]
 
 pitfalls:
-  - { id: micro-cache-missing, title: /api/public/* 没有微缓存, match: [ { checkId: edge-cache-observed, assertionLabel: 第 2 次 X-Cache } ],
-      cause: 请求落进了 /api/*（CachingDisabled）行为，没有 /api/public/* 的微缓存行为, fix: 重新执行 scripts/module enable cdn，让模板补齐 cloudalbum-<env>-api-micro 缓存策略 }
-  - { id: spoofed-headers, title: 源站自己写出了 CDN 专属响应头, match: [ { checkId: edge-cache-observed, errorCode: CORROBORATION_FAILED } ],
-      cause: 源站 Nginx 自行添加了 X-Cache / X-Amz-Cf-Id，或两次请求都回源了, fix: 删除 Nginx 中相关的 add_header；结果按 SPOOF_SUSPECTED 记录 }
-  - { id: api-in-cached-behavior, title: 认证接口被缓存, match: [ { checkId: api-not-cached, assertionLabel: 第 2 次 X-Cache } ],
-      cause: 认证类接口被放进了会缓存的行为（个性化数据会串号）, fix: 检查 /api/* 行为是否为 CachingDisabled；不要在控制台修改模块管理的分配 }
+  - id: micro-cache-missing
+    title:
+      zh-CN: /api/public/* 没有微缓存
+      ja: /api/public/* にマイクロキャッシュがない
+      en: No micro-cache for /api/public/*
+    match: [ { checkId: edge-cache-observed, assertionLabel: 第 2 次 X-Cache } ]
+    cause:
+      zh-CN: 请求落进了 /api/*（CachingDisabled）行为，没有 /api/public/* 的微缓存行为
+      ja: リクエストが /api/*（CachingDisabled）のビヘイビアに入っており、/api/public/* のマイクロキャッシュ用ビヘイビアがありません
+      en: The request fell into the /api/* (CachingDisabled) behavior; there is no micro-cache behavior for /api/public/*
+    fix:
+      zh-CN: 重新执行 scripts/module enable cdn，让模板补齐 cloudalbum-<env>-api-micro 缓存策略
+      ja: scripts/module enable cdn を再実行し、テンプレートに cloudalbum-<env>-api-micro キャッシュポリシーを補わせてください
+      en: Run scripts/module enable cdn again so the template adds the cloudalbum-<env>-api-micro cache policy
+  - id: spoofed-headers
+    title:
+      zh-CN: 源站自己写出了 CDN 专属响应头
+      ja: オリジン自身が CDN 専用のレスポンスヘッダーを書いている
+      en: The origin writes CDN-only response headers itself
+    match: [ { checkId: edge-cache-observed, errorCode: CORROBORATION_FAILED } ]
+    cause:
+      zh-CN: 源站 Nginx 自行添加了 X-Cache / X-Amz-Cf-Id，或两次请求都回源了
+      ja: オリジンの Nginx が X-Cache や X-Amz-Cf-Id を自分で付けているか、2 回ともオリジンに戻っています
+      en: Nginx on the origin adds X-Cache / X-Amz-Cf-Id itself, or both requests reached the origin
+    fix:
+      zh-CN: 删除 Nginx 中相关的 add_header；结果按 SPOOF_SUSPECTED 记录
+      ja: Nginx から該当する add_header を削除してください。結果は SPOOF_SUSPECTED として記録されます
+      en: Remove the add_header lines in question from Nginx; the result is recorded as SPOOF_SUSPECTED
+  - id: api-in-cached-behavior
+    title:
+      zh-CN: 认证接口被缓存
+      ja: 認証が必要な API がキャッシュされている
+      en: An authenticated API is cached
+    match: [ { checkId: api-not-cached, assertionLabel: 第 2 次 X-Cache } ]
+    cause:
+      zh-CN: 认证类接口被放进了会缓存的行为（个性化数据会串号）
+      ja: 認証が必要な API がキャッシュするビヘイビアに入っています（個人データが別のユーザーに返ってしまいます）
+      en: An authenticated API was put in a caching behavior, so one user's data can be served to another
+    fix:
+      zh-CN: 检查 /api/* 行为是否为 CachingDisabled；不要在控制台修改模块管理的分配
+      ja: /api/* のビヘイビアが CachingDisabled になっているか確認してください。モジュールが管理するディストリビューションをコンソールで変更しないでください
+      en: Check that the /api/* behavior uses CachingDisabled; do not change the module-managed distribution in the console

@@ -10,44 +10,116 @@ id: svc-iam
 kind: service
 version: 1.0.0
 status: beta
-service: AWS IAM
-function: 服务器访问 AWS 的凭证
-title: AWS IAM：服务器访问 AWS 的凭证
-subtitle: 应用不用凭证 → 实例角色的临时凭证
-summary: 让应用第一次拥有 AWS 身份：比较“不用凭证”与“实例角色临时凭证”，看清 IMDSv2、ASIA 临时密钥与 CloudTrail 中的 AssumedRole。
-story: |
-  L0 的应用不调用任何 AWS API。从这张卡开始，应用通过实例配置文件从 IMDSv2 取得小时级、自动轮换、不落盘的临时凭证，
-  其他模块才能调用 AWS。反面教材是把长期访问密钥（AKIA）写在磁盘上：它永不过期，会随快照和备份扩散。
+service:
+  zh-CN: AWS IAM
+  ja: AWS IAM
+  en: AWS IAM
+function:
+  zh-CN: 服务器访问 AWS 的凭证
+  ja: サーバーが AWS にアクセスするための認証情報
+  en: Credentials for servers to access AWS
+title:
+  zh-CN: AWS IAM：服务器访问 AWS 的凭证
+  ja: AWS IAM：サーバーが AWS にアクセスするための認証情報
+  en: "AWS IAM: credentials for servers to access AWS"
+subtitle:
+  zh-CN: 应用不用凭证 → 实例角色的临时凭证
+  ja: アプリが認証情報を使わない → インスタンスロールの一時的な認証情報
+  en: App uses no credentials → temporary credentials from the instance role
+summary:
+  zh-CN: 让应用第一次拥有 AWS 身份：比较“不用凭证”与“实例角色临时凭证”，看清 IMDSv2、ASIA 临时密钥与 CloudTrail 中的 AssumedRole。
+  ja: アプリに初めて AWS の ID を持たせます。「認証情報を使わない」と「インスタンスロールの一時的な認証情報」を比べ、IMDSv2、ASIA で始まる一時的なキー、CloudTrail の AssumedRole を確認します。
+  en: 'Give the app its first AWS identity: compare "no credentials" with "temporary credentials from the instance role", and look at IMDSv2, ASIA temporary keys and AssumedRole in CloudTrail.'
+story:
+  zh-CN: |
+    L0 的应用不调用任何 AWS API。从这张卡开始，应用通过实例配置文件从 IMDSv2 取得小时级、自动轮换、不落盘的临时凭证，
+    其他模块才能调用 AWS。反面教材是把长期访问密钥（AKIA）写在磁盘上：它永不过期，会随快照和备份扩散。
+  ja: |
+    L0 のアプリは AWS API を一切呼び出しません。このカードから、アプリはインスタンスプロファイルを通じて IMDSv2 から一時的な認証情報を取得します。有効期間は時間単位で、自動でローテーションされ、ディスクには書かれません。
+    これがあって初めて、ほかのモジュールが AWS を呼び出せるようになります。悪い例は長期のアクセスキー（AKIA）をディスクに書くことで、期限切れにならず、スナップショットやバックアップとともに広がってしまいます。
+  en: |
+    At L0 the app calls no AWS API at all. From this card on, the app gets temporary credentials from IMDSv2 through the instance profile: valid for hours, rotated automatically and never written to disk —
+    which is what lets the other modules call AWS. The counter-example is a long-term access key (AKIA) written to disk: it never expires and spreads with every snapshot and backup.
 objectives:
-  - { text: 比较实例配置文件与长期访问密钥；区分 AKIA 与 ASIA, domain: secure, relatesTo: whoami }
-  - { text: 理解“最小权限随模块增减”：每个模块一条客户托管策略, domain: secure, relatesTo: enable }
-  - { text: 说清 IMDSv2 如何挡住只能发 GET 的 SSRF, domain: secure, relatesTo: imds }
-  - { text: 读懂 CloudTrail 中的 userIdentity, domain: secure, relatesTo: cloudtrail }
+  - text:
+      zh-CN: 比较实例配置文件与长期访问密钥；区分 AKIA 与 ASIA
+      ja: インスタンスプロファイルと長期のアクセスキーを比べ、AKIA と ASIA を区別する
+      en: Compare instance profiles with long-term access keys, and tell AKIA from ASIA
+    domain: secure
+    relatesTo: whoami
+  - text:
+      zh-CN: 理解“最小权限随模块增减”：每个模块一条客户托管策略
+      ja: 「最小権限はモジュールとともに増減する」ことを理解する：モジュールごとにカスタマー管理ポリシーが 1 つ
+      en: "Understand least privilege that grows and shrinks with modules: one customer managed policy per module"
+    domain: secure
+    relatesTo: enable
+  - text:
+      zh-CN: 说清 IMDSv2 如何挡住只能发 GET 的 SSRF
+      ja: GET しか送れない SSRF を IMDSv2 がどう防ぐかを説明できる
+      en: Explain how IMDSv2 stops an SSRF that can only send GET requests
+    domain: secure
+    relatesTo: imds
+  - { text: { zh-CN: 读懂 CloudTrail 中的 userIdentity, ja: CloudTrail の userIdentity を読み解く, en: Read userIdentity in CloudTrail }, domain: secure, relatesTo: cloudtrail }
 difficulty: beginner
 estimatedMinutes: 60
 timeLimitMinutes: 90
 extensions: { maxCount: 2, minutesEach: 30 }
-retain: { allowed: true, maxHours: 24, reason: IAM、STS 与 CloudTrail 事件历史查询不收费；保留后可以继续其他需要实例角色的卡片 }
+retain:
+  allowed: true
+  maxHours: 24
+  reason:
+    zh-CN: IAM、STS 与 CloudTrail 事件历史查询不收费；保留后可以继续其他需要实例角色的卡片
+    ja: IAM、STS、CloudTrail のイベント履歴の照会は無料です。保持すれば、インスタンスロールが必要なほかのカードに続けて進めます
+    en: IAM, STS and CloudTrail event history lookups are free; if you keep the environment, you can go on to other cards that need the instance role
 regions:
   supported: [ap-northeast-1]
 services:
-  - { id: iam, name: AWS IAM（角色、实例配置文件、客户托管策略）, role: primary, module: iam }
-  - { id: sts, name: AWS STS（临时凭证、GetCallerIdentity）, role: observed }
-  - { id: cloudtrail, name: AWS CloudTrail（事件历史，只读）, role: observed }
-  - { id: ec2, name: Amazon EC2（IMDSv2）, role: observed, module: ec2 }
+  - id: iam
+    name:
+      zh-CN: AWS IAM（角色、实例配置文件、客户托管策略）
+      ja: AWS IAM（ロール、インスタンスプロファイル、カスタマー管理ポリシー）
+      en: AWS IAM (roles, instance profiles, customer managed policies)
+    role: primary
+    module: iam
+  - id: sts
+    name:
+      zh-CN: AWS STS（临时凭证、GetCallerIdentity）
+      ja: AWS STS（一時的な認証情報、GetCallerIdentity）
+      en: AWS STS (temporary credentials, GetCallerIdentity)
+    role: observed
+  - { id: cloudtrail, name: { zh-CN: AWS CloudTrail（事件历史，只读）, ja: AWS CloudTrail（イベント履歴、読み取り専用）, en: "AWS CloudTrail (event history, read-only)" }, role: observed }
+  - { id: ec2, name: { zh-CN: Amazon EC2（IMDSv2）, ja: Amazon EC2（IMDSv2）, en: Amazon EC2 (IMDSv2) }, role: observed, module: ec2 }
 modules: { target: [iam], start: [], context: [], related: [storage, queue, secrets, kms] }
 prerequisites:
   cards:
     - { id: svc-ec2, kind: soft }
-  knowledge: [AWS CLI 的基本用法]
+  knowledge: [{ zh-CN: AWS CLI 的基本用法, ja: AWS CLI の基本的な使い方, en: Basic use of the AWS CLI }]
 
 startProfile:
   provisions:
-    - { item: mgmt-channel, kind: platform, reason: 实验机从一开始就挂着只含 AmazonSSMManagedInstanceCore 的 CloudAlbumAppRole（平台管理通道）；本卡的“没有”是应用 IAM_CREDENTIALS=none、根本不读它 }
-    - { item: workstation, kind: platform, reason: 每个会话一台工作台，用于运行 scripts/module、AWS CLI 与对比实验 }
-    - { item: preview-direct-https, kind: platform, reason: 预览使用方案 B 的 Let's Encrypt IP 证书；本卡不涉及 tls，保持开启 }
+    - item: mgmt-channel
+      kind: platform
+      reason:
+        zh-CN: 实验机从一开始就挂着只含 AmazonSSMManagedInstanceCore 的 CloudAlbumAppRole（平台管理通道）；本卡的“没有”是应用 IAM_CREDENTIALS=none、根本不读它
+        ja: ラボ用インスタンスには最初から AmazonSSMManagedInstanceCore だけを含む CloudAlbumAppRole（プラットフォームの管理チャネル）が付いています。このカードの「なし」とは、アプリが IAM_CREDENTIALS=none でこのロールをまったく読まないことを指します
+        en: The lab instance carries CloudAlbumAppRole with only AmazonSSMManagedInstanceCore (the platform management channel) from the start; "without" in this card means the app runs with IAM_CREDENTIALS=none and never reads it
+    - item: workstation
+      kind: platform
+      reason:
+        zh-CN: 每个会话一台工作台，用于运行 scripts/module、AWS CLI 与对比实验
+        ja: セッションごとに 1 台のワークベンチがあり、scripts/module、AWS CLI、比較実験の実行に使います
+        en: Each session has one workbench for running scripts/module, the AWS CLI and comparison experiments
+    - item: preview-direct-https
+      kind: platform
+      reason:
+        zh-CN: 预览使用方案 B 的 Let's Encrypt IP 证书；本卡不涉及 tls，保持开启
+        ja: プレビューには方式 B の Let's Encrypt IP 証明書を使います。このカードは tls に関係しないため、有効のままにします
+        en: The preview uses the option B Let's Encrypt IP certificate; this card does not involve tls, so it stays on
   platform: { preview: { directHttps: 'on' } }
-  reason: C3 例外：本卡的目标就是 iam，起始状态只有 L0（档位 atl/svc-iam/default）；iam 没有硬依赖，它就是凭证提供方
+  reason:
+    zh-CN: C3 例外：本卡的目标就是 iam，起始状态只有 L0（档位 atl/svc-iam/default）；iam 没有硬依赖，它就是凭证提供方
+    ja: C3 の例外です。このカードの対象がまさに iam なので、開始状態は L0 だけです（プロファイル atl/svc-iam/default）。iam には必須の依存がなく、iam 自体が認証情報の提供元です
+    en: "The C3 exception: this card's target is iam itself, so the start state is plain L0 (profile atl/svc-iam/default); iam has no hard dependency — it is the credential provider"
 targetModules:
   - { id: iam, driver: role, wireStep: enable, adoptsExisting: false }
 expectedWarnings: []
@@ -57,22 +129,34 @@ platform:
 provision: { class: A }
 
 variables:
-  readPolicyArn: { label: iam 模块的只读策略, from: derived, fillFrom: stack.iam.InfoReadPolicyArn }
+  readPolicyArn: { label: { zh-CN: iam 模块的只读策略, ja: iam モジュールの読み取り専用ポリシー, en: The iam module's read-only policy }, from: derived, fillFrom: stack.iam.InfoReadPolicyArn }
 
 cost:
   currency: USD
   tier: low
-  mainDrivers: [无（IAM、STS 与 CloudTrail 事件历史查询不收费）]
+  mainDrivers:
+    - zh-CN: 无（IAM、STS 与 CloudTrail 事件历史查询不收费）
+      ja: なし（IAM、STS、CloudTrail のイベント履歴の照会は無料）
+      en: None (IAM, STS and CloudTrail event history lookups are free)
   basis:
-    - { ref: start-profile, note: 实验机 EC2、EBS（根卷与数据卷）、公网 IPv4 }
-    - { ref: workstation, note: 工作台 EC2、EBS、公网 IPv4 }
+    - ref: start-profile
+      note:
+        zh-CN: 实验机 EC2、EBS（根卷与数据卷）、公网 IPv4
+        ja: ラボ用インスタンスの EC2、EBS（ルートボリュームとデータボリューム）、パブリック IPv4
+        en: Lab instance EC2, EBS (root and data volumes) and public IPv4
+    - { ref: workstation, note: { zh-CN: 工作台 EC2、EBS、公网 IPv4, ja: ワークベンチの EC2、EBS、パブリック IPv4, en: "Workbench EC2, EBS and public IPv4" } }
   assumptions:
-    - 本卡不创建按量或按小时计费的资源
+    - zh-CN: 本卡不创建按量或按小时计费的资源
+      ja: このカードでは従量課金や時間課金のリソースを作成しません
+      en: This card creates no usage-billed or hourly-billed resources
 
 steps:
   - id: orient
     type: cli
-    title: 实例有角色 ≠ 应用在用
+    title:
+      zh-CN: 实例有角色 ≠ 应用在用
+      ja: インスタンスにロールがある ≠ アプリが使っている
+      en: The instance has a role ≠ the app uses it
     manual: manual/10-orient.md
     panel: terminal-lab
     estMinutes: 8
@@ -80,7 +164,10 @@ steps:
 
   - id: baseline
     type: experiment
-    title: 记录 before：应用的身份对照（不用凭证）
+    title:
+      zh-CN: 记录 before：应用的身份对照（不用凭证）
+      ja: before を記録：アプリの ID の確認（認証情報なし）
+      en: "Record before: the app's identity (no credentials)"
     manual: manual/20-baseline.md
     experiment: { module: iam, id: whoami, label: before }
     requires: { steps: [orient] }
@@ -91,18 +178,30 @@ steps:
   - id: enable
     type: script
     wire: true
-    title: 启用实例角色：附加 iam 模块的只读策略
+    title:
+      zh-CN: 启用实例角色：附加 iam 模块的只读策略
+      ja: インスタンスロールを有効にする：iam モジュールの読み取り専用ポリシーをアタッチする
+      en: "Enable the instance role: attach the iam module's read-only policy"
     manual: manual/30-enable.md
     methods: [script]
     requires: { steps: [baseline] }
     panel: terminal-workstation
     estMinutes: 8
-    wait: { typicalMinutes: 2, maxMinutes: 10, text: 部署策略栈、附加到 CloudAlbumAppRole、写 IAM_CREDENTIALS=role 并重启 }
+    wait:
+      typicalMinutes: 2
+      maxMinutes: 10
+      text:
+        zh-CN: 部署策略栈、附加到 CloudAlbumAppRole、写 IAM_CREDENTIALS=role 并重启
+        ja: ポリシーのスタックをデプロイし、CloudAlbumAppRole にアタッチし、IAM_CREDENTIALS=role を書き込んで再起動します
+        en: Deploying the policy stack, attaching it to CloudAlbumAppRole, writing IAM_CREDENTIALS=role and restarting
     checks: [iam-wired, cred-source-role, app-role-policies]
 
   - id: whoami
     type: experiment
-    title: 记录 after：身份对照（实例角色）
+    title:
+      zh-CN: 记录 after：身份对照（实例角色）
+      ja: after を記録：ID の確認（インスタンスロール）
+      en: "Record after: the app's identity (instance role)"
     manual: manual/40-whoami.md
     experiment: { module: iam, id: whoami, label: after }
     requires: { steps: [enable] }
@@ -112,7 +211,10 @@ steps:
 
   - id: imds
     type: cli
-    title: IMDSv2 与 SSRF
+    title:
+      zh-CN: IMDSv2 与 SSRF
+      ja: IMDSv2 と SSRF
+      en: IMDSv2 and SSRF
     manual: manual/50-imds.md
     requires: { steps: [enable] }
     panel: terminal-lab
@@ -121,12 +223,21 @@ steps:
 
   - id: cloudtrail
     type: cli
-    title: CloudTrail 中的身份
+    title:
+      zh-CN: CloudTrail 中的身份
+      ja: CloudTrail に記録される ID
+      en: Identities in CloudTrail
     manual: manual/60-cloudtrail.md
     requires: { steps: [whoami] }
     panel: terminal-workstation
     estMinutes: 10
-    wait: { typicalMinutes: 10, maxMinutes: 20, text: 事件出现在 CloudTrail 事件历史中通常有几分钟到十几分钟的延迟 }
+    wait:
+      typicalMinutes: 10
+      maxMinutes: 20
+      text:
+        zh-CN: 事件出现在 CloudTrail 事件历史中通常有几分钟到十几分钟的延迟
+        ja: イベントが CloudTrail のイベント履歴に現れるまで、通常は数分から十数分かかります
+        en: Events usually take a few minutes to over ten minutes to show up in the CloudTrail event history
     checks: [trail-identity]
 
 finalChecks:
@@ -147,11 +258,14 @@ experiments:
     corroborateWith: [cred-source-role]
 
 quiz: { file: quiz.yaml, draw: 3 }
-badge: { title: 临时凭证, icon: assets/badge.svg }
+badge: { title: { zh-CN: 临时凭证, ja: 一時的な認証情報, en: Temporary credentials }, icon: assets/badge.svg }
 tracks: [saa-main, secure]
 
 cleanup:
-  summary: 结束实验后，平台删除 iam 模块栈（只读策略），回收器复位 CloudAlbumAppRole：分离非平台附加的策略、删除内联策略。
+  summary:
+    zh-CN: 结束实验后，平台删除 iam 模块栈（只读策略），回收器复位 CloudAlbumAppRole：分离非平台附加的策略、删除内联策略。
+    ja: ラボを終了すると、プラットフォームが iam モジュールのスタック（読み取り専用ポリシー）を削除し、回収処理が CloudAlbumAppRole を元に戻します。プラットフォーム以外がアタッチしたポリシーをデタッチし、インラインポリシーを削除します。
+    en: "When you end the lab, the platform deletes the iam module stack (the read-only policy), and the reclaimer resets CloudAlbumAppRole: it detaches every policy the platform did not attach and deletes inline policies."
   autoReclaim: true
   dataRisk: []
   learnerCreatedHints: []
@@ -160,13 +274,53 @@ cleanup:
 saa:
   domains: [secure]
   topics:
-    - { id: instance-profile, title: 实例配置文件、iam:PassRole 与 STS 临时凭证的自动轮换, domain: secure, relatesTo: enable }
-    - { id: imdsv2, title: IMDSv2 的会话令牌、跳数限制与 SSRF, domain: secure, relatesTo: imds }
-    - { id: caller-identity, title: GetCallerIdentity 不需要权限、显式 Deny 也挡不住, domain: secure, relatesTo: whoami }
-    - { id: trail-identity, title: CloudTrail userIdentity：AssumedRole 与 IAMUser, domain: secure, relatesTo: cloudtrail }
+    - id: instance-profile
+      title:
+        zh-CN: 实例配置文件、iam:PassRole 与 STS 临时凭证的自动轮换
+        ja: インスタンスプロファイル、iam:PassRole、STS の一時的な認証情報の自動ローテーション
+        en: Instance profiles, iam:PassRole and automatic rotation of STS temporary credentials
+      domain: secure
+      relatesTo: enable
+    - { id: imdsv2, title: { zh-CN: IMDSv2 的会话令牌、跳数限制与 SSRF, ja: IMDSv2 のセッショントークン、ホップ数の制限、SSRF, en: "IMDSv2 session tokens, the hop limit and SSRF" }, domain: secure, relatesTo: imds }
+    - id: caller-identity
+      title:
+        zh-CN: GetCallerIdentity 不需要权限、显式 Deny 也挡不住
+        ja: GetCallerIdentity には権限が不要で、明示的な Deny でも止められない
+        en: GetCallerIdentity needs no permission, and even an explicit Deny cannot block it
+      domain: secure
+      relatesTo: whoami
+    - id: trail-identity
+      title:
+        zh-CN: CloudTrail userIdentity：AssumedRole 与 IAMUser
+        ja: CloudTrail の userIdentity：AssumedRole と IAMUser
+        en: "CloudTrail userIdentity: AssumedRole vs IAMUser"
+      domain: secure
+      relatesTo: cloudtrail
   confusables:
-    - { a: AKIA 访问密钥, b: ASIA 临时凭证, rule: AKIA 是 IAM 用户的长期密钥，永不过期；ASIA 是 STS 签发的临时凭证，必须带 SessionToken，到期自动失效 }
-    - { a: 身份策略, b: 权限边界, rule: 身份策略授予权限；权限边界只设上限，本身不授予任何权限 }
+    - a:
+        zh-CN: AKIA 访问密钥
+        ja: AKIA のアクセスキー
+        en: AKIA access key
+      b:
+        zh-CN: ASIA 临时凭证
+        ja: ASIA の一時的な認証情報
+        en: ASIA temporary credentials
+      rule:
+        zh-CN: AKIA 是 IAM 用户的长期密钥，永不过期；ASIA 是 STS 签发的临时凭证，必须带 SessionToken，到期自动失效
+        ja: AKIA は IAM ユーザーの長期キーで、期限切れになりません。ASIA は STS が発行する一時的な認証情報で、SessionToken が必須であり、期限が来ると自動で無効になります
+        en: AKIA is an IAM user's long-term key that never expires; ASIA is a temporary credential issued by STS, which must carry a SessionToken and expires on its own
+    - a:
+        zh-CN: 身份策略
+        ja: アイデンティティベースのポリシー
+        en: Identity-based policy
+      b:
+        zh-CN: 权限边界
+        ja: アクセス許可の境界
+        en: Permissions boundary
+      rule:
+        zh-CN: 身份策略授予权限；权限边界只设上限，本身不授予任何权限
+        ja: アイデンティティベースのポリシーは権限を付与します。アクセス許可の境界は上限を設けるだけで、それ自体は何の権限も付与しません
+        en: An identity-based policy grants permissions; a permissions boundary only sets an upper limit and grants nothing by itself
 
 tags: [iam, sts, credentials, imdsv2, cloudtrail]
 

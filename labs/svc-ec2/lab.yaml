@@ -8,48 +8,127 @@ id: svc-ec2
 kind: service
 version: 2.0.0
 status: beta
-service: Amazon EC2
-function: 运行整个应用
-title: Amazon EC2：运行整个应用
-subtitle: 只有一台 EC2 的 CloudAlbum（L0 基线）
-summary: 只有一台 EC2 时 CloudAlbum 的全部功能就能运行。认识实例、独立数据卷、弹性 IP 与 IMDSv2，亲手体会“实例可替换”与“单点故障”。
-story: |
-  你的相册目前只跑在一台 EC2 上：网页、接口、数据库文件和照片都在这台机器里。
-  它能用，而且换实例时数据和密钥不会丢——但只要停掉它，整个网站就打不开了。
+service:
+  zh-CN: Amazon EC2
+  ja: Amazon EC2
+  en: Amazon EC2
+function:
+  zh-CN: 运行整个应用
+  ja: アプリ全体を動かす
+  en: Running the whole app
+title:
+  zh-CN: Amazon EC2：运行整个应用
+  ja: Amazon EC2：アプリ全体を動かす
+  en: "Amazon EC2: running the whole app"
+subtitle:
+  zh-CN: 只有一台 EC2 的 CloudAlbum（L0 基线）
+  ja: EC2 1 台だけの CloudAlbum（L0 ベースライン）
+  en: CloudAlbum on a single EC2 instance (the L0 baseline)
+summary:
+  zh-CN: 只有一台 EC2 时 CloudAlbum 的全部功能就能运行。认识实例、独立数据卷、弹性 IP 与 IMDSv2，亲手体会“实例可替换”与“单点故障”。
+  ja: EC2 が 1 台あれば CloudAlbum のすべての機能が動きます。インスタンス、独立したデータボリューム、Elastic IP、IMDSv2 を知り、「インスタンスは交換できる」ことと「単一障害点」であることを自分の手で体感します。
+  en: A single EC2 instance runs every CloudAlbum feature. Get to know the instance, the separate data volume, the Elastic IP and IMDSv2, and see for yourself that the instance is replaceable — and a single point of failure.
+story:
+  zh-CN: |
+    你的相册目前只跑在一台 EC2 上：网页、接口、数据库文件和照片都在这台机器里。
+    它能用，而且换实例时数据和密钥不会丢——但只要停掉它，整个网站就打不开了。
+  ja: |
+    あなたのアルバムは今、1 台の EC2 だけで動いています。Web ページ、API、データベースファイル、写真はすべてこのマシンの中にあります。
+    問題なく動きますし、インスタンスを交換してもデータや鍵は失われません。しかし、このマシンを止めた途端にサイト全体が開けなくなります。
+  en: |
+    Right now your album runs on a single EC2 instance: the web pages, the API, the database file and the photos all live on this one machine.
+    It works, and replacing the instance does not lose the data or the keys — but the moment you stop it, the whole site goes down.
 objectives:
-  - { text: 说清根卷与独立 EBS 数据卷的生命周期差别, domain: resilient, relatesTo: host-inspect }
-  - { text: 用 IMDSv2 的会话令牌解释 SSRF 为何读不到凭证, domain: secure, relatesTo: imds }
-  - { text: 区分平台管理通道的角色与应用自己的 AWS 身份, domain: secure, relatesTo: orient }
-  - { text: 亲测单点：停机即中断，EIP 让地址保持不变, domain: resilient, relatesTo: spof }
-  - { text: 知道公网 IPv4（含 EIP）与 EBS 的计费方式, domain: cost, relatesTo: orient }
+  - text:
+      zh-CN: 说清根卷与独立 EBS 数据卷的生命周期差别
+      ja: ルートボリュームと独立した EBS データボリュームのライフサイクルの違いを説明できる
+      en: Explain how the lifecycles of the root volume and a separate EBS data volume differ
+    domain: resilient
+    relatesTo: host-inspect
+  - text:
+      zh-CN: 用 IMDSv2 的会话令牌解释 SSRF 为何读不到凭证
+      ja: IMDSv2 のセッショントークンを使って、SSRF で認証情報を読み取れない理由を説明する
+      en: Use IMDSv2 session tokens to explain why SSRF cannot read credentials
+    domain: secure
+    relatesTo: imds
+  - text:
+      zh-CN: 区分平台管理通道的角色与应用自己的 AWS 身份
+      ja: プラットフォームの管理チャネル用のロールと、アプリ自身の AWS の ID を区別する
+      en: Tell the platform management channel's role apart from the app's own AWS identity
+    domain: secure
+    relatesTo: orient
+  - text:
+      zh-CN: 亲测单点：停机即中断，EIP 让地址保持不变
+      ja: 単一障害点を自分で試す：止めればサービスが中断し、EIP によってアドレスは変わらない
+      en: "Test the single point of failure yourself: stopping means an outage, and the EIP keeps the address the same"
+    domain: resilient
+    relatesTo: spof
+  - text:
+      zh-CN: 知道公网 IPv4（含 EIP）与 EBS 的计费方式
+      ja: パブリック IPv4（EIP を含む）と EBS の課金方法を知る
+      en: Know how public IPv4 (including EIPs) and EBS are billed
+    domain: cost
+    relatesTo: orient
 difficulty: intro
 estimatedMinutes: 60
 timeLimitMinutes: 90
 extensions: { maxCount: 2, minutesEach: 30 }
-retain: { allowed: true, maxHours: 24, reason: L0 成本低，保留后可直接接着做其他 svc 卡片 }
+retain:
+  allowed: true
+  maxHours: 24
+  reason:
+    zh-CN: L0 成本低，保留后可直接接着做其他 svc 卡片
+    ja: L0 はコストが低いので、保持すればそのままほかの svc カードに進めます
+    en: L0 is cheap; if you keep it, you can go straight on to other svc cards
 regions:
   supported: [ap-northeast-1]
 services:
-  - { id: ec2, name: Amazon EC2, role: primary, module: ec2 }
-  - { id: ebs, name: Amazon EBS（根卷与数据卷）, role: supporting, module: ec2 }
-  - { id: ssm-session-manager, name: AWS Systems Manager Session Manager（平台管理通道）, role: observed }
-  - { id: cloudtrail, name: AWS CloudTrail（事件历史，只读）, role: observed }
+  - { id: ec2, name: { zh-CN: Amazon EC2, ja: Amazon EC2, en: Amazon EC2 }, role: primary, module: ec2 }
+  - { id: ebs, name: { zh-CN: Amazon EBS（根卷与数据卷）, ja: Amazon EBS（ルートボリュームとデータボリューム）, en: Amazon EBS (root and data volumes) }, role: supporting, module: ec2 }
+  - id: ssm-session-manager
+    name:
+      zh-CN: AWS Systems Manager Session Manager（平台管理通道）
+      ja: AWS Systems Manager Session Manager（プラットフォームの管理チャネル）
+      en: AWS Systems Manager Session Manager (platform management channel)
+    role: observed
+  - { id: cloudtrail, name: { zh-CN: AWS CloudTrail（事件历史，只读）, ja: AWS CloudTrail（イベント履歴、読み取り専用）, en: "AWS CloudTrail (event history, read-only)" }, role: observed }
 modules: { target: [], start: [], context: [], related: [iam, network, load-balancer, autoscaling, backup] }
 prerequisites:
   cards: []
   learnerInputs: []
-  knowledge: [Linux 命令行基础, HTTP 请求与响应头]
+  knowledge: [{ zh-CN: Linux 命令行基础, ja: Linux のコマンドラインの基礎, en: Linux command-line basics }, { zh-CN: HTTP 请求与响应头, ja: HTTP のリクエストとレスポンスヘッダー, en: HTTP requests and response headers }]
 
 startProfile:
   provisions:
-    - { item: mgmt-channel, kind: platform,
-        reason: 实验机挂只含 AmazonSSMManagedInstanceCore 的 CloudAlbumAppRole，是平台的管理通道；应用仍是 IAM_CREDENTIALS=none }
-    - { item: workstation, kind: platform, reason: 每个会话一台工作台，用于运行 AWS CLI 与对比实验 }
-    - { item: check-bundle, kind: platform, reason: 检查包随 CloudAlbum 发布包安装在实验机上（06） }
-    - { item: preview-direct-https, kind: platform,
-        reason: 方案 B 的 Let's Encrypt IP 证书，供预览面板嵌入；本卡不涉及证书，保持开启 }
+    - item: mgmt-channel
+      kind: platform
+      reason:
+        zh-CN: 实验机挂只含 AmazonSSMManagedInstanceCore 的 CloudAlbumAppRole，是平台的管理通道；应用仍是 IAM_CREDENTIALS=none
+        ja: ラボ用インスタンスには AmazonSSMManagedInstanceCore だけを含む CloudAlbumAppRole が付いています。これはプラットフォームの管理チャネルで、アプリは引き続き IAM_CREDENTIALS=none です
+        en: The lab instance carries CloudAlbumAppRole with only AmazonSSMManagedInstanceCore; it is the platform's management channel, and the app is still IAM_CREDENTIALS=none
+    - item: workstation
+      kind: platform
+      reason:
+        zh-CN: 每个会话一台工作台，用于运行 AWS CLI 与对比实验
+        ja: セッションごとに 1 台のワークベンチがあり、AWS CLI と比較実験の実行に使います
+        en: Each session has one workbench for running the AWS CLI and comparison experiments
+    - item: check-bundle
+      kind: platform
+      reason:
+        zh-CN: 检查包随 CloudAlbum 发布包安装在实验机上（06）
+        ja: チェックバンドルは CloudAlbum のリリースパッケージとともにラボ用インスタンスにインストールされます（06）
+        en: The check bundle is installed on the lab instance with the CloudAlbum release package (06)
+    - item: preview-direct-https
+      kind: platform
+      reason:
+        zh-CN: 方案 B 的 Let's Encrypt IP 证书，供预览面板嵌入；本卡不涉及证书，保持开启
+        ja: 方式 B の Let's Encrypt IP 証明書で、プレビューパネルへの埋め込みに使います。このカードは証明書に関係しないため、有効のままにします
+        en: The option B Let's Encrypt IP certificate, used to embed the preview panel; this card does not involve certificates, so it stays on
   platform: { preview: { directHttps: 'on' } }
-  reason: ec2 是基础模块，起始状态就是 L0（档位 atl/svc-ec2/default）；按 C3 的例外不预置 iam——本卡要展示“没有任何 AWS 模块”的基线
+  reason:
+    zh-CN: ec2 是基础模块，起始状态就是 L0（档位 atl/svc-ec2/default）；按 C3 的例外不预置 iam——本卡要展示“没有任何 AWS 模块”的基线
+    ja: ec2 は基盤モジュールで、開始状態は L0 そのものです（プロファイル atl/svc-ec2/default）。C3 の例外として iam は事前準備しません。このカードでは「AWS のモジュールが 1 つもない」ベースラインを見せたいためです
+    en: ec2 is the base module, so the start state is plain L0 (profile atl/svc-ec2/default); as the exception in C3, iam is not provisioned — this card shows the baseline with no AWS modules at all
 targetModules: []
 expectedWarnings: []
 
@@ -63,17 +142,26 @@ variables: {}
 cost:
   currency: USD
   tier: low
-  mainDrivers: [EC2 按需实例小时, EBS gp3 根卷与数据卷, 公网 IPv4 小时]
+  mainDrivers: [{ zh-CN: EC2 按需实例小时, ja: EC2 オンデマンドインスタンスの時間, en: EC2 On-Demand instance hours }, { zh-CN: EBS gp3 根卷与数据卷, ja: EBS gp3 のルートボリュームとデータボリューム, en: EBS gp3 root and data volumes }, { zh-CN: 公网 IPv4 小时, ja: パブリック IPv4 の時間, en: Public IPv4 hours }]
   basis:
-    - { ref: start-profile, note: 实验机 EC2、EBS（根卷与数据卷）、公网 IPv4 }
-    - { ref: workstation, note: 工作台 EC2、EBS、公网 IPv4 }
+    - ref: start-profile
+      note:
+        zh-CN: 实验机 EC2、EBS（根卷与数据卷）、公网 IPv4
+        ja: ラボ用インスタンスの EC2、EBS（ルートボリュームとデータボリューム）、パブリック IPv4
+        en: Lab instance EC2, EBS (root and data volumes) and public IPv4
+    - { ref: workstation, note: { zh-CN: 工作台 EC2、EBS、公网 IPv4, ja: ワークベンチの EC2、EBS、パブリック IPv4, en: "Workbench EC2, EBS and public IPv4" } }
   assumptions:
-    - 停止实例期间不收实例费用，EBS 与公网 IPv4 照常计费；以官方定价为准
+    - zh-CN: 停止实例期间不收实例费用，EBS 与公网 IPv4 照常计费；以官方定价为准
+      ja: インスタンスを停止している間はインスタンスの料金はかかりませんが、EBS とパブリック IPv4 は通常どおり課金されます。正確な料金は公式の料金表を確認してください
+      en: While the instance is stopped there is no instance charge, but EBS and public IPv4 are billed as usual; check the official pricing
 
 steps:
   - id: orient
     type: console
-    title: 认识实验机：卷、地址、元数据与实例角色
+    title:
+      zh-CN: 认识实验机：卷、地址、元数据与实例角色
+      ja: ラボ用インスタンスを知る：ボリューム、アドレス、メタデータ、インスタンスロール
+      en: "Meet the lab instance: volumes, addresses, metadata and the instance role"
     manual: manual/10-orient.md
     methods: [console, cli]
     panel: console
@@ -82,7 +170,10 @@ steps:
 
   - id: tour
     type: observe
-    title: 用一遍相册：看懂 X-CloudAlbum-Path
+    title:
+      zh-CN: 用一遍相册：看懂 X-CloudAlbum-Path
+      ja: アルバムを一通り使う：X-CloudAlbum-Path を読み解く
+      en: "Use the album: read X-CloudAlbum-Path"
     manual: manual/20-tour.md
     panel: preview
     estMinutes: 12
@@ -90,7 +181,10 @@ steps:
 
   - id: host-inspect
     type: cli
-    title: 主机巡检：数据、机密与端口在哪里
+    title:
+      zh-CN: 主机巡检：数据、机密与端口在哪里
+      ja: ホストの点検：データ、機密情報、ポートはどこにあるか
+      en: "Inspect the host: where the data, secrets and ports are"
     manual: manual/30-host-inspect.md
     panel: terminal-lab
     estMinutes: 10
@@ -98,7 +192,10 @@ steps:
 
   - id: imds
     type: cli
-    title: IMDSv2：不带令牌的请求为什么被拒绝
+    title:
+      zh-CN: IMDSv2：不带令牌的请求为什么被拒绝
+      ja: IMDSv2：トークンなしのリクエストが拒否される理由
+      en: "IMDSv2: why requests without a token are refused"
     manual: manual/40-imds.md
     panel: terminal-lab
     estMinutes: 7
@@ -106,14 +203,29 @@ steps:
 
   - id: spof
     type: console
-    title: 单点故障演练：停止再启动实例
+    title:
+      zh-CN: 单点故障演练：停止再启动实例
+      ja: 単一障害点の訓練：インスタンスを停止して再起動する
+      en: "Single point of failure drill: stop and start the instance"
     manual: manual/50-spof.md
     methods: [console, cli]
     requires: { steps: [tour] }
     panel: console
     estMinutes: 15
-    wait: { typicalMinutes: 10, maxMinutes: 20, text: 实例停止与启动各需要一到数分钟；CloudTrail 事件历史还有几分钟到十几分钟的延迟 }
-    expectedOutage: { channel: lab, maxMinutes: 15, reason: 学员亲手停止实验机，停机期间实验机终端与本地检查不可用 }
+    wait:
+      typicalMinutes: 10
+      maxMinutes: 20
+      text:
+        zh-CN: 实例停止与启动各需要一到数分钟；CloudTrail 事件历史还有几分钟到十几分钟的延迟
+        ja: インスタンスの停止と起動にはそれぞれ 1～数分かかります。CloudTrail のイベント履歴にはさらに数分から十数分の遅れがあります
+        en: Stopping and starting the instance each take one to a few minutes; the CloudTrail event history lags by a few minutes to over ten minutes
+    expectedOutage:
+      channel: lab
+      maxMinutes: 15
+      reason:
+        zh-CN: 学员亲手停止实验机，停机期间实验机终端与本地检查不可用
+        ja: 受講者が自分でラボ用インスタンスを停止するため、停止中はラボ用インスタンスのターミナルとローカルのチェックが使えません
+        en: You stop the lab instance yourself, so the lab instance terminal and local checks are unavailable while it is down
     checks: [spof-observed, stop-start-events, eip-unchanged, { ref: cap-ec2-healthy, as: cap-ec2-healthy-after-spof }]
 
 finalChecks:
@@ -123,29 +235,62 @@ finalChecks:
 experiments: []
 
 quiz: { file: quiz.yaml, draw: 3 }
-badge: { title: EC2 基线, icon: assets/badge.svg }
+badge: { title: { zh-CN: EC2 基线, ja: EC2 ベースライン, en: EC2 baseline }, icon: assets/badge.svg }
 tracks: [cost-optimized, quick-compare, resilient, saa-main]
 
 cleanup:
-  summary: 结束实验后平台删除基础栈与工作台。停止过实例的话请先确认它已重新启动。
+  summary:
+    zh-CN: 结束实验后平台删除基础栈与工作台。停止过实例的话请先确认它已重新启动。
+    ja: ラボを終了すると、プラットフォームが基本スタックとワークベンチを削除します。インスタンスを停止した場合は、先に再起動されていることを確認してください。
+    en: When you end the lab, the platform deletes the base stack and the workbench. If you stopped the instance, first make sure it is running again.
   autoReclaim: true
   dataRisk:
-    - 数据卷设置了 DeletionPolicy=Retain，栈删除后作为保留资源进入台账，由回收器删除
+    - zh-CN: 数据卷设置了 DeletionPolicy=Retain，栈删除后作为保留资源进入台账，由回收器删除
+      ja: データボリュームには DeletionPolicy=Retain が設定されており、スタック削除後は保持されたリソースとして台帳に記録され、回収処理が削除します
+      en: The data volume has DeletionPolicy=Retain; after the stack is deleted it is recorded in the ledger as a retained resource and the reclaimer deletes it
   learnerCreatedHints: []
   verify: []
 
 saa:
   domains: [resilient, secure, cost]
   topics:
-    - { id: ebs-lifecycle, title: EBS 卷与实例生命周期、DeleteOnTermination、绑定 AZ, domain: resilient, relatesTo: host-inspect }
-    - { id: instance-store, title: 实例存储与 EBS 的持久性差异, domain: resilient, relatesTo: host-inspect }
-    - { id: imdsv2, title: IMDSv2 会话令牌、跳数与 SSRF, domain: secure, relatesTo: imds }
-    - { id: eip-billing, title: 弹性 IP 与公网 IPv4 计费, domain: cost, relatesTo: orient }
-    - { id: cpu-credits, title: T 系列 CPU 积分 standard 与 unlimited, domain: cost }
-    - { id: spof, title: 高可用与“有备份”的区别, domain: resilient, relatesTo: spof }
+    - id: ebs-lifecycle
+      title:
+        zh-CN: EBS 卷与实例生命周期、DeleteOnTermination、绑定 AZ
+        ja: EBS ボリュームとインスタンスのライフサイクル、DeleteOnTermination、AZ への固定
+        en: EBS volume vs instance lifecycle, DeleteOnTermination, tied to an AZ
+      domain: resilient
+      relatesTo: host-inspect
+    - { id: instance-store, title: { zh-CN: 实例存储与 EBS 的持久性差异, ja: インスタンスストアと EBS の永続性の違い, en: How durable instance store is compared with EBS }, domain: resilient, relatesTo: host-inspect }
+    - { id: imdsv2, title: { zh-CN: IMDSv2 会话令牌、跳数与 SSRF, ja: IMDSv2 のセッショントークン、ホップ数、SSRF, en: "IMDSv2 session tokens, hop limit and SSRF" }, domain: secure, relatesTo: imds }
+    - { id: eip-billing, title: { zh-CN: 弹性 IP 与公网 IPv4 计费, ja: Elastic IP とパブリック IPv4 の課金, en: Elastic IP and public IPv4 billing }, domain: cost, relatesTo: orient }
+    - { id: cpu-credits, title: { zh-CN: T 系列 CPU 积分 standard 与 unlimited, ja: T 系の CPU クレジット：standard と unlimited, en: "T-family CPU credits: standard vs unlimited" }, domain: cost }
+    - { id: spof, title: { zh-CN: 高可用与“有备份”的区别, ja: 高可用性と「バックアップがある」ことの違い, en: The difference between high availability and having backups }, domain: resilient, relatesTo: spof }
   confusables:
-    - { a: 实例存储, b: EBS, rule: 实例存储随实例停止或终止丢失，只放缓存与临时文件 }
-    - { a: 自动分配的公网 IPv4, b: 弹性 IP, rule: 前者停止再启动会变，后者固定；两者都按小时计费 }
+    - a:
+        zh-CN: 实例存储
+        ja: インスタンスストア
+        en: Instance store
+      b:
+        zh-CN: EBS
+        ja: EBS
+        en: EBS
+      rule:
+        zh-CN: 实例存储随实例停止或终止丢失，只放缓存与临时文件
+        ja: インスタンスストアはインスタンスの停止や終了で失われるため、キャッシュや一時ファイルだけを置きます
+        en: Instance store is lost when the instance stops or terminates, so it only holds caches and temporary files
+    - a:
+        zh-CN: 自动分配的公网 IPv4
+        ja: 自動割り当てのパブリック IPv4
+        en: Auto-assigned public IPv4
+      b:
+        zh-CN: 弹性 IP
+        ja: Elastic IP
+        en: Elastic IP
+      rule:
+        zh-CN: 前者停止再启动会变，后者固定；两者都按小时计费
+        ja: 前者は停止して再起動すると変わり、後者は固定です。どちらも時間課金されます
+        en: The former changes after a stop and start, the latter stays fixed; both are billed by the hour
 
 tags: [ec2, ebs, eip, imds, baseline]
 

@@ -1,18 +1,27 @@
 # 起始状态（before）与换 IP 演练的收尾：before 断言一律 drift once（C3、04 §3.5 第 9 条）
 checks:
   - id: dns-off
-    title: 起始状态：dns 未启用，入口是 http://<EIP>
+    title:
+      zh-CN: 起始状态：dns 未启用，入口是 http://<EIP>
+      ja: 開始状態：dns は無効で、入口は http://<EIP>
+      en: "Start state: dns is off and the entry point is http://<EIP>"
     type: capability
     module: dns
     drift: { policy: once }
     assert:
-      - { path: $.driver, op: eq, value: none, label: 驱动 }
-      - { path: $.status, op: eq, value: 'off', label: 状态 }
-    explain: 启用 dns 之前，应用的有效入口 URL 是基础配置里的 http://<EIP>，邮件与分享链接写的也是它。
+      - { path: $.driver, op: eq, value: none, label: { zh-CN: 驱动, ja: ドライバー, en: Driver } }
+      - { path: $.status, op: eq, value: 'off', label: { zh-CN: 状态, ja: 状態, en: Status } }
+    explain:
+      zh-CN: 启用 dns 之前，应用的有效入口 URL 是基础配置里的 http://<EIP>，邮件与分享链接写的也是它。
+      ja: dns を有効にする前は、アプリの有効な入口 URL は基本設定にある http://<EIP> で、メールや共有リンクにもそれが書かれています。
+      en: Before dns is enabled, the app's effective entry URL is the http://<EIP> from the base configuration, and that is also what emails and share links contain.
     reproduce: { run: 'curl -s http://127.0.0.1/api/capabilities | jq "{entry: .app.entry, dns: .modules.dns | {driver, status}}"', runsOn: lab }
 
   - id: eip-restored
-    title: 演练结束后，实验机挂的仍是原来的弹性 IP
+    title:
+      zh-CN: 演练结束后，实验机挂的仍是原来的弹性 IP
+      ja: 訓練の終了後も、ラボ用インスタンスに元の Elastic IP が付いている
+      en: After the drill, the lab instance still has its original Elastic IP
     type: aws-readonly
     service: ec2
     action: DescribeAddresses
@@ -22,21 +31,38 @@ checks:
         - { Name: instance-id, Values: ['{{ target.instanceId }}'] }
     drift: { policy: once }
     assert:
-      - { path: $.Addresses, op: len_eq, value: 1, label: 实验机上的弹性 IP 数 }
-      - { path: '$.Addresses[0].PublicIp', op: eq, value: '{{ target.publicIp }}', label: 原来的弹性 IP }
-    explain: 演练脚本在结束时把原 EIP 关联回实验机；没有恢复时，基础栈记录的 EIP 关联与实际不一致，平台从外部发起的检查也会失败。
+      - { path: $.Addresses, op: len_eq, value: 1, label: { zh-CN: 实验机上的弹性 IP 数, ja: ラボ用インスタンスの Elastic IP の数, en: Number of Elastic IPs on the lab instance } }
+      - { path: '$.Addresses[0].PublicIp', op: eq, value: '{{ target.publicIp }}', label: { zh-CN: 原来的弹性 IP, ja: 元の Elastic IP, en: The original Elastic IP } }
+    explain:
+      zh-CN: 演练脚本在结束时把原 EIP 关联回实验机；没有恢复时，基础栈记录的 EIP 关联与实际不一致，平台从外部发起的检查也会失败。
+      ja: 訓練スクリプトは終了時に元の EIP をラボ用インスタンスに関連付け直します。戻っていないと、基本スタックが記録している EIP の関連付けと実際がずれ、プラットフォームが外部から行うチェックも失敗します。
+      en: The drill script re-associates the original EIP with the lab instance when it ends; if it is not restored, the EIP association recorded by the base stack no longer matches reality, and the platform's checks from outside fail too.
     reproduce: { run: 'aws ec2 describe-addresses --filters Name=instance-id,Values={{ target.instanceId }} --query "Addresses[].PublicIp"', runsOn: workstation }
     pitfalls: [drill-not-restored]
     manualFallback:
       where: { breadcrumb: [EC2, 弹性 IP], region: app }
       observed:
-        question: 关联到实验机（{{ target.instanceId }}）的弹性 IP 是哪一个？
+        question:
+          zh-CN: 关联到实验机（{{ target.instanceId }}）的弹性 IP 是哪一个？
+          ja: ラボ用インスタンス（{{ target.instanceId }}）に関連付けられている Elastic IP はどれですか？
+          en: Which Elastic IP is associated with the lab instance ({{ target.instanceId }})?
         options:
-          - { value: ok, label: '{{ target.publicIp }}', expected: true }
-          - { value: other, label: 另一个地址, fixHint: '执行 bash experiments/dns/faults/reassociate-eip.sh restore --env {{ session.env }}' }
+          - { value: ok, label: { zh-CN: '{{ target.publicIp }}', ja: "{{ target.publicIp }}", en: "{{ target.publicIp }}" }, expected: true }
+          - value: other
+            label:
+              zh-CN: 另一个地址
+              ja: 別のアドレス
+              en: Another address
+            fixHint:
+              zh-CN: '执行 bash experiments/dns/faults/reassociate-eip.sh restore --env {{ session.env }}'
+              ja: bash experiments/dns/faults/reassociate-eip.sh restore --env {{ session.env }} を実行してください
+              en: Run bash experiments/dns/faults/reassociate-eip.sh restore --env {{ session.env }}
 
   - id: temp-eip-released
-    title: 演练用的临时弹性 IP 已释放
+    title:
+      zh-CN: 演练用的临时弹性 IP 已释放
+      ja: 訓練用の一時的な Elastic IP が解放されている
+      en: The drill's temporary Elastic IP has been released
     type: aws-readonly
     service: ec2
     action: DescribeAddresses
@@ -47,18 +73,44 @@ checks:
         - { Name: 'tag:Env', Values: ['{{ session.env }}'] }
     drift: { policy: once }
     assert:
-      - { path: $.Addresses, op: len_eq, value: 0, label: 未释放的临时 EIP }
-    explain: 未关联的弹性 IP 也按小时计费；演练脚本在结束时释放它。
+      - { path: $.Addresses, op: len_eq, value: 0, label: { zh-CN: 未释放的临时 EIP, ja: 解放されていない一時的な EIP, en: Unreleased temporary EIPs } }
+    explain:
+      zh-CN: 未关联的弹性 IP 也按小时计费；演练脚本在结束时释放它。
+      ja: 関連付けられていない Elastic IP も時間課金されます。訓練スクリプトは終了時にこれを解放します。
+      en: An unassociated Elastic IP is billed hourly too; the drill script releases it when it ends.
     reproduce: { run: 'aws ec2 describe-addresses --filters Name=tag:Purpose,Values=dns-ip-change-drill --query "Addresses[].[PublicIp,AllocationId]"', runsOn: workstation }
     pitfalls: [drill-not-restored]
     manualFallback:
       where: { breadcrumb: [EC2, 弹性 IP], region: app }
       observed:
-        question: 列表中还有标签 Purpose=dns-ip-change-drill 的地址吗？
+        question:
+          zh-CN: 列表中还有标签 Purpose=dns-ip-change-drill 的地址吗？
+          ja: 一覧にタグ Purpose=dns-ip-change-drill の付いたアドレスがまだありますか？
+          en: Is there still an address tagged Purpose=dns-ip-change-drill in the list?
         options:
-          - { value: none, label: 没有, expected: true }
-          - { value: some, label: 有, fixHint: 选中它，先“取消关联”，再“释放弹性 IP 地址” }
+          - { value: none, label: { zh-CN: 没有, ja: ない, en: No }, expected: true }
+          - value: some
+            label:
+              zh-CN: 有
+              ja: ある
+              en: Yes
+            fixHint:
+              zh-CN: 选中它，先“取消关联”，再“释放弹性 IP 地址”
+              ja: それを選択し、まず「関連付けを解除」、次に「Elastic IP アドレスの解放」を実行してください
+              en: Select it, choose "Disassociate" first, then "Release Elastic IP addresses"
 
 pitfalls:
-  - { id: drill-not-restored, title: 演练没有恢复, match: [ { checkId: eip-restored, result: fail }, { checkId: temp-eip-released, result: fail } ],
-      cause: 演练中途被中断（Ctrl+C、会话断开），restore 没有执行, fix: '执行 bash experiments/dns/faults/reassociate-eip.sh restore --env {{ session.env }}' }
+  - id: drill-not-restored
+    title:
+      zh-CN: 演练没有恢复
+      ja: 訓練が元に戻っていない
+      en: The drill was not restored
+    match: [ { checkId: eip-restored, result: fail }, { checkId: temp-eip-released, result: fail } ]
+    cause:
+      zh-CN: 演练中途被中断（Ctrl+C、会话断开），restore 没有执行
+      ja: 訓練が途中で中断され（Ctrl+C、セッションの切断）、restore が実行されませんでした
+      en: The drill was interrupted (Ctrl+C, a dropped session), so restore never ran
+    fix:
+      zh-CN: '执行 bash experiments/dns/faults/reassociate-eip.sh restore --env {{ session.env }}'
+      ja: bash experiments/dns/faults/reassociate-eip.sh restore --env {{ session.env }} を実行してください
+      en: Run bash experiments/dns/faults/reassociate-eip.sh restore --env {{ session.env }}

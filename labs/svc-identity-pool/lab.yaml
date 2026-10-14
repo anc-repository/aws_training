@@ -10,55 +10,165 @@ id: svc-identity-pool
 kind: service
 version: 1.0.0
 status: beta
-service: Amazon Cognito Identity Pool
-function: 终端用户直传 S3
-title: Amazon Cognito Identity Pool：终端用户直传 S3
-subtitle: 应用自签前缀令牌 → STS 临时凭证 + IAM 策略变量
-summary: 已登录用户换取一组只能写自己前缀的 STS 临时凭证，浏览器直接分片上传到 S3：授权从“应用代码”搬到“IAM 策略变量”。
-story: |
-  F14 是“多文件、可续传、按前缀授权的直传”。起始状态（none 驱动）由 EC2 签发一个应用自定义的前缀令牌：浏览器持有一个令牌，
-  但每一片都要先问一次 EC2（storage=s3 时先换一个预签名 UploadPart URL），授权逻辑写在应用代码里。
-  启用 Identity Pool 后，已登录用户用 User Pool 的 ID 令牌换取一组 ASIA 开头的 STS 临时凭证，只能写暂存桶的
-  private/<identityId>/；浏览器自己签名直传，complete 时后端校验大小、类型与文件头，再用服务端 CopyObject 导入原图位置。
+service:
+  zh-CN: Amazon Cognito Identity Pool
+  ja: Amazon Cognito Identity Pool
+  en: Amazon Cognito Identity Pool
+function:
+  zh-CN: 终端用户直传 S3
+  ja: エンドユーザーから S3 への直接アップロード
+  en: Direct uploads from end users to S3
+title:
+  zh-CN: Amazon Cognito Identity Pool：终端用户直传 S3
+  ja: Amazon Cognito Identity Pool：エンドユーザーから S3 への直接アップロード
+  en: "Amazon Cognito Identity Pool: direct uploads from end users to S3"
+subtitle:
+  zh-CN: 应用自签前缀令牌 → STS 临时凭证 + IAM 策略变量
+  ja: アプリが自分で署名するプレフィックストークン → STS の一時的な認証情報＋ IAM ポリシー変数
+  en: App-signed prefix token → STS temporary credentials + IAM policy variables
+summary:
+  zh-CN: 已登录用户换取一组只能写自己前缀的 STS 临时凭证，浏览器直接分片上传到 S3：授权从“应用代码”搬到“IAM 策略变量”。
+  ja: サインイン済みのユーザーが、自分のプレフィックスにしか書き込めない STS の一時的な認証情報を受け取り、ブラウザーから S3 に直接マルチパートアップロードします。認可が「アプリのコード」から「IAM ポリシー変数」に移ります。
+  en: Signed-in users exchange their sign-in for STS temporary credentials that can only write their own prefix, and the browser uploads straight to S3 in parts — authorization moves from application code into IAM policy variables.
+story:
+  zh-CN: |
+    F14 是“多文件、可续传、按前缀授权的直传”。起始状态（none 驱动）由 EC2 签发一个应用自定义的前缀令牌：浏览器持有一个令牌，
+    但每一片都要先问一次 EC2（storage=s3 时先换一个预签名 UploadPart URL），授权逻辑写在应用代码里。
+    启用 Identity Pool 后，已登录用户用 User Pool 的 ID 令牌换取一组 ASIA 开头的 STS 临时凭证，只能写暂存桶的
+    private/<identityId>/；浏览器自己签名直传，complete 时后端校验大小、类型与文件头，再用服务端 CopyObject 导入原图位置。
+  ja: |
+    F14 は「複数ファイル、再開可能、プレフィックス単位で認可する直接アップロード」です。開始状態（none ドライバー）では、EC2 がアプリ独自のプレフィックストークンを発行します。ブラウザーが持つトークンは 1 つですが、
+    パートごとに毎回 EC2 に問い合わせる必要があり（storage=s3 では先に署名付き UploadPart URL を受け取ります）、認可のロジックはアプリのコードに書かれています。
+    Identity Pool を有効にすると、サインイン済みのユーザーは User Pool の ID トークンを ASIA で始まる STS の一時的な認証情報と交換し、ステージングバケットの
+    private/<identityId>/ にだけ書き込めるようになります。ブラウザーは自分で署名して直接アップロードし、complete の時点でバックエンドがサイズ、種類、ファイルヘッダーを検証してから、サーバー側の CopyObject で元画像の場所に取り込みます。
+  en: |
+    F14 is "multi-file, resumable, prefix-authorized direct upload". In the start state (the none driver), EC2 issues an app-defined prefix token: the browser holds one token,
+    but has to ask EC2 before every part (with storage=s3 it first exchanges it for a presigned UploadPart URL), and the authorization logic lives in application code.
+    Once the Identity Pool is enabled, a signed-in user exchanges the User Pool ID token for STS temporary credentials starting with ASIA, which can only write to the staging bucket's
+    private/<identityId>/; the browser signs and uploads directly, and on complete the backend checks size, type and file header before importing the object into the original image location with a server-side CopyObject.
 objectives:
-  - { text: 区分 User Pool（认证）与 Identity Pool（换 AWS 临时凭证）, domain: secure, relatesTo: enable }
-  - { text: '读懂已认证角色的信任策略（aud、amr 条件）与策略变量 ${cognito-identity.amazonaws.com:sub}', domain: secure, relatesTo: read-policy }
-  - { text: 用越权实验说明“由谁拒绝”：应用 403 vs S3 AccessDenied, domain: secure, relatesTo: after-cross }
-  - { text: 比较应用自签令牌、预签名 URL、临时凭证三者对后端请求数与服务端控制力的取舍, domain: performance, relatesTo: after-bench }
+  - text:
+      zh-CN: 区分 User Pool（认证）与 Identity Pool（换 AWS 临时凭证）
+      ja: User Pool（認証）と Identity Pool（AWS の一時的な認証情報への交換）を区別する
+      en: Tell the User Pool (authentication) apart from the Identity Pool (exchange for temporary AWS credentials)
+    domain: secure
+    relatesTo: enable
+  - text:
+      zh-CN: '读懂已认证角色的信任策略（aud、amr 条件）与策略变量 ${cognito-identity.amazonaws.com:sub}'
+      ja: 認証済みロールの信頼ポリシー（aud、amr の条件）とポリシー変数 ${cognito-identity.amazonaws.com:sub} を読み解く
+      en: Read the authenticated role's trust policy (aud and amr conditions) and the policy variable ${cognito-identity.amazonaws.com:sub}
+    domain: secure
+    relatesTo: read-policy
+  - text:
+      zh-CN: 用越权实验说明“由谁拒绝”：应用 403 vs S3 AccessDenied
+      ja: 権限外アクセスの実験で「誰が拒否するか」を説明する：アプリの 403 と S3 の AccessDenied
+      en: "Use the cross-prefix experiment to show who denies the request: the app's 403 vs S3's AccessDenied"
+    domain: secure
+    relatesTo: after-cross
+  - text:
+      zh-CN: 比较应用自签令牌、预签名 URL、临时凭证三者对后端请求数与服务端控制力的取舍
+      ja: アプリが署名するトークン、署名付き URL、一時的な認証情報の 3 つを、バックエンドへのリクエスト数とサーバー側の制御力の観点で比べる
+      en: Compare app-signed tokens, presigned URLs and temporary credentials in terms of backend requests and server-side control
+    domain: performance
+    relatesTo: after-bench
 difficulty: intermediate
 estimatedMinutes: 90
 timeLimitMinutes: 150
 extensions: { maxCount: 2, minutesEach: 30 }
-retain: { allowed: true, maxHours: 24, reason: 身份池不单独收费，暂存对象 1 天过期；User Pool 按月活跃用户计费 }
+retain:
+  allowed: true
+  maxHours: 24
+  reason:
+    zh-CN: 身份池不单独收费，暂存对象 1 天过期；User Pool 按月活跃用户计费
+    ja: Identity Pool 自体は別途課金されず、ステージングのオブジェクトは 1 日で期限切れになります。User Pool は月間アクティブユーザー数で課金されます
+    en: The identity pool has no charge of its own and staging objects expire after 1 day; the User Pool is billed by monthly active users
 regions:
   supported: [ap-northeast-1]
 services:
-  - { id: cognito-identity-pool, name: Amazon Cognito Identity Pool, role: primary, module: identity-pool }
-  - { id: iam, name: AWS IAM（Uploader 角色、实例角色）, role: context, module: iam }
-  - { id: sts, name: AWS STS（AssumeRoleWithWebIdentity）, role: observed }
-  - { id: s3, name: Amazon S3（模块自带暂存桶、storage 的原图桶）, role: context, module: storage }
-  - { id: cognito-user-pool, name: Amazon Cognito User Pool, role: context, module: auth }
+  - { id: cognito-identity-pool, name: { zh-CN: Amazon Cognito Identity Pool, ja: Amazon Cognito Identity Pool, en: Amazon Cognito Identity Pool }, role: primary, module: identity-pool }
+  - { id: iam, name: { zh-CN: AWS IAM（Uploader 角色、实例角色）, ja: AWS IAM（Uploader ロール、インスタンスロール）, en: "AWS IAM (Uploader role, instance role)" }, role: context, module: iam }
+  - { id: sts, name: { zh-CN: AWS STS（AssumeRoleWithWebIdentity）, ja: AWS STS（AssumeRoleWithWebIdentity）, en: AWS STS (AssumeRoleWithWebIdentity) }, role: observed }
+  - id: s3
+    name:
+      zh-CN: Amazon S3（模块自带暂存桶、storage 的原图桶）
+      ja: Amazon S3（モジュール付属のステージングバケット、storage の元画像バケット）
+      en: Amazon S3 (the module's own staging bucket, storage's original-image bucket)
+    role: context
+    module: storage
+  - { id: cognito-user-pool, name: { zh-CN: Amazon Cognito User Pool, ja: Amazon Cognito User Pool, en: Amazon Cognito User Pool }, role: context, module: auth }
 modules: { target: [identity-pool], start: [iam, storage, auth], context: [], related: [auth, storage, kms, tls] }
 prerequisites:
   cards:
     - { id: svc-auth, kind: soft }
     - { id: svc-storage, kind: soft }
-  knowledge: [S3 分片上传（CreateMultipartUpload / UploadPart / Complete）, JWT 的基本结构, 浏览器 DevTools 的网络面板]
+  knowledge:
+    - zh-CN: S3 分片上传（CreateMultipartUpload / UploadPart / Complete）
+      ja: S3 のマルチパートアップロード（CreateMultipartUpload / UploadPart / Complete）
+      en: S3 multipart upload (CreateMultipartUpload / UploadPart / Complete)
+    - zh-CN: JWT 的基本结构
+      ja: JWT の基本構造
+      en: The basic structure of a JWT
+    - zh-CN: 浏览器 DevTools 的网络面板
+      ja: ブラウザーの DevTools の Network パネル
+      en: The Network panel of the browser's DevTools
 
 startProfile:
   provisions:
-    - { item: iam, kind: module, basis: credential, set: { IAM_CREDENTIALS: role },
-        reason: 平台约定除 svc-ec2、svc-iam 外起始状态都带实例角色（C3）；identity-pool、storage、auth 也都是 credentials required（CRED-001） }
-    - { item: storage, kind: module, basis: closure, rule: DEP-002, set: { STORAGE_DRIVER: s3 },
-        reason: 原图位置必须在 S3（本地磁盘无法用 IAM 凭证访问），从本地迁移 }
-    - { item: auth, kind: module, basis: closure, rule: DEP-002, set: { AUTH_DRIVER: cognito },
-        reason: DEP-002 的第二个条件二选一时选 auth=cognito（IDENTITY_DEV_PROVIDER 为空时直接要求 auth；User Pool + Identity Pool 是 SAA 的标准组合） }
-    - { item: cognito-test-users, kind: seed, reason: 越权实验需要两个已确认、密码已知的 Cognito 测试用户（06 种子登记表，PM-44） }
-    - { item: mgmt-channel, kind: platform, reason: 实验机挂只含 AmazonSSMManagedInstanceCore 的 CloudAlbumAppRole，是平台的管理通道，不是应用权限 }
-    - { item: workstation, kind: platform, reason: 每个会话一台工作台，用于运行 scripts/module、AWS CLI 与对比实验 }
-    - { item: preview-direct-https, kind: platform, reason: 预览使用方案 B 的 Let's Encrypt IP 证书（03 §6.2）：临时凭证经 https 下发，暂存桶 CORS 另允许 https://<EIP> }
+    - item: iam
+      kind: module
+      basis: credential
+      set: { IAM_CREDENTIALS: role }
+      reason:
+        zh-CN: 平台约定除 svc-ec2、svc-iam 外起始状态都带实例角色（C3）；identity-pool、storage、auth 也都是 credentials required（CRED-001）
+        ja: プラットフォームの取り決めにより、svc-ec2 と svc-iam 以外の開始状態にはインスタンスロールが付いています（C3）。identity-pool、storage、auth も認証情報が必須です（CRED-001）
+        en: By platform convention, every start state except svc-ec2 and svc-iam includes an instance role (C3); identity-pool, storage and auth all require credentials too (CRED-001)
+    - item: storage
+      kind: module
+      basis: closure
+      rule: DEP-002
+      set: { STORAGE_DRIVER: s3 }
+      reason:
+        zh-CN: 原图位置必须在 S3（本地磁盘无法用 IAM 凭证访问），从本地迁移
+        ja: 元画像の場所は S3 でなければなりません（ローカルディスクは IAM の認証情報でアクセスできないため）。ローカルから移行します
+        en: The original images must live in S3 (a local disk cannot be reached with IAM credentials), migrated from local storage
+    - item: auth
+      kind: module
+      basis: closure
+      rule: DEP-002
+      set: { AUTH_DRIVER: cognito }
+      reason:
+        zh-CN: DEP-002 的第二个条件二选一时选 auth=cognito（IDENTITY_DEV_PROVIDER 为空时直接要求 auth；User Pool + Identity Pool 是 SAA 的标准组合）
+        ja: DEP-002 の 2 つ目の条件で二者択一のとき、auth=cognito を選びます（IDENTITY_DEV_PROVIDER が空なら auth が直接必要になります。User Pool ＋ Identity Pool は SAA の定番の組み合わせです）
+        en: For the either-or second condition of DEP-002, auth=cognito is chosen (with IDENTITY_DEV_PROVIDER empty, auth is required directly; User Pool + Identity Pool is the standard SAA pairing)
+    - item: cognito-test-users
+      kind: seed
+      reason:
+        zh-CN: 越权实验需要两个已确认、密码已知的 Cognito 测试用户（06 种子登记表，PM-44）
+        ja: 権限外アクセスの実験には、確認済みでパスワードが分かっている Cognito のテストユーザーが 2 人必要です（06 シード登録表、PM-44）
+        en: The cross-prefix experiment needs two confirmed Cognito test users with known passwords (06 seed register, PM-44)
+    - item: mgmt-channel
+      kind: platform
+      reason:
+        zh-CN: 实验机挂只含 AmazonSSMManagedInstanceCore 的 CloudAlbumAppRole，是平台的管理通道，不是应用权限
+        ja: ラボ用インスタンスには AmazonSSMManagedInstanceCore だけを含む CloudAlbumAppRole が付いています。これはプラットフォームの管理チャネルであり、アプリの権限ではありません
+        en: The lab instance carries CloudAlbumAppRole with only AmazonSSMManagedInstanceCore. It is the platform's management channel, not an app permission
+    - item: workstation
+      kind: platform
+      reason:
+        zh-CN: 每个会话一台工作台，用于运行 scripts/module、AWS CLI 与对比实验
+        ja: セッションごとに 1 台のワークベンチがあり、scripts/module、AWS CLI、比較実験の実行に使います
+        en: Each session has one workbench for running scripts/module, the AWS CLI and comparison experiments
+    - item: preview-direct-https
+      kind: platform
+      reason:
+        zh-CN: 预览使用方案 B 的 Let's Encrypt IP 证书（03 §6.2）：临时凭证经 https 下发，暂存桶 CORS 另允许 https://<EIP>
+        ja: プレビューには方式 B の Let's Encrypt IP 証明書を使います（03 §6.2）。一時的な認証情報は https で配布され、ステージングバケットの CORS は https://<EIP> も許可します
+        en: "The preview uses the option B Let's Encrypt IP certificate (03 §6.2): temporary credentials are handed out over https, and the staging bucket's CORS also allows https://<EIP>"
   platform: { preview: { directHttps: 'on' } }
-  reason: identity-pool 的硬依赖闭包是 storage=s3 + auth=cognito（DEP-002），加上 iam(role)（档位 atl/svc-identity-pool/default）
+  reason:
+    zh-CN: identity-pool 的硬依赖闭包是 storage=s3 + auth=cognito（DEP-002），加上 iam(role)（档位 atl/svc-identity-pool/default）
+    ja: identity-pool の必須依存の閉包は storage=s3 ＋ auth=cognito（DEP-002）に、iam(role) を加えたものです（プロファイル atl/svc-identity-pool/default）
+    en: identity-pool's hard dependency closure is storage=s3 + auth=cognito (DEP-002), plus iam(role) (profile atl/svc-identity-pool/default)
 targetModules:
   - { id: identity-pool, driver: cognito, fromDriver: none, wireStep: enable, adoptsExisting: false }
 expectedWarnings: [DEP-013, DEP-030]
@@ -68,29 +178,57 @@ platform:
 provision: { class: B }
 
 variables:
-  identityPoolId: { label: 身份池 ID, from: derived, fillFrom: stack.identity-pool.EnvIdentityPoolId }
-  stagingBucket: { label: 暂存桶, from: derived, fillFrom: stack.identity-pool.EnvIdentityStagingBucket }
-  stagingBucketArn: { label: 暂存桶 ARN, from: derived, fillFrom: stack.identity-pool.InfoStagingBucketArn }
-  uploaderRoleName: { label: Uploader 角色名, from: derived, fillFrom: stack.identity-pool.InfoUploaderRoleName }
-  uploaderRoleArn: { label: Uploader 角色 ARN, from: derived, fillFrom: stack.identity-pool.InfoUploaderRoleArn }
-  userPoolId: { label: User Pool ID, from: derived, fillFrom: stack.auth.InfoUserPoolId }
+  identityPoolId: { label: { zh-CN: 身份池 ID, ja: Identity Pool ID, en: Identity pool ID }, from: derived, fillFrom: stack.identity-pool.EnvIdentityPoolId }
+  stagingBucket: { label: { zh-CN: 暂存桶, ja: ステージングバケット, en: Staging bucket }, from: derived, fillFrom: stack.identity-pool.EnvIdentityStagingBucket }
+  stagingBucketArn: { label: { zh-CN: 暂存桶 ARN, ja: ステージングバケットの ARN, en: Staging bucket ARN }, from: derived, fillFrom: stack.identity-pool.InfoStagingBucketArn }
+  uploaderRoleName: { label: { zh-CN: Uploader 角色名, ja: Uploader ロール名, en: Uploader role name }, from: derived, fillFrom: stack.identity-pool.InfoUploaderRoleName }
+  uploaderRoleArn: { label: { zh-CN: Uploader 角色 ARN, ja: Uploader ロールの ARN, en: Uploader role ARN }, from: derived, fillFrom: stack.identity-pool.InfoUploaderRoleArn }
+  userPoolId: { label: { zh-CN: User Pool ID, ja: User Pool ID, en: User Pool ID }, from: derived, fillFrom: stack.auth.InfoUserPoolId }
 
 cost:
   currency: USD
   tier: low
-  mainDrivers: [S3 请求（每张照片多一次 CopyObject 与 DeleteObject）, 暂存对象的短暂存储（1 天过期）, Cognito 月活跃用户（起始状态的 auth）]
+  mainDrivers:
+    - zh-CN: S3 请求（每张照片多一次 CopyObject 与 DeleteObject）
+      ja: S3 のリクエスト（写真 1 枚ごとに CopyObject と DeleteObject が 1 回ずつ増える）
+      en: S3 requests (one extra CopyObject and DeleteObject per photo)
+    - zh-CN: 暂存对象的短暂存储（1 天过期）
+      ja: ステージングのオブジェクトの短期保存（1 日で期限切れ）
+      en: Short-lived storage of staging objects (expire after 1 day)
+    - zh-CN: Cognito 月活跃用户（起始状态的 auth）
+      ja: Cognito の月間アクティブユーザー（開始状態の auth）
+      en: Cognito monthly active users (the start state's auth)
   basis:
-    - { ref: start-profile, note: 实验机 EC2、EBS（根卷与数据卷）、公网 IPv4；storage 的原图桶与 auth 的 User Pool }
-    - { ref: workstation, note: 工作台 EC2、EBS、公网 IPv4 }
-    - { key: staging-requests, pricingKey: s3.requests.put, billing: usage, quantity: 1, unit: requests, assumedUsagePerHour: 500, source: target, whenRetained: false,
-        note: 浏览器的 CreateMultipartUpload / UploadPart / Complete 与服务端 CopyObject（Identity Pool 本身不单独收费） }
+    - ref: start-profile
+      note:
+        zh-CN: 实验机 EC2、EBS（根卷与数据卷）、公网 IPv4；storage 的原图桶与 auth 的 User Pool
+        ja: ラボ用インスタンスの EC2、EBS（ルートボリュームとデータボリューム）、パブリック IPv4。storage の元画像バケットと auth の User Pool
+        en: Lab instance EC2, EBS (root and data volumes) and public IPv4; storage's original-image bucket and auth's User Pool
+    - { ref: workstation, note: { zh-CN: 工作台 EC2、EBS、公网 IPv4, ja: ワークベンチの EC2、EBS、パブリック IPv4, en: "Workbench EC2, EBS and public IPv4" } }
+    - key: staging-requests
+      pricingKey: s3.requests.put
+      billing: usage
+      quantity: 1
+      unit: requests
+      assumedUsagePerHour: 500
+      source: target
+      whenRetained: false
+      note:
+        zh-CN: 浏览器的 CreateMultipartUpload / UploadPart / Complete 与服务端 CopyObject（Identity Pool 本身不单独收费）
+        ja: ブラウザーの CreateMultipartUpload / UploadPart / Complete と、サーバー側の CopyObject（Identity Pool 自体は別途課金されません）
+        en: The browser's CreateMultipartUpload / UploadPart / Complete and the server-side CopyObject (the identity pool itself has no separate charge)
   assumptions:
-    - 学习规模的请求与存储通常在免费额度内；暂存对象 1 天后由生命周期规则删除；单价以官方定价为准
+    - zh-CN: 学习规模的请求与存储通常在免费额度内；暂存对象 1 天后由生命周期规则删除；单价以官方定价为准
+      ja: 学習規模のリクエストとストレージは通常無料枠に収まります。ステージングのオブジェクトは 1 日後にライフサイクルルールで削除されます。単価は公式の料金表を確認してください
+      en: Learning-scale requests and storage usually stay within the free tier; staging objects are deleted by a lifecycle rule after 1 day; check the official pricing for unit prices
 
 steps:
   - id: before-bench
     type: experiment
-    title: before：前缀令牌，每一片都先问 EC2
+    title:
+      zh-CN: before：前缀令牌，每一片都先问 EC2
+      ja: before：プレフィックストークンでは、パートごとに毎回 EC2 に問い合わせる
+      en: "before: with a prefix token, every part asks EC2 first"
     manual: manual/10-before-bench.md
     experiment: { module: identity-pool, id: upload-bench, label: before }
     panel: terminal-workstation
@@ -99,7 +237,10 @@ steps:
 
   - id: before-cross
     type: experiment
-    title: before：越权由谁拒绝（应用 403）
+    title:
+      zh-CN: before：越权由谁拒绝（应用 403）
+      ja: before：権限外アクセスを誰が拒否するか（アプリの 403）
+      en: "before: who denies cross-prefix access (the app's 403)"
     manual: manual/20-before-cross.md
     experiment: { module: identity-pool, id: cross-prefix, label: before }
     requires: { steps: [before-bench] }
@@ -110,19 +251,37 @@ steps:
   - id: enable
     type: script
     wire: true
-    title: 启用 Identity Pool：身份池、Uploader 角色、暂存桶
+    title:
+      zh-CN: 启用 Identity Pool：身份池、Uploader 角色、暂存桶
+      ja: Identity Pool を有効にする：Identity Pool、Uploader ロール、ステージングバケット
+      en: "Enable the Identity Pool: identity pool, Uploader role, staging bucket"
     manual: manual/30-enable.md
     methods: [script]
     requires: { steps: [before-cross] }
     panel: terminal-workstation
     estMinutes: 12
-    startsBilling: { class: usage, pricingKeys: [s3.requests.put], note: 按请求计费；身份池本身不单独收费 }
-    wait: { typicalMinutes: 3, maxMinutes: 15, text: 部署身份池、角色与暂存桶，写 identity-pool.env 并重启，然后在应用预览里上传一张照片 }
+    startsBilling:
+      class: usage
+      pricingKeys: [ s3.requests.put ]
+      note:
+        zh-CN: 按请求计费；身份池本身不单独收费
+        ja: リクエストで課金されます。Identity Pool 自体は別途課金されません
+        en: Billed per request; the identity pool itself has no separate charge
+    wait:
+      typicalMinutes: 3
+      maxMinutes: 15
+      text:
+        zh-CN: 部署身份池、角色与暂存桶，写 identity-pool.env 并重启，然后在应用预览里上传一张照片
+        ja: Identity Pool、ロール、ステージングバケットをデプロイし、identity-pool.env を書き込んで再起動します。その後アプリのプレビューで写真を 1 枚アップロードします
+        en: Deploying the identity pool, role and staging bucket, writing identity-pool.env and restarting; then upload a photo in the app preview
     checks: [identity-pool-wired, identity-pool-probe, sts-path-seen, identity-pool-no-guests, identity-pool-roles]
 
   - id: read-policy
     type: console
-    title: 读策略：信任策略的 aud / amr 与策略变量
+    title:
+      zh-CN: 读策略：信任策略的 aud / amr 与策略变量
+      ja: ポリシーを読む：信頼ポリシーの aud / amr とポリシー変数
+      en: "Read the policies: aud / amr in the trust policy and the policy variable"
     manual: manual/40-read-policy.md
     methods: [console, cli]
     requires: { steps: [enable] }
@@ -132,7 +291,10 @@ steps:
 
   - id: after-bench
     type: experiment
-    title: after：STS 凭证直传，中间没有发往 EC2 的分片请求
+    title:
+      zh-CN: after：STS 凭证直传，中间没有发往 EC2 的分片请求
+      ja: after：STS の認証情報で直接アップロードし、途中に EC2 へのパートのリクエストがない
+      en: "after: direct upload with STS credentials, with no part requests to EC2 in between"
     manual: manual/50-after-bench.md
     experiment: { module: identity-pool, id: upload-bench, label: after }
     requires: { steps: [enable] }
@@ -142,7 +304,10 @@ steps:
 
   - id: after-cross
     type: experiment
-    title: after：越权由 S3 返回 AccessDenied
+    title:
+      zh-CN: after：越权由 S3 返回 AccessDenied
+      ja: after：権限外アクセスに S3 が AccessDenied を返す
+      en: "after: S3 returns AccessDenied for cross-prefix access"
     manual: manual/55-after-cross.md
     experiment: { module: identity-pool, id: cross-prefix, label: after }
     requires: { steps: [enable] }
@@ -152,7 +317,10 @@ steps:
 
   - id: resume
     type: experiment
-    title: 断点续传：只重传缺失的分片
+    title:
+      zh-CN: 断点续传：只重传缺失的分片
+      ja: 再開可能なアップロード：足りないパートだけを再送する
+      en: "Resumable upload: only the missing parts are resent"
     manual: manual/60-resume.md
     experiment: { module: identity-pool, id: resume, label: after }
     requires: { steps: [enable] }
@@ -162,9 +330,16 @@ steps:
 
   - id: ab
     type: observe
-    title: （选做）同一部署内 A/B：管理员旁路开前缀令牌会话
+    title:
+      zh-CN: （选做）同一部署内 A/B：管理员旁路开前缀令牌会话
+      ja: （任意）同じデプロイ内での A/B：管理者がバイパスしてプレフィックストークンのセッションを開く
+      en: "(Optional) A/B in the same deployment: an admin bypass opens a prefix-token session"
     manual: manual/70-ab.md
-    optional: { reason: 运行时 A/B 只是同一结论的另一种观察方式 }
+    optional:
+      reason:
+        zh-CN: 运行时 A/B 只是同一结论的另一种观察方式
+        ja: 実行時の A/B は、同じ結論を別の角度から観察するだけです
+        en: The runtime A/B is just another way to observe the same conclusion
     requires: { steps: [enable] }
     panel: terminal-lab
     estMinutes: 6
@@ -209,15 +384,22 @@ experiments:
     corroborateWith: [sts-path-seen]
 
 quiz: { file: quiz.yaml, draw: 3 }
-badge: { title: 直传 S3, icon: assets/badge.svg }
+badge: { title: { zh-CN: 直传 S3, ja: S3 への直接アップロード, en: Direct to S3 }, icon: assets/badge.svg }
 tracks: [saa-main, secure]
 
 cleanup:
-  summary: 结束实验后，平台删除本次会话的 identity-pool 栈（身份池、Uploader 角色、暂存桶），以及起始状态的 storage、auth 栈；暂存桶先清空、中止未完成的分片上传再删除。
+  summary:
+    zh-CN: 结束实验后，平台删除本次会话的 identity-pool 栈（身份池、Uploader 角色、暂存桶），以及起始状态的 storage、auth 栈；暂存桶先清空、中止未完成的分片上传再删除。
+    ja: ラボを終了すると、プラットフォームがこのセッションの identity-pool スタック（Identity Pool、Uploader ロール、ステージングバケット）と、開始状態の storage、auth のスタックを削除します。ステージングバケットは中身を空にし、未完了のマルチパートアップロードを中止してから削除します。
+    en: When you end the lab, the platform deletes this session's identity-pool stack (identity pool, Uploader role, staging bucket) and the start state's storage and auth stacks; the staging bucket is emptied and unfinished multipart uploads are aborted before it is deleted.
   autoReclaim: true
   dataRisk:
-    - 暂存桶里未完成导入的对象随回收删除（本来 1 天后也会过期）；已导入原图桶的照片随 storage 的桶一起回收
-    - 浏览器拿到的临时凭证在约一小时内过期；角色删除后立即失效
+    - zh-CN: 暂存桶里未完成导入的对象随回收删除（本来 1 天后也会过期）；已导入原图桶的照片随 storage 的桶一起回收
+      ja: ステージングバケットにある取り込み前のオブジェクトは回収時に削除されます（もともと 1 日で期限切れになります）。元画像バケットに取り込んだ写真は storage のバケットとともに回収されます
+      en: Objects in the staging bucket that were never imported are deleted on reclaim (they would expire after 1 day anyway); photos imported into the original-image bucket are reclaimed with storage's bucket
+    - zh-CN: 浏览器拿到的临时凭证在约一小时内过期；角色删除后立即失效
+      ja: ブラウザーが受け取った一時的な認証情報は約 1 時間で期限切れになり、ロールを削除した時点ですぐに無効になります
+      en: The temporary credentials the browser received expire within about an hour and stop working as soon as the role is deleted
   learnerCreatedHints: []
   verify:
     - identity-pool-gone
@@ -225,16 +407,85 @@ cleanup:
 saa:
   domains: [secure, performance]
   topics:
-    - { id: pools, title: User Pool 与 Identity Pool 的分工；Web 身份联合, domain: secure, relatesTo: enable }
-    - { id: policy-variable, title: 'IAM 策略变量 ${cognito-identity.amazonaws.com:sub}', domain: secure, relatesTo: read-policy }
-    - { id: trust-conditions, title: 信任策略中的 aud、amr 条件；访客（未认证）身份的风险, domain: secure, relatesTo: read-policy }
-    - { id: direct-upload, title: 预签名 URL、应用自签令牌与临时凭证的取舍, domain: performance, relatesTo: after-bench }
-    - { id: multipart, title: S3 分片上传、CORS 暴露 ETag、生命周期规则清理未完成的分片, domain: performance, relatesTo: resume }
-    - { id: sse-kms, title: SSE-KMS 下分片上传还需要 kms:Decrypt, domain: secure, relatesTo: read-policy }
+    - id: pools
+      title:
+        zh-CN: User Pool 与 Identity Pool 的分工；Web 身份联合
+        ja: User Pool と Identity Pool の役割分担。ウェブ ID フェデレーション
+        en: How the User Pool and Identity Pool divide the work; web identity federation
+      domain: secure
+      relatesTo: enable
+    - id: policy-variable
+      title:
+        zh-CN: 'IAM 策略变量 ${cognito-identity.amazonaws.com:sub}'
+        ja: IAM ポリシー変数 ${cognito-identity.amazonaws.com:sub}
+        en: The IAM policy variable ${cognito-identity.amazonaws.com:sub}
+      domain: secure
+      relatesTo: read-policy
+    - id: trust-conditions
+      title:
+        zh-CN: 信任策略中的 aud、amr 条件；访客（未认证）身份的风险
+        ja: 信頼ポリシーの aud、amr の条件。ゲスト（未認証）ID のリスク
+        en: aud and amr conditions in the trust policy; the risk of guest (unauthenticated) identities
+      domain: secure
+      relatesTo: read-policy
+    - id: direct-upload
+      title:
+        zh-CN: 预签名 URL、应用自签令牌与临时凭证的取舍
+        ja: 署名付き URL、アプリが署名するトークン、一時的な認証情報のトレードオフ
+        en: Trade-offs between presigned URLs, app-signed tokens and temporary credentials
+      domain: performance
+      relatesTo: after-bench
+    - id: multipart
+      title:
+        zh-CN: S3 分片上传、CORS 暴露 ETag、生命周期规则清理未完成的分片
+        ja: S3 のマルチパートアップロード、CORS での ETag の公開、ライフサイクルルールによる未完了のパートの削除
+        en: S3 multipart upload, exposing ETag in CORS, cleaning up unfinished parts with lifecycle rules
+      domain: performance
+      relatesTo: resume
+    - id: sse-kms
+      title:
+        zh-CN: SSE-KMS 下分片上传还需要 kms:Decrypt
+        ja: SSE-KMS ではマルチパートアップロードに kms:Decrypt も必要
+        en: With SSE-KMS, multipart uploads also need kms:Decrypt
+      domain: secure
+      relatesTo: read-policy
   confusables:
-    - { a: Cognito User Pool, b: Cognito Identity Pool, rule: User Pool 负责认证（你是谁，签发 JWT）；Identity Pool 把已认证身份换成 AWS 临时凭证（能做什么由 IAM 角色决定） }
-    - { a: 预签名 URL, b: STS 临时凭证, rule: 预签名 URL 是一次请求的授权（后端逐个签发）；临时凭证在有效期内可以发任意多次请求，范围由角色策略限定 }
-    - { a: User Pool 的 sub, b: '${cognito-identity.amazonaws.com:sub}', rule: 前者是用户池里的用户 ID；策略变量是 Identity Pool 的 Identity ID（形如 ap-northeast-1:uuid），前缀必须用它 }
+    - a:
+        zh-CN: Cognito User Pool
+        ja: Cognito User Pool
+        en: Cognito User Pool
+      b:
+        zh-CN: Cognito Identity Pool
+        ja: Cognito Identity Pool
+        en: Cognito Identity Pool
+      rule:
+        zh-CN: User Pool 负责认证（你是谁，签发 JWT）；Identity Pool 把已认证身份换成 AWS 临时凭证（能做什么由 IAM 角色决定）
+        ja: User Pool は認証（あなたは誰か、JWT を発行）を担当し、Identity Pool は認証済みの ID を AWS の一時的な認証情報に交換します（何ができるかは IAM ロールが決めます）
+        en: The User Pool handles authentication (who you are; it issues JWTs); the Identity Pool exchanges an authenticated identity for temporary AWS credentials (what you can do is decided by the IAM role)
+    - a:
+        zh-CN: 预签名 URL
+        ja: 署名付き URL
+        en: Presigned URL
+      b:
+        zh-CN: STS 临时凭证
+        ja: STS の一時的な認証情報
+        en: STS temporary credentials
+      rule:
+        zh-CN: 预签名 URL 是一次请求的授权（后端逐个签发）；临时凭证在有效期内可以发任意多次请求，范围由角色策略限定
+        ja: 署名付き URL は 1 回のリクエストに対する認可です（バックエンドが 1 つずつ発行）。一時的な認証情報は有効期間内なら何回でもリクエストでき、範囲はロールのポリシーで制限されます
+        en: A presigned URL authorizes one request (the backend issues them one by one); temporary credentials allow any number of requests while valid, limited by the role's policy
+    - a:
+        zh-CN: User Pool 的 sub
+        ja: User Pool の sub
+        en: The User Pool sub
+      b:
+        zh-CN: '${cognito-identity.amazonaws.com:sub}'
+        ja: ${cognito-identity.amazonaws.com:sub}
+        en: ${cognito-identity.amazonaws.com:sub}
+      rule:
+        zh-CN: 前者是用户池里的用户 ID；策略变量是 Identity Pool 的 Identity ID（形如 ap-northeast-1:uuid），前缀必须用它
+        ja: 前者はユーザープール内のユーザー ID です。ポリシー変数のほうは Identity Pool の Identity ID（ap-northeast-1:uuid の形式）で、プレフィックスにはこちらを使う必要があります
+        en: The former is the user's ID in the user pool; the policy variable is the Identity Pool's Identity ID (like ap-northeast-1:uuid), and the prefix must use it
 
 tags: [identity-pool, cognito-identity-pool, sts, s3-multipart, iam-policy-variables]
 

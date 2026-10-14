@@ -1,28 +1,48 @@
 checks:
   # ---- 起始状态（before 一律 once）
   - id: db-sqlite-baseline
-    title: 起始状态：数据库是 EBS 上的 SQLite 文件
+    title:
+      zh-CN: 起始状态：数据库是 EBS 上的 SQLite 文件
+      ja: 開始状態：データベースは EBS 上の SQLite ファイル
+      en: "Start state: the database is a SQLite file on EBS"
     type: capability
     module: database
     drift: { policy: once }
     assert:
-      - { path: $.driver, op: eq, value: sqlite, label: 驱动 }
-    explain: SQLite 与 Node 同进程读写，数据文件在 EBS 数据卷上；EC2 一停，数据库跟着停。
+      - { path: $.driver, op: eq, value: sqlite, label: { zh-CN: 驱动, ja: ドライバー, en: Driver } }
+    explain:
+      zh-CN: SQLite 与 Node 同进程读写，数据文件在 EBS 数据卷上；EC2 一停，数据库跟着停。
+      ja: SQLite は Node と同じプロセスで読み書きされ、データファイルは EBS のデータボリュームにあります。EC2 が止まればデータベースも止まります。
+      en: SQLite is read and written in the same process as Node, with the data file on the EBS data volume; when EC2 stops, the database stops too.
 
   # ---- 接入 RDS
   - id: db-wired
-    title: database 已切换到 RDS for PostgreSQL，且状态正常
+    title:
+      zh-CN: database 已切换到 RDS for PostgreSQL，且状态正常
+      ja: database が RDS for PostgreSQL に切り替わり、状態が正常
+      en: database has switched to RDS for PostgreSQL and is healthy
     type: capability
     module: database
     drift: { policy: must-hold, monitor: true }
     assert:
-      - { path: $.driver, op: eq, value: postgres, label: 驱动 }
-      - { path: $, op: healthy, label: 状态正常（本卡 expectedWarnings 为空，即必须是 ok） }
-    explain: 深度探针读取 rds:DescribeDBInstances，detail 中会显示 Multi-AZ 状态与主库所在 AZ。
+      - { path: $.driver, op: eq, value: postgres, label: { zh-CN: 驱动, ja: ドライバー, en: Driver } }
+      - path: $
+        op: healthy
+        label:
+          zh-CN: 状态正常（本卡 expectedWarnings 为空，即必须是 ok）
+          ja: 状態が正常（このカードの expectedWarnings は空なので ok でなければならない）
+          en: Healthy (this card's expectedWarnings is empty, so it must be ok)
+    explain:
+      zh-CN: 深度探针读取 rds:DescribeDBInstances，detail 中会显示 Multi-AZ 状态与主库所在 AZ。
+      ja: 詳細プローブは rds:DescribeDBInstances を読み取り、detail にマルチ AZ の状態とプライマリのある AZ を表示します。
+      en: The deep probe reads rds:DescribeDBInstances, and detail shows the Multi-AZ status and the primary's AZ.
     reproduce: { run: 'curl -s http://127.0.0.1/api/capabilities | jq ".modules.database | {driver, status, detail}"', runsOn: lab }
 
   - id: db-path-rds
-    title: 应用的查询实际发往 RDS
+    title:
+      zh-CN: 应用的查询实际发往 RDS
+      ja: アプリのクエリが実際に RDS に送られている
+      en: The app's queries actually go to RDS
     type: http-header
     from: lab
     target: self
@@ -31,13 +51,19 @@ checks:
     dependsOn: [db-wired]
     drift: { policy: must-hold }
     assert:
-      - { path: $.status, op: eq, value: 200, label: 状态码 }
-      - { path: $.pathSegments.database, op: eq, value: 'postgres@rds', label: 路径段 database }
-    explain: 探测端点执行一次 select now()；路径段由应用按实际连接的主机生成（*.rds.amazonaws.com → rds）。
+      - { path: $.status, op: eq, value: 200, label: { zh-CN: 状态码, ja: ステータスコード, en: Status code } }
+      - { path: $.pathSegments.database, op: eq, value: 'postgres@rds', label: { zh-CN: 路径段 database, ja: 経路セグメント database, en: Path segment database } }
+    explain:
+      zh-CN: 探测端点执行一次 select now()；路径段由应用按实际连接的主机生成（*.rds.amazonaws.com → rds）。
+      ja: プローブ用エンドポイントは select now() を 1 回実行します。経路セグメントは、アプリが実際に接続したホストから生成されます（*.rds.amazonaws.com → rds）。
+      en: The probe endpoint runs select now() once; the app builds the path segment from the host it actually connected to (*.rds.amazonaws.com → rds).
     reproduce: { run: 'curl -s -o /dev/null -D - "http://127.0.0.1/api/feed?limit=1" | grep -i "^x-cloudalbum-path:"', runsOn: lab }
 
   - id: db-instance
-    title: 数据库实例是本会话创建的：Multi-AZ、已加密、不可公开访问
+    title:
+      zh-CN: 数据库实例是本会话创建的：Multi-AZ、已加密、不可公开访问
+      ja: データベースインスタンスはこのセッションで作成され、マルチ AZ、暗号化済み、パブリックアクセス不可
+      en: The DB instance was created by this session and is Multi-AZ, encrypted and not publicly accessible
     type: aws-readonly
     service: rds
     action: DescribeDBInstances
@@ -49,26 +75,43 @@ checks:
       - { path: '$.DBInstances[0].DBInstanceStatus', op: in, value: [creating, backing-up, modifying, configuring-enhanced-monitoring] }
     drift: { policy: must-hold }
     assert:
-      - { path: '$.DBInstances[0].DBInstanceStatus', op: eq, value: available, label: 状态 }
-      - { path: '$.DBInstances[0].MultiAZ', op: eq, value: true, label: Multi-AZ }
-      - { path: '$.DBInstances[0].StorageEncrypted', op: eq, value: true, label: 静态加密 }
-      - { path: '$.DBInstances[0].PubliclyAccessible', op: eq, value: false, label: 不可公开访问 }
-      - { path: '$.DBInstances[0].DeletionProtection', op: eq, value: false, label: 未开启删除保护（回收需要） }
-    explain: 先确认实例由本会话的 database 模块栈创建，再核对部署形态与安全属性；加密只能在创建时开启。
+      - { path: '$.DBInstances[0].DBInstanceStatus', op: eq, value: available, label: { zh-CN: 状态, ja: 状態, en: Status } }
+      - { path: '$.DBInstances[0].MultiAZ', op: eq, value: true, label: { zh-CN: Multi-AZ, ja: マルチ AZ, en: Multi-AZ } }
+      - { path: '$.DBInstances[0].StorageEncrypted', op: eq, value: true, label: { zh-CN: 静态加密, ja: 保管時の暗号化, en: Encryption at rest } }
+      - { path: '$.DBInstances[0].PubliclyAccessible', op: eq, value: false, label: { zh-CN: 不可公开访问, ja: パブリックアクセス不可, en: Not publicly accessible } }
+      - { path: '$.DBInstances[0].DeletionProtection', op: eq, value: false, label: { zh-CN: 未开启删除保护（回收需要）, ja: 削除保護が無効（回収に必要）, en: Deletion protection off (needed for reclaim) } }
+    explain:
+      zh-CN: 先确认实例由本会话的 database 模块栈创建，再核对部署形态与安全属性；加密只能在创建时开启。
+      ja: まずインスタンスがこのセッションの database モジュールスタックで作成されたことを確認し、次にデプロイ形態とセキュリティ属性を照合します。暗号化は作成時にしか有効にできません。
+      en: The platform first confirms that this session's database module stack created the instance, then checks its deployment shape and security attributes; encryption can only be turned on at creation.
     reproduce: { run: 'aws rds describe-db-instances --db-instance-identifier "{{ var.dbInstanceId }}" --query "DBInstances[0].[DBInstanceStatus,MultiAZ,StorageEncrypted,PubliclyAccessible]"', runsOn: workstation }
     pitfalls: [deletion-protection]
     manualFallback:
       where: { breadcrumb: [RDS, 数据库, '{{ var.dbInstanceId }}', 配置], region: app }
       observed:
-        question: 实例的“多可用区”与“加密”分别显示什么？
+        question:
+          zh-CN: 实例的“多可用区”与“加密”分别显示什么？
+          ja: インスタンスの「マルチ AZ」と「暗号化」にはそれぞれ何と表示されていますか？
+          en: What do the instance's "Multi-AZ" and "Encryption" show?
         options:
-          - { value: ok, label: 是、已启用, expected: true }
-          - { value: creating, label: 实例还在创建中, fixHint: Multi-AZ 实例创建通常需要 20 分钟左右，请稍后再检查 }
-          - { value: other, label: 其他 }
+          - { value: ok, label: { zh-CN: 是、已启用, ja: はい、有効, en: "Yes, Enabled" }, expected: true }
+          - value: creating
+            label:
+              zh-CN: 实例还在创建中
+              ja: インスタンスはまだ作成中
+              en: The instance is still being created
+            fixHint:
+              zh-CN: Multi-AZ 实例创建通常需要 20 分钟左右，请稍后再检查
+              ja: マルチ AZ インスタンスの作成には通常 20 分ほどかかります。しばらくしてから再チェックしてください
+              en: Creating a Multi-AZ instance usually takes about 20 minutes; check again later
+          - { value: other, label: { zh-CN: 其他, ja: その他, en: Something else } }
 
   # ---- 看懂网络、加密与备份
   - id: db-sg-rule
-    title: sg-db 的 5432 入站只放行实验机的安全组，没有 CIDR 来源
+    title:
+      zh-CN: sg-db 的 5432 入站只放行实验机的安全组，没有 CIDR 来源
+      ja: sg-db の 5432 インバウンドはラボ用インスタンスのセキュリティグループだけを許可し、CIDR のソースがない
+      en: sg-db allows inbound 5432 only from the lab instance's security group, with no CIDR sources
     type: aws-readonly
     service: ec2
     action: DescribeSecurityGroupRules
@@ -82,26 +125,54 @@ checks:
       - path: $.SecurityGroupRules
         where: { IsEgress: false, FromPort: 5432 }
         op: some
-        label: 5432 的来源是实验机安全组
+        label:
+          zh-CN: 5432 的来源是实验机安全组
+          ja: 5432 のソースがラボ用インスタンスのセキュリティグループ
+          en: The source of 5432 is the lab instance's security group
         value:
           - { path: $.ReferencedGroupInfo.GroupId, op: eq, value: '{{ target.sgId }}' }
       - path: $.SecurityGroupRules
         where: { IsEgress: false, CidrIpv4: { op: exists } }
         op: len_eq
         value: 0
-        label: 以 IP 段为来源的入站规则
-    explain: sg-db 是实例的第一个 VPC 安全组（db-instance 已确认实例归属）；只有挂着实验机安全组的网卡能连到 5432。
+        label:
+          zh-CN: 以 IP 段为来源的入站规则
+          ja: IP 範囲をソースにしたインバウンドルール
+          en: Inbound rules with an IP range as source
+    explain:
+      zh-CN: sg-db 是实例的第一个 VPC 安全组（db-instance 已确认实例归属）；只有挂着实验机安全组的网卡能连到 5432。
+      ja: sg-db はインスタンスの最初の VPC セキュリティグループです（db-instance でインスタンスの所有を確認済み）。ラボ用インスタンスのセキュリティグループが付いたネットワークインターフェイスだけが 5432 に接続できます。
+      en: sg-db is the instance's first VPC security group (db-instance has confirmed ownership of the instance); only network interfaces carrying the lab instance's security group can reach 5432.
     reproduce: { run: 'aws ec2 describe-security-group-rules --filters Name=group-id,Values=<sg-db 的 ID> --query "SecurityGroupRules[?IsEgress==\`false\`].[FromPort,ReferencedGroupInfo.GroupId,CidrIpv4]" --output table', runsOn: workstation }
     manualFallback:
       where: { breadcrumb: [RDS, 数据库, '{{ var.dbInstanceId }}', 连接和安全性, VPC 安全组], region: app }
       observed:
-        question: 安全组中 5432 端口入站规则的“源”是什么？
+        question:
+          zh-CN: 安全组中 5432 端口入站规则的“源”是什么？
+          ja: セキュリティグループの 5432 番ポートのインバウンドルールの「ソース」は何ですか？
+          en: What is the "Source" of the inbound rule for port 5432 in the security group?
         options:
-          - { value: sg, label: '实验机的安全组（{{ target.sgId }}）', expected: true }
-          - { value: cidr, label: 一个 IP 地址段, fixHint: 不要在控制台修改栈管理的安全组；重新执行 scripts/module enable database --param MultiAz=true }
+          - value: sg
+            label:
+              zh-CN: '实验机的安全组（{{ target.sgId }}）'
+              ja: ラボ用インスタンスのセキュリティグループ（{{ target.sgId }}）
+              en: The lab instance's security group ({{ target.sgId }})
+            expected: true
+          - value: cidr
+            label:
+              zh-CN: 一个 IP 地址段
+              ja: IP アドレスの範囲
+              en: An IP address range
+            fixHint:
+              zh-CN: 不要在控制台修改栈管理的安全组；重新执行 scripts/module enable database --param MultiAz=true
+              ja: スタックが管理するセキュリティグループをコンソールで変更しないでください。scripts/module enable database --param MultiAz=true を再実行します
+              en: Do not change the stack-managed security group in the console; run scripts/module enable database --param MultiAz=true again
 
   - id: db-backup-az
-    title: 自动备份已开启，记录故障转移前主库所在的 AZ
+    title:
+      zh-CN: 自动备份已开启，记录故障转移前主库所在的 AZ
+      ja: 自動バックアップが有効で、フェイルオーバー前のプライマリの AZ を記録する
+      en: Automated backups are on, and the primary's AZ before failover is recorded
     type: aws-readonly
     service: rds
     action: DescribeDBInstances
@@ -111,33 +182,56 @@ checks:
     drift: { policy: once }
     evidence: { keep: ['$.DBInstances[0].AvailabilityZone', '$.DBInstances[0].SecondaryAvailabilityZone', '$.DBInstances[0].LatestRestorableTime'] }
     assert:
-      - { path: '$.DBInstances[0].BackupRetentionPeriod', op: gte, value: 1, label: 自动备份保留天数 }
-      - { path: '$.DBInstances[0].LatestRestorableTime', op: exists, label: 最近可恢复时间 }
-      - { path: '$.DBInstances[0].AvailabilityZone', op: exists, label: 主库 AZ }
-      - { path: '$.DBInstances[0].SecondaryAvailabilityZone', op: exists, label: 备库 AZ }
-    explain: 这项检查只判定一次，它的证据保留了故障转移前的主库 AZ，供第 7 步比较。
+      - { path: '$.DBInstances[0].BackupRetentionPeriod', op: gte, value: 1, label: { zh-CN: 自动备份保留天数, ja: 自動バックアップの保持日数, en: Automated backup retention days } }
+      - { path: '$.DBInstances[0].LatestRestorableTime', op: exists, label: { zh-CN: 最近可恢复时间, ja: 最新の復元可能時刻, en: Latest restorable time } }
+      - { path: '$.DBInstances[0].AvailabilityZone', op: exists, label: { zh-CN: 主库 AZ, ja: プライマリの AZ, en: Primary AZ } }
+      - { path: '$.DBInstances[0].SecondaryAvailabilityZone', op: exists, label: { zh-CN: 备库 AZ, ja: スタンバイの AZ, en: Standby AZ } }
+    explain:
+      zh-CN: 这项检查只判定一次，它的证据保留了故障转移前的主库 AZ，供第 7 步比较。
+      ja: このチェックは 1 回だけ判定されます。証拠にはフェイルオーバー前のプライマリの AZ が残り、ステップ 7 での比較に使われます。
+      en: This check is evaluated only once; its evidence keeps the primary's AZ before failover for the comparison in step 7.
     reproduce: { run: 'aws rds describe-db-instances --db-instance-identifier "{{ var.dbInstanceId }}" --query "DBInstances[0].[AvailabilityZone,SecondaryAvailabilityZone,BackupRetentionPeriod,LatestRestorableTime]"', runsOn: workstation }
     manualFallback:
       where: { breadcrumb: [RDS, 数据库, '{{ var.dbInstanceId }}', 维护和备份], region: app }
       observed:
-        question: “自动备份”与“最近的还原时间”分别显示什么？
+        question:
+          zh-CN: “自动备份”与“最近的还原时间”分别显示什么？
+          ja: 「自動バックアップ」と「最新の復元時間」にはそれぞれ何と表示されていますか？
+          en: What do "Automated backups" and "Latest restore time" show?
         options:
-          - { value: ok, label: 已启用（7 天），有最近的还原时间, expected: true }
-          - { value: other, label: 其他 }
+          - { value: ok, label: { zh-CN: 已启用（7 天），有最近的还原时间, ja: 有効（7 日間）で、最新の復元時間がある, en: "Enabled (7 days), with a latest restore time" }, expected: true }
+          - { value: other, label: { zh-CN: 其他, ja: その他, en: Something else } }
 
   - id: workstation-5432
-    title: 说出从工作台直接连 5432 的结果与原因
+    title:
+      zh-CN: 说出从工作台直接连 5432 的结果与原因
+      ja: ワークベンチから 5432 に直接接続した結果と理由を答える
+      en: Report what happened when the workbench connected to 5432 directly, and why
     type: manual
     spec:
       observed:
-        question: 在工作台上测试到数据库端点 5432 端口的 TCP 连接，结果是什么？
+        question:
+          zh-CN: 在工作台上测试到数据库端点 5432 端口的 TCP 连接，结果是什么？
+          ja: ワークベンチからデータベースのエンドポイントの 5432 番ポートへの TCP 接続をテストした結果はどうでしたか？
+          en: What was the result of testing a TCP connection from the workbench to port 5432 on the database endpoint?
         options:
-          - { value: blocked, label: 超时（blocked）, expected: true }
-          - { value: open, label: 连上了, fixHint: 工作台与实验机同在默认 VPC，但 sg-db 只放行实验机的安全组；确认 db-sg-rule 通过 }
+          - { value: blocked, label: { zh-CN: 超时（blocked）, ja: タイムアウト（blocked）, en: Timed out (blocked) }, expected: true }
+          - value: open
+            label:
+              zh-CN: 连上了
+              ja: 接続できた
+              en: It connected
+            fixHint:
+              zh-CN: 工作台与实验机同在默认 VPC，但 sg-db 只放行实验机的安全组；确认 db-sg-rule 通过
+              ja: ワークベンチとラボ用インスタンスはどちらもデフォルト VPC にありますが、sg-db はラボ用インスタンスのセキュリティグループだけを許可しています。db-sg-rule が合格していることを確認してください
+              en: The workbench and the lab instance are both in the default VPC, but sg-db only allows the lab instance's security group; make sure db-sg-rule passes
 
   # ---- 故障转移
   - id: failover-az-changed
-    title: 故障转移后主库换到了另一个 AZ，且实例可用
+    title:
+      zh-CN: 故障转移后主库换到了另一个 AZ，且实例可用
+      ja: フェイルオーバー後にプライマリが別の AZ に移り、インスタンスが利用可能
+      en: After the failover, the primary has moved to another AZ and the instance is available
     type: aws-readonly
     service: rds
     action: DescribeDBInstances
@@ -149,22 +243,39 @@ checks:
       - { path: '$.DBInstances[0].DBInstanceStatus', op: in, value: [rebooting, modifying] }
     drift: { policy: once }
     assert:
-      - { path: '$.DBInstances[0].AvailabilityZone', op: neq, value: '{{$check.db-backup-az.DBInstances[0].AvailabilityZone}}', label: 主库 AZ 与故障转移前不同 }
-      - { path: '$.DBInstances[0].DBInstanceStatus', op: eq, value: available, label: 状态 }
-    explain: 与第 4 步记录的主库 AZ 比较；故障转移后原来的备库成为主库，端点的 DNS 指向新主库。
+      - { path: '$.DBInstances[0].AvailabilityZone', op: neq, value: '{{$check.db-backup-az.DBInstances[0].AvailabilityZone}}', label: { zh-CN: 主库 AZ 与故障转移前不同, ja: プライマリの AZ がフェイルオーバー前と異なる, en: Primary AZ differs from before the failover } }
+      - { path: '$.DBInstances[0].DBInstanceStatus', op: eq, value: available, label: { zh-CN: 状态, ja: 状態, en: Status } }
+    explain:
+      zh-CN: 与第 4 步记录的主库 AZ 比较；故障转移后原来的备库成为主库，端点的 DNS 指向新主库。
+      ja: ステップ 4 で記録したプライマリの AZ と比較します。フェイルオーバー後は元のスタンバイがプライマリになり、エンドポイントの DNS は新しいプライマリを指します。
+      en: Compared with the primary AZ recorded in step 4; after a failover the old standby becomes the primary, and the endpoint's DNS points at the new primary.
     reproduce: { run: 'aws rds describe-db-instances --db-instance-identifier "{{ var.dbInstanceId }}" --query "DBInstances[0].[AvailabilityZone,SecondaryAvailabilityZone,DBInstanceStatus]"', runsOn: workstation }
     pitfalls: [failover-not-run]
     manualFallback:
       where: { breadcrumb: [RDS, 数据库, '{{ var.dbInstanceId }}', 连接和安全性], region: app }
       observed:
-        question: 现在的主库可用区与第 4 步记录的相比如何？
+        question:
+          zh-CN: 现在的主库可用区与第 4 步记录的相比如何？
+          ja: 現在のプライマリのアベイラビリティーゾーンは、ステップ 4 で記録したものと比べてどうですか？
+          en: How does the current primary Availability Zone compare with the one you recorded in step 4?
         options:
-          - { value: changed, label: 换成了原来的备库可用区, expected: true }
-          - { value: same, label: 没有变化, fixHint: 确认运行器在第 30 秒执行了 rds-failover.sh（需要 DB_INSTANCE_ID） }
+          - { value: changed, label: { zh-CN: 换成了原来的备库可用区, ja: 元のスタンバイのアベイラビリティーゾーンに変わった, en: It changed to the old standby's Availability Zone }, expected: true }
+          - value: same
+            label:
+              zh-CN: 没有变化
+              ja: 変わっていない
+              en: No change
+            fixHint:
+              zh-CN: 确认运行器在第 30 秒执行了 rds-failover.sh（需要 DB_INSTANCE_ID）
+              ja: ランナーが 30 秒目に rds-failover.sh を実行したか確認してください（DB_INSTANCE_ID が必要です）
+              en: Check that the runner ran rds-failover.sh at second 30 (it needs DB_INSTANCE_ID)
 
   # ---- 选做：时间点恢复
   - id: pitr-instance
-    title: 时间点恢复出的新实例是本步骤创建的，且已可用
+    title:
+      zh-CN: 时间点恢复出的新实例是本步骤创建的，且已可用
+      ja: ポイントインタイムリカバリで作った新しいインスタンスはこのステップで作成されたもので、利用可能
+      en: The instance from point-in-time recovery was created in this step and is available
     type: aws-readonly
     service: rds
     action: DescribeDBInstances
@@ -177,21 +288,30 @@ checks:
     required: false
     drift: { policy: once }
     assert:
-      - { path: '$.DBInstances[0].DBInstanceStatus', op: eq, value: available, label: 状态 }
-      - { path: '$.DBInstances[0].PubliclyAccessible', op: eq, value: false, label: 不可公开访问 }
-    explain: 时间点恢复总是创建新实例（需要指定子网组与安全组）；归属以 CloudTrail 中本会话的创建事件为准。
+      - { path: '$.DBInstances[0].DBInstanceStatus', op: eq, value: available, label: { zh-CN: 状态, ja: 状態, en: Status } }
+      - { path: '$.DBInstances[0].PubliclyAccessible', op: eq, value: false, label: { zh-CN: 不可公开访问, ja: パブリックアクセス不可, en: Not publicly accessible } }
+    explain:
+      zh-CN: 时间点恢复总是创建新实例（需要指定子网组与安全组）；归属以 CloudTrail 中本会话的创建事件为准。
+      ja: ポイントインタイムリカバリは必ず新しいインスタンスを作成します（サブネットグループとセキュリティグループの指定が必要です）。所有は CloudTrail にあるこのセッションの作成イベントで判断します。
+      en: Point-in-time recovery always creates a new instance (you must specify the subnet group and security group); ownership is based on this session's creation event in CloudTrail.
     reproduce: { run: 'aws rds describe-db-instances --db-instance-identifier cloudalbum-{{ session.env }}-pitr --query "DBInstances[0].DBInstanceStatus"', runsOn: workstation }
     manualFallback:
       where: { breadcrumb: [RDS, 数据库, 'cloudalbum-{{ session.env }}-pitr'], region: app }
       observed:
-        question: 恢复出的实例状态是什么？
+        question:
+          zh-CN: 恢复出的实例状态是什么？
+          ja: 復元したインスタンスの状態は何ですか？
+          en: What is the status of the restored instance?
         options:
-          - { value: available, label: 可用, expected: true }
-          - { value: creating, label: 正在创建, fixHint: 恢复通常需要 15 分钟以上 }
+          - { value: available, label: { zh-CN: 可用, ja: 利用可能, en: Available }, expected: true }
+          - { value: creating, label: { zh-CN: 正在创建, ja: 作成中, en: Creating }, fixHint: { zh-CN: 恢复通常需要 15 分钟以上, ja: 復元には通常 15 分以上かかります, en: A restore usually takes more than 15 minutes } }
 
   # ---- 回收验证
   - id: db-gone
-    title: 本会话的数据库实例已删除
+    title:
+      zh-CN: 本会话的数据库实例已删除
+      ja: このセッションのデータベースインスタンスが削除されている
+      en: This session's DB instance has been deleted
     type: aws-readonly
     service: rds
     action: DescribeDBInstances
@@ -203,13 +323,19 @@ checks:
     manualFallback:
       where: { breadcrumb: [RDS, 数据库], region: app }
       observed:
-        question: 列表中还能找到 cloudalbum-{{ session.env }}-database 吗？
+        question:
+          zh-CN: 列表中还能找到 cloudalbum-{{ session.env }}-database 吗？
+          ja: 一覧にまだ cloudalbum-{{ session.env }}-database がありますか？
+          en: Is cloudalbum-{{ session.env }}-database still in the list?
         options:
-          - { value: gone, label: 找不到, expected: true }
-          - { value: present, label: 还在 }
+          - { value: gone, label: { zh-CN: 找不到, ja: 見つからない, en: Not found }, expected: true }
+          - { value: present, label: { zh-CN: 还在, ja: まだある, en: Still there } }
 
   - id: pitr-gone
-    title: 时间点恢复出的实例已删除
+    title:
+      zh-CN: 时间点恢复出的实例已删除
+      ja: ポイントインタイムリカバリで作ったインスタンスが削除されている
+      en: The instance from point-in-time recovery has been deleted
     type: aws-readonly
     service: rds
     action: DescribeDBInstances
@@ -221,13 +347,48 @@ checks:
     manualFallback:
       where: { breadcrumb: [RDS, 数据库], region: app }
       observed:
-        question: 列表中还能找到 cloudalbum-{{ session.env }}-pitr 吗？
+        question:
+          zh-CN: 列表中还能找到 cloudalbum-{{ session.env }}-pitr 吗？
+          ja: 一覧にまだ cloudalbum-{{ session.env }}-pitr がありますか？
+          en: Is cloudalbum-{{ session.env }}-pitr still in the list?
         options:
-          - { value: gone, label: 找不到（或从未创建）, expected: true }
-          - { value: present, label: 还在, fixHint: 执行 aws rds delete-db-instance --skip-final-snapshot --delete-automated-backups }
+          - { value: gone, label: { zh-CN: 找不到（或从未创建）, ja: 見つからない（または作成していない）, en: Not found (or never created) }, expected: true }
+          - value: present
+            label:
+              zh-CN: 还在
+              ja: まだある
+              en: Still there
+            fixHint:
+              zh-CN: 执行 aws rds delete-db-instance --skip-final-snapshot --delete-automated-backups
+              ja: aws rds delete-db-instance --skip-final-snapshot --delete-automated-backups を実行してください
+              en: Run aws rds delete-db-instance --skip-final-snapshot --delete-automated-backups
 
 pitfalls:
-  - { id: deletion-protection, title: 实例开启了删除保护, match: [ { checkId: db-instance, result: fail } ],
-      cause: 删除保护会让平台回收失败，会话进入 CLEANUP_FAILED, fix: 不要在控制台修改栈管理的实例；重新执行 scripts/module enable database --param MultiAz=true }
-  - { id: failover-not-run, title: 主库 AZ 没有变化, match: [ { checkId: failover-az-changed, result: fail } ],
-      cause: 故障转移没有被触发（例如没有设置 DB_INSTANCE_ID，运行器跳过了故障脚本）, fix: 按本步骤的命令重新运行 failover 实验 }
+  - id: deletion-protection
+    title:
+      zh-CN: 实例开启了删除保护
+      ja: インスタンスの削除保護が有効になっている
+      en: Deletion protection is on for the instance
+    match: [ { checkId: db-instance, result: fail } ]
+    cause:
+      zh-CN: 删除保护会让平台回收失败，会话进入 CLEANUP_FAILED
+      ja: 削除保護があるとプラットフォームの回収が失敗し、セッションが CLEANUP_FAILED になります
+      en: Deletion protection makes the platform's reclaim fail, and the session goes to CLEANUP_FAILED
+    fix:
+      zh-CN: 不要在控制台修改栈管理的实例；重新执行 scripts/module enable database --param MultiAz=true
+      ja: スタックが管理するインスタンスをコンソールで変更しないでください。scripts/module enable database --param MultiAz=true を再実行します
+      en: Do not change the stack-managed instance in the console; run scripts/module enable database --param MultiAz=true again
+  - id: failover-not-run
+    title:
+      zh-CN: 主库 AZ 没有变化
+      ja: プライマリの AZ が変わっていない
+      en: The primary AZ did not change
+    match: [ { checkId: failover-az-changed, result: fail } ]
+    cause:
+      zh-CN: 故障转移没有被触发（例如没有设置 DB_INSTANCE_ID，运行器跳过了故障脚本）
+      ja: フェイルオーバーが起きていません（たとえば DB_INSTANCE_ID を設定しなかったため、ランナーが障害スクリプトを飛ばした）
+      en: The failover was never triggered (for example DB_INSTANCE_ID was not set, so the runner skipped the fault script)
+    fix:
+      zh-CN: 按本步骤的命令重新运行 failover 实验
+      ja: このステップのコマンドで failover 実験をもう一度実行してください
+      en: Run the failover experiment again with this step's commands

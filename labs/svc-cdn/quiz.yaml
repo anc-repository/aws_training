@@ -7,14 +7,24 @@ questions:
     type: single
     kind: scenario
     services: [cloudfront]
-    stem: 全球用户访问部署在东京 EC2 上的图片与静态资源时延迟高，团队同时希望降低 EC2 的出网流量费用。最合适的方案是？
+    stem:
+      zh-CN: 全球用户访问部署在东京 EC2 上的图片与静态资源时延迟高，团队同时希望降低 EC2 的出网流量费用。最合适的方案是？
+      ja: 東京の EC2 にデプロイした画像や静的リソースに世界中のユーザーがアクセスすると、レイテンシーが高くなります。チームは EC2 のデータ転送（アウト）の料金も下げたいと考えています。最も適切な方法はどれですか？
+      en: Users around the world see high latency when they load images and static assets from an EC2 instance in Tokyo. The team also wants to cut the instance's data transfer out costs. What is the best solution?
     options:
-      - { id: a, text: 创建以该 EC2 为自定义源站的 CloudFront 分配 }
-      - { id: b, text: 使用 AWS Global Accelerator }
-      - { id: c, text: 换成更大的实例类型 }
-      - { id: d, text: 开启 S3 Transfer Acceleration }
+      - id: a
+        text:
+          zh-CN: 创建以该 EC2 为自定义源站的 CloudFront 分配
+          ja: その EC2 をカスタムオリジンとする CloudFront ディストリビューションを作成する
+          en: Create a CloudFront distribution with the EC2 instance as a custom origin
+      - { id: b, text: { zh-CN: 使用 AWS Global Accelerator, ja: AWS Global Accelerator を使う, en: Use AWS Global Accelerator } }
+      - { id: c, text: { zh-CN: 换成更大的实例类型, ja: より大きなインスタンスタイプに変更する, en: Move to a larger instance type } }
+      - { id: d, text: { zh-CN: 开启 S3 Transfer Acceleration, ja: S3 Transfer Acceleration を有効にする, en: Turn on S3 Transfer Acceleration } }
     answer: [a]
-    explain: CloudFront 在边缘缓存内容，命中时不回源，从 AWS 源站回源到 CloudFront 的流量不收出网费；Global Accelerator 提供静态 Anycast IP 与骨干网加速，但不缓存内容；Transfer Acceleration 用于加速上传到 S3。
+    explain:
+      zh-CN: CloudFront 在边缘缓存内容，命中时不回源，从 AWS 源站回源到 CloudFront 的流量不收出网费；Global Accelerator 提供静态 Anycast IP 与骨干网加速，但不缓存内容；Transfer Acceleration 用于加速上传到 S3。
+      ja: CloudFront はエッジでコンテンツをキャッシュし、ヒットすればオリジンに戻りません。また AWS のオリジンから CloudFront へのトラフィックにはデータ転送料金がかかりません。Global Accelerator は静的なエニーキャスト IP とバックボーンでの高速化を提供しますが、コンテンツはキャッシュしません。Transfer Acceleration は S3 へのアップロードを高速化するものです。
+      en: CloudFront caches content at the edge, so hits never reach the origin, and traffic from an AWS origin to CloudFront is not charged as data transfer out. Global Accelerator provides static anycast IPs and backbone acceleration but does not cache content. Transfer Acceleration speeds up uploads to S3.
     relatesTo: after
     difficulty: 1
   - id: cdn-oac-kms
@@ -22,28 +32,52 @@ questions:
     type: single
     kind: scenario
     services: [cloudfront, s3]
-    stem: 只允许 CloudFront 读取 S3 源站中的对象，且桶使用 SSE-KMS 加密。推荐做法是？
+    stem:
+      zh-CN: 只允许 CloudFront 读取 S3 源站中的对象，且桶使用 SSE-KMS 加密。推荐做法是？
+      ja: S3 オリジンのオブジェクトを CloudFront だけが読み取れるようにしたいです。バケットは SSE-KMS で暗号化されています。推奨される方法はどれですか？
+      en: Only CloudFront should be able to read objects in an S3 origin, and the bucket is encrypted with SSE-KMS. What is the recommended approach?
     options:
-      - { id: a, text: '使用 Origin Access Control（OAC），桶策略只允许 cloudfront.amazonaws.com 且 AWS:SourceArn 为该分配' }
-      - { id: b, text: 把桶设为公开读 }
-      - { id: c, text: 使用 Origin Access Identity（OAI） }
-      - { id: d, text: 为每个对象生成预签名 URL 写进页面 }
+      - id: a
+        text:
+          zh-CN: '使用 Origin Access Control（OAC），桶策略只允许 cloudfront.amazonaws.com 且 AWS:SourceArn 为该分配'
+          ja: Origin Access Control（OAC）を使い、バケットポリシーで cloudfront.amazonaws.com かつ AWS:SourceArn がそのディストリビューションの場合だけを許可する
+          en: Use Origin Access Control (OAC), with a bucket policy that only allows cloudfront.amazonaws.com when AWS:SourceArn is that distribution
+      - { id: b, text: { zh-CN: 把桶设为公开读, ja: バケットを公開読み取りにする, en: Make the bucket publicly readable } }
+      - { id: c, text: { zh-CN: 使用 Origin Access Identity（OAI）, ja: Origin Access Identity（OAI）を使う, en: Use Origin Access Identity (OAI) } }
+      - id: d
+        text:
+          zh-CN: 为每个对象生成预签名 URL 写进页面
+          ja: オブジェクトごとに署名付き URL を生成してページに埋め込む
+          en: Generate a presigned URL for every object and write it into the page
     answer: [a]
-    explain: OAC 支持 SSE-KMS 与所有区域，OAI 不支持 SSE-KMS；此外 KMS 密钥策略要允许 CloudFront 服务主体解密。
+    explain:
+      zh-CN: OAC 支持 SSE-KMS 与所有区域，OAI 不支持 SSE-KMS；此外 KMS 密钥策略要允许 CloudFront 服务主体解密。
+      ja: OAC は SSE-KMS とすべてのリージョンに対応しますが、OAI は SSE-KMS に対応しません。さらに、KMS のキーポリシーで CloudFront のサービスプリンシパルに復号を許可する必要があります。
+      en: OAC supports SSE-KMS and every Region, while OAI does not support SSE-KMS. The KMS key policy must also allow the CloudFront service principal to decrypt.
     difficulty: 2
   - id: cdn-versioned-assets
     domain: performance
     type: single
     kind: concept
     services: [cloudfront]
-    stem: 发布新版前端后，部分用户仍拿到旧的 JS 文件。团队希望今后发布无需等待失效、也不消耗失效配额。应该怎么做？
+    stem:
+      zh-CN: 发布新版前端后，部分用户仍拿到旧的 JS 文件。团队希望今后发布无需等待失效、也不消耗失效配额。应该怎么做？
+      ja: 新しいフロントエンドをリリースした後も、一部のユーザーに古い JS ファイルが返ります。今後のリリースでは無効化を待たず、無効化の無料枠も消費しないようにしたいと考えています。どうすべきですか？
+      en: After a new frontend release, some users still get the old JS file. The team wants future releases to need no waiting for invalidations and to use none of the invalidation allowance. What should they do?
     options:
-      - { id: a, text: '静态文件名带内容哈希（版本化），index.html 设置 no-cache' }
-      - { id: b, text: '每次发布都创建 /* 失效' }
-      - { id: c, text: 把所有行为的 TTL 设为 0 }
-      - { id: d, text: 关闭边缘压缩 }
+      - id: a
+        text:
+          zh-CN: '静态文件名带内容哈希（版本化），index.html 设置 no-cache'
+          ja: 静的ファイル名にコンテンツハッシュを含め（バージョン付き）、index.html には no-cache を設定する
+          en: Put a content hash in static file names (versioning) and set no-cache on index.html
+      - { id: b, text: { zh-CN: '每次发布都创建 /* 失效', ja: リリースのたびに /* の無効化を作成する, en: Create a /* invalidation on every release } }
+      - { id: c, text: { zh-CN: 把所有行为的 TTL 设为 0, ja: すべてのビヘイビアの TTL を 0 にする, en: Set the TTL of every behavior to 0 } }
+      - { id: d, text: { zh-CN: 关闭边缘压缩, ja: エッジでの圧縮を無効にする, en: Turn off edge compression } }
     answer: [a]
-    explain: 版本化文件名让新版本成为“新对象”，立即生效；失效需要时间，超出免费配额要收费；TTL 全设为 0 会失去缓存收益。
+    explain:
+      zh-CN: 版本化文件名让新版本成为“新对象”，立即生效；失效需要时间，超出免费配额要收费；TTL 全设为 0 会失去缓存收益。
+      ja: バージョン付きファイル名なら新しいバージョンが「新しいオブジェクト」になり、すぐに反映されます。無効化には時間がかかり、無料枠を超えると課金されます。TTL をすべて 0 にするとキャッシュの効果がなくなります。
+      en: A versioned file name makes the new version a "new object", so it takes effect immediately. Invalidations take time and are charged beyond the free allowance, and setting every TTL to 0 throws away the benefit of caching.
     relatesTo: invalidation
     difficulty: 1
   - id: cdn-auth-api
@@ -51,13 +85,35 @@ questions:
     type: multi
     kind: concept
     services: [cloudfront]
-    stem: 关于把动态 API 放在 CloudFront 后面，下列哪两项说法正确？
+    stem:
+      zh-CN: 关于把动态 API 放在 CloudFront 后面，下列哪两项说法正确？
+      ja: 動的な API を CloudFront の背後に置く場合について、正しい説明を 2 つ選んでください。
+      en: Which two statements about putting dynamic APIs behind CloudFront are correct?
     options:
-      - { id: a, text: 需要登录的个性化接口应放在 CachingDisabled 的行为中 }
-      - { id: b, text: 匿名、可短暂陈旧的公共接口可以用很短的 s-maxage 做微缓存 }
-      - { id: c, text: 只要源站返回 Cache-Control private，任何缓存策略都不会缓存它 }
-      - { id: d, text: 缓存键中包含全部 Cookie 可以提高命中率 }
+      - id: a
+        text:
+          zh-CN: 需要登录的个性化接口应放在 CachingDisabled 的行为中
+          ja: ログインが必要な個人向け API は CachingDisabled のビヘイビアに置く
+          en: Personalized APIs that need login belong in a CachingDisabled behavior
+      - id: b
+        text:
+          zh-CN: 匿名、可短暂陈旧的公共接口可以用很短的 s-maxage 做微缓存
+          ja: 匿名で、多少古くてもよい公開 API は、短い s-maxage でマイクロキャッシュできる
+          en: Anonymous public APIs that can be briefly stale can be micro-cached with a short s-maxage
+      - id: c
+        text:
+          zh-CN: 只要源站返回 Cache-Control private，任何缓存策略都不会缓存它
+          ja: オリジンが Cache-Control private を返せば、どのキャッシュポリシーでもキャッシュされない
+          en: As long as the origin returns Cache-Control private, no cache policy will cache it
+      - id: d
+        text:
+          zh-CN: 缓存键中包含全部 Cookie 可以提高命中率
+          ja: キャッシュキーにすべての Cookie を含めるとヒット率が上がる
+          en: Including every cookie in the cache key raises the hit ratio
     answer: [a, b]
-    explain: 缓存策略的最小 TTL 大于 0 时，CloudFront 会无视源站的 private / no-cache；把 Cookie 放进缓存键会让命中率显著下降。
+    explain:
+      zh-CN: 缓存策略的最小 TTL 大于 0 时，CloudFront 会无视源站的 private / no-cache；把 Cookie 放进缓存键会让命中率显著下降。
+      ja: キャッシュポリシーの最小 TTL が 0 より大きいと、CloudFront はオリジンの private / no-cache を無視します。Cookie をキャッシュキーに含めるとヒット率は大きく下がります。
+      en: When a cache policy's minimum TTL is greater than 0, CloudFront ignores private / no-cache from the origin. Putting cookies in the cache key lowers the hit ratio sharply.
     relatesTo: observe-edge-cache
     difficulty: 2

@@ -1,7 +1,10 @@
 # 回收后的验证（04 §3.2.12）：只允许 aws-readonly + expectError，结果写进报告的“清理”一节
 checks:
   - id: dist-gone
-    title: 本会话的 CloudFront 分配已删除
+    title:
+      zh-CN: 本会话的 CloudFront 分配已删除
+      ja: このセッションの CloudFront ディストリビューションが削除されている
+      en: This session's CloudFront distribution has been deleted
     type: aws-readonly
     service: cloudfront
     action: GetDistribution
@@ -9,12 +12,26 @@ checks:
     params: { Id: '{{ var.distributionId }}' }
     expectError: NoSuchDistribution
     required: false
-    explain: 回收完成后按分配 ID 查询，期望返回 NoSuchDistribution。
+    explain:
+      zh-CN: 回收完成后按分配 ID 查询，期望返回 NoSuchDistribution。
+      ja: 回収完了後にディストリビューション ID で照会し、NoSuchDistribution が返ることを期待します。
+      en: After reclaiming, the platform looks up the distribution ID and expects NoSuchDistribution.
     reproduce: { run: 'aws cloudfront get-distribution --id {{ var.distributionId }}', runsOn: workstation }
     manualFallback:
       where: { breadcrumb: [CloudFront, 分配], region: global }
       observed:
-        question: 列表中还能找到这个分配吗？
+        question:
+          zh-CN: 列表中还能找到这个分配吗？
+          ja: 一覧にまだこのディストリビューションがありますか？
+          en: Is this distribution still in the list?
         options:
-          - { value: gone, label: 找不到, expected: true }
-          - { value: present, label: 还在（可能正在禁用或删除）, fixHint: 回收会先禁用再删除分配，需要一段时间 }
+          - { value: gone, label: { zh-CN: 找不到, ja: 見つからない, en: Not found }, expected: true }
+          - value: present
+            label:
+              zh-CN: 还在（可能正在禁用或删除）
+              ja: まだある（無効化中または削除中の可能性があります）
+              en: Still there (it may be being disabled or deleted)
+            fixHint:
+              zh-CN: 回收会先禁用再删除分配，需要一段时间
+              ja: 回収ではディストリビューションを無効にしてから削除するため、時間がかかります
+              en: Reclaiming disables the distribution before deleting it, which takes a while

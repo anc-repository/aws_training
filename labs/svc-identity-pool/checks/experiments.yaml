@@ -1,6 +1,9 @@
 checks:
   - id: exp-bench-before
-    title: upload-bench 的 before（前缀令牌）有一条有效结果
+    title:
+      zh-CN: upload-bench 的 before（前缀令牌）有一条有效结果
+      ja: upload-bench の before（プレフィックストークン）に有効な結果が 1 件ある
+      en: upload-bench has a valid before result (prefix token)
     type: experiment
     module: identity-pool
     experiment: upload-bench
@@ -8,7 +11,10 @@ checks:
     accept: [valid]
 
   - id: exp-bench-pair
-    title: upload-bench 的 before 与 after 都有效且可比
+    title:
+      zh-CN: upload-bench 的 before 与 after 都有效且可比
+      ja: upload-bench の before と after がどちらも有効で比較可能
+      en: upload-bench before and after are both valid and comparable
     type: experiment
     module: identity-pool
     experiment: upload-bench
@@ -16,7 +22,10 @@ checks:
     accept: [valid]
 
   - id: exp-cross-before
-    title: cross-prefix 的 before（应用 403）有一条有效结果
+    title:
+      zh-CN: cross-prefix 的 before（应用 403）有一条有效结果
+      ja: cross-prefix の before（アプリの 403）に有効な結果が 1 件ある
+      en: cross-prefix has a valid before result (the app's 403)
     type: experiment
     module: identity-pool
     experiment: cross-prefix
@@ -24,7 +33,10 @@ checks:
     accept: [valid]
 
   - id: exp-cross-pair
-    title: cross-prefix 的 before 与 after 都有效且可比
+    title:
+      zh-CN: cross-prefix 的 before 与 after 都有效且可比
+      ja: cross-prefix の before と after がどちらも有効で比較可能
+      en: cross-prefix before and after are both valid and comparable
     type: experiment
     module: identity-pool
     experiment: cross-prefix
@@ -32,7 +44,10 @@ checks:
     accept: [valid]
 
   - id: exp-resume-after
-    title: resume（STS 分片上传续传）有一条有效结果
+    title:
+      zh-CN: resume（STS 分片上传续传）有一条有效结果
+      ja: resume（STS でのマルチパートアップロードの再開）に有効な結果が 1 件ある
+      en: resume has a valid result (resuming an STS multipart upload)
     type: experiment
     module: identity-pool
     experiment: resume

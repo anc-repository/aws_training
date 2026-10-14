@@ -10,47 +10,129 @@ id: svc-auth
 kind: service
 version: 1.0.0
 status: beta
-service: Amazon Cognito User Pool
-function: 用户注册登录
-title: Amazon Cognito User Pool：用户注册登录
-subtitle: EC2 上的本地账号 → Cognito User Pool
-summary: 把“EC2 自己存密码哈希、自己签 JWT”的登录换成 Cognito User Pool：功能更多、代码更少，但令牌的签发者、登出语义与责任划分都变了。
-story: |
-  L0 的登录全部由 EC2 实现：argon2id 密码哈希、ES256 JWT、邮箱验证、锁定、找回密码、可选 TOTP。
-  启用 Cognito 后，密码与认证流程交给 User Pool：浏览器经 Amplify 直接与 User Pool 交互，EC2 不再经手密码，只用 JWKS 在本地验签。
+service:
+  zh-CN: Amazon Cognito User Pool
+  ja: Amazon Cognito User Pool
+  en: Amazon Cognito User Pool
+function:
+  zh-CN: 用户注册登录
+  ja: ユーザー登録とサインイン
+  en: User sign-up and sign-in
+title:
+  zh-CN: Amazon Cognito User Pool：用户注册登录
+  ja: Amazon Cognito User Pool：ユーザー登録とサインイン
+  en: "Amazon Cognito User Pool: user sign-up and sign-in"
+subtitle:
+  zh-CN: EC2 上的本地账号 → Cognito User Pool
+  ja: EC2 上のローカルアカウント → Cognito User Pool
+  en: Local accounts on EC2 → Cognito User Pool
+summary:
+  zh-CN: 把“EC2 自己存密码哈希、自己签 JWT”的登录换成 Cognito User Pool：功能更多、代码更少，但令牌的签发者、登出语义与责任划分都变了。
+  ja: 「EC2 が自分でパスワードハッシュを保存し、自分で JWT に署名する」サインインを Cognito User Pool に置き換えます。機能は増えてコードは減りますが、トークンの発行者、サインアウトの意味、責任の分担が変わります。
+  en: Replace sign-in where EC2 stores its own password hashes and signs its own JWTs with a Cognito User Pool. You get more features with less code, but the token issuer, what sign-out means and the split of responsibilities all change.
+story:
+  zh-CN: |
+    L0 的登录全部由 EC2 实现：argon2id 密码哈希、ES256 JWT、邮箱验证、锁定、找回密码、可选 TOTP。
+    启用 Cognito 后，密码与认证流程交给 User Pool：浏览器经 Amplify 直接与 User Pool 交互，EC2 不再经手密码，只用 JWKS 在本地验签。
+  ja: |
+    L0 のサインインはすべて EC2 が実装しています。argon2id によるパスワードハッシュ、ES256 の JWT、メールアドレスの確認、ロック、パスワードの再設定、任意の TOTP です。
+    Cognito を有効にすると、パスワードと認証フローは User Pool に任されます。ブラウザーは Amplify を通じて User Pool と直接やり取りし、EC2 はパスワードに触れず、JWKS を使ってローカルで署名を検証するだけになります。
+  en: |
+    At L0, EC2 implements all of sign-in itself: argon2id password hashing, ES256 JWTs, email verification, lockout, password reset and optional TOTP.
+    Once Cognito is enabled, passwords and the authentication flow move to the User Pool: the browser talks to the User Pool directly through Amplify, and EC2 never handles passwords — it only verifies signatures locally with the JWKS.
 objectives:
-  - { text: 区分 User Pool（认证）与 Identity Pool（换 AWS 凭证）, domain: secure, relatesTo: enable }
-  - { text: 说清 ID token、access token、refresh token 的用途与校验要点, domain: secure, relatesTo: tokens }
-  - { text: 理解无状态校验的代价：登出后 access token 在过期前仍然有效, domain: secure, relatesTo: tokens }
-  - { text: 用共享责任模型解释“密码交给 AWS 后还剩什么是我们的事”, domain: secure, relatesTo: inspect-client }
+  - text:
+      zh-CN: 区分 User Pool（认证）与 Identity Pool（换 AWS 凭证）
+      ja: User Pool（認証）と Identity Pool（AWS 認証情報への交換）を区別する
+      en: Tell the User Pool (authentication) apart from the Identity Pool (exchange for AWS credentials)
+    domain: secure
+    relatesTo: enable
+  - text:
+      zh-CN: 说清 ID token、access token、refresh token 的用途与校验要点
+      ja: ID トークン、アクセストークン、リフレッシュトークンの用途と検証のポイントを説明できる
+      en: Explain what the ID, access and refresh tokens are for and what to check when validating them
+    domain: secure
+    relatesTo: tokens
+  - text:
+      zh-CN: 理解无状态校验的代价：登出后 access token 在过期前仍然有效
+      ja: ステートレスな検証の代償を理解する：サインアウト後もアクセストークンは有効期限まで使える
+      en: "Understand the cost of stateless validation: after sign-out, an access token stays valid until it expires"
+    domain: secure
+    relatesTo: tokens
+  - text:
+      zh-CN: 用共享责任模型解释“密码交给 AWS 后还剩什么是我们的事”
+      ja: 責任共有モデルを使って「パスワードを AWS に任せた後、何が自分たちの仕事として残るか」を説明する
+      en: Use the shared responsibility model to explain what is still our job after passwords move to AWS
+    domain: secure
+    relatesTo: inspect-client
 difficulty: intermediate
 estimatedMinutes: 75
 timeLimitMinutes: 150
 extensions: { maxCount: 2, minutesEach: 30 }
-retain: { allowed: true, maxHours: 24, reason: User Pool 按月活跃用户计费；保留后可以在 svc-identity-pool 中继续 }
+retain:
+  allowed: true
+  maxHours: 24
+  reason:
+    zh-CN: User Pool 按月活跃用户计费；保留后可以在 svc-identity-pool 中继续
+    ja: User Pool は月間アクティブユーザー数で課金されます。保持すれば svc-identity-pool で続きから使えます
+    en: The User Pool is billed by monthly active users; if you keep it, you can continue with it in svc-identity-pool
 regions:
   supported: [ap-northeast-1]
 services:
-  - { id: cognito-user-pool, name: Amazon Cognito User Pool, role: primary, module: auth }
-  - { id: iam, name: AWS IAM（实例角色）, role: context, module: iam }
-  - { id: lambda, name: AWS Lambda（触发器，本卡不使用）, role: observed }
+  - { id: cognito-user-pool, name: { zh-CN: Amazon Cognito User Pool, ja: Amazon Cognito User Pool, en: Amazon Cognito User Pool }, role: primary, module: auth }
+  - { id: iam, name: { zh-CN: AWS IAM（实例角色）, ja: AWS IAM（インスタンスロール）, en: AWS IAM (instance role) }, role: context, module: iam }
+  - { id: lambda, name: { zh-CN: AWS Lambda（触发器，本卡不使用）, ja: AWS Lambda（トリガー。このカードでは使いません）, en: AWS Lambda (triggers; not used in this card) }, role: observed }
 modules: { target: [auth], start: [iam], context: [], related: [identity-pool, email, load-balancer] }
 prerequisites:
   cards:
     - { id: svc-iam, kind: soft }
-  knowledge: [HTTP Cookie 与 JWT 的基本结构, 一个能收信的邮箱（注册验证码会真实发出）]
+  knowledge:
+    - zh-CN: HTTP Cookie 与 JWT 的基本结构
+      ja: HTTP Cookie と JWT の基本構造
+      en: The basic structure of HTTP cookies and JWTs
+    - zh-CN: 一个能收信的邮箱（注册验证码会真实发出）
+      ja: 受信できるメールアドレス（登録時の確認コードが実際に送信されます）
+      en: An email address you can receive mail at (sign-up verification codes are really sent)
 
 startProfile:
   provisions:
-    - { item: iam, kind: module, basis: credential, set: { IAM_CREDENTIALS: role },
-        reason: 平台约定除 svc-ec2、svc-iam 外起始状态都带实例角色（C3）；auth 本身也是 credentials required（Admin* API、bulk 迁移、探针） }
-    - { item: cognito-test-users, kind: seed,
-        reason: 本地阶段建 3 个已验证邮箱、密码已知的测试账号，作为 bulk 迁移的对象；Cognito 阶段由 enable 时的钩子 cognito-passwords 设置已知密码 }
-    - { item: mgmt-channel, kind: platform, reason: 实验机挂只含 AmazonSSMManagedInstanceCore 的 CloudAlbumAppRole，是平台的管理通道，不是应用权限 }
-    - { item: workstation, kind: platform, reason: 每个会话一台工作台，用于运行 scripts/module、AWS CLI 与对比实验 }
-    - { item: preview-direct-https, kind: platform, reason: 预览使用方案 B 的 Let's Encrypt IP 证书，Amplify 在 https 页面中运行；本卡不涉及 tls }
+    - item: iam
+      kind: module
+      basis: credential
+      set: { IAM_CREDENTIALS: role }
+      reason:
+        zh-CN: 平台约定除 svc-ec2、svc-iam 外起始状态都带实例角色（C3）；auth 本身也是 credentials required（Admin* API、bulk 迁移、探针）
+        ja: プラットフォームの取り決めにより、svc-ec2 と svc-iam 以外の開始状態にはインスタンスロールが付いています（C3）。auth 自体も認証情報を必要とします（Admin* API、bulk 移行、プローブ）
+        en: By platform convention, every start state except svc-ec2 and svc-iam includes an instance role (C3); auth itself also requires credentials (Admin* APIs, bulk migration, probes)
+    - item: cognito-test-users
+      kind: seed
+      reason:
+        zh-CN: 本地阶段建 3 个已验证邮箱、密码已知的测试账号，作为 bulk 迁移的对象；Cognito 阶段由 enable 时的钩子 cognito-passwords 设置已知密码
+        ja: ローカルの段階では、メールアドレス確認済みでパスワードが分かっているテストアカウントを 3 つ作り、bulk 移行の対象にします。Cognito の段階では、enable 時のフック cognito-passwords が既知のパスワードを設定します
+        en: In the local stage, three test accounts with verified email addresses and known passwords are created as the targets of the bulk migration; in the Cognito stage, the cognito-passwords hook run by enable sets known passwords
+    - item: mgmt-channel
+      kind: platform
+      reason:
+        zh-CN: 实验机挂只含 AmazonSSMManagedInstanceCore 的 CloudAlbumAppRole，是平台的管理通道，不是应用权限
+        ja: ラボ用インスタンスには AmazonSSMManagedInstanceCore だけを含む CloudAlbumAppRole が付いています。これはプラットフォームの管理チャネルであり、アプリの権限ではありません
+        en: The lab instance carries CloudAlbumAppRole with only AmazonSSMManagedInstanceCore. It is the platform's management channel, not an app permission
+    - item: workstation
+      kind: platform
+      reason:
+        zh-CN: 每个会话一台工作台，用于运行 scripts/module、AWS CLI 与对比实验
+        ja: セッションごとに 1 台のワークベンチがあり、scripts/module、AWS CLI、比較実験の実行に使います
+        en: Each session has one workbench for running scripts/module, the AWS CLI and comparison experiments
+    - item: preview-direct-https
+      kind: platform
+      reason:
+        zh-CN: 预览使用方案 B 的 Let's Encrypt IP 证书，Amplify 在 https 页面中运行；本卡不涉及 tls
+        ja: プレビューには方式 B の Let's Encrypt IP 証明書を使い、Amplify は https のページで動作します。このカードは tls に関係しません
+        en: The preview uses the option B Let's Encrypt IP certificate, so Amplify runs on an https page; this card does not involve tls
   platform: { preview: { directHttps: 'on' } }
-  reason: auth 自身没有模块硬依赖；sdk 子模式不触发 DEP-029，bulk 迁移不触发 DEP-031（档位 atl/svc-auth/default）
+  reason:
+    zh-CN: auth 自身没有模块硬依赖；sdk 子模式不触发 DEP-029，bulk 迁移不触发 DEP-031（档位 atl/svc-auth/default）
+    ja: auth 自体にはモジュールの必須依存がありません。sdk サブモードは DEP-029 を、bulk 移行は DEP-031 を発生させません（プロファイル atl/svc-auth/default）
+    en: auth itself has no hard module dependency; the sdk sub-mode does not trigger DEP-029, and the bulk migration does not trigger DEP-031 (profile atl/svc-auth/default)
 targetModules:
   - { id: auth, driver: cognito, set: { COGNITO_LOGIN_MODE: sdk, AUTH_MIGRATION: bulk, COGNITO_TRIGGERS: 'off', AUTH_DUAL_STACK: 'off' },
       wireStep: enable, adoptsExisting: false }
@@ -61,26 +143,41 @@ platform:
 provision: { class: A }
 
 variables:
-  userPoolId: { label: User Pool ID, from: derived, fillFrom: stack.auth.InfoUserPoolId }
-  clientId: { label: 应用客户端 ID, from: derived, fillFrom: stack.auth.EnvCognitoClientId }
-  issuer: { label: 令牌签发者, from: derived, fillFrom: stack.auth.InfoIssuer }
+  userPoolId: { label: { zh-CN: User Pool ID, ja: User Pool ID, en: User Pool ID }, from: derived, fillFrom: stack.auth.InfoUserPoolId }
+  clientId: { label: { zh-CN: 应用客户端 ID, ja: アプリクライアント ID, en: App client ID }, from: derived, fillFrom: stack.auth.EnvCognitoClientId }
+  issuer: { label: { zh-CN: 令牌签发者, ja: トークンの発行者, en: Token issuer }, from: derived, fillFrom: stack.auth.InfoIssuer }
 
 cost:
   currency: USD
   tier: low
-  mainDrivers: [Cognito 月活跃用户（Essentials 层级，有免费额度）, 实验机上 argon2 运算消耗的 CPU 积分]
+  mainDrivers:
+    - zh-CN: Cognito 月活跃用户（Essentials 层级，有免费额度）
+      ja: Cognito の月間アクティブユーザー（Essentials 階層、無料枠あり）
+      en: Cognito monthly active users (Essentials tier, with a free allowance)
+    - zh-CN: 实验机上 argon2 运算消耗的 CPU 积分
+      ja: ラボ用インスタンスで argon2 の計算が消費する CPU クレジット
+      en: CPU credits used by argon2 hashing on the lab instance
   basis:
-    - { ref: start-profile, note: 实验机 EC2、EBS（根卷与数据卷）、公网 IPv4 }
-    - { ref: workstation, note: 工作台 EC2、EBS、公网 IPv4 }
+    - ref: start-profile
+      note:
+        zh-CN: 实验机 EC2、EBS（根卷与数据卷）、公网 IPv4
+        ja: ラボ用インスタンスの EC2、EBS（ルートボリュームとデータボリューム）、パブリック IPv4
+        en: Lab instance EC2, EBS (root and data volumes) and public IPv4
+    - { ref: workstation, note: { zh-CN: 工作台 EC2、EBS、公网 IPv4, ja: ワークベンチの EC2、EBS、パブリック IPv4, en: "Workbench EC2, EBS and public IPv4" } }
     - { key: cognito-mau, pricingKey: cognito.mau, billing: usage, quantity: 1, unit: MAU, assumedUsagePerHour: 0.5, source: target, whenRetained: true,
-        note: 迁移的测试账号与你注册的账号 }
+        note: { zh-CN: 迁移的测试账号与你注册的账号, ja: 移行したテストアカウントと、あなたが登録したアカウント, en: The migrated test accounts and the account you sign up } }
   assumptions:
-    - 默认由 Cognito 发送邮件（每日额度很低）；学习规模的月活跃用户通常在免费额度内，以官方定价为准
+    - zh-CN: 默认由 Cognito 发送邮件（每日额度很低）；学习规模的月活跃用户通常在免费额度内，以官方定价为准
+      ja: 既定では Cognito がメールを送信します（1 日の送信上限はかなり低めです）。学習規模の月間アクティブユーザーは通常無料枠に収まります。正確な料金は公式の料金表を確認してください
+      en: By default Cognito sends the email itself (with a very low daily quota); learning-scale monthly active users usually stay within the free allowance — check the official pricing
 
 steps:
   - id: before-features
     type: experiment
-    title: before：本地账号的功能矩阵
+    title:
+      zh-CN: before：本地账号的功能矩阵
+      ja: before：ローカルアカウントの機能マトリクス
+      en: "before: feature matrix of local accounts"
     manual: manual/10-before-features.md
     experiment: { module: auth, id: feature-matrix, label: before }
     panel: terminal-workstation
@@ -89,7 +186,10 @@ steps:
 
   - id: before-lockout
     type: experiment
-    title: before：本地账号的暴力破解防护
+    title:
+      zh-CN: before：本地账号的暴力破解防护
+      ja: before：ローカルアカウントの総当たり攻撃対策
+      en: "before: brute-force protection of local accounts"
     manual: manual/20-before-lockout.md
     experiment: { module: auth, id: brute-force, label: before }
     requires: { steps: [before-features] }
@@ -100,19 +200,31 @@ steps:
   - id: enable
     type: script
     wire: true
-    title: 启用 Cognito：部署 User Pool 并迁移账号
+    title:
+      zh-CN: 启用 Cognito：部署 User Pool 并迁移账号
+      ja: Cognito を有効化：User Pool をデプロイしてアカウントを移行する
+      en: "Enable Cognito: deploy the User Pool and migrate the accounts"
     manual: manual/30-enable.md
     methods: [script]
     requires: { steps: [before-features] }
     panel: terminal-workstation
     estMinutes: 12
-    startsBilling: { class: usage, pricingKeys: [cognito.mau], note: 按月活跃用户计费 }
-    wait: { typicalMinutes: 4, maxMinutes: 15, text: 部署 User Pool、只读窗口内 bulk 迁移、写 auth.env 并重启、设置测试账号密码 }
+    startsBilling: { class: usage, pricingKeys: [cognito.mau], note: { zh-CN: 按月活跃用户计费, ja: 月間アクティブユーザー数で課金, en: Billed by monthly active users } }
+    wait:
+      typicalMinutes: 4
+      maxMinutes: 15
+      text:
+        zh-CN: 部署 User Pool、只读窗口内 bulk 迁移、写 auth.env 并重启、设置测试账号密码
+        ja: User Pool のデプロイ、読み取り専用期間中の bulk 移行、auth.env の書き込みと再起動、テストアカウントのパスワード設定を行います
+        en: Deploying the User Pool, bulk migration during a read-only window, writing auth.env and restarting, and setting the test account passwords
     checks: [auth-wired, auth-probe-cognito, user-pool]
 
   - id: inspect-client
     type: cli
-    title: 看懂应用客户端：谁能改哪些属性
+    title:
+      zh-CN: 看懂应用客户端：谁能改哪些属性
+      ja: アプリクライアントを読み解く：誰がどの属性を変更できるか
+      en: "Read the app client: who can change which attributes"
     manual: manual/40-inspect-client.md
     requires: { steps: [enable] }
     panel: terminal-workstation
@@ -121,7 +233,10 @@ steps:
 
   - id: signup
     type: observe
-    title: 注册新账号：验证码由 Cognito 发出
+    title:
+      zh-CN: 注册新账号：验证码由 Cognito 发出
+      ja: 新しいアカウントを登録する：確認コードは Cognito が送信する
+      en: "Sign up a new account: Cognito sends the verification code"
     manual: manual/50-signup.md
     requires: { steps: [enable] }
     panel: preview
@@ -130,7 +245,10 @@ steps:
 
   - id: tokens
     type: cli
-    title: 令牌：签发者、算法与登出语义
+    title:
+      zh-CN: 令牌：签发者、算法与登出语义
+      ja: トークン：発行者、アルゴリズム、サインアウトの意味
+      en: "Tokens: issuer, algorithm and what sign-out means"
     manual: manual/60-tokens.md
     requires: { steps: [enable] }
     panel: terminal-workstation
@@ -159,13 +277,19 @@ experiments:
     corroborateWith: [auth-local-baseline]
 
 quiz: { file: quiz.yaml, draw: 3 }
-badge: { title: 托管身份, icon: assets/badge.svg }
+badge: { title: { zh-CN: 托管身份, ja: マネージド ID, en: Managed identity }, icon: assets/badge.svg }
 tracks: [quick-compare, saa-main, secure]
 
 cleanup:
-  summary: 结束实验后，平台删除本次会话的 auth 栈；User Pool 设置了 Retain 与删除保护，回收器先关闭删除保护再删除。
+  summary:
+    zh-CN: 结束实验后，平台删除本次会话的 auth 栈；User Pool 设置了 Retain 与删除保护，回收器先关闭删除保护再删除。
+    ja: ラボを終了すると、プラットフォームがこのセッションの auth スタックを削除します。User Pool には Retain と削除保護が設定されているため、回収処理はまず削除保護を解除してから削除します。
+    en: When you end the lab, the platform deletes this session's auth stack. The User Pool has Retain and deletion protection set, so the reclaimer turns deletion protection off first and then deletes it.
   autoReclaim: true
-  dataRisk: [User Pool 中的账号随回收删除；Cognito 已发到邮箱的邮件无法撤回]
+  dataRisk:
+    - zh-CN: User Pool 中的账号随回收删除；Cognito 已发到邮箱的邮件无法撤回
+      ja: User Pool 内のアカウントは回収時に削除されます。Cognito がすでにメールで送った内容は取り消せません
+      en: The accounts in the User Pool are deleted on reclaim; emails Cognito has already sent cannot be recalled
   learnerCreatedHints: []
   verify:
     - user-pool-gone
@@ -173,13 +297,59 @@ cleanup:
 saa:
   domains: [secure, resilient]
   topics:
-    - { id: pools, title: User Pool 与 Identity Pool 的分工, domain: secure, relatesTo: enable }
-    - { id: tokens, title: ID、access、refresh token；token_use 与 client_id 校验, domain: secure, relatesTo: tokens }
-    - { id: clients, title: 公有客户端与机密客户端、授权码 + PKCE, domain: secure, relatesTo: inspect-client }
-    - { id: stateless, title: 无状态会话是 Auto Scaling 水平扩展的前提, domain: resilient, relatesTo: tokens }
+    - id: pools
+      title:
+        zh-CN: User Pool 与 Identity Pool 的分工
+        ja: User Pool と Identity Pool の役割分担
+        en: How the User Pool and the Identity Pool divide the work
+      domain: secure
+      relatesTo: enable
+    - id: tokens
+      title:
+        zh-CN: ID、access、refresh token；token_use 与 client_id 校验
+        ja: ID・アクセス・リフレッシュトークン、token_use と client_id の検証
+        en: ID, access and refresh tokens; validating token_use and client_id
+      domain: secure
+      relatesTo: tokens
+    - id: clients
+      title:
+        zh-CN: 公有客户端与机密客户端、授权码 + PKCE
+        ja: パブリッククライアントと機密クライアント、認可コード＋ PKCE
+        en: Public and confidential clients; authorization code + PKCE
+      domain: secure
+      relatesTo: inspect-client
+    - id: stateless
+      title:
+        zh-CN: 无状态会话是 Auto Scaling 水平扩展的前提
+        ja: ステートレスなセッションは Auto Scaling で水平スケールする前提
+        en: Stateless sessions are a prerequisite for scaling out with Auto Scaling
+      domain: resilient
+      relatesTo: tokens
   confusables:
-    - { a: Cognito User Pool, b: IAM Identity Center, rule: User Pool 面向应用的终端用户注册登录；IAM Identity Center 面向员工访问 AWS 账号与企业应用 }
-    - { a: Cognito User Pool, b: Cognito Identity Pool, rule: User Pool 负责认证（你是谁）；Identity Pool 把已认证身份换成 AWS 临时凭证 }
+    - a:
+        zh-CN: Cognito User Pool
+        ja: Cognito User Pool
+        en: Cognito User Pool
+      b:
+        zh-CN: IAM Identity Center
+        ja: IAM Identity Center
+        en: IAM Identity Center
+      rule:
+        zh-CN: User Pool 面向应用的终端用户注册登录；IAM Identity Center 面向员工访问 AWS 账号与企业应用
+        ja: User Pool はアプリのエンドユーザーの登録とサインイン向けです。IAM Identity Center は従業員が AWS アカウントや社内アプリにアクセスするためのものです
+        en: The User Pool is for sign-up and sign-in of an app's end users; IAM Identity Center is for employees accessing AWS accounts and business applications
+    - a:
+        zh-CN: Cognito User Pool
+        ja: Cognito User Pool
+        en: Cognito User Pool
+      b:
+        zh-CN: Cognito Identity Pool
+        ja: Cognito Identity Pool
+        en: Cognito Identity Pool
+      rule:
+        zh-CN: User Pool 负责认证（你是谁）；Identity Pool 把已认证身份换成 AWS 临时凭证
+        ja: User Pool は認証（あなたは誰か）を担当し、Identity Pool は認証済みの ID を AWS の一時的な認証情報に交換します
+        en: The User Pool handles authentication (who you are); the Identity Pool exchanges an authenticated identity for temporary AWS credentials
 
 tags: [auth, cognito, jwt, identity, security]
 

@@ -7,14 +7,20 @@ questions:
     type: single
     kind: scenario
     services: [route53]
-    stem: 需要让根域名 example.com 指向一个 Application Load Balancer。应使用哪种记录？
+    stem:
+      zh-CN: 需要让根域名 example.com 指向一个 Application Load Balancer。应使用哪种记录？
+      ja: ルートドメイン example.com を Application Load Balancer に向ける必要があります。どのレコードを使うべきですか？
+      en: The root domain example.com needs to point at an Application Load Balancer. Which record should you use?
     options:
-      - { id: a, text: Alias 记录 }
-      - { id: b, text: CNAME 记录 }
-      - { id: c, text: 写入 ALB 当前 IP 的 A 记录 }
-      - { id: d, text: MX 记录 }
+      - { id: a, text: { zh-CN: Alias 记录, ja: Alias レコード, en: Alias record } }
+      - { id: b, text: { zh-CN: CNAME 记录, ja: CNAME レコード, en: CNAME record } }
+      - { id: c, text: { zh-CN: 写入 ALB 当前 IP 的 A 记录, ja: ALB の現在の IP を書いた A レコード, en: An A record with the ALB's current IP } }
+      - { id: d, text: { zh-CN: MX 记录, ja: MX レコード, en: MX record } }
     answer: [a]
-    explain: 区域顶点不能建 CNAME；ALB 的 IP 会变化，不能写死；Alias 可以指向 ALB，并可开启 Evaluate Target Health。
+    explain:
+      zh-CN: 区域顶点不能建 CNAME；ALB 的 IP 会变化，不能写死；Alias 可以指向 ALB，并可开启 Evaluate Target Health。
+      ja: ゾーンの頂点には CNAME を作れません。ALB の IP は変わるため、固定で書くことはできません。Alias なら ALB を指すことができ、Evaluate Target Health も有効にできます。
+      en: The zone apex cannot have a CNAME; the ALB's IPs change, so they cannot be hard-coded; an Alias can point at the ALB and can turn on Evaluate Target Health.
     relatesTo: alias-cname
     difficulty: 1
   - id: dns-failover-s3
@@ -22,14 +28,24 @@ questions:
     type: single
     kind: scenario
     services: [route53, s3]
-    stem: 主站点故障时，希望用户自动看到托管在 S3 上的静态维护页。应使用哪种做法？
+    stem:
+      zh-CN: 主站点故障时，希望用户自动看到托管在 S3 上的静态维护页。应使用哪种做法？
+      ja: メインサイトに障害が起きたとき、ユーザーに S3 でホストした静的なメンテナンスページを自動で表示したいと考えています。どの方法を使うべきですか？
+      en: When the main site fails, users should automatically see a static maintenance page hosted on S3. Which approach should you use?
     options:
-      - { id: a, text: 故障转移路由策略，主记录关联健康检查 }
-      - { id: b, text: 加权路由 }
-      - { id: c, text: 地理位置路由 }
-      - { id: d, text: 在简单路由记录中写多个值 }
+      - id: a
+        text:
+          zh-CN: 故障转移路由策略，主记录关联健康检查
+          ja: フェイルオーバールーティングポリシーを使い、プライマリレコードにヘルスチェックを関連付ける
+          en: A failover routing policy with a health check on the primary record
+      - { id: b, text: { zh-CN: 加权路由, ja: 加重ルーティング, en: Weighted routing } }
+      - { id: c, text: { zh-CN: 地理位置路由, ja: 位置情報ルーティング, en: Geolocation routing } }
+      - { id: d, text: { zh-CN: 在简单路由记录中写多个值, ja: シンプルルーティングのレコードに複数の値を書く, en: Multiple values in a simple routing record } }
     answer: [a]
-    explain: PRIMARY 关联健康检查，不健康时返回 SECONDARY；作为备用目标的 S3 网站端点要求桶名与记录名相同，且只支持 HTTP。
+    explain:
+      zh-CN: PRIMARY 关联健康检查，不健康时返回 SECONDARY；作为备用目标的 S3 网站端点要求桶名与记录名相同，且只支持 HTTP。
+      ja: PRIMARY にヘルスチェックを関連付け、異常なときは SECONDARY を返します。セカンダリの宛先にする S3 ウェブサイトエンドポイントは、バケット名がレコード名と同じである必要があり、HTTP しか使えません。
+      en: PRIMARY carries a health check, and SECONDARY is returned when it is unhealthy; an S3 website endpoint used as the secondary target needs a bucket named exactly like the record and only supports HTTP.
     relatesTo: failover
     difficulty: 1
   - id: dns-alias-facts
@@ -37,14 +53,24 @@ questions:
     type: multi
     kind: concept
     services: [route53]
-    stem: 关于 Route 53 的 Alias 记录，下列哪两项说法正确？
+    stem:
+      zh-CN: 关于 Route 53 的 Alias 记录，下列哪两项说法正确？
+      ja: Route 53 の Alias レコードについて、正しい説明を 2 つ選んでください。
+      en: Which two statements about Route 53 Alias records are correct?
     options:
-      - { id: a, text: 可以用于区域顶点（根域名） }
-      - { id: b, text: 指向 CloudFront、ALB 等 AWS 资源时查询不收费 }
-      - { id: c, text: 可以指向任意 IP 地址 }
-      - { id: d, text: 可以指向一个弹性 IP }
+      - { id: a, text: { zh-CN: 可以用于区域顶点（根域名）, ja: ゾーンの頂点（ルートドメイン）で使える, en: They can be used at the zone apex (root domain) } }
+      - id: b
+        text:
+          zh-CN: 指向 CloudFront、ALB 等 AWS 资源时查询不收费
+          ja: CloudFront や ALB などの AWS リソースを指すクエリは無料
+          en: Queries are free when they point at AWS resources such as CloudFront or an ALB
+      - { id: c, text: { zh-CN: 可以指向任意 IP 地址, ja: 任意の IP アドレスを指せる, en: They can point at any IP address } }
+      - { id: d, text: { zh-CN: 可以指向一个弹性 IP, ja: Elastic IP を指せる, en: They can point at an Elastic IP } }
     answer: [a, b]
-    explain: Alias 只能指向 AWS 资源或同一托管区域中的记录，不能指向 IP 或弹性 IP；指向弹性 IP 只能用普通 A 记录。
+    explain:
+      zh-CN: Alias 只能指向 AWS 资源或同一托管区域中的记录，不能指向 IP 或弹性 IP；指向弹性 IP 只能用普通 A 记录。
+      ja: Alias が指せるのは AWS リソースか同じホストゾーン内のレコードだけで、IP や Elastic IP は指せません。Elastic IP を指すには通常の A レコードを使うしかありません。
+      en: An Alias can only point at AWS resources or records in the same hosted zone, not at IPs or Elastic IPs; pointing at an Elastic IP takes a plain A record.
     relatesTo: alias-cname
     difficulty: 1
   - id: dns-migrate-ttl
@@ -52,13 +78,23 @@ questions:
     type: single
     kind: scenario
     services: [route53]
-    stem: 计划下周把网站从一台 EC2 迁移到 ALB 后面，希望切换时用户感受到的中断尽量短。应提前做什么？
+    stem:
+      zh-CN: 计划下周把网站从一台 EC2 迁移到 ALB 后面，希望切换时用户感受到的中断尽量短。应提前做什么？
+      ja: 来週、Web サイトを 1 台の EC2 から ALB の背後に移行する予定です。切り替え時にユーザーが感じる中断をできるだけ短くしたいと考えています。事前に何をすべきですか？
+      en: Next week a website moves from a single EC2 instance to behind an ALB, and the interruption users notice at the switch should be as short as possible. What should be done in advance?
     options:
-      - { id: a, text: 提前把相关记录的 TTL 调低，并等旧 TTL 过期 }
-      - { id: b, text: 删除托管区域后重建 }
-      - { id: c, text: 把记录改成 CNAME }
-      - { id: d, text: 在注册商处更换 NS }
+      - id: a
+        text:
+          zh-CN: 提前把相关记录的 TTL 调低，并等旧 TTL 过期
+          ja: 関連するレコードの TTL を前もって下げ、古い TTL が期限切れになるのを待つ
+          en: Lower the TTL of the records involved in advance, and wait for the old TTL to expire
+      - { id: b, text: { zh-CN: 删除托管区域后重建, ja: ホストゾーンを削除して作り直す, en: Delete and recreate the hosted zone } }
+      - { id: c, text: { zh-CN: 把记录改成 CNAME, ja: レコードを CNAME に変える, en: Change the record to a CNAME } }
+      - { id: d, text: { zh-CN: 在注册商处更换 NS, ja: レジストラーで NS を変更する, en: Change the NS at the registrar } }
     answer: [a]
-    explain: 解析器按 TTL 缓存答案；迁移前调低 TTL、等旧值过期，切换后缓存很快失效。重建托管区域会得到新的 NS，反而需要重新委派。
+    explain:
+      zh-CN: 解析器按 TTL 缓存答案；迁移前调低 TTL、等旧值过期，切换后缓存很快失效。重建托管区域会得到新的 NS，反而需要重新委派。
+      ja: リゾルバーは TTL に従って回答をキャッシュします。移行前に TTL を下げて古い値の期限切れを待てば、切り替え後にキャッシュがすぐに切れます。ホストゾーンを作り直すと新しい NS になり、かえって委任のやり直しが必要になります。
+      en: Resolvers cache answers for the TTL; lower it before the migration and wait for the old value to expire, and caches flush quickly after the switch. Recreating the hosted zone gives you new NS records and forces you to delegate again.
     relatesTo: ip-after
     difficulty: 1

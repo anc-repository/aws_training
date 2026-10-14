@@ -6,14 +6,24 @@ questions:
     type: single
     kind: scenario
     services: [iam, ec2]
-    stem: EC2 上的应用需要读写 S3。最安全、运维最省事的凭证做法是？
+    stem:
+      zh-CN: EC2 上的应用需要读写 S3。最安全、运维最省事的凭证做法是？
+      ja: EC2 上のアプリが S3 を読み書きする必要があります。最も安全で、運用の手間も最も少ない認証情報の扱い方はどれですか？
+      en: An app on EC2 needs to read and write S3. What is the safest credential approach with the least operational effort?
     options:
-      - { id: a, text: 给实例关联带最小权限策略的 IAM 角色（实例配置文件） }
-      - { id: b, text: 把访问密钥写进环境变量 }
-      - { id: c, text: 写进 ~/.aws/credentials }
-      - { id: d, text: 写进 User Data }
+      - id: a
+        text:
+          zh-CN: 给实例关联带最小权限策略的 IAM 角色（实例配置文件）
+          ja: 最小権限のポリシーを持つ IAM ロール（インスタンスプロファイル）をインスタンスに関連付ける
+          en: Associate an IAM role with a least-privilege policy with the instance (an instance profile)
+      - { id: b, text: { zh-CN: 把访问密钥写进环境变量, ja: アクセスキーを環境変数に書く, en: Put an access key in environment variables } }
+      - { id: c, text: { zh-CN: 写进 ~/.aws/credentials, ja: ~/.aws/credentials に書く, en: Write it to ~/.aws/credentials } }
+      - { id: d, text: { zh-CN: 写进 User Data, ja: User Data に書く, en: Put it in User Data } }
     answer: [a]
-    explain: 角色提供自动轮换的临时凭证，不落盘；User Data 可以通过 DescribeInstanceAttribute 读出，环境变量和文件都会随快照、备份扩散。
+    explain:
+      zh-CN: 角色提供自动轮换的临时凭证，不落盘；User Data 可以通过 DescribeInstanceAttribute 读出，环境变量和文件都会随快照、备份扩散。
+      ja: ロールは自動でローテーションされる一時的な認証情報を提供し、ディスクには書かれません。User Data は DescribeInstanceAttribute で読み出せ、環境変数やファイルはスナップショットやバックアップとともに広がります。
+      en: A role provides automatically rotated temporary credentials that never touch the disk; User Data can be read back with DescribeInstanceAttribute, and environment variables and files spread with snapshots and backups.
     relatesTo: enable
     difficulty: 1
   - id: iam-revoke
@@ -21,14 +31,24 @@ questions:
     type: single
     kind: scenario
     services: [iam, sts]
-    stem: 怀疑某个角色的临时凭证已被盗，需要让此前签发的会话立即失效，但不删除角色。应该怎么做？
+    stem:
+      zh-CN: 怀疑某个角色的临时凭证已被盗，需要让此前签发的会话立即失效，但不删除角色。应该怎么做？
+      ja: あるロールの一時的な認証情報が盗まれた疑いがあります。ロールは削除せずに、これまでに発行されたセッションをすぐに無効にしたいと考えています。どうすべきですか？
+      en: You suspect a role's temporary credentials were stolen and need every session issued so far to stop working immediately, without deleting the role. What should you do?
     options:
-      - { id: a, text: 在 IAM 控制台对该角色执行“撤销活动会话” }
-      - { id: b, text: 删除使用该角色的实例 }
-      - { id: c, text: 轮换访问密钥 }
-      - { id: d, text: 修改角色的信任策略 }
+      - id: a
+        text:
+          zh-CN: 在 IAM 控制台对该角色执行“撤销活动会话”
+          ja: IAM コンソールで、そのロールに対して「アクティブなセッションの取り消し」を実行する
+          en: Run "Revoke active sessions" on the role in the IAM console
+      - { id: b, text: { zh-CN: 删除使用该角色的实例, ja: そのロールを使っているインスタンスを削除する, en: Delete the instances that use the role } }
+      - { id: c, text: { zh-CN: 轮换访问密钥, ja: アクセスキーをローテーションする, en: Rotate the access keys } }
+      - { id: d, text: { zh-CN: 修改角色的信任策略, ja: ロールの信頼ポリシーを変更する, en: Change the role's trust policy } }
     answer: [a]
-    explain: 撤销会话会给角色加一条按 aws:TokenIssueTime 拒绝旧会话的内联策略；临时凭证没有“访问密钥轮换”。实例上的 IMDS 仍会提供旧凭证直到轮换，实例需要换新会话才能恢复。
+    explain:
+      zh-CN: 撤销会话会给角色加一条按 aws:TokenIssueTime 拒绝旧会话的内联策略；临时凭证没有“访问密钥轮换”。实例上的 IMDS 仍会提供旧凭证直到轮换，实例需要换新会话才能恢复。
+      ja: セッションの取り消しは、aws:TokenIssueTime で古いセッションを拒否するインラインポリシーをロールに追加します。一時的な認証情報に「アクセスキーのローテーション」はありません。インスタンスの IMDS はローテーションされるまで古い認証情報を返し続けるため、インスタンスは新しいセッションに切り替わるまで復旧しません。
+      en: Revoking sessions adds an inline policy to the role that denies old sessions by aws:TokenIssueTime; temporary credentials have no "access key rotation". The instance's IMDS keeps serving the old credentials until they rotate, so the instance only recovers once it gets a new session.
     relatesTo: whoami
     difficulty: 2
   - id: iam-caller-identity
@@ -36,14 +56,20 @@ questions:
     type: multi
     kind: concept
     services: [sts]
-    stem: 关于 sts:GetCallerIdentity，正确的是哪两项？
+    stem:
+      zh-CN: 关于 sts:GetCallerIdentity，正确的是哪两项？
+      ja: sts:GetCallerIdentity について、正しいものを 2 つ選んでください。
+      en: Which two statements about sts:GetCallerIdentity are correct?
     options:
-      - { id: a, text: 调用它不需要任何 IAM 权限 }
-      - { id: b, text: 即使显式 Deny 也无法阻止调用 }
-      - { id: c, text: 可以用来确认角色是否仍有 S3 权限 }
-      - { id: d, text: 返回调用者的 Secret Access Key }
+      - { id: a, text: { zh-CN: 调用它不需要任何 IAM 权限, ja: 呼び出しに IAM の権限は一切不要, en: Calling it needs no IAM permission at all } }
+      - { id: b, text: { zh-CN: 即使显式 Deny 也无法阻止调用, ja: 明示的な Deny でも呼び出しを止められない, en: Even an explicit Deny cannot block it } }
+      - { id: c, text: { zh-CN: 可以用来确认角色是否仍有 S3 权限, ja: ロールにまだ S3 の権限があるかを確認するのに使える, en: It can confirm whether a role still has S3 permissions } }
+      - { id: d, text: { zh-CN: 返回调用者的 Secret Access Key, ja: 呼び出し元の Secret Access Key を返す, en: It returns the caller's Secret Access Key } }
     answer: [a, b]
-    explain: 它只能证明“认证成功、我是谁”，不能证明授权；健康检查要再加一个受策略约束的调用（本模块用 iam:GetRole）。
+    explain:
+      zh-CN: 它只能证明“认证成功、我是谁”，不能证明授权；健康检查要再加一个受策略约束的调用（本模块用 iam:GetRole）。
+      ja: これで証明できるのは「認証に成功し、自分が誰か」だけで、認可は証明できません。ヘルスチェックには、ポリシーで制約された呼び出しをもう 1 つ加える必要があります（このモジュールでは iam:GetRole）。
+      en: It only proves "authentication succeeded and who I am", not authorization; a health check needs one more call that is restricted by policy (this module uses iam:GetRole).
     relatesTo: enable
     difficulty: 2
   - id: iam-imdsv2
@@ -51,13 +77,27 @@ questions:
     type: single
     kind: scenario
     services: [ec2]
-    stem: 一个 Web 应用存在 SSRF 漏洞，攻击者可以让服务器向任意 URL 发出 GET 请求。哪项措施能阻止攻击者经此读取实例角色的临时凭证？
+    stem:
+      zh-CN: 一个 Web 应用存在 SSRF 漏洞，攻击者可以让服务器向任意 URL 发出 GET 请求。哪项措施能阻止攻击者经此读取实例角色的临时凭证？
+      ja: ある Web アプリに SSRF の脆弱性があり、攻撃者はサーバーに任意の URL への GET リクエストを送らせることができます。これを使ってインスタンスロールの一時的な認証情報を読み取られないようにする対策はどれですか？
+      en: A web app has an SSRF bug that lets an attacker make the server send GET requests to any URL. Which measure stops the attacker from reading the instance role's temporary credentials this way?
     options:
-      - { id: a, text: 要求实例只使用 IMDSv2（HttpTokens=required） }
-      - { id: b, text: 在安全组中拒绝出站到 169.254.169.254 }
-      - { id: c, text: 给实例换一个更大的实例类型 }
-      - { id: d, text: 开启 EBS 加密 }
+      - id: a
+        text:
+          zh-CN: 要求实例只使用 IMDSv2（HttpTokens=required）
+          ja: インスタンスに IMDSv2 だけを使わせる（HttpTokens=required）
+          en: Require the instance to use only IMDSv2 (HttpTokens=required)
+      - id: b
+        text:
+          zh-CN: 在安全组中拒绝出站到 169.254.169.254
+          ja: セキュリティグループで 169.254.169.254 へのアウトバウンドを拒否する
+          en: Deny outbound traffic to 169.254.169.254 in the security group
+      - { id: c, text: { zh-CN: 给实例换一个更大的实例类型, ja: インスタンスをより大きなインスタンスタイプに変える, en: Move the instance to a larger instance type } }
+      - { id: d, text: { zh-CN: 开启 EBS 加密, ja: EBS の暗号化を有効にする, en: Turn on EBS encryption } }
     answer: [a]
-    explain: IMDSv2 要求先用 PUT 获取会话令牌，只能代发 GET 的 SSRF 拿不到令牌；安全组不过滤到 IMDS 的流量。
+    explain:
+      zh-CN: IMDSv2 要求先用 PUT 获取会话令牌，只能代发 GET 的 SSRF 拿不到令牌；安全组不过滤到 IMDS 的流量。
+      ja: IMDSv2 では、まず PUT でセッショントークンを取得する必要があり、GET を代わりに送らせることしかできない SSRF ではトークンを手に入れられません。セキュリティグループは IMDS へのトラフィックをフィルタリングしません。
+      en: IMDSv2 requires a PUT to get a session token first, which an SSRF that can only send GET cannot do; security groups do not filter traffic to IMDS.
     relatesTo: imds
     difficulty: 1

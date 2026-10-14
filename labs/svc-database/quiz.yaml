@@ -6,14 +6,24 @@ questions:
     type: single
     kind: scenario
     services: [rds]
-    stem: 一个 RDS for PostgreSQL Multi-AZ 实例部署，报表查询拖慢了主库。最合适的做法是？
+    stem:
+      zh-CN: 一个 RDS for PostgreSQL Multi-AZ 实例部署，报表查询拖慢了主库。最合适的做法是？
+      ja: マルチ AZ の RDS for PostgreSQL インスタンスデプロイで、レポート用のクエリがプライマリを遅くしています。最も適切な方法はどれですか？
+      en: In a Multi-AZ RDS for PostgreSQL instance deployment, reporting queries are slowing down the primary. What is the best approach?
     options:
-      - { id: a, text: 把报表查询指向 Multi-AZ 的备库 }
-      - { id: b, text: 创建只读副本，报表查询改连副本的端点 }
-      - { id: c, text: 在前面加 RDS Proxy }
-      - { id: d, text: 把存储从 gp3 改为 io2 }
+      - { id: a, text: { zh-CN: 把报表查询指向 Multi-AZ 的备库, ja: レポート用のクエリをマルチ AZ のスタンバイに向ける, en: Point the reporting queries at the Multi-AZ standby } }
+      - id: b
+        text:
+          zh-CN: 创建只读副本，报表查询改连副本的端点
+          ja: リードレプリカを作成し、レポート用のクエリはレプリカのエンドポイントに接続する
+          en: Create a read replica and connect the reporting queries to the replica endpoint
+      - { id: c, text: { zh-CN: 在前面加 RDS Proxy, ja: 前段に RDS Proxy を置く, en: Put RDS Proxy in front } }
+      - { id: d, text: { zh-CN: 把存储从 gp3 改为 io2, ja: ストレージを gp3 から io2 に変更する, en: Change the storage from gp3 to io2 } }
     answer: [b]
-    explain: Multi-AZ 实例部署的备库不可读，只用于故障转移；只读副本异步复制、可分担读。RDS Proxy 解决连接数问题，不分担查询负载。
+    explain:
+      zh-CN: Multi-AZ 实例部署的备库不可读，只用于故障转移；只读副本异步复制、可分担读。RDS Proxy 解决连接数问题，不分担查询负载。
+      ja: マルチ AZ のインスタンスデプロイのスタンバイは読み取りできず、フェイルオーバー専用です。リードレプリカは非同期でレプリケーションされ、読み取りを分担できます。RDS Proxy は接続数の問題を解決するもので、クエリの負荷は分担しません。
+      en: The standby of a Multi-AZ instance deployment cannot be read and is only for failover; a read replica is replicated asynchronously and can take reads. RDS Proxy solves connection-count problems, not query load.
     relatesTo: replica
     difficulty: 1
   - id: db-encrypt
@@ -21,14 +31,28 @@ questions:
     type: single
     kind: scenario
     services: [rds, kms]
-    stem: 一个未加密的 RDS 实例需要改为静态加密。正确的做法是？
+    stem:
+      zh-CN: 一个未加密的 RDS 实例需要改为静态加密。正确的做法是？
+      ja: 暗号化されていない RDS インスタンスを、保管時に暗号化された状態にする必要があります。正しい方法はどれですか？
+      en: An unencrypted RDS instance needs to be encrypted at rest. What is the correct approach?
     options:
-      - { id: a, text: 在控制台修改实例，勾选“启用加密” }
-      - { id: b, text: 创建快照 → 复制快照时选择 KMS 密钥加密 → 从加密快照恢复新实例 → 切换应用 }
-      - { id: c, text: 创建加密的只读副本，再提升为主库 }
-      - { id: d, text: 在参数组中设置 rds.force_ssl=1 }
+      - id: a
+        text:
+          zh-CN: 在控制台修改实例，勾选“启用加密”
+          ja: コンソールでインスタンスを変更し、「暗号化を有効化」にチェックを入れる
+          en: Modify the instance in the console and tick "Enable encryption"
+      - id: b
+        text:
+          zh-CN: 创建快照 → 复制快照时选择 KMS 密钥加密 → 从加密快照恢复新实例 → 切换应用
+          ja: スナップショットを作成 → コピー時に KMS キーで暗号化 → 暗号化されたスナップショットから新しいインスタンスを復元 → アプリを切り替える
+          en: Take a snapshot → copy it with KMS encryption → restore a new instance from the encrypted snapshot → switch the app over
+      - { id: c, text: { zh-CN: 创建加密的只读副本，再提升为主库, ja: 暗号化されたリードレプリカを作成し、プライマリに昇格させる, en: Create an encrypted read replica and promote it to primary } }
+      - { id: d, text: { zh-CN: 在参数组中设置 rds.force_ssl=1, ja: パラメータグループで rds.force_ssl=1 を設定する, en: Set rds.force_ssl=1 in the parameter group } }
     answer: [b]
-    explain: 加密只能在创建时决定；未加密实例不能直接创建加密的只读副本；rds.force_ssl 是传输加密，与静态加密无关。
+    explain:
+      zh-CN: 加密只能在创建时决定；未加密实例不能直接创建加密的只读副本；rds.force_ssl 是传输加密，与静态加密无关。
+      ja: 暗号化は作成時にしか決められません。暗号化されていないインスタンスから暗号化されたリードレプリカを直接作ることはできません。rds.force_ssl は転送時の暗号化であり、保管時の暗号化とは関係ありません。
+      en: Encryption can only be decided at creation; you cannot create an encrypted read replica directly from an unencrypted instance; rds.force_ssl is encryption in transit and has nothing to do with encryption at rest.
     relatesTo: inspect
     difficulty: 2
   - id: db-pitr
@@ -36,14 +60,28 @@ questions:
     type: multi
     kind: concept
     services: [rds]
-    stem: 关于 RDS 自动备份与时间点恢复，正确的是哪两项？
+    stem:
+      zh-CN: 关于 RDS 自动备份与时间点恢复，正确的是哪两项？
+      ja: RDS の自動バックアップとポイントインタイムリカバリについて、正しいものを 2 つ選んでください。
+      en: Which two statements about RDS automated backups and point-in-time recovery are correct?
     options:
-      - { id: a, text: 时间点恢复会创建一个新的数据库实例 }
-      - { id: b, text: 自动备份的保留期最长可设为 35 天 }
-      - { id: c, text: 时间点恢复会原地覆盖现有实例的数据 }
-      - { id: d, text: 手动快照会在自动备份保留期结束后自动删除 }
+      - { id: a, text: { zh-CN: 时间点恢复会创建一个新的数据库实例, ja: ポイントインタイムリカバリは新しいデータベースインスタンスを作成する, en: Point-in-time recovery creates a new DB instance } }
+      - { id: b, text: { zh-CN: 自动备份的保留期最长可设为 35 天, ja: 自動バックアップの保持期間は最長 35 日に設定できる, en: The automated backup retention period can be set to up to 35 days } }
+      - id: c
+        text:
+          zh-CN: 时间点恢复会原地覆盖现有实例的数据
+          ja: ポイントインタイムリカバリは既存のインスタンスのデータをその場で上書きする
+          en: Point-in-time recovery overwrites the existing instance's data in place
+      - id: d
+        text:
+          zh-CN: 手动快照会在自动备份保留期结束后自动删除
+          ja: 手動スナップショットは自動バックアップの保持期間が終わると自動で削除される
+          en: Manual snapshots are deleted automatically when the automated backup retention period ends
     answer: [a, b]
-    explain: 时间点恢复总是恢复为新实例（需要指定子网组与安全组）；手动快照不会自动过期，需要手工删除。
+    explain:
+      zh-CN: 时间点恢复总是恢复为新实例（需要指定子网组与安全组）；手动快照不会自动过期，需要手工删除。
+      ja: ポイントインタイムリカバリは必ず新しいインスタンスとして復元します（サブネットグループとセキュリティグループの指定が必要です）。手動スナップショットは自動では期限切れにならず、手動で削除する必要があります。
+      en: Point-in-time recovery always restores to a new instance (you must specify the subnet group and security group); manual snapshots never expire on their own and must be deleted by hand.
     relatesTo: pitr
     difficulty: 2
   - id: db-multi-az-failover
@@ -51,13 +89,23 @@ questions:
     type: single
     kind: scenario
     services: [rds]
-    stem: 一个 RDS Multi-AZ 实例部署的主库所在 AZ 发生故障。应用通过实例端点连接数据库，需要做什么才能继续写入？
+    stem:
+      zh-CN: 一个 RDS Multi-AZ 实例部署的主库所在 AZ 发生故障。应用通过实例端点连接数据库，需要做什么才能继续写入？
+      ja: マルチ AZ の RDS インスタンスデプロイで、プライマリのある AZ に障害が発生しました。アプリはインスタンスのエンドポイントで接続しています。書き込みを続けるには何が必要ですか？
+      en: The AZ hosting the primary of a Multi-AZ RDS instance deployment fails. The app connects through the instance endpoint. What is needed to keep writing?
     options:
-      - { id: a, text: 什么都不用改；RDS 自动故障转移到备库，端点的 DNS 指向新主库，应用重连即可 }
-      - { id: b, text: 手动把应用的连接串改成备库的 IP }
-      - { id: c, text: 从最近的快照恢复一个新实例 }
-      - { id: d, text: 把只读副本提升为主库 }
+      - id: a
+        text:
+          zh-CN: 什么都不用改；RDS 自动故障转移到备库，端点的 DNS 指向新主库，应用重连即可
+          ja: 何も変える必要はない。RDS が自動でスタンバイにフェイルオーバーし、エンドポイントの DNS が新しいプライマリを指すので、アプリは再接続すればよい
+          en: Nothing — RDS fails over to the standby automatically, the endpoint's DNS points at the new primary, and the app just reconnects
+      - { id: b, text: { zh-CN: 手动把应用的连接串改成备库的 IP, ja: アプリの接続文字列を手動でスタンバイの IP に変更する, en: Change the app's connection string to the standby's IP by hand } }
+      - { id: c, text: { zh-CN: 从最近的快照恢复一个新实例, ja: 最新のスナップショットから新しいインスタンスを復元する, en: Restore a new instance from the latest snapshot } }
+      - { id: d, text: { zh-CN: 把只读副本提升为主库, ja: リードレプリカをプライマリに昇格させる, en: Promote a read replica to primary } }
     answer: [a]
-    explain: Multi-AZ 的故障转移是自动的，端点不变、DNS 指向新主库；应用只需要具备重连能力。快照恢复与提升副本会丢失数据或需要改连接串。
+    explain:
+      zh-CN: Multi-AZ 的故障转移是自动的，端点不变、DNS 指向新主库；应用只需要具备重连能力。快照恢复与提升副本会丢失数据或需要改连接串。
+      ja: マルチ AZ のフェイルオーバーは自動で、エンドポイントは変わらず、DNS が新しいプライマリを指します。アプリに必要なのは再接続できることだけです。スナップショットからの復元やレプリカの昇格では、データが失われるか接続文字列の変更が必要になります。
+      en: "Multi-AZ failover is automatic: the endpoint stays the same and its DNS points at the new primary, so the app only needs to be able to reconnect. Restoring a snapshot or promoting a replica loses data or requires a new connection string."
     relatesTo: failover
     difficulty: 1

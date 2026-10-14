@@ -5,10 +5,22 @@ id: svc-analytics
 kind: service
 version: 0.1.0
 status: planned
-service: Amazon Data Firehose
-function: 点击流采集与投递
-title: Amazon Data Firehose：点击流采集与投递
-summary: 点击事件不再写进业务库，改由 EC2 批量转发给 Data Firehose 落到 S3 数据湖，再用 Athena 按分区查询，看清分析负载如何离开 OLTP 库。
+service:
+  zh-CN: Amazon Data Firehose
+  ja: Amazon Data Firehose
+  en: Amazon Data Firehose
+function:
+  zh-CN: 点击流采集与投递
+  ja: クリックストリームの収集と配信
+  en: Clickstream collection and delivery
+title:
+  zh-CN: Amazon Data Firehose：点击流采集与投递
+  ja: Amazon Data Firehose：クリックストリームの収集と配信
+  en: "Amazon Data Firehose: clickstream collection and delivery"
+summary:
+  zh-CN: 点击事件不再写进业务库，改由 EC2 批量转发给 Data Firehose 落到 S3 数据湖，再用 Athena 按分区查询，看清分析负载如何离开 OLTP 库。
+  ja: クリックイベントを業務データベースに書き込むのをやめ、EC2 からまとめて Data Firehose に送り S3 データレイクに保存します。Athena でパーティション単位にクエリし、分析負荷が OLTP データベースから離れる様子を確認します。
+  en: Stop writing click events into the application database. EC2 forwards them in batches to Data Firehose, which lands them in an S3 data lake, and Athena queries them by partition, so you can see analytics load move off the OLTP database.
 difficulty: intermediate
 estimatedMinutes: 75
 timeLimitMinutes: 120
@@ -17,7 +29,7 @@ retain: {allowed: true, maxHours: 24}
 regions:
   supported: [ap-northeast-1]
 services:
-- {id: firehose, name: Amazon Data Firehose, role: primary, module: analytics}
+- {id: firehose, name: { zh-CN: Amazon Data Firehose, ja: Amazon Data Firehose, en: Amazon Data Firehose }, role: primary, module: analytics}
 - {id: iam, role: context, module: iam}
 modules:
   target: [analytics]
@@ -35,8 +47,16 @@ startProfile:
     kind: module
     basis: credential
     set: {IAM_CREDENTIALS: role}
-    reason: 平台约定除 svc-ec2、svc-iam 外起始状态都带实例角色（C3）
-  - {item: preview-direct-https, kind: platform, reason: 预览使用方案 B 的 Let's Encrypt IP 证书（03 §6.2）}
+    reason:
+      zh-CN: 平台约定除 svc-ec2、svc-iam 外起始状态都带实例角色（C3）
+      ja: プラットフォームの取り決めにより、svc-ec2 と svc-iam 以外の開始状態にはインスタンスロールが付いています（C3）
+      en: By platform convention, every start state except svc-ec2 and svc-iam includes an instance role (C3)
+  - item: preview-direct-https
+    kind: platform
+    reason:
+      zh-CN: 预览使用方案 B 的 Let's Encrypt IP 证书（03 §6.2）
+      ja: プレビューには方式 B の Let's Encrypt IP 証明書を使います（03 §6.2）
+      en: The preview uses the option B Let's Encrypt IP certificate (03 §6.2)
   platform:
     preview: {directHttps: 'on'}
 targetModules:
@@ -46,7 +66,7 @@ targetModules:
 expectedWarnings: []
 cost: {tier: low}
 provision: {class: A}
-badge: {title: 数据湖投递}
+badge: {title: { zh-CN: 数据湖投递, ja: データレイク配信, en: Data lake delivery }}
 tracks: [cost-optimized, performant, saa-main]
 saa:
   domains: [performance, cost, resilient]

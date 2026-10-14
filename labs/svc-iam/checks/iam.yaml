@@ -1,66 +1,104 @@
 checks:
   # ---- 起始状态（before 一律 once）
   - id: iam-none-baseline
-    title: 起始状态：应用不使用 AWS 凭证
+    title:
+      zh-CN: 起始状态：应用不使用 AWS 凭证
+      ja: 開始状態：アプリは AWS の認証情報を使っていない
+      en: "Start state: the app uses no AWS credentials"
     type: capability
     module: iam
     drift: { policy: once }
     assert:
-      - { path: $.driver, op: eq, value: none, label: 驱动 }
-      - { path: $.status, op: eq, value: 'off', label: 模块状态 }
-    explain: L0 的应用不调用任何 AWS API；/lab 的 iam 卡片显示“应用未使用 AWS 凭证”。
+      - { path: $.driver, op: eq, value: none, label: { zh-CN: 驱动, ja: ドライバー, en: Driver } }
+      - { path: $.status, op: eq, value: 'off', label: { zh-CN: 模块状态, ja: モジュールの状態, en: Module status } }
+    explain:
+      zh-CN: L0 的应用不调用任何 AWS API；/lab 的 iam 卡片显示“应用未使用 AWS 凭证”。
+      ja: L0 のアプリは AWS API を一切呼び出しません。/lab の iam カードには「应用未使用 AWS 凭证」（アプリは AWS の認証情報を使っていません）と表示されます。
+      en: The L0 app calls no AWS API; the iam card on /lab shows "应用未使用 AWS 凭证" (the app uses no AWS credentials).
 
   - id: imds-role-name
-    title: 实例上挂着平台的 CloudAlbumAppRole（只看角色名，不取凭证）
+    title:
+      zh-CN: 实例上挂着平台的 CloudAlbumAppRole（只看角色名，不取凭证）
+      ja: インスタンスにプラットフォームの CloudAlbumAppRole が付いている（ロール名だけを見て、認証情報は取得しない）
+      en: The instance carries the platform's CloudAlbumAppRole (only the role name is read, never the credentials)
     type: local
     on: lab
     checkId: imds-get
     args: { path: 'iam/security-credentials/' }
     drift: { policy: once }
     assert:
-      - { path: $.status, op: eq, value: 200, label: IMDS 状态码 }
-      - { path: $.value, op: contains, value: CloudAlbumAppRole, label: 角色名 }
-    explain: 检查只读取角色名列表，从不请求 iam/security-credentials/<角色名>（那里才是临时凭证）。实例有角色，不代表应用在用它。
+      - { path: $.status, op: eq, value: 200, label: { zh-CN: IMDS 状态码, ja: IMDS のステータスコード, en: IMDS status code } }
+      - { path: $.value, op: contains, value: CloudAlbumAppRole, label: { zh-CN: 角色名, ja: ロール名, en: Role name } }
+    explain:
+      zh-CN: 检查只读取角色名列表，从不请求 iam/security-credentials/<角色名>（那里才是临时凭证）。实例有角色，不代表应用在用它。
+      ja: チェックはロール名の一覧だけを読み取り、iam/security-credentials/<ロール名>（一時的な認証情報がある場所）には決してリクエストしません。インスタンスにロールがあっても、アプリがそれを使っているとは限りません。
+      en: The check only reads the list of role names and never requests iam/security-credentials/<role name> (where the temporary credentials are). An instance having a role does not mean the app uses it.
 
   - id: cred-source-none
-    title: 起始状态：应用的凭证模式为空，环境文件中没有访问密钥
+    title:
+      zh-CN: 起始状态：应用的凭证模式为空，环境文件中没有访问密钥
+      ja: 開始状態：アプリの認証情報モードは空で、環境ファイルにアクセスキーはない
+      en: "Start state: the app's credential mode is empty, and there is no access key in the env file"
     type: local
     on: lab
     checkId: aws-cred-source
     drift: { policy: once }
     assert:
-      - { path: $.appMode, op: in, value: [none, null], label: 应用的凭证模式 }
-      - { path: $.envHasKeys, op: eq, value: false, label: 环境文件中有访问密钥 }
-    explain: aws-cred-source 只报告“有没有”，从不返回密钥的值。
+      - { path: $.appMode, op: in, value: [none, null], label: { zh-CN: 应用的凭证模式, ja: アプリの認証情報モード, en: App credential mode } }
+      - { path: $.envHasKeys, op: eq, value: false, label: { zh-CN: 环境文件中有访问密钥, ja: 環境ファイルにアクセスキーがある, en: Access key in the env file } }
+    explain:
+      zh-CN: aws-cred-source 只报告“有没有”，从不返回密钥的值。
+      ja: aws-cred-source は「あるかないか」だけを報告し、キーの値は決して返しません。
+      en: aws-cred-source only reports whether there is one, and never returns the key's value.
 
   # ---- 启用实例角色
   - id: iam-wired
-    title: iam 已切换到实例角色，且状态正常
+    title:
+      zh-CN: iam 已切换到实例角色，且状态正常
+      ja: iam がインスタンスロールに切り替わり、状態が正常
+      en: iam has switched to the instance role and is healthy
     type: capability
     module: iam
     drift: { policy: must-hold, monitor: true }
     assert:
-      - { path: $.driver, op: eq, value: role, label: 驱动 }
-      - { path: $, op: healthy, label: 状态正常（本卡 expectedWarnings 为空，即必须是 ok） }
-    explain: 探针调用 sts:GetCallerIdentity 与受策略约束的 iam:GetRole；detail 中显示 assumed-role/CloudAlbumAppRole 与 ASIA 前缀。
+      - { path: $.driver, op: eq, value: role, label: { zh-CN: 驱动, ja: ドライバー, en: Driver } }
+      - path: $
+        op: healthy
+        label:
+          zh-CN: 状态正常（本卡 expectedWarnings 为空，即必须是 ok）
+          ja: 状態が正常（このカードの expectedWarnings は空なので ok でなければならない）
+          en: Healthy (this card's expectedWarnings is empty, so it must be ok)
+    explain:
+      zh-CN: 探针调用 sts:GetCallerIdentity 与受策略约束的 iam:GetRole；detail 中显示 assumed-role/CloudAlbumAppRole 与 ASIA 前缀。
+      ja: プローブは sts:GetCallerIdentity と、ポリシーで制約された iam:GetRole を呼び出します。detail には assumed-role/CloudAlbumAppRole と ASIA というプレフィックスが表示されます。
+      en: The probe calls sts:GetCallerIdentity and the policy-restricted iam:GetRole; detail shows assumed-role/CloudAlbumAppRole and the ASIA prefix.
     reproduce: { run: 'curl -s http://127.0.0.1/api/capabilities | jq ".modules.iam | {driver, status, detail}"', runsOn: lab }
 
   - id: cred-source-role
-    title: 应用改用实例配置文件的临时凭证，磁盘上没有访问密钥
+    title:
+      zh-CN: 应用改用实例配置文件的临时凭证，磁盘上没有访问密钥
+      ja: アプリがインスタンスプロファイルの一時的な認証情報に切り替わり、ディスク上にアクセスキーがない
+      en: The app now uses the instance profile's temporary credentials, and there is no access key on disk
     type: local
     on: lab
     checkId: aws-cred-source
     dependsOn: [iam-wired]
     drift: { policy: must-hold }
     assert:
-      - { path: $.appMode, op: eq, value: role, label: 应用的凭证模式 }
-      - { path: $.envHasKeys, op: eq, value: false, label: 环境文件中有访问密钥 }
-      - { path: $.credentialsFile, op: eq, value: false, label: 存在 credentials 文件 }
-      - { path: $.sdkSourceHint, op: eq, value: instance-profile, label: SDK 的凭证来源 }
-    explain: SDK 默认凭证链按顺序查找环境变量、共享凭证文件、实例配置文件；前两者都不存在，才会落到实例角色。
+      - { path: $.appMode, op: eq, value: role, label: { zh-CN: 应用的凭证模式, ja: アプリの認証情報モード, en: App credential mode } }
+      - { path: $.envHasKeys, op: eq, value: false, label: { zh-CN: 环境文件中有访问密钥, ja: 環境ファイルにアクセスキーがある, en: Access key in the env file } }
+      - { path: $.credentialsFile, op: eq, value: false, label: { zh-CN: 存在 credentials 文件, ja: credentials ファイルがある, en: credentials file exists } }
+      - { path: $.sdkSourceHint, op: eq, value: instance-profile, label: { zh-CN: SDK 的凭证来源, ja: SDK の認証情報の取得元, en: SDK credential source } }
+    explain:
+      zh-CN: SDK 默认凭证链按顺序查找环境变量、共享凭证文件、实例配置文件；前两者都不存在，才会落到实例角色。
+      ja: SDK の既定の認証情報チェーンは、環境変数、共有認証情報ファイル、インスタンスプロファイルの順に探します。前の 2 つがどちらもない場合に初めてインスタンスロールが使われます。
+      en: The SDK's default credential chain looks at environment variables, then the shared credentials file, then the instance profile; only when the first two are absent does it fall through to the instance role.
 
   - id: app-role-policies
-    title: CloudAlbumAppRole 附加了本会话 iam 模块的只读策略与平台的 SSM 策略
+    title:
+      zh-CN: CloudAlbumAppRole 附加了本会话 iam 模块的只读策略与平台的 SSM 策略
+      ja: CloudAlbumAppRole に、このセッションの iam モジュールの読み取り専用ポリシーとプラットフォームの SSM ポリシーがアタッチされている
+      en: CloudAlbumAppRole has this session's iam module read-only policy and the platform's SSM policy attached
     type: aws-readonly
     service: iam
     action: ListAttachedRolePolicies
@@ -71,66 +109,136 @@ checks:
     assert:
       - path: $.AttachedPolicies
         op: some
-        label: 附加了 iam 模块的只读策略
+        label:
+          zh-CN: 附加了 iam 模块的只读策略
+          ja: iam モジュールの読み取り専用ポリシーがアタッチされている
+          en: The iam module's read-only policy is attached
         value:
           - { path: $.PolicyArn, op: eq, value: '{{ var.readPolicyArn }}' }
       - path: $.AttachedPolicies
         op: some
-        label: 附加了 AmazonSSMManagedInstanceCore（平台管理通道）
+        label:
+          zh-CN: 附加了 AmazonSSMManagedInstanceCore（平台管理通道）
+          ja: AmazonSSMManagedInstanceCore（プラットフォームの管理チャネル）がアタッチされている
+          en: AmazonSSMManagedInstanceCore (the platform management channel) is attached
         value:
           - { path: $.PolicyName, op: eq, value: AmazonSSMManagedInstanceCore }
-    explain: 只读策略由本会话的 iam 模块栈创建（归属以栈成员为准）；每启用一个模块，scripts/module 再附加该模块自己的客户托管策略。
+    explain:
+      zh-CN: 只读策略由本会话的 iam 模块栈创建（归属以栈成员为准）；每启用一个模块，scripts/module 再附加该模块自己的客户托管策略。
+      ja: 読み取り専用ポリシーはこのセッションの iam モジュールスタックが作成したものです（所有はスタックのメンバーで判断）。モジュールを 1 つ有効にするたびに、scripts/module がそのモジュール専用のカスタマー管理ポリシーを追加でアタッチします。
+      en: This session's iam module stack created the read-only policy (ownership is based on stack membership); every time a module is enabled, scripts/module attaches that module's own customer managed policy as well.
     reproduce: { run: 'aws iam list-attached-role-policies --role-name CloudAlbumAppRole --query "AttachedPolicies[].PolicyName"', runsOn: workstation }
     manualFallback:
       where: { breadcrumb: [IAM, 角色, CloudAlbumAppRole, 权限], region: global }
       observed:
-        question: 权限策略列表中有哪些策略？
+        question:
+          zh-CN: 权限策略列表中有哪些策略？
+          ja: 許可ポリシーの一覧にはどのポリシーがありますか？
+          en: Which policies are in the permissions policies list?
         options:
-          - { value: ok, label: 'AmazonSSMManagedInstanceCore 与 cloudalbum-{{ session.env }}-iam', expected: true }
-          - { value: ssm-only, label: 只有 AmazonSSMManagedInstanceCore, fixHint: 重新执行 scripts/module enable iam }
+          - value: ok
+            label:
+              zh-CN: 'AmazonSSMManagedInstanceCore 与 cloudalbum-{{ session.env }}-iam'
+              ja: AmazonSSMManagedInstanceCore と cloudalbum-{{ session.env }}-iam
+              en: AmazonSSMManagedInstanceCore and cloudalbum-{{ session.env }}-iam
+            expected: true
+          - { value: ssm-only, label: { zh-CN: 只有 AmazonSSMManagedInstanceCore, ja: AmazonSSMManagedInstanceCore だけ, en: Only AmazonSSMManagedInstanceCore }, fixHint: { zh-CN: 重新执行 scripts/module enable iam, ja: scripts/module enable iam を再実行してください, en: Run scripts/module enable iam again } }
 
   # ---- IMDSv2 与 SSRF
   - id: imds-v1-rejected
-    title: 实例只接受 IMDSv2：不带会话令牌的请求被拒绝
+    title:
+      zh-CN: 实例只接受 IMDSv2：不带会话令牌的请求被拒绝
+      ja: インスタンスは IMDSv2 しか受け付けず、セッショントークンなしのリクエストは拒否される
+      en: The instance only accepts IMDSv2, and requests without a session token are refused
     type: local
     on: lab
     checkId: imds-get
     args: { path: instance-id, checkV1Rejected: true }
     drift: { policy: must-hold }
     assert:
-      - { path: $.status, op: eq, value: 200, label: 带令牌的请求 }
-      - { path: $.v1Status, op: eq, value: 401, label: 不带令牌的请求 }
-    explain: IMDSv2 先要用 PUT 取会话令牌；只能让服务器发 GET 的 SSRF 拿不到令牌。
+      - { path: $.status, op: eq, value: 200, label: { zh-CN: 带令牌的请求, ja: トークンありのリクエスト, en: Request with a token } }
+      - { path: $.v1Status, op: eq, value: 401, label: { zh-CN: 不带令牌的请求, ja: トークンなしのリクエスト, en: Request without a token } }
+    explain:
+      zh-CN: IMDSv2 先要用 PUT 取会话令牌；只能让服务器发 GET 的 SSRF 拿不到令牌。
+      ja: IMDSv2 では、まず PUT でセッショントークンを取得する必要があります。サーバーに GET しか送らせられない SSRF では、トークンを手に入れられません。
+      en: IMDSv2 requires a PUT to get a session token first; an SSRF that can only make the server send GET requests never gets a token.
 
   - id: ssrf-why
-    title: 说出 IMDSv2 挡住 SSRF 的两道关
+    title:
+      zh-CN: 说出 IMDSv2 挡住 SSRF 的两道关
+      ja: IMDSv2 が SSRF を防ぐ 2 つの関門を答える
+      en: Name the two gates IMDSv2 puts in front of SSRF
     type: manual
     spec:
       observed:
-        question: 一个只能让服务器代发 GET 请求的 SSRF 漏洞，为什么拿不到 IMDSv2 的临时凭证？
+        question:
+          zh-CN: 一个只能让服务器代发 GET 请求的 SSRF 漏洞，为什么拿不到 IMDSv2 的临时凭证？
+          ja: サーバーに GET リクエストを代わりに送らせることしかできない SSRF の脆弱性では、なぜ IMDSv2 の一時的な認証情報を取得できないのでしょうか？
+          en: Why can an SSRF bug that can only make the server send GET requests not get IMDSv2's temporary credentials?
         options:
-          - { value: put-token, label: 取会话令牌必须用 PUT 并带特定请求头；令牌响应的跳数限制还让它出不了实例, expected: true }
-          - { value: firewall, label: 安全组挡住了 169.254.169.254, fixHint: 安全组不过滤到 IMDS 的流量；关键在 PUT 取令牌与跳数限制 }
+          - value: put-token
+            label:
+              zh-CN: 取会话令牌必须用 PUT 并带特定请求头；令牌响应的跳数限制还让它出不了实例
+              ja: セッショントークンの取得には PUT と特定のリクエストヘッダーが必要で、さらにトークンのレスポンスのホップ数制限によりインスタンスの外に出られない
+              en: Getting a session token takes a PUT with a specific request header, and the hop limit on the token response keeps it from leaving the instance
+            expected: true
+          - value: firewall
+            label:
+              zh-CN: 安全组挡住了 169.254.169.254
+              ja: セキュリティグループが 169.254.169.254 をブロックしている
+              en: The security group blocks 169.254.169.254
+            fixHint:
+              zh-CN: 安全组不过滤到 IMDS 的流量；关键在 PUT 取令牌与跳数限制
+              ja: セキュリティグループは IMDS へのトラフィックをフィルタリングしません。ポイントは PUT によるトークンの取得とホップ数の制限です
+              en: Security groups do not filter traffic to IMDS; what matters is the PUT for the token and the hop limit
 
   # ---- CloudTrail
   - id: trail-identity
-    title: 说出 CloudTrail 中应用调用的身份类型与密钥前缀
+    title:
+      zh-CN: 说出 CloudTrail 中应用调用的身份类型与密钥前缀
+      ja: CloudTrail に記録されたアプリの呼び出しの ID の種類とキーのプレフィックスを答える
+      en: Name the identity type and key prefix of the app's calls in CloudTrail
     type: manual
     spec:
       observed:
-        question: 应用（会话名是实例 ID）的事件里，userIdentity.type 与 accessKeyId 前缀分别是什么？
+        question:
+          zh-CN: 应用（会话名是实例 ID）的事件里，userIdentity.type 与 accessKeyId 前缀分别是什么？
+          ja: アプリ（セッション名はインスタンス ID）のイベントで、userIdentity.type と accessKeyId のプレフィックスはそれぞれ何ですか？
+          en: In the app's events (the session name is the instance ID), what are userIdentity.type and the accessKeyId prefix?
         options:
-          - { value: assumed-asia, label: AssumedRole，ASIA 开头, expected: true }
-          - { value: user-akia, label: IAMUser，AKIA 开头, fixHint: 那是长期访问密钥的样子；实例角色签发的是临时凭证 }
-          - { value: none, label: 还查不到事件, fixHint: 事件历史通常有几分钟到十几分钟的延迟；先在预览中触发几次需要 AWS 的操作 }
+          - { value: assumed-asia, label: { zh-CN: AssumedRole，ASIA 开头, ja: AssumedRole で、ASIA で始まる, en: "AssumedRole, starting with ASIA" }, expected: true }
+          - value: user-akia
+            label:
+              zh-CN: IAMUser，AKIA 开头
+              ja: IAMUser で、AKIA で始まる
+              en: IAMUser, starting with AKIA
+            fixHint:
+              zh-CN: 那是长期访问密钥的样子；实例角色签发的是临时凭证
+              ja: それは長期のアクセスキーの場合です。インスタンスロールが発行するのは一時的な認証情報です
+              en: That is what a long-term access key looks like; an instance role issues temporary credentials
+          - value: none
+            label:
+              zh-CN: 还查不到事件
+              ja: まだイベントが見つからない
+              en: No events found yet
+            fixHint:
+              zh-CN: 事件历史通常有几分钟到十几分钟的延迟；先在预览中触发几次需要 AWS 的操作
+              ja: イベント履歴には通常数分から十数分の遅れがあります。まずプレビューで AWS を必要とする操作を何回か行ってください
+              en: The event history usually lags by a few minutes to over ten minutes; first do a few things in the preview that need AWS
 
   # ---- 安全底线
   - id: no-leaked-keys
-    title: 实验机上没有残留的长期访问密钥
+    title:
+      zh-CN: 实验机上没有残留的长期访问密钥
+      ja: ラボ用インスタンスに長期のアクセスキーが残っていない
+      en: No long-term access keys are left on the lab instance
     type: local
     on: lab
     checkId: leaked-keys
     drift: { policy: must-hold }
     assert:
-      - { path: $.count, op: eq, value: 0, label: AKIA 命中数 }
-    explain: 扫描环境文件、进程环境与日志中的长期访问密钥（只报告位置与数量，从不返回值）。不要把访问密钥复制到实验机或工作台。
+      - { path: $.count, op: eq, value: 0, label: { zh-CN: AKIA 命中数, ja: AKIA の検出数, en: AKIA hits } }
+    explain:
+      zh-CN: 扫描环境文件、进程环境与日志中的长期访问密钥（只报告位置与数量，从不返回值）。不要把访问密钥复制到实验机或工作台。
+      ja: 環境ファイル、プロセスの環境変数、ログにある長期のアクセスキーをスキャンします（場所と件数だけを報告し、値は決して返しません）。アクセスキーをラボ用インスタンスやワークベンチにコピーしないでください。
+      en: Scans env files, process environments and logs for long-term access keys (reporting only locations and counts, never values). Do not copy access keys to the lab instance or the workbench.

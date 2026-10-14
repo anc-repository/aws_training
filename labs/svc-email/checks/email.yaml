@@ -1,32 +1,47 @@
 checks:
   # ---- 起始状态（before 一律 once）
   - id: email-outbox-baseline
-    title: 起始状态：邮件只写进本机 outbox
+    title:
+      zh-CN: 起始状态：邮件只写进本机 outbox
+      ja: 開始状態：メールはローカルの outbox に書かれるだけ
+      en: "Start state: email is only written to the local outbox"
     type: capability
     module: email
     drift: { policy: once }
     assert:
-      - { path: $.driver, op: eq, value: outbox, label: 驱动 }
-      - { path: $.status, op: eq, value: 'off', label: 模块状态（本地实现） }
-      - { path: $.localHealth, op: eq, value: ok, label: outbox 目录可写 }
-    explain: outbox 驱动把同一份 MIME 写成 .eml 并记一行 outbox_emails，send() 返回 delivered=false——邮件没有真正发出。
+      - { path: $.driver, op: eq, value: outbox, label: { zh-CN: 驱动, ja: ドライバー, en: Driver } }
+      - { path: $.status, op: eq, value: 'off', label: { zh-CN: 模块状态（本地实现）, ja: モジュールの状態（ローカル実装）, en: Module status (local implementation) } }
+      - { path: $.localHealth, op: eq, value: ok, label: { zh-CN: outbox 目录可写, ja: outbox ディレクトリに書き込める, en: outbox directory is writable } }
+    explain:
+      zh-CN: outbox 驱动把同一份 MIME 写成 .eml 并记一行 outbox_emails，send() 返回 delivered=false——邮件没有真正发出。
+      ja: outbox ドライバーは同じ MIME を .eml として書き、outbox_emails に 1 行記録します。send() は delivered=false を返します。メールは実際には送信されていません。
+      en: The outbox driver writes the same MIME as an .eml file and records a row in outbox_emails; send() returns delivered=false — the email was never really sent.
 
   # ---- 接入 SES
   - id: email-wired
-    title: email 已切换到 SES（沙盒中为黄色，视为正常）
+    title:
+      zh-CN: email 已切换到 SES（沙盒中为黄色，视为正常）
+      ja: email が SES に切り替わっている（サンドボックス中の黄色は正常とみなす）
+      en: email has switched to SES (yellow while in the sandbox counts as healthy)
     type: capability
     module: email
     drift: { policy: must-hold, monitor: true }
     assert:
-      - { path: $.driver, op: eq, value: ses, label: 驱动 }
+      - { path: $.driver, op: eq, value: ses, label: { zh-CN: 驱动, ja: ドライバー, en: Driver } }
     anyOf:
-      - [ { path: $, op: healthy, label: 状态正常（生产访问） } ]
-      - [ { path: $.status, op: eq, value: degraded, label: 状态为 degraded }, { path: $.detail, op: startsWith, value: 沙盒, label: 原因是 SES 沙盒 } ]
-    explain: SES 沙盒不是规则表中的 warn，healthy 不接受它；这里用 anyOf 单独放行“沙盒”这一种 degraded（附录 C-18）。
+      - [ { path: $, op: healthy, label: { zh-CN: 状态正常（生产访问）, ja: 状態が正常（本番アクセス）, en: Healthy (production access) } } ]
+      - [ { path: $.status, op: eq, value: degraded, label: { zh-CN: 状态为 degraded, ja: 状態が degraded, en: Status is degraded } }, { path: $.detail, op: startsWith, value: 沙盒, label: { zh-CN: 原因是 SES 沙盒, ja: 原因は SES サンドボックス, en: Because of the SES sandbox } } ]
+    explain:
+      zh-CN: SES 沙盒不是规则表中的 warn，healthy 不接受它；这里用 anyOf 单独放行“沙盒”这一种 degraded（附录 C-18）。
+      ja: SES サンドボックスはルール表の warn ではなく、healthy では受け付けられません。そのため、ここでは anyOf で「サンドボックス」という 1 種類の degraded だけを個別に許可しています（付録 C-18）。
+      en: The SES sandbox is not a warn in the rule table, so healthy does not accept it; anyOf allows this one kind of degraded, "sandbox", on its own here (appendix C-18).
     reproduce: { run: 'curl -s http://127.0.0.1/api/capabilities | jq ".modules.email | {driver, status, detail}"', runsOn: lab }
 
   - id: email-path-seen
-    title: 最近的真实请求经 SES 发出了邮件
+    title:
+      zh-CN: 最近的真实请求经 SES 发出了邮件
+      ja: 最近の実際のリクエストで SES からメールが送信された
+      en: A recent real request sent email through SES
     type: local
     on: lab
     checkId: path-seen
@@ -34,11 +49,17 @@ checks:
     dependsOn: [email-wired]
     drift: { policy: once }
     assert:
-      - { path: $.count, op: gte, value: 1, label: 出现 email=ses:sent 的请求数 }
-    explain: 在应用预览用 success+demo@simulator.amazonses.com 注册一个用户即可满足（SES 邮箱模拟器在沙盒中也能收信）；探测请求不计入。
+      - { path: $.count, op: gte, value: 1, label: { zh-CN: 出现 email=ses:sent 的请求数, ja: email=ses:sent が現れたリクエスト数, en: Requests showing email=ses:sent } }
+    explain:
+      zh-CN: 在应用预览用 success+demo@simulator.amazonses.com 注册一个用户即可满足（SES 邮箱模拟器在沙盒中也能收信）；探测请求不计入。
+      ja: アプリのプレビューで success+demo@simulator.amazonses.com を使ってユーザーを 1 人登録すれば満たせます（SES メールボックスシミュレーターはサンドボックスでも受信できます）。プローブのリクエストは数えません。
+      en: Signing up one user with success+demo@simulator.amazonses.com in the app preview is enough (the SES mailbox simulator receives mail even in the sandbox); probe requests do not count.
 
   - id: identity-verified
-    title: 发件身份已验证
+    title:
+      zh-CN: 发件身份已验证
+      ja: 送信元 ID が検証済み
+      en: The sender identity is verified
     type: aws-readonly
     service: ses
     action: GetEmailIdentity
@@ -49,19 +70,36 @@ checks:
       - { path: $.VerifiedForSendingStatus, op: eq, value: false }
     drift: { policy: must-hold }
     assert:
-      - { path: $.VerifiedForSendingStatus, op: eq, value: true, label: 可用于发信 }
-    explain: 不设 ownership：发件身份是允许跨会话保留的前置资源，复用时它不是本会话创建的；“接入”的证明由 email-wired 与 email-path-seen 提供。
+      - { path: $.VerifiedForSendingStatus, op: eq, value: true, label: { zh-CN: 可用于发信, ja: 送信に使える, en: Can send } }
+    explain:
+      zh-CN: 不设 ownership：发件身份是允许跨会话保留的前置资源，复用时它不是本会话创建的；“接入”的证明由 email-wired 与 email-path-seen 提供。
+      ja: 所有の確認は行いません。送信元 ID はセッションをまたいで保持してよい前提リソースで、再利用する場合はこのセッションで作成したものではないためです。「組み込み」の証明は email-wired と email-path-seen が担います。
+      en: "No ownership check: the sender identity is a prerequisite resource that may be kept across sessions, so when it is reused this session did not create it; email-wired and email-path-seen prove that it is wired in."
     reproduce: { run: 'aws sesv2 get-email-identity --email-identity "{{ learner.inputs.ses-identity }}" --query "{verified:VerifiedForSendingStatus,status:VerificationStatus}"', runsOn: workstation }
     manualFallback:
       where: { breadcrumb: [Amazon SES, 配置, 身份, '{{ learner.inputs.ses-identity }}'], region: app }
       observed:
-        question: 身份状态是什么？
+        question:
+          zh-CN: 身份状态是什么？
+          ja: ID の状態は何ですか？
+          en: What is the identity's status?
         options:
-          - { value: verified, label: 已验证, expected: true }
-          - { value: pending, label: 验证待定, fixHint: 到邮箱点击“Amazon Web Services – Email Address Verification Request”中的链接 }
+          - { value: verified, label: { zh-CN: 已验证, ja: 検証済み, en: Verified }, expected: true }
+          - value: pending
+            label:
+              zh-CN: 验证待定
+              ja: 検証保留中
+              en: Verification pending
+            fixHint:
+              zh-CN: 到邮箱点击“Amazon Web Services – Email Address Verification Request”中的链接
+              ja: メールボックスで「Amazon Web Services – Email Address Verification Request」のリンクをクリックしてください
+              en: Click the link in "Amazon Web Services – Email Address Verification Request" in your mailbox
 
   - id: account-production
-    title: 记录本区域的 SES 是否已有生产访问（只展示）
+    title:
+      zh-CN: 记录本区域的 SES 是否已有生产访问（只展示）
+      ja: このリージョンの SES に本番アクセスがあるかを記録する（表示のみ）
+      en: Record whether SES already has production access in this Region (display only)
     type: aws-readonly
     service: ses
     action: GetAccount
@@ -70,21 +108,30 @@ checks:
     required: false
     drift: { policy: once }
     assert:
-      - { path: $.ProductionAccessEnabled, op: exists, label: ProductionAccessEnabled, severity: warn }
-      - { path: $.SendQuota.Max24HourSend, op: exists, label: 24 小时发送上限, severity: warn }
-    explain: 新账号通常是 false（沙盒）：只能发给已验证地址与 SES 邮箱模拟器。卡片不申请生产访问。
+      - { path: $.ProductionAccessEnabled, op: exists, label: { zh-CN: ProductionAccessEnabled, ja: ProductionAccessEnabled, en: ProductionAccessEnabled }, severity: warn }
+      - { path: $.SendQuota.Max24HourSend, op: exists, label: { zh-CN: 24 小时发送上限, ja: 24 時間の送信上限, en: 24-hour sending limit }, severity: warn }
+    explain:
+      zh-CN: 新账号通常是 false（沙盒）：只能发给已验证地址与 SES 邮箱模拟器。卡片不申请生产访问。
+      ja: 新しいアカウントは通常 false（サンドボックス）で、検証済みのアドレスと SES メールボックスシミュレーターにしか送信できません。このカードでは本番アクセスを申請しません。
+      en: "New accounts are usually false (sandbox): they can only send to verified addresses and the SES mailbox simulator. This card does not request production access."
     reproduce: { run: 'aws sesv2 get-account --query "{production:ProductionAccessEnabled,quota:SendQuota}"', runsOn: workstation }
     manualFallback:
       where: { breadcrumb: [Amazon SES, 账户控制面板], region: app }
       observed:
-        question: 账户控制面板显示的是？
+        question:
+          zh-CN: 账户控制面板显示的是？
+          ja: アカウントダッシュボードには何と表示されていますか？
+          en: What does the account dashboard show?
         options:
-          - { value: sandbox, label: 沙盒, expected: true }
-          - { value: production, label: 生产, expected: true }
+          - { value: sandbox, label: { zh-CN: 沙盒, ja: サンドボックス, en: Sandbox }, expected: true }
+          - { value: production, label: { zh-CN: 生产, ja: 本番, en: Production }, expected: true }
 
   # ---- after
   - id: feedback-dlq-empty
-    title: 反馈 DLQ 为空（每个 SES 事件都被 worker 处理了）
+    title:
+      zh-CN: 反馈 DLQ 为空（每个 SES 事件都被 worker 处理了）
+      ja: フィードバック DLQ が空（SES のイベントはすべて worker が処理した）
+      en: The feedback DLQ is empty (the worker processed every SES event)
     type: aws-readonly
     service: sqs
     action: GetQueueAttributes
@@ -94,41 +141,101 @@ checks:
     dependsOn: [email-wired]
     drift: { policy: must-hold }
     assert:
-      - { path: $.Attributes.ApproximateNumberOfMessages, op: eq, value: '0', label: 反馈 DLQ 中的消息数 }
-    explain: worker 解析不了的反馈消息在接收 5 次后进入 DLQ；为 0 说明投递、退信、投诉事件都回流到了 outbox_emails。
+      - { path: $.Attributes.ApproximateNumberOfMessages, op: eq, value: '0', label: { zh-CN: 反馈 DLQ 中的消息数, ja: フィードバック DLQ のメッセージ数, en: Messages in the feedback DLQ } }
+    explain:
+      zh-CN: worker 解析不了的反馈消息在接收 5 次后进入 DLQ；为 0 说明投递、退信、投诉事件都回流到了 outbox_emails。
+      ja: worker が解析できなかったフィードバックメッセージは、5 回受信された後に DLQ に入ります。0 であれば、配信、バウンス、苦情のイベントはすべて outbox_emails に還流しています。
+      en: Feedback messages the worker cannot parse go to the DLQ after 5 receives; 0 means every delivery, bounce and complaint event made it back to outbox_emails.
     reproduce: { run: 'aws sqs get-queue-attributes --queue-url "{{ var.feedbackDlqUrl }}" --attribute-names ApproximateNumberOfMessages', runsOn: workstation }
     manualFallback:
       where: { breadcrumb: [SQS, 队列, 'cloudalbum-{{ session.env }}-email-feedback-dlq'], region: app }
       observed:
-        question: 反馈 DLQ 的“可用消息”数是多少？
+        question:
+          zh-CN: 反馈 DLQ 的“可用消息”数是多少？
+          ja: フィードバック DLQ の「利用可能なメッセージ」の数はいくつですか？
+          en: How many "Messages available" are in the feedback DLQ?
         options:
-          - { value: '0', label: '0', expected: true }
-          - { value: '1+', label: 1 条或更多, fixHint: 确认 worker 在运行；用 aws sqs receive-message 看看消息内容 }
+          - { value: '0', label: { zh-CN: '0', ja: "0", en: "0" }, expected: true }
+          - value: '1+'
+            label:
+              zh-CN: 1 条或更多
+              ja: 1 件以上
+              en: 1 or more
+            fixHint:
+              zh-CN: 确认 worker 在运行；用 aws sqs receive-message 看看消息内容
+              ja: worker が動いていることを確認し、aws sqs receive-message でメッセージの内容を見てください
+              en: Check that the worker is running, and use aws sqs receive-message to look at the message content
 
   - id: dkim-observed
-    title: 在原始邮件中看 DKIM 结果
+    title:
+      zh-CN: 在原始邮件中看 DKIM 结果
+      ja: 元のメールで DKIM の結果を見る
+      en: Look at the DKIM result in the raw email
     type: manual
     spec:
       observed:
-        question: 你邮箱中这封邮件的 Authentication-Results 里，dkim 的结果与签名域（header.d）是？
+        question:
+          zh-CN: 你邮箱中这封邮件的 Authentication-Results 里，dkim 的结果与签名域（header.d）是？
+          ja: メールボックスにあるこのメールの Authentication-Results で、dkim の結果と署名ドメイン（header.d）は何ですか？
+          en: In the Authentication-Results of this email in your mailbox, what are the dkim result and the signing domain (header.d)?
         options:
-          - { value: pass-amazonses, label: dkim=pass，签名域是 amazonses.com（邮箱身份）, expected: true }
-          - { value: pass-own, label: dkim=pass，签名域是你的发件域（域名身份 + Easy DKIM）, expected: true }
-          - { value: none, label: 没有 DKIM-Signature, fixHint: 确认看的是 SES 档之后发出的邮件，而不是 outbox 档的记录 }
+          - value: pass-amazonses
+            label:
+              zh-CN: dkim=pass，签名域是 amazonses.com（邮箱身份）
+              ja: dkim=pass、署名ドメインは amazonses.com（メールアドレス ID）
+              en: dkim=pass, signing domain amazonses.com (email address identity)
+            expected: true
+          - value: pass-own
+            label:
+              zh-CN: dkim=pass，签名域是你的发件域（域名身份 + Easy DKIM）
+              ja: dkim=pass、署名ドメインは自分の送信元ドメイン（ドメイン ID ＋ Easy DKIM）
+              en: dkim=pass, signing domain is your sending domain (domain identity + Easy DKIM)
+            expected: true
+          - value: none
+            label:
+              zh-CN: 没有 DKIM-Signature
+              ja: DKIM-Signature がない
+              en: There is no DKIM-Signature
+            fixHint:
+              zh-CN: 确认看的是 SES 档之后发出的邮件，而不是 outbox 档的记录
+              ja: 見ているのが SES 階層になってから送信したメールで、outbox 階層の記録ではないことを確認してください
+              en: Make sure you are looking at an email sent after the switch to SES, not at an outbox-tier record
 
   - id: sandbox-observed
-    title: 沙盒中被拒的原因
+    title:
+      zh-CN: 沙盒中被拒的原因
+      ja: サンドボックスで拒否された理由
+      en: Why the sandbox rejected it
     type: manual
     spec:
       observed:
-        question: sandbox 场景中，发给未验证地址的邮件在 /admin/outbox 里是什么状态？
+        question:
+          zh-CN: sandbox 场景中，发给未验证地址的邮件在 /admin/outbox 里是什么状态？
+          ja: sandbox のシナリオで、未検証のアドレスに送ったメールは /admin/outbox でどの状態になっていますか？
+          en: In the sandbox scenario, what status does the email to the unverified address have in /admin/outbox?
         options:
-          - { value: rejected, label: failed，错误 MessageRejected（地址未验证）, expected: true }
-          - { value: delivered, label: 正常发出, fixHint: 该地址已经验证过，或本区域已有生产访问；看 account-production 的结果 }
-          - { value: outbox, label: 改写进了 outbox, expected: true }
+          - value: rejected
+            label:
+              zh-CN: failed，错误 MessageRejected（地址未验证）
+              ja: failed、エラーは MessageRejected（アドレスが未検証）
+              en: failed, with the error MessageRejected (address not verified)
+            expected: true
+          - value: delivered
+            label:
+              zh-CN: 正常发出
+              ja: 正常に送信された
+              en: Sent normally
+            fixHint:
+              zh-CN: 该地址已经验证过，或本区域已有生产访问；看 account-production 的结果
+              ja: そのアドレスはすでに検証済みか、このリージョンにはすでに本番アクセスがあります。account-production の結果を見てください
+              en: Either that address is already verified, or this Region already has production access; look at the account-production result
+          - { value: outbox, label: { zh-CN: 改写进了 outbox, ja: outbox に書き換えられた, en: It was rewritten into the outbox }, expected: true }
 
   - id: domain-dkim
-    title: 域名身份的 Easy DKIM 已生效
+    title:
+      zh-CN: 域名身份的 Easy DKIM 已生效
+      ja: ドメイン ID の Easy DKIM が有効になっている
+      en: Easy DKIM for the domain identity is in effect
     type: aws-readonly
     service: ses
     action: GetEmailIdentity
@@ -141,21 +248,38 @@ checks:
       - { path: $.DkimAttributes.Status, op: in, value: [PENDING, NOT_STARTED] }
     drift: { policy: once }
     assert:
-      - { path: $.DkimAttributes.Status, op: eq, value: SUCCESS, label: DKIM 状态 }
-      - { path: $.VerifiedForSendingStatus, op: eq, value: true, label: 可用于发信 }
-    explain: 3 条 DKIM CNAME 生效之前状态是 PENDING；生效时间以 DNS 传播为准。
+      - { path: $.DkimAttributes.Status, op: eq, value: SUCCESS, label: { zh-CN: DKIM 状态, ja: DKIM の状態, en: DKIM status } }
+      - { path: $.VerifiedForSendingStatus, op: eq, value: true, label: { zh-CN: 可用于发信, ja: 送信に使える, en: Can send } }
+    explain:
+      zh-CN: 3 条 DKIM CNAME 生效之前状态是 PENDING；生效时间以 DNS 传播为准。
+      ja: DKIM の CNAME 3 件が有効になるまで、状態は PENDING です。反映までの時間は DNS の伝播次第です。
+      en: Until the 3 DKIM CNAMEs take effect the status is PENDING; how long that takes depends on DNS propagation.
     reproduce: { run: 'aws sesv2 get-email-identity --email-identity "{{ learner.inputs.domain }}" --query DkimAttributes', runsOn: workstation }
     manualFallback:
       where: { breadcrumb: [Amazon SES, 配置, 身份, '{{ learner.inputs.domain }}', 身份验证], region: app }
       observed:
-        question: DKIM 配置的状态是？
+        question:
+          zh-CN: DKIM 配置的状态是？
+          ja: DKIM 設定の状態は何ですか？
+          en: What is the status of the DKIM configuration?
         options:
-          - { value: success, label: 成功, expected: true }
-          - { value: pending, label: 待定, fixHint: 检查 3 条 CNAME 的名称与值是否原样添加（不要重复域名后缀） }
+          - { value: success, label: { zh-CN: 成功, ja: 成功, en: Successful }, expected: true }
+          - value: pending
+            label:
+              zh-CN: 待定
+              ja: 保留中
+              en: Pending
+            fixHint:
+              zh-CN: 检查 3 条 CNAME 的名称与值是否原样添加（不要重复域名后缀）
+              ja: 3 件の CNAME の名前と値がそのまま追加されているか確認してください（ドメインのサフィックスを重複させないこと）
+              en: Check that the names and values of the 3 CNAMEs were added exactly as given (do not duplicate the domain suffix)
 
   # ---- 回收验证
   - id: email-feedback-gone
-    title: 本会话的反馈队列已删除
+    title:
+      zh-CN: 本会话的反馈队列已删除
+      ja: このセッションのフィードバックキューが削除されている
+      en: This session's feedback queue has been deleted
     type: aws-readonly
     service: sqs
     action: GetQueueUrl
@@ -167,7 +291,10 @@ checks:
     manualFallback:
       where: { breadcrumb: [SQS, 队列], region: app }
       observed:
-        question: 列表中还能找到 cloudalbum-{{ session.env }}-email-feedback 吗？
+        question:
+          zh-CN: 列表中还能找到 cloudalbum-{{ session.env }}-email-feedback 吗？
+          ja: 一覧にまだ cloudalbum-{{ session.env }}-email-feedback がありますか？
+          en: Is cloudalbum-{{ session.env }}-email-feedback still in the list?
         options:
-          - { value: gone, label: 找不到, expected: true }
-          - { value: present, label: 还在 }
+          - { value: gone, label: { zh-CN: 找不到, ja: 見つからない, en: Not found }, expected: true }
+          - { value: present, label: { zh-CN: 还在, ja: まだある, en: Still there } }

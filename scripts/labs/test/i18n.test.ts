@@ -30,11 +30,26 @@ function editYaml(file: string, mutate: (doc: Doc) => void): void {
 
 const TITLE = { ja: 'Amazon CloudFront：コンテンツ配信とエッジキャッシュ', en: 'Amazon CloudFront: content delivery and edge caching' };
 
+/** The repository's svc-cdn is translated; the tests below start from its zh-CN source and add their own translations. */
+function sourceOnly(card: string): void {
+  const strip = (v: unknown): unknown => {
+    if (Array.isArray(v)) return v.map(strip);
+    if (!v || typeof v !== 'object') return v;
+    const keys = Object.keys(v);
+    if (keys.includes('zh-CN') && keys.every((k) => ['zh-CN', 'ja', 'en'].includes(k))) return (v as Doc)['zh-CN'];
+    return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, strip(x)]));
+  };
+  const files = ['lab.yaml', 'quiz.yaml', ...fs.readdirSync(path.join(card, 'checks')).map((f) => path.join('checks', f))];
+  for (const f of files) editYaml(path.join(card, f), (doc) => Object.assign(doc, strip(doc)));
+  for (const lang of ['ja', 'en']) fs.rmSync(path.join(card, 'manual', lang), { recursive: true, force: true });
+}
+
 beforeAll(async () => {
   fs.mkdirSync(TMP_ROOT, { recursive: true });
   copy = fs.mkdtempSync(path.join(TMP_ROOT, 'labs-i18n-'));
   fs.cpSync(path.join(REPO_ROOT, 'labs'), copy, { recursive: true });
   const card = path.join(copy, 'svc-cdn');
+  sourceOnly(card);
   editYaml(path.join(card, 'lab.yaml'), (lab) => {
     lab.title = { 'zh-CN': lab.title, ...TITLE };
     lab.steps[0].title = { 'zh-CN': lab.steps[0].title, en: 'Where we start' };

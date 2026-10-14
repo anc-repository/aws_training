@@ -1,20 +1,53 @@
 # 域名准备与接入：capability、实例上的模块状态、本会话 dns 栈（ownership）、服务端解析、托管区域中的记录
 checks:
   - id: domain-control
-    title: 确认你能管理这个域名的 DNS
+    title:
+      zh-CN: 确认你能管理这个域名的 DNS
+      ja: このドメインの DNS を管理できることを確認する
+      en: Confirm that you can manage DNS for this domain
     type: manual
     spec:
-      confirm: 我已有 {{ learner.inputs.domain }}（或其父域）的 Route 53 公有托管区域，或者能在注册商 / 父域为它添加 NS 委派
+      confirm:
+        zh-CN: 我已有 {{ learner.inputs.domain }}（或其父域）的 Route 53 公有托管区域，或者能在注册商 / 父域为它添加 NS 委派
+        ja: "{{ learner.inputs.domain }}（またはその親ドメイン）の Route 53 パブリックホストゾーンをすでに持っているか、レジストラー／親ドメインでこのドメインの NS 委任を追加できます"
+        en: I already have a Route 53 public hosted zone for {{ learner.inputs.domain }} (or its parent domain), or I can add an NS delegation for it at the registrar / parent domain
       observed:
-        question: 你准备用哪种方式让 {{ learner.inputs.domain }} 生效？
+        question:
+          zh-CN: 你准备用哪种方式让 {{ learner.inputs.domain }} 生效？
+          ja: "{{ learner.inputs.domain }} をどの方法で有効にしますか？"
+          en: How will you make {{ learner.inputs.domain }} work?
         options:
-          - { value: existing-zone, label: 本账号已有托管区域（推荐，不需要等待委派）, expected: true }
-          - { value: delegate, label: 新建托管区域，再到注册商 / 父域添加 NS 委派, expected: true }
-          - { value: none, label: 两者都做不到, fixHint: 没有自有域名时本卡无法完成；可以先做 svc-cdn（分配默认域名提供受信 HTTPS） }
-    explain: 域名注册与 DNS 托管是两件事：平台只能在你的账号里建托管区域，委派要在注册商那边完成（04 §3.2.3 规则 6：人工前置）。
+          - value: existing-zone
+            label:
+              zh-CN: 本账号已有托管区域（推荐，不需要等待委派）
+              ja: このアカウントに既存のホストゾーンがある（推奨。委任を待つ必要がありません）
+              en: There is already a hosted zone in this account (recommended; no waiting for delegation)
+            expected: true
+          - value: delegate
+            label:
+              zh-CN: 新建托管区域，再到注册商 / 父域添加 NS 委派
+              ja: ホストゾーンを新しく作成し、レジストラー／親ドメインで NS 委任を追加する
+              en: Create a new hosted zone and add an NS delegation at the registrar / parent domain
+            expected: true
+          - value: none
+            label:
+              zh-CN: 两者都做不到
+              ja: どちらもできない
+              en: Neither is possible
+            fixHint:
+              zh-CN: 没有自有域名时本卡无法完成；可以先做 svc-cdn（分配默认域名提供受信 HTTPS）
+              ja: 自分のドメインがないとこのカードは完了できません。先に svc-cdn を試してもよいでしょう（ディストリビューションのデフォルトドメインが信頼された HTTPS を提供します）
+              en: Without your own domain this card cannot be completed; you could do svc-cdn first (the distribution's default domain gives you trusted HTTPS)
+    explain:
+      zh-CN: 域名注册与 DNS 托管是两件事：平台只能在你的账号里建托管区域，委派要在注册商那边完成（04 §3.2.3 规则 6：人工前置）。
+      ja: ドメインの登録と DNS ホスティングは別物です。プラットフォームはあなたのアカウントにホストゾーンを作れるだけで、委任はレジストラー側で行う必要があります（04 §3.2.3 ルール 6：手作業の前提条件）。
+      en: "Domain registration and DNS hosting are two different things: the platform can only create a hosted zone in your account, and the delegation has to be done at the registrar (04 §3.2.3 rule 6: manual prerequisite)."
 
   - id: existing-zone
-    title: 你填写的已有托管区域包含这个域名
+    title:
+      zh-CN: 你填写的已有托管区域包含这个域名
+      ja: 入力した既存のホストゾーンにこのドメインが含まれている
+      en: The existing hosted zone you entered contains this domain
     type: aws-readonly
     service: route53
     action: GetHostedZone
@@ -23,45 +56,79 @@ checks:
     params: { Id: '{{ learner.inputs.hosted-zone }}' }
     drift: { policy: once }
     assert:
-      - { path: $.HostedZone.Config.PrivateZone, op: eq, value: false, label: 公有托管区域 }
-      - { path: $.HostedZone.Name, op: endsWith, value: '.', label: 区域名 }
-    explain: 学员已有的资源，不做 ownership；只确认它是公有托管区域，域名是否在其中由 scripts/module enable dns --zone-id 再核对一次。
+      - { path: $.HostedZone.Config.PrivateZone, op: eq, value: false, label: { zh-CN: 公有托管区域, ja: パブリックホストゾーン, en: Public hosted zone } }
+      - { path: $.HostedZone.Name, op: endsWith, value: '.', label: { zh-CN: 区域名, ja: ゾーン名, en: Zone name } }
+    explain:
+      zh-CN: 学员已有的资源，不做 ownership；只确认它是公有托管区域，域名是否在其中由 scripts/module enable dns --zone-id 再核对一次。
+      ja: 受講者が持っている既存のリソースなので、所有の確認は行いません。パブリックホストゾーンであることだけを確認し、ドメインがその中にあるかは scripts/module enable dns --zone-id がもう一度照合します。
+      en: This is a resource the learner already owns, so there is no ownership check; the platform only confirms that it is a public hosted zone, and scripts/module enable dns --zone-id checks again that the domain belongs to it.
     reproduce: { run: 'aws route53 get-hosted-zone --id {{ learner.inputs.hosted-zone }} --query "HostedZone.[Name,Config.PrivateZone]"', runsOn: workstation }
     manualFallback:
       where: { breadcrumb: [Route 53, 托管区域], region: global }
       observed:
-        question: 这个托管区域的“类型”是什么？
+        question:
+          zh-CN: 这个托管区域的“类型”是什么？
+          ja: このホストゾーンの「タイプ」は何ですか？
+          en: What is the "Type" of this hosted zone?
         options:
-          - { value: public, label: 公有托管区域, expected: true }
-          - { value: private, label: 私有托管区域, fixHint: 私有托管区域只在关联的 VPC 内解析，公网解析不到它 }
+          - { value: public, label: { zh-CN: 公有托管区域, ja: パブリックホストゾーン, en: Public hosted zone }, expected: true }
+          - value: private
+            label:
+              zh-CN: 私有托管区域
+              ja: プライベートホストゾーン
+              en: Private hosted zone
+            fixHint:
+              zh-CN: 私有托管区域只在关联的 VPC 内解析，公网解析不到它
+              ja: プライベートホストゾーンは関連付けた VPC 内でしか解決されず、インターネットからは解決できません
+              en: A private hosted zone only resolves inside its associated VPCs and cannot be resolved from the internet
 
   - id: cap-dns-healthy
-    title: capabilities 中 dns 的驱动为 route53，且状态正常
+    title:
+      zh-CN: capabilities 中 dns 的驱动为 route53，且状态正常
+      ja: capabilities で dns のドライバーが route53 で、状態が正常
+      en: In capabilities, the dns driver is route53 and its status is healthy
     type: capability
     module: dns
     drift: { policy: must-hold, monitor: true }
     assert:
-      - { path: $.driver, op: eq, value: route53, label: 驱动 }
-      - { path: $, op: healthy, label: 状态正常（只允许本卡声明的预期警告） }
-    explain: dns 感知器在实例上用 VPC 的解析器解析域名，并与实例当前的弹性 IP 比较；委派尚未生效时名称无法解析，状态先是降级。
+      - { path: $.driver, op: eq, value: route53, label: { zh-CN: 驱动, ja: ドライバー, en: Driver } }
+      - path: $
+        op: healthy
+        label:
+          zh-CN: 状态正常（只允许本卡声明的预期警告）
+          ja: 状態が正常（このカードで宣言した想定内の警告のみ許可）
+          en: Healthy (only the expected warnings this card declares are allowed)
+    explain:
+      zh-CN: dns 感知器在实例上用 VPC 的解析器解析域名，并与实例当前的弹性 IP 比较；委派尚未生效时名称无法解析，状态先是降级。
+      ja: dns の検知処理は、インスタンス上で VPC のリゾルバーを使ってドメインを解決し、インスタンスの現在の Elastic IP と比較します。委任がまだ反映されていないと名前を解決できないため、状態はまず低下になります。
+      en: The dns sensor resolves the domain on the instance with the VPC resolver and compares the result with the instance's current Elastic IP; until the delegation takes effect the name does not resolve, so the status starts out degraded.
     reproduce: { run: 'curl -s http://127.0.0.1/api/capabilities | jq ".modules.dns | {driver, status, detail}"', runsOn: lab }
     pitfalls: [delegation-pending]
 
   - id: dns-module-state
-    title: 实验机上 dns 由 scripts/module 启用
+    title:
+      zh-CN: 实验机上 dns 由 scripts/module 启用
+      ja: ラボ用インスタンス上で dns が scripts/module によって有効になっている
+      en: dns is enabled on the lab instance through scripts/module
     type: local
     on: lab
     checkId: module-state
     args: { module: dns }
     drift: { policy: must-hold }
     assert:
-      - { path: $.modules.dns.enabled, op: eq, value: true, label: 已启用 }
-      - { path: $.modules.dns.driver, op: eq, value: route53, label: 驱动 }
-    explain: modules.state.json 由 scripts/module 在投递配置时写入（06 PM-15）；dns 是纯基础设施型模块，接入证据是模块状态加上控制面证据（04 §3.5 第 3 条）。
+      - { path: $.modules.dns.enabled, op: eq, value: true, label: { zh-CN: 已启用, ja: 有効, en: Enabled } }
+      - { path: $.modules.dns.driver, op: eq, value: route53, label: { zh-CN: 驱动, ja: ドライバー, en: Driver } }
+    explain:
+      zh-CN: modules.state.json 由 scripts/module 在投递配置时写入（06 PM-15）；dns 是纯基础设施型模块，接入证据是模块状态加上控制面证据（04 §3.5 第 3 条）。
+      ja: modules.state.json は、scripts/module が設定を配置するときに書き込みます（06 PM-15）。dns は純粋なインフラ型のモジュールなので、組み込みの証拠はモジュールの状態とコントロールプレーンの証拠です（04 §3.5 第 3 項）。
+      en: scripts/module writes modules.state.json when it delivers the configuration (06 PM-15); dns is a pure infrastructure module, so the evidence that it is wired in is the module state plus control-plane evidence (04 §3.5 item 3).
     reproduce: { run: 'sudo cloudalbum module-state --module dns --json', runsOn: lab }
 
   - id: dns-stack
-    title: 本会话创建的 dns 栈已就绪，记录名是你的域名
+    title:
+      zh-CN: 本会话创建的 dns 栈已就绪，记录名是你的域名
+      ja: このセッションで作成した dns スタックの準備ができており、レコード名があなたのドメイン
+      en: The dns stack this session created is ready, and the record name is your domain
     type: aws-readonly
     service: cloudformation
     action: DescribeStacks
@@ -76,32 +143,55 @@ checks:
       maxWaitMinutes: 20
     drift: { policy: must-hold, monitor: true }
     assert:
-      - { path: '$.Stacks[0].StackStatus', op: in, value: [CREATE_COMPLETE, UPDATE_COMPLETE], label: 栈状态 }
+      - { path: '$.Stacks[0].StackStatus', op: in, value: [CREATE_COMPLETE, UPDATE_COMPLETE], label: { zh-CN: 栈状态, ja: スタックの状態, en: Stack status } }
       - path: '$.Stacks[0].Outputs'
         where: { OutputKey: EnvDnsRecordName }
         op: some
-        label: 记录名
+        label:
+          zh-CN: 记录名
+          ja: レコード名
+          en: Record name
         value:
           - { path: $.OutputValue, op: eq, value: '{{ learner.inputs.domain }}' }
       - path: '$.Stacks[0].Outputs'
         where: { OutputKey: EnvDnsTargetType }
         op: some
-        label: 记录目标类型
+        label:
+          zh-CN: 记录目标类型
+          ja: レコードの宛先の種類
+          en: Record target type
         value:
           - { path: $.OutputValue, op: eq, value: eip }
-    explain: 栈是你在本会话中用 scripts/module 创建的（CloudFormation 的创建记录）；新建托管区域与使用已有托管区域两种做法都由这个栈管理记录。
+    explain:
+      zh-CN: 栈是你在本会话中用 scripts/module 创建的（CloudFormation 的创建记录）；新建托管区域与使用已有托管区域两种做法都由这个栈管理记录。
+      ja: スタックは、あなたがこのセッションで scripts/module を使って作成したものです（CloudFormation の作成記録）。ホストゾーンを新しく作る方法でも既存のホストゾーンを使う方法でも、レコードはこのスタックが管理します。
+      en: You created the stack in this session with scripts/module (CloudFormation's creation record); whether you created a new hosted zone or used an existing one, this stack manages the records.
     reproduce: { run: 'aws cloudformation describe-stacks --stack-name cloudalbum-{{ session.env }}-dns --query "Stacks[0].[StackStatus,Outputs]"', runsOn: workstation }
     pitfalls: [not-mine]
     manualFallback:
       where: { breadcrumb: [CloudFormation, 栈, 'cloudalbum-{{ session.env }}-dns', 输出], region: app }
       observed:
-        question: 输出 EnvDnsRecordName 的值是什么？
+        question:
+          zh-CN: 输出 EnvDnsRecordName 的值是什么？
+          ja: 出力 EnvDnsRecordName の値は何ですか？
+          en: What is the value of the output EnvDnsRecordName?
         options:
-          - { value: ok, label: '{{ learner.inputs.domain }}', expected: true }
-          - { value: other, label: 其他 / 没有这个栈, fixHint: '执行 scripts/module enable dns --domain {{ learner.inputs.domain }}' }
+          - { value: ok, label: { zh-CN: '{{ learner.inputs.domain }}', ja: "{{ learner.inputs.domain }}", en: "{{ learner.inputs.domain }}" }, expected: true }
+          - value: other
+            label:
+              zh-CN: 其他 / 没有这个栈
+              ja: それ以外／このスタックがない
+              en: Something else / no such stack
+            fixHint:
+              zh-CN: '执行 scripts/module enable dns --domain {{ learner.inputs.domain }}'
+              ja: scripts/module enable dns --domain {{ learner.inputs.domain }} を実行してください
+              en: Run scripts/module enable dns --domain {{ learner.inputs.domain }}
 
   - id: dns-resolves-eip
-    title: 实验机上的 dns 感知器解析你的域名，结果是实验机的弹性 IP
+    title:
+      zh-CN: 实验机上的 dns 感知器解析你的域名，结果是实验机的弹性 IP
+      ja: ラボ用インスタンス上の dns の検知処理があなたのドメインを解決し、結果がラボ用インスタンスの Elastic IP になる
+      en: The dns sensor on the lab instance resolves your domain to the lab instance's Elastic IP
     type: capability
     module: dns
     view: admin
@@ -109,14 +199,20 @@ checks:
     wait: { typicalMinutes: 2, maxMinutes: 30 }
     drift: { policy: must-hold, monitor: true }
     assert:
-      - { path: $.data.recordName, op: eq, value: '{{ learner.inputs.domain }}', label: 记录名 }
-      - { path: $.data.resolution.answers, op: contains, value: '{{ target.publicIp }}', label: 解析结果包含实验机 EIP }
-    explain: 感知器用实验机所在 VPC 的解析器查询（服务端视角，不是你的浏览器）；新建托管区域时，在注册商 / 父域的 NS 委派生效之前名称无法解析。
+      - { path: $.data.recordName, op: eq, value: '{{ learner.inputs.domain }}', label: { zh-CN: 记录名, ja: レコード名, en: Record name } }
+      - { path: $.data.resolution.answers, op: contains, value: '{{ target.publicIp }}', label: { zh-CN: 解析结果包含实验机 EIP, ja: 解決結果にラボ用インスタンスの EIP が含まれる, en: The answer includes the lab instance's EIP } }
+    explain:
+      zh-CN: 感知器用实验机所在 VPC 的解析器查询（服务端视角，不是你的浏览器）；新建托管区域时，在注册商 / 父域的 NS 委派生效之前名称无法解析。
+      ja: 検知処理はラボ用インスタンスのある VPC のリゾルバーで問い合わせます（サーバー側の視点で、あなたのブラウザーではありません）。ホストゾーンを新しく作った場合は、レジストラー／親ドメインでの NS 委任が反映されるまで名前を解決できません。
+      en: The sensor queries the resolver of the lab instance's VPC (the server's point of view, not your browser's); with a new hosted zone, the name does not resolve until the NS delegation at the registrar / parent domain takes effect.
     reproduce: { run: 'dig +short {{ learner.inputs.domain }}', runsOn: lab }
     pitfalls: [delegation-pending]
 
   - id: dns-record
-    title: 托管区域中有 TTL 60 的 A 记录指向实验机 EIP
+    title:
+      zh-CN: 托管区域中有 TTL 60 的 A 记录指向实验机 EIP
+      ja: ホストゾーンに、ラボ用インスタンスの EIP を指す TTL 60 の A レコードがある
+      en: The hosted zone has an A record with TTL 60 pointing at the lab instance's EIP
     type: aws-readonly
     service: route53
     action: ListResourceRecordSets
@@ -128,37 +224,82 @@ checks:
       - path: $.ResourceRecordSets
         where: { Type: A }
         op: some
-        label: A 记录 → EIP，TTL 60
+        label:
+          zh-CN: A 记录 → EIP，TTL 60
+          ja: A レコード → EIP、TTL 60
+          en: A record → EIP, TTL 60
         value:
           - { path: '$.ResourceRecords[0].Value', op: eq, value: '{{ target.publicIp }}' }
           - { path: $.TTL, op: eq, value: 60 }
-    explain: 托管区域 ID 取自本会话 dns 栈的输出；EIP 不能作为 Alias 目标，只能用普通 A 记录。
+    explain:
+      zh-CN: 托管区域 ID 取自本会话 dns 栈的输出；EIP 不能作为 Alias 目标，只能用普通 A 记录。
+      ja: ホストゾーン ID はこのセッションの dns スタックの出力から取得します。EIP は Alias の宛先にできないため、通常の A レコードを使うしかありません。
+      en: The hosted zone ID comes from the outputs of this session's dns stack; an EIP cannot be an Alias target, so only a plain A record will do.
     reproduce: { run: 'aws route53 list-resource-record-sets --hosted-zone-id {{ var.hostedZoneId }} --query "ResourceRecordSets[?Type==\`A\`]"', runsOn: workstation }
     manualFallback:
       where: { breadcrumb: [Route 53, 托管区域, '{{ var.hostedZoneId }}'], region: global }
       observed:
-        question: '{{ learner.inputs.domain }} 的 A 记录的值与 TTL 是什么？'
+        question:
+          zh-CN: '{{ learner.inputs.domain }} 的 A 记录的值与 TTL 是什么？'
+          ja: "{{ learner.inputs.domain }} の A レコードの値と TTL は何ですか？"
+          en: What are the value and TTL of the A record for {{ learner.inputs.domain }}?
         options:
-          - { value: ok, label: '{{ target.publicIp }}，TTL 60', expected: true }
-          - { value: other, label: 其他, fixHint: 不要在控制台修改栈管理的记录；重新执行 scripts/module enable dns }
+          - { value: ok, label: { zh-CN: '{{ target.publicIp }}，TTL 60', ja: "{{ target.publicIp }}、TTL 60", en: "{{ target.publicIp }}, TTL 60" }, expected: true }
+          - value: other
+            label:
+              zh-CN: 其他
+              ja: その他
+              en: Something else
+            fixHint:
+              zh-CN: 不要在控制台修改栈管理的记录；重新执行 scripts/module enable dns
+              ja: スタックが管理するレコードをコンソールで変更しないでください。scripts/module enable dns を再実行します
+              en: Do not change the stack-managed record in the console; run scripts/module enable dns again
 
   - id: alias-cname-observed
-    title: 记录区域顶点 CNAME 被拒绝的报错与 Alias 的解析结果
+    title:
+      zh-CN: 记录区域顶点 CNAME 被拒绝的报错与 Alias 的解析结果
+      ja: ゾーンの頂点の CNAME が拒否されたエラーと、Alias の解決結果を記録する
+      en: Record the error when a CNAME at the zone apex is rejected, and how the Alias resolves
     type: manual
     spec:
-      confirm: 我建了 www.<域名> → Alias 到 <域名>，并尝试为区域顶点建 CNAME
+      confirm:
+        zh-CN: 我建了 www.<域名> → Alias 到 <域名>，并尝试为区域顶点建 CNAME
+        ja: www.<ドメイン> → <ドメイン> への Alias を作成し、ゾーンの頂点に CNAME を作ろうとしました
+        en: I created www.<domain> → Alias to <domain>, and tried to create a CNAME at the zone apex
       observed:
-        question: 为区域顶点建 CNAME 时发生了什么？
+        question:
+          zh-CN: 为区域顶点建 CNAME 时发生了什么？
+          ja: ゾーンの頂点に CNAME を作ろうとしたとき、何が起こりましたか？
+          en: What happened when you tried to create a CNAME at the zone apex?
         options:
-          - { value: rejected, label: Route 53 拒绝了（区域顶点不能是 CNAME）, expected: true }
-          - { value: accepted, label: 创建成功了, fixHint: 检查记录名是否真的是区域顶点（与托管区域同名），而不是子域 }
+          - value: rejected
+            label:
+              zh-CN: Route 53 拒绝了（区域顶点不能是 CNAME）
+              ja: Route 53 に拒否された（ゾーンの頂点は CNAME にできない）
+              en: Route 53 rejected it (the zone apex cannot be a CNAME)
+            expected: true
+          - value: accepted
+            label:
+              zh-CN: 创建成功了
+              ja: 作成できた
+              en: It was created
+            fixHint:
+              zh-CN: 检查记录名是否真的是区域顶点（与托管区域同名），而不是子域
+              ja: レコード名が本当にゾーンの頂点（ホストゾーンと同じ名前）で、サブドメインではないことを確認してください
+              en: Check that the record name really is the zone apex (the same name as the hosted zone) and not a subdomain
       input:
         label: dig www.<域名> 的结果（Alias 直接返回的 A 记录）
         pattern: '^[0-9.\s,]{7,200}$'
-    explain: 原生手动确认：Route 53 的拒绝报错只能由你在控制台或 CLI 中观察（04 §5.2.6）。
+    explain:
+      zh-CN: 原生手动确认：Route 53 的拒绝报错只能由你在控制台或 CLI 中观察（04 §5.2.6）。
+      ja: ネイティブの手動確認です。Route 53 の拒否エラーは、コンソールまたは CLI であなたが観察するしかありません（04 §5.2.6）。
+      en: A native manual confirmation — only you can observe Route 53's rejection error in the console or the CLI (04 §5.2.6).
 
   - id: health-check-failure
-    title: 故障转移演练期间健康检查变为不健康
+    title:
+      zh-CN: 故障转移演练期间健康检查变为不健康
+      ja: フェイルオーバーの訓練中にヘルスチェックが異常になる
+      en: The health check turns unhealthy during the failover drill
     type: aws-readonly
     service: route53
     action: GetHealthCheckStatus
@@ -169,32 +310,82 @@ checks:
     assert:
       - path: $.HealthCheckObservations
         op: some
-        label: 有检查器报告 Failure
+        label:
+          zh-CN: 有检查器报告 Failure
+          ja: Failure を報告したチェッカーがある
+          en: A checker reports Failure
         value:
           - { path: $.StatusReport.Status, op: startsWith, value: Failure }
-    explain: 只在演练期间（Nginx 已停止）检测；健康检查的指标与告警在 us-east-1。
+    explain:
+      zh-CN: 只在演练期间（Nginx 已停止）检测；健康检查的指标与告警在 us-east-1。
+      ja: 訓練中（Nginx を停止している間）だけチェックします。ヘルスチェックのメトリクスとアラームは us-east-1 にあります。
+      en: Only checked during the drill (while Nginx is stopped); health check metrics and alarms live in us-east-1.
     reproduce: { run: 'aws route53 get-health-check-status --health-check-id <DNS_HEALTH_CHECK_ID> --query "HealthCheckObservations[].StatusReport.Status"', runsOn: workstation }
     manualFallback:
       where: { breadcrumb: [Route 53, 运行状况检查], region: global }
       observed:
-        question: 演练期间这个健康检查的状态是什么？
+        question:
+          zh-CN: 演练期间这个健康检查的状态是什么？
+          ja: 訓練中、このヘルスチェックの状態は何でしたか？
+          en: What was this health check's status during the drill?
         options:
-          - { value: unhealthy, label: 运行状况不佳, expected: true }
-          - { value: healthy, label: 运行状况良好, fixHint: 连续 3 次失败（约 90 秒）后才会变为不健康 }
+          - { value: unhealthy, label: { zh-CN: 运行状况不佳, ja: 異常, en: Unhealthy }, expected: true }
+          - value: healthy
+            label:
+              zh-CN: 运行状况良好
+              ja: 正常
+              en: Healthy
+            fixHint:
+              zh-CN: 连续 3 次失败（约 90 秒）后才会变为不健康
+              ja: 3 回連続で失敗（約 90 秒）して初めて異常になります
+              en: It only turns unhealthy after 3 failures in a row (about 90 seconds)
 
   - id: failover-timing
-    title: 记录健康检查变为不健康的时间
+    title:
+      zh-CN: 记录健康检查变为不健康的时间
+      ja: ヘルスチェックが異常になるまでの時間を記録する
+      en: Record how long it took for the health check to turn unhealthy
     type: manual
     required: false
     spec:
-      confirm: 我在演练中记录了“健康检查不健康”“拿到备用记录”“访问维护页成功”三个时刻
+      confirm:
+        zh-CN: 我在演练中记录了“健康检查不健康”“拿到备用记录”“访问维护页成功”三个时刻
+        ja: 訓練中に「ヘルスチェックが異常になった」「セカンダリのレコードを受け取った」「メンテナンスページにアクセスできた」の 3 つの時刻を記録しました
+        en: "During the drill I recorded three moments: the health check turned unhealthy, the secondary record was returned, and the maintenance page loaded"
       input:
         label: 从停止 Nginx 到访问维护页成功的秒数
         pattern: '^[0-9]{1,4}$'
-    explain: 时间大致等于“检查间隔 × 失败阈值 + TTL + 解析器与客户端缓存”。
+    explain:
+      zh-CN: 时间大致等于“检查间隔 × 失败阈值 + TTL + 解析器与客户端缓存”。
+      ja: 時間はおおよそ「チェック間隔 × 失敗のしきい値 + TTL + リゾルバーとクライアントのキャッシュ」になります。
+      en: The time is roughly "check interval × failure threshold + TTL + resolver and client caching".
 
 pitfalls:
-  - { id: delegation-pending, title: NS 委派尚未生效, match: [ { checkId: dns-resolves-eip, result: fail }, { checkId: cap-dns-healthy, result: fail } ],
-      cause: 新建托管区域后，注册商 / 父域的 NS 委派还没有生效（或没有添加），公网解析不到记录, fix: '把 scripts/module 打印的 4 个 NS 添加为委派；用 dig NS {{ learner.inputs.domain }} @8.8.8.8 确认' }
-  - { id: not-mine, title: 栈不属于本会话, match: [ { checkId: dns-stack, errorCode: OWNERSHIP_MISMATCH } ],
-      cause: 检测到的 dns 栈不是本次实验创建的, fix: '在本次实验中执行 scripts/module enable dns --domain {{ learner.inputs.domain }}' }
+  - id: delegation-pending
+    title:
+      zh-CN: NS 委派尚未生效
+      ja: NS 委任がまだ反映されていない
+      en: The NS delegation has not taken effect yet
+    match: [ { checkId: dns-resolves-eip, result: fail }, { checkId: cap-dns-healthy, result: fail } ]
+    cause:
+      zh-CN: 新建托管区域后，注册商 / 父域的 NS 委派还没有生效（或没有添加），公网解析不到记录
+      ja: ホストゾーンを新しく作った後、レジストラー／親ドメインでの NS 委任がまだ反映されていない（または追加されていない）ため、インターネットからレコードを解決できません
+      en: After the new hosted zone was created, the NS delegation at the registrar / parent domain has not taken effect yet (or was never added), so the record cannot be resolved from the internet
+    fix:
+      zh-CN: '把 scripts/module 打印的 4 个 NS 添加为委派；用 dig NS {{ learner.inputs.domain }} @8.8.8.8 确认'
+      ja: scripts/module が表示した 4 つの NS を委任として追加し、dig NS {{ learner.inputs.domain }} @8.8.8.8 で確認してください
+      en: Add the 4 NS records printed by scripts/module as the delegation, and check with dig NS {{ learner.inputs.domain }} @8.8.8.8
+  - id: not-mine
+    title:
+      zh-CN: 栈不属于本会话
+      ja: スタックがこのセッションのものではない
+      en: The stack does not belong to this session
+    match: [ { checkId: dns-stack, errorCode: OWNERSHIP_MISMATCH } ]
+    cause:
+      zh-CN: 检测到的 dns 栈不是本次实验创建的
+      ja: 検出した dns スタックはこのラボで作成されたものではありません
+      en: The detected dns stack was not created in this lab
+    fix:
+      zh-CN: '在本次实验中执行 scripts/module enable dns --domain {{ learner.inputs.domain }}'
+      ja: このラボの中で scripts/module enable dns --domain {{ learner.inputs.domain }} を実行してください
+      en: Run scripts/module enable dns --domain {{ learner.inputs.domain }} in this lab

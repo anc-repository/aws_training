@@ -10,32 +10,82 @@ id: svc-email
 kind: service
 version: 1.0.0
 status: beta
-service: Amazon SES
-function: 真实发信与退信回流
-title: Amazon SES：真实发信与退信回流
-subtitle: 本地 outbox → SES + 反馈回流
-summary: 把只写进本地 outbox 的邮件改由 SES 真正发出，验证发件身份、查看 DKIM 签名，并用 SES 邮箱模拟器演练退信与投诉回流。
-story: |
-  L0 的所有邮件（注册验证、找回密码、评论提醒、日报）只写进 EC2 上的 outbox（.eml + outbox_emails 表），本人在 /me/outbox 预览，
-  页面标注“本地实现，未真正发信”。这也意味着 outbox 档的“邮箱已验证”证明不了邮箱归属。这张卡片让同一份 MIME 经 Amazon SES 真正发出，
-  投递、退信与投诉事件经模块自带的 SNS → SQS 回流到应用，EC2 不需要任何入站端口。
+service:
+  zh-CN: Amazon SES
+  ja: Amazon SES
+  en: Amazon SES
+function:
+  zh-CN: 真实发信与退信回流
+  ja: 実際のメール送信とバウンスの還流
+  en: Real email sending and bounce feedback
+title:
+  zh-CN: Amazon SES：真实发信与退信回流
+  ja: Amazon SES：実際のメール送信とバウンスの還流
+  en: "Amazon SES: real email sending and bounce feedback"
+subtitle:
+  zh-CN: 本地 outbox → SES + 反馈回流
+  ja: ローカルの outbox → SES ＋フィードバックの還流
+  en: Local outbox → SES + feedback loop
+summary:
+  zh-CN: 把只写进本地 outbox 的邮件改由 SES 真正发出，验证发件身份、查看 DKIM 签名，并用 SES 邮箱模拟器演练退信与投诉回流。
+  ja: ローカルの outbox に書くだけだったメールを SES から実際に送信します。送信元 ID を検証し、DKIM 署名を確認し、SES メールボックスシミュレーターでバウンスと苦情の還流を練習します。
+  en: "Send the email that used to land only in the local outbox for real through SES: verify a sender identity, look at the DKIM signature, and rehearse bounce and complaint feedback with the SES mailbox simulator."
+story:
+  zh-CN: |
+    L0 的所有邮件（注册验证、找回密码、评论提醒、日报）只写进 EC2 上的 outbox（.eml + outbox_emails 表），本人在 /me/outbox 预览，
+    页面标注“本地实现，未真正发信”。这也意味着 outbox 档的“邮箱已验证”证明不了邮箱归属。这张卡片让同一份 MIME 经 Amazon SES 真正发出，
+    投递、退信与投诉事件经模块自带的 SNS → SQS 回流到应用，EC2 不需要任何入站端口。
+  ja: |
+    L0 のメール（登録確認、パスワードの再設定、コメント通知、日次レポート）はすべて EC2 上の outbox（.eml ＋ outbox_emails テーブル）に書かれるだけで、本人が /me/outbox でプレビューします。
+    ページには「本地实现，未真正发信」（ローカル実装、実際には未送信）と表示されます。つまり outbox 階層の「メールアドレス確認済み」は、メールアドレスの所有を証明できません。このカードでは同じ MIME を Amazon SES から実際に送信し、
+    配信、バウンス、苦情のイベントはモジュール付属の SNS → SQS を経てアプリに還流します。EC2 にインバウンドのポートは一切必要ありません。
+  en: |
+    At L0 every email (sign-up verification, password reset, comment notifications, daily digest) is only written to the outbox on EC2 (.eml files + the outbox_emails table), and the user previews it at /me/outbox;
+    the page says "本地实现，未真正发信" (local implementation, not really sent). That also means the outbox tier's "email verified" proves nothing about who owns the address. This card sends the same MIME for real through Amazon SES,
+    and delivery, bounce and complaint events flow back to the app through the module's own SNS → SQS, with no inbound port needed on EC2.
 objectives:
-  - { text: 说清 SES 身份验证、沙盒与生产访问（按区域）, domain: secure, relatesTo: enable }
-  - { text: 用配置集事件目标与 SNS → SQS 把退信、投诉安全地送回应用, domain: resilient, relatesTo: after }
-  - { text: 在原始邮件中看懂 DKIM 签名与认证结果, domain: secure, relatesTo: headers }
-  - { text: 理解为什么不从 EC2 直接用 25 端口发信, domain: resilient, relatesTo: enable }
+  - text:
+      zh-CN: 说清 SES 身份验证、沙盒与生产访问（按区域）
+      ja: SES の ID の検証、サンドボックス、本番アクセス（リージョン単位）を説明できる
+      en: Explain SES identity verification, the sandbox and production access (per Region)
+    domain: secure
+    relatesTo: enable
+  - text:
+      zh-CN: 用配置集事件目标与 SNS → SQS 把退信、投诉安全地送回应用
+      ja: 設定セットのイベント送信先と SNS → SQS で、バウンスと苦情を安全にアプリへ戻す
+      en: Use configuration set event destinations and SNS → SQS to bring bounces and complaints back to the app safely
+    domain: resilient
+    relatesTo: after
+  - text:
+      zh-CN: 在原始邮件中看懂 DKIM 签名与认证结果
+      ja: 元のメールにある DKIM 署名と認証結果を読み解く
+      en: Read the DKIM signature and authentication results in the raw email
+    domain: secure
+    relatesTo: headers
+  - text:
+      zh-CN: 理解为什么不从 EC2 直接用 25 端口发信
+      ja: EC2 から 25 番ポートで直接送信しない理由を理解する
+      en: Understand why you do not send directly from EC2 over port 25
+    domain: resilient
+    relatesTo: enable
 difficulty: beginner
 estimatedMinutes: 60
 timeLimitMinutes: 90
 extensions: { maxCount: 2, minutesEach: 30 }
-retain: { allowed: true, maxHours: 24, reason: 只有按封计费的 SES 与按请求计费的 SNS / SQS }
+retain:
+  allowed: true
+  maxHours: 24
+  reason:
+    zh-CN: 只有按封计费的 SES 与按请求计费的 SNS / SQS
+    ja: 通数課金の SES と、リクエスト課金の SNS / SQS だけです
+    en: Only SES, billed per message, and SNS / SQS, billed per request
 regions:
   supported: [ap-northeast-1]
 services:
-  - { id: ses, name: Amazon SES, role: primary, module: email }
-  - { id: sns, name: Amazon SNS（模块自带事件主题）, role: context, module: email }
-  - { id: sqs, name: Amazon SQS（模块自带反馈队列）, role: context, module: email }
-  - { id: iam, name: AWS IAM（实例角色）, role: context, module: iam }
+  - { id: ses, name: { zh-CN: Amazon SES, ja: Amazon SES, en: Amazon SES }, role: primary, module: email }
+  - { id: sns, name: { zh-CN: Amazon SNS（模块自带事件主题）, ja: Amazon SNS（モジュール付属のイベントトピック）, en: Amazon SNS (the module's own event topic) }, role: context, module: email }
+  - { id: sqs, name: { zh-CN: Amazon SQS（模块自带反馈队列）, ja: Amazon SQS（モジュール付属のフィードバックキュー）, en: Amazon SQS (the module's own feedback queue) }, role: context, module: email }
+  - { id: iam, name: { zh-CN: AWS IAM（实例角色）, ja: AWS IAM（インスタンスロール）, en: AWS IAM (instance role) }, role: context, module: iam }
 modules: { target: [email], start: [iam], context: [], related: [notification, auth] }
 prerequisites:
   cards:
@@ -45,17 +95,41 @@ prerequisites:
   learnerInputs:
     - { id: ses-identity }
     - { id: domain, required: false }
-  knowledge: [邮件头（From、Message-ID）, DNS 的 CNAME 与 TXT 记录]
+  knowledge: [{ zh-CN: 邮件头（From、Message-ID）, ja: メールヘッダー（From、Message-ID）, en: "Email headers (From, Message-ID)" }, { zh-CN: DNS 的 CNAME 与 TXT 记录, ja: DNS の CNAME レコードと TXT レコード, en: DNS CNAME and TXT records }]
 
 startProfile:
   provisions:
-    - { item: iam, kind: module, basis: credential, set: { IAM_CREDENTIALS: role },
-        reason: 平台约定除 svc-ec2、svc-iam 外起始状态都带实例角色（C3）；email 本身也是 credentials required（CRED-001） }
-    - { item: mgmt-channel, kind: platform, reason: 实验机挂只含 AmazonSSMManagedInstanceCore 的 CloudAlbumAppRole，是平台的管理通道，不是应用权限 }
-    - { item: workstation, kind: platform, reason: 每个会话一台工作台，用于运行 scripts/module、AWS CLI 与对比实验 }
-    - { item: preview-direct-https, kind: platform, reason: 预览使用方案 B 的 Let's Encrypt IP 证书（03 §6.2）；本卡不涉及 tls，保持开启 }
+    - item: iam
+      kind: module
+      basis: credential
+      set: { IAM_CREDENTIALS: role }
+      reason:
+        zh-CN: 平台约定除 svc-ec2、svc-iam 外起始状态都带实例角色（C3）；email 本身也是 credentials required（CRED-001）
+        ja: プラットフォームの取り決めにより、svc-ec2 と svc-iam 以外の開始状態にはインスタンスロールが付いています（C3）。email 自体も認証情報が必須です（CRED-001）
+        en: By platform convention, every start state except svc-ec2 and svc-iam includes an instance role (C3); email itself also requires credentials (CRED-001)
+    - item: mgmt-channel
+      kind: platform
+      reason:
+        zh-CN: 实验机挂只含 AmazonSSMManagedInstanceCore 的 CloudAlbumAppRole，是平台的管理通道，不是应用权限
+        ja: ラボ用インスタンスには AmazonSSMManagedInstanceCore だけを含む CloudAlbumAppRole が付いています。これはプラットフォームの管理チャネルであり、アプリの権限ではありません
+        en: The lab instance carries CloudAlbumAppRole with only AmazonSSMManagedInstanceCore. It is the platform's management channel, not an app permission
+    - item: workstation
+      kind: platform
+      reason:
+        zh-CN: 每个会话一台工作台，用于运行 scripts/module、AWS CLI 与对比实验
+        ja: セッションごとに 1 台のワークベンチがあり、scripts/module、AWS CLI、比較実験の実行に使います
+        en: Each session has one workbench for running scripts/module, the AWS CLI and comparison experiments
+    - item: preview-direct-https
+      kind: platform
+      reason:
+        zh-CN: 预览使用方案 B 的 Let's Encrypt IP 证书（03 §6.2）；本卡不涉及 tls，保持开启
+        ja: プレビューには方式 B の Let's Encrypt IP 証明書を使います（03 §6.2）。このカードは tls に関係しないため、有効のままにします
+        en: The preview uses the option B Let's Encrypt IP certificate (03 §6.2); this card does not involve tls, so it stays on
   platform: { preview: { directHttps: 'on' } }
-  reason: email 的 requires 为空，不依赖 notification 与 queue（反馈通道自带）；不使用域名时也不需要 dns。起始状态是 L0 + 实例角色（档位 atl/svc-email/default）
+  reason:
+    zh-CN: email 的 requires 为空，不依赖 notification 与 queue（反馈通道自带）；不使用域名时也不需要 dns。起始状态是 L0 + 实例角色（档位 atl/svc-email/default）
+    ja: email の requires は空で、notification や queue には依存しません（フィードバックのチャネルは付属しています）。ドメインを使わない場合は dns も不要です。開始状態は L0 ＋インスタンスロールです（プロファイル atl/svc-email/default）
+    en: email has no requires and does not depend on notification or queue (it brings its own feedback channel); without a domain it does not need dns either. The start state is L0 plus the instance role (profile atl/svc-email/default)
 targetModules:
   - { id: email, driver: ses, fromDriver: outbox, wireStep: enable, adoptsExisting: false }
 expectedWarnings: []
@@ -63,35 +137,74 @@ workstation: { required: true, tools: [aws-cli, node, jq], savingsMode: degraded
 platform:
   consoleLinks: [sqs.queue]
   accountImpact:
-    - { id: ses-identity, scope: region, resource: SES 发件身份, revert: delete, note: 本会话创建的删除；可勾选保留（再次部署时只读接入） }
+    - id: ses-identity
+      scope: region
+      resource:
+        zh-CN: SES 发件身份
+        ja: SES の送信元 ID
+        en: SES sender identity
+      revert: delete
+      note:
+        zh-CN: 本会话创建的删除；可勾选保留（再次部署时只读接入）
+        ja: このセッションで作成したものは削除します。保持を選ぶこともできます（再デプロイ時は読み取り専用で利用）
+        en: Deleted if this session created it; you can choose to keep it (a later deployment then adopts it read-only)
 provision: { class: A }
 keepablePrerequisites: [ses-identity]
 
 variables:
-  feedbackUrl: { label: 反馈队列 URL, from: derived, fillFrom: stack.email.EnvSesFeedbackQueueUrl }
-  feedbackDlqUrl: { label: 反馈 DLQ URL, from: derived, fillFrom: stack.email.InfoFeedbackDlqUrl }
-  configSet: { label: 配置集, from: derived, fillFrom: stack.email.EnvSesConfigurationSet }
+  feedbackUrl: { label: { zh-CN: 反馈队列 URL, ja: フィードバックキューの URL, en: Feedback queue URL }, from: derived, fillFrom: stack.email.EnvSesFeedbackQueueUrl }
+  feedbackDlqUrl: { label: { zh-CN: 反馈 DLQ URL, ja: フィードバック DLQ の URL, en: Feedback DLQ URL }, from: derived, fillFrom: stack.email.InfoFeedbackDlqUrl }
+  configSet: { label: { zh-CN: 配置集, ja: 設定セット, en: Configuration set }, from: derived, fillFrom: stack.email.EnvSesConfigurationSet }
 
 cost:
   currency: USD
   tier: low
-  mainDrivers: [SES 发送封数, 反馈通道的 SNS / SQS 请求]
+  mainDrivers: [{ zh-CN: SES 发送封数, ja: SES の送信通数, en: SES messages sent }, { zh-CN: 反馈通道的 SNS / SQS 请求, ja: フィードバックチャネルの SNS / SQS リクエスト, en: SNS / SQS requests of the feedback channel }]
   basis:
-    - { ref: start-profile, note: 实验机 EC2、EBS（根卷与数据卷）、公网 IPv4 }
-    - { ref: workstation, note: 工作台 EC2、EBS、公网 IPv4 }
-    - { key: ses-messages, pricingKey: ses.messages, billing: usage, quantity: 1, unit: messages,
-        assumedUsagePerHour: 50, source: target, whenRetained: true, note: 按发送封数计费，附件与数据量另计；免费额度的条件以官方定价为准 }
+    - ref: start-profile
+      note:
+        zh-CN: 实验机 EC2、EBS（根卷与数据卷）、公网 IPv4
+        ja: ラボ用インスタンスの EC2、EBS（ルートボリュームとデータボリューム）、パブリック IPv4
+        en: Lab instance EC2, EBS (root and data volumes) and public IPv4
+    - { ref: workstation, note: { zh-CN: 工作台 EC2、EBS、公网 IPv4, ja: ワークベンチの EC2、EBS、パブリック IPv4, en: "Workbench EC2, EBS and public IPv4" } }
+    - key: ses-messages
+      pricingKey: ses.messages
+      billing: usage
+      quantity: 1
+      unit: messages
+      assumedUsagePerHour: 50
+      source: target
+      whenRetained: true
+      note:
+        zh-CN: 按发送封数计费，附件与数据量另计；免费额度的条件以官方定价为准
+        ja: 送信通数で課金され、添付ファイルとデータ量は別途課金されます。無料枠の条件は公式の料金表を確認してください
+        en: Billed per message sent, with attachments and data billed separately; see the official pricing for free tier conditions
     - { key: sns-requests, pricingKey: sns.requests, billing: usage, quantity: 1, unit: requests,
-        assumedUsagePerHour: 100, source: target, whenRetained: true, note: 配置集事件 → SNS → SQS }
-    - { key: sqs-requests, pricingKey: sqs.requests, billing: usage, quantity: 1, unit: requests,
-        assumedUsagePerHour: 2000, source: target, whenRetained: true, note: worker 对反馈队列的长轮询（空队列也计请求） }
+        assumedUsagePerHour: 100, source: target, whenRetained: true, note: { zh-CN: 配置集事件 → SNS → SQS, ja: 設定セットのイベント → SNS → SQS, en: Configuration set events → SNS → SQS } }
+    - key: sqs-requests
+      pricingKey: sqs.requests
+      billing: usage
+      quantity: 1
+      unit: requests
+      assumedUsagePerHour: 2000
+      source: target
+      whenRetained: true
+      note:
+        zh-CN: worker 对反馈队列的长轮询（空队列也计请求）
+        ja: worker によるフィードバックキューのロングポーリング（キューが空でもリクエストとして数えます）
+        en: The worker's long polling of the feedback queue (an empty queue still counts as requests)
   assumptions:
-    - 卡片始终在 SES 沙盒中完成，不申请生产访问；不使用专用 IP 与 Virtual Deliverability Manager
+    - zh-CN: 卡片始终在 SES 沙盒中完成，不申请生产访问；不使用专用 IP 与 Virtual Deliverability Manager
+      ja: このカードは最初から最後まで SES サンドボックスの中で行い、本番アクセスは申請しません。専用 IP や Virtual Deliverability Manager は使いません
+      en: The card is done entirely inside the SES sandbox without requesting production access; no dedicated IPs or Virtual Deliverability Manager are used
 
 steps:
   - id: baseline
     type: experiment
-    title: 记录 before：邮件只写进本机 outbox
+    title:
+      zh-CN: 记录 before：邮件只写进本机 outbox
+      ja: before を記録：メールはローカルの outbox に書かれるだけ
+      en: "Record before: email is only written to the local outbox"
     manual: manual/10-baseline.md
     experiment: { module: email, id: send-matrix, label: before }
     panel: terminal-workstation
@@ -101,19 +214,31 @@ steps:
   - id: enable
     type: script
     wire: true
-    title: 接入 SES：验证发件身份并切换驱动
+    title:
+      zh-CN: 接入 SES：验证发件身份并切换驱动
+      ja: SES を組み込む：送信元 ID を検証してドライバーを切り替える
+      en: "Wire in SES: verify the sender identity and switch the driver"
     manual: manual/20-enable.md
     methods: [script]
     requires: { steps: [baseline] }
     panel: terminal-workstation
     estMinutes: 10
-    startsBilling: { class: usage, pricingKeys: [ses.messages, sns.requests, sqs.requests], note: 按封与请求计费 }
-    wait: { typicalMinutes: 5, maxMinutes: 20, text: 部署后到邮箱点击 AWS 的验证链接，脚本轮询到“已验证”才写 env }
+    startsBilling: { class: usage, pricingKeys: [ses.messages, sns.requests, sqs.requests], note: { zh-CN: 按封与请求计费, ja: 通数とリクエストで課金, en: Billed per message and per request } }
+    wait:
+      typicalMinutes: 5
+      maxMinutes: 20
+      text:
+        zh-CN: 部署后到邮箱点击 AWS 的验证链接，脚本轮询到“已验证”才写 env
+        ja: デプロイ後にメールボックスで AWS の検証リンクをクリックします。スクリプトは「検証済み」になるまでポーリングしてから env を書き込みます
+        en: After deployment, click the AWS verification link in your mailbox; the script polls until the identity is verified and only then writes env
     checks: [email-wired, email-path-seen, identity-verified, account-production]
 
   - id: after
     type: experiment
-    title: 记录 after：发信矩阵与反馈回流
+    title:
+      zh-CN: 记录 after：发信矩阵与反馈回流
+      ja: after を記録：送信マトリクスとフィードバックの還流
+      en: "Record after: the send matrix and the feedback loop"
     manual: manual/30-after.md
     experiment: { module: email, id: send-matrix, label: after }
     requires: { steps: [enable] }
@@ -123,7 +248,10 @@ steps:
 
   - id: headers
     type: observe
-    title: 看原始邮件：DKIM 签名与认证结果
+    title:
+      zh-CN: 看原始邮件：DKIM 签名与认证结果
+      ja: 元のメールを見る：DKIM 署名と認証結果
+      en: "Look at the raw email: DKIM signature and authentication results"
     manual: manual/40-headers.md
     requires: { steps: [after] }
     panel: preview
@@ -132,7 +260,10 @@ steps:
 
   - id: sandbox
     type: experiment
-    title: 沙盒限制：发给未验证地址
+    title:
+      zh-CN: 沙盒限制：发给未验证地址
+      ja: サンドボックスの制限：未検証のアドレスに送る
+      en: "Sandbox limits: sending to an unverified address"
     manual: manual/50-sandbox.md
     experiment: { module: email, id: sandbox, label: after }
     requires: { steps: [enable] }
@@ -142,9 +273,12 @@ steps:
 
   - id: register-latency
     type: experiment
-    title: （选做）注册接口的同步链路代价
+    title:
+      zh-CN: （选做）注册接口的同步链路代价
+      ja: （任意）登録 API の同期処理の代償
+      en: (Optional) The cost of the synchronous path in the sign-up API
     manual: manual/60-register-latency.md
-    optional: { reason: 与 send-matrix 的发送耗时结论方向一致 }
+    optional: { reason: { zh-CN: 与 send-matrix 的发送耗时结论方向一致, ja: send-matrix の送信時間の結論と同じ傾向です, en: It points the same way as the send-matrix timing results } }
     experiment: { module: email, id: register-latency, label: after }
     requires: { steps: [enable] }
     panel: terminal-workstation
@@ -153,15 +287,24 @@ steps:
 
   - id: domain-identity
     type: script
-    title: （选做）域名身份与 Easy DKIM
+    title:
+      zh-CN: （选做）域名身份与 Easy DKIM
+      ja: （任意）ドメイン ID と Easy DKIM
+      en: (Optional) Domain identity and Easy DKIM
     manual: manual/70-domain-identity.md
-    optional: { reason: 需要自有域名（人工前置）, when: "learner.inputs.domain != ''" }
+    optional: { reason: { zh-CN: 需要自有域名（人工前置）, ja: 自分のドメインが必要です（手作業の前提条件）, en: Needs your own domain (a manual prerequisite) }, when: "learner.inputs.domain != ''" }
     when: "learner.inputs.domain != ''"
     methods: [script]
     requires: { steps: [after] }
     panel: terminal-workstation
     estMinutes: 10
-    wait: { typicalMinutes: 10, maxMinutes: 20, text: DKIM CNAME 生效与 SES 验证需要时间 }
+    wait:
+      typicalMinutes: 10
+      maxMinutes: 20
+      text:
+        zh-CN: DKIM CNAME 生效与 SES 验证需要时间
+        ja: DKIM の CNAME の反映と SES の検証には時間がかかります
+        en: The DKIM CNAMEs take time to propagate and SES takes time to verify
     checks: [ { ref: domain-dkim, required: false } ]
 
 finalChecks:
@@ -197,28 +340,84 @@ experiments:
     runner: workstation
 
 quiz: { file: quiz.yaml, draw: 3 }
-badge: { title: 真实投递, icon: assets/badge.svg }
+badge: { title: { zh-CN: 真实投递, ja: 実際の配信, en: Real delivery }, icon: assets/badge.svg }
 tracks: [saa-main]
 
 cleanup:
-  summary: 结束实验后，平台删除本次会话创建的配置集、事件主题与反馈队列；发件身份可以勾选保留（下次再部署时只读接入，不会因同名身份已存在而失败）。沙盒状态按区域保持不变。
+  summary:
+    zh-CN: 结束实验后，平台删除本次会话创建的配置集、事件主题与反馈队列；发件身份可以勾选保留（下次再部署时只读接入，不会因同名身份已存在而失败）。沙盒状态按区域保持不变。
+    ja: ラボを終了すると、プラットフォームがこのセッションで作成した設定セット、イベントトピック、フィードバックキューを削除します。送信元 ID は保持を選べます（次回デプロイ時は読み取り専用で利用され、同名の ID がすでにあることで失敗はしません）。サンドボックスの状態はリージョン単位でそのまま変わりません。
+    en: When you end the lab, the platform deletes the configuration set, event topic and feedback queue this session created; you can choose to keep the sender identity (the next deployment adopts it read-only and does not fail because an identity with that name already exists). The sandbox status stays the same per Region.
   autoReclaim: true
-  dataRisk: [发出的邮件已经在收件人的邮箱里，无法撤回；不要用真实用户的地址做实验]
+  dataRisk:
+    - zh-CN: 发出的邮件已经在收件人的邮箱里，无法撤回；不要用真实用户的地址做实验
+      ja: 送信したメールはすでに受信者のメールボックスにあり、取り消せません。実在するユーザーのアドレスで実験しないでください
+      en: Sent emails are already in the recipients' mailboxes and cannot be recalled; do not experiment with real users' addresses
   learnerCreatedHints:
-    - { resourceType: AWS::SES::EmailIdentity, how: 勾选保留的发件身份留在账号中；不再需要时在 SES 控制台“已验证身份”中删除 }
+    - resourceType: AWS::SES::EmailIdentity
+      how:
+        zh-CN: 勾选保留的发件身份留在账号中；不再需要时在 SES 控制台“已验证身份”中删除
+        ja: 保持を選んだ送信元 ID はアカウントに残ります。不要になったら SES コンソールの「検証済み ID」から削除してください
+        en: A sender identity you chose to keep stays in the account; when you no longer need it, delete it under "Verified identities" in the SES console
   verify:
     - email-feedback-gone
 
 saa:
   domains: [secure, resilient]
   topics:
-    - { id: identity, title: SES 身份（邮箱 / 域名）、Easy DKIM、SPF、DMARC, domain: secure, relatesTo: enable }
-    - { id: sandbox, title: 沙盒与生产访问（按区域）、发送配额与速率, domain: resilient, relatesTo: sandbox }
-    - { id: feedback, title: 配置集事件目标、退信与投诉、抑制列表, domain: resilient, relatesTo: after }
-    - { id: dkim, title: 原始邮件中的 DKIM-Signature 与 Authentication-Results, domain: secure, relatesTo: headers }
+    - id: identity
+      title:
+        zh-CN: SES 身份（邮箱 / 域名）、Easy DKIM、SPF、DMARC
+        ja: SES の ID（メールアドレス / ドメイン）、Easy DKIM、SPF、DMARC
+        en: SES identities (email address / domain), Easy DKIM, SPF, DMARC
+      domain: secure
+      relatesTo: enable
+    - id: sandbox
+      title:
+        zh-CN: 沙盒与生产访问（按区域）、发送配额与速率
+        ja: サンドボックスと本番アクセス（リージョン単位）、送信クォータと送信レート
+        en: Sandbox and production access (per Region), sending quota and rate
+      domain: resilient
+      relatesTo: sandbox
+    - id: feedback
+      title:
+        zh-CN: 配置集事件目标、退信与投诉、抑制列表
+        ja: 設定セットのイベント送信先、バウンスと苦情、抑制リスト
+        en: Configuration set event destinations, bounces and complaints, suppression lists
+      domain: resilient
+      relatesTo: after
+    - id: dkim
+      title:
+        zh-CN: 原始邮件中的 DKIM-Signature 与 Authentication-Results
+        ja: 元のメールにある DKIM-Signature と Authentication-Results
+        en: DKIM-Signature and Authentication-Results in the raw email
+      domain: secure
+      relatesTo: headers
   confusables:
-    - { a: Amazon SES, b: SNS 邮件订阅, rule: SES 发事务性、个性化邮件，收件人不需要订阅；SNS 邮件订阅是广播，要先确认、只能纯文本 }
-    - { a: SES API, b: SES SMTP 接口, rule: API 走 HTTPS 与 IAM 签名；SMTP 用从 IAM 派生的 SMTP 凭证（587 端口），EC2 默认限制 25 端口 }
+    - a:
+        zh-CN: Amazon SES
+        ja: Amazon SES
+        en: Amazon SES
+      b:
+        zh-CN: SNS 邮件订阅
+        ja: SNS のメールサブスクリプション
+        en: SNS email subscription
+      rule:
+        zh-CN: SES 发事务性、个性化邮件，收件人不需要订阅；SNS 邮件订阅是广播，要先确认、只能纯文本
+        ja: SES はトランザクションメールや個人宛てのメールを送り、受信者のサブスクリプションは不要です。SNS のメールサブスクリプションはブロードキャストで、事前の確認が必要、内容はテキストのみです
+        en: SES sends transactional, personalized email and recipients need no subscription; an SNS email subscription is a broadcast that must be confirmed first and is plain text only
+    - a:
+        zh-CN: SES API
+        ja: SES API
+        en: SES API
+      b:
+        zh-CN: SES SMTP 接口
+        ja: SES SMTP インターフェイス
+        en: SES SMTP interface
+      rule:
+        zh-CN: API 走 HTTPS 与 IAM 签名；SMTP 用从 IAM 派生的 SMTP 凭证（587 端口），EC2 默认限制 25 端口
+        ja: API は HTTPS と IAM 署名を使います。SMTP は IAM から派生させた SMTP 認証情報（587 番ポート）を使います。EC2 は既定で 25 番ポートを制限しています
+        en: The API uses HTTPS with IAM signing; SMTP uses SMTP credentials derived from IAM (port 587); EC2 restricts port 25 by default
 
 tags: [email, ses, dkim, bounce, sandbox]
 

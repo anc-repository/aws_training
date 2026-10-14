@@ -1,38 +1,64 @@
 checks:
   # ---- 起始状态（before 一律 once）
   - id: cache-none-baseline
-    title: 起始状态：时间线没有缓存，每次都查库
+    title:
+      zh-CN: 起始状态：时间线没有缓存，每次都查库
+      ja: 開始状態：タイムラインにキャッシュがなく、毎回データベースに問い合わせている
+      en: "Start state: the timeline has no cache and queries the database every time"
     type: capability
     module: cache
     drift: { policy: once }
     assert:
-      - { path: $.driver, op: eq, value: none, label: 驱动 }
-    explain: none 档每次时间线请求都会执行若干次数据库查询；性能徽章显示“未缓存 · DB n 次”。
+      - { path: $.driver, op: eq, value: none, label: { zh-CN: 驱动, ja: ドライバー, en: Driver } }
+    explain:
+      zh-CN: none 档每次时间线请求都会执行若干次数据库查询；性能徽章显示“未缓存 · DB n 次”。
+      ja: none 階層では、タイムラインのリクエストごとに何回かデータベースへのクエリが実行されます。パフォーマンスバッジには「未缓存 · DB n 次」（キャッシュなし · DB n 回）と表示されます。
+      en: In the none tier every timeline request runs several database queries; the performance badge shows "未缓存 · DB n 次" (not cached · DB n times).
 
   # ---- 选做：本地档 memory
   - id: cache-memory
-    title: 缓存切换到了进程内 LRU（本地档 memory）
+    title:
+      zh-CN: 缓存切换到了进程内 LRU（本地档 memory）
+      ja: キャッシュがプロセス内 LRU（ローカル階層 memory）に切り替わっている
+      en: The cache has switched to an in-process LRU (the local memory tier)
     type: capability
     module: cache
     drift: { policy: once }
     assert:
-      - { path: $.driver, op: eq, value: memory, label: 驱动 }
-    explain: 只判定驱动，不判定状态：本地档不是 AWS 实现。
+      - { path: $.driver, op: eq, value: memory, label: { zh-CN: 驱动, ja: ドライバー, en: Driver } }
+    explain:
+      zh-CN: 只判定驱动，不判定状态：本地档不是 AWS 实现。
+      ja: ドライバーだけを判定し、状態は判定しません。ローカル階層は AWS の実装ではないためです。
+      en: "Only the driver is checked, not the status: the local tier is not an AWS implementation."
 
   # ---- 接入 ElastiCache
   - id: cache-wired
-    title: cache 已切换到 ElastiCache，且状态正常
+    title:
+      zh-CN: cache 已切换到 ElastiCache，且状态正常
+      ja: cache が ElastiCache に切り替わり、状態が正常
+      en: cache has switched to ElastiCache and is healthy
     type: capability
     module: cache
     drift: { policy: must-hold, monitor: true }
     assert:
-      - { path: $.driver, op: eq, value: redis, label: 驱动 }
-      - { path: $, op: healthy, label: 状态正常（本卡 expectedWarnings 为空，即必须是 ok） }
-    explain: 探针每 15 秒执行 PING 与 INFO replication；连接失败时模块是 degraded，请求按未命中处理。
+      - { path: $.driver, op: eq, value: redis, label: { zh-CN: 驱动, ja: ドライバー, en: Driver } }
+      - path: $
+        op: healthy
+        label:
+          zh-CN: 状态正常（本卡 expectedWarnings 为空，即必须是 ok）
+          ja: 状態が正常（このカードの expectedWarnings は空なので ok でなければならない）
+          en: Healthy (this card's expectedWarnings is empty, so it must be ok)
+    explain:
+      zh-CN: 探针每 15 秒执行 PING 与 INFO replication；连接失败时模块是 degraded，请求按未命中处理。
+      ja: プローブは 15 秒ごとに PING と INFO replication を実行します。接続に失敗するとモジュールは degraded になり、リクエストはミスとして処理されます。
+      en: The probe runs PING and INFO replication every 15 seconds; when the connection fails, the module is degraded and requests are treated as misses.
     reproduce: { run: 'curl -s http://127.0.0.1/api/capabilities | jq ".modules.cache | {driver, status, detail}"', runsOn: lab }
 
   - id: cache-hit-probe
-    title: 同一探测请求第 2 次命中 ElastiCache
+    title:
+      zh-CN: 同一探测请求第 2 次命中 ElastiCache
+      ja: 同じプローブリクエストの 2 回目が ElastiCache にヒットする
+      en: The second identical probe request hits ElastiCache
     type: http-header
     from: lab
     target: self
@@ -43,13 +69,19 @@ checks:
     dependsOn: [cache-wired]
     drift: { policy: must-hold }
     assert:
-      - { path: $.last.status, op: eq, value: 200, label: 第 2 次状态码 }
-      - { path: $.last.pathSegments.cache, op: eq, value: 'redis@elasticache:hit', label: 第 2 次的 cache 段 }
-    explain: 探测端点按 cache-aside 读写键 probe:now:<实例>（30 秒）；第 1 次可能未命中并回填，第 2 次必须命中，且主机类别是 elasticache。
+      - { path: $.last.status, op: eq, value: 200, label: { zh-CN: 第 2 次状态码, ja: 2 回目のステータスコード, en: 2nd status code } }
+      - { path: $.last.pathSegments.cache, op: eq, value: 'redis@elasticache:hit', label: { zh-CN: 第 2 次的 cache 段, ja: 2 回目の cache セグメント, en: 2nd cache segment } }
+    explain:
+      zh-CN: 探测端点按 cache-aside 读写键 probe:now:<实例>（30 秒）；第 1 次可能未命中并回填，第 2 次必须命中，且主机类别是 elasticache。
+      ja: プローブ用エンドポイントはキャッシュアサイドでキー probe:now:<インスタンス>（30 秒）を読み書きします。1 回目はミスして書き戻す場合がありますが、2 回目は必ずヒットし、ホストの種別が elasticache でなければなりません。
+      en: The probe endpoint reads and writes the key probe:now:<instance> (30 seconds) cache-aside; the first request may miss and fill the cache, and the second must be a hit with host type elasticache.
     reproduce: { run: 'for i in 1 2; do curl -s -o /dev/null -D - "http://127.0.0.1/api/feed?limit=1" | grep -i "^x-cloudalbum-path:"; done', runsOn: lab }
 
   - id: cache-replication-group
-    title: 复制组是本会话创建的，已可用，传输与静态加密开启
+    title:
+      zh-CN: 复制组是本会话创建的，已可用，传输与静态加密开启
+      ja: レプリケーショングループはこのセッションで作成され、利用可能で、転送時と保管時の暗号化が有効
+      en: The replication group was created by this session, is available, and has in-transit and at-rest encryption on
     type: aws-readonly
     service: elasticache
     action: DescribeReplicationGroups
@@ -61,24 +93,41 @@ checks:
       - { path: '$.ReplicationGroups[0].Status', op: in, value: [creating, modifying] }
     drift: { policy: must-hold }
     assert:
-      - { path: '$.ReplicationGroups[0].Status', op: eq, value: available, label: 状态 }
-      - { path: '$.ReplicationGroups[0].TransitEncryptionEnabled', op: eq, value: true, label: 传输加密（TLS） }
-      - { path: '$.ReplicationGroups[0].AtRestEncryptionEnabled', op: eq, value: true, label: 静态加密 }
-      - { path: '$.ReplicationGroups[0].CacheNodeType', op: eq, value: cache.t4g.micro, label: 节点类型 }
-    explain: 先确认复制组由本会话的 cache 模块栈创建，再核对状态与加密；单节点、无副本，所以没有自动故障转移。
+      - { path: '$.ReplicationGroups[0].Status', op: eq, value: available, label: { zh-CN: 状态, ja: 状態, en: Status } }
+      - { path: '$.ReplicationGroups[0].TransitEncryptionEnabled', op: eq, value: true, label: { zh-CN: 传输加密（TLS）, ja: 転送時の暗号化（TLS）, en: In-transit encryption (TLS) } }
+      - { path: '$.ReplicationGroups[0].AtRestEncryptionEnabled', op: eq, value: true, label: { zh-CN: 静态加密, ja: 保管時の暗号化, en: At-rest encryption } }
+      - { path: '$.ReplicationGroups[0].CacheNodeType', op: eq, value: cache.t4g.micro, label: { zh-CN: 节点类型, ja: ノードタイプ, en: Node type } }
+    explain:
+      zh-CN: 先确认复制组由本会话的 cache 模块栈创建，再核对状态与加密；单节点、无副本，所以没有自动故障转移。
+      ja: まずレプリケーショングループがこのセッションの cache モジュールスタックで作成されたことを確認し、次に状態と暗号化を照合します。単一ノードでレプリカがないため、自動フェイルオーバーはありません。
+      en: The platform first confirms that this session's cache module stack created the replication group, then checks its status and encryption; with a single node and no replicas there is no automatic failover.
     reproduce: { run: 'aws elasticache describe-replication-groups --replication-group-id "{{ var.replicationGroupId }}" --query "ReplicationGroups[0].[Status,TransitEncryptionEnabled,AtRestEncryptionEnabled,CacheNodeType]"', runsOn: workstation }
     manualFallback:
       where: { breadcrumb: [ElastiCache, Valkey 缓存, '{{ var.replicationGroupId }}'], region: app }
       observed:
-        question: 复制组的状态与“传输中加密”分别是什么？
+        question:
+          zh-CN: 复制组的状态与“传输中加密”分别是什么？
+          ja: レプリケーショングループの状態と「転送中の暗号化」はそれぞれ何ですか？
+          en: What are the replication group's status and "Encryption in transit"?
         options:
-          - { value: ok, label: 可用、已启用, expected: true }
-          - { value: creating, label: 正在创建, fixHint: 节点创建通常需要 10 分钟左右，请稍后再检查 }
-          - { value: other, label: 其他 }
+          - { value: ok, label: { zh-CN: 可用、已启用, ja: 利用可能、有効, en: "Available, Enabled" }, expected: true }
+          - value: creating
+            label:
+              zh-CN: 正在创建
+              ja: 作成中
+              en: Creating
+            fixHint:
+              zh-CN: 节点创建通常需要 10 分钟左右，请稍后再检查
+              ja: ノードの作成には通常 10 分ほどかかります。しばらくしてから再チェックしてください
+              en: Creating a node usually takes about 10 minutes; check again later
+          - { value: other, label: { zh-CN: 其他, ja: その他, en: Something else } }
 
   # ---- 谁能连到缓存
   - id: cache-cluster
-    title: 缓存节点挂的是本模块的 sg-cache
+    title:
+      zh-CN: 缓存节点挂的是本模块的 sg-cache
+      ja: キャッシュノードにこのモジュールの sg-cache が付いている
+      en: The cache node uses this module's sg-cache
     type: aws-readonly
     service: elasticache
     action: DescribeCacheClusters
@@ -87,20 +136,29 @@ checks:
     dependsOn: [cache-replication-group]
     drift: { policy: once }
     assert:
-      - { path: '$.CacheClusters[0].SecurityGroups', op: len_eq, value: 1, label: 安全组数 }
-      - { path: '$.CacheClusters[0].CacheSubnetGroupName', op: exists, label: 子网组 }
-    explain: 节点 ID 取自复制组的成员（cache-replication-group 已确认归属）；它的安全组就是模块栈创建的 sg-cache。
+      - { path: '$.CacheClusters[0].SecurityGroups', op: len_eq, value: 1, label: { zh-CN: 安全组数, ja: セキュリティグループの数, en: Number of security groups } }
+      - { path: '$.CacheClusters[0].CacheSubnetGroupName', op: exists, label: { zh-CN: 子网组, ja: サブネットグループ, en: Subnet group } }
+    explain:
+      zh-CN: 节点 ID 取自复制组的成员（cache-replication-group 已确认归属）；它的安全组就是模块栈创建的 sg-cache。
+      ja: ノード ID はレプリケーショングループのメンバーから取得します（cache-replication-group で所有を確認済み）。そのセキュリティグループが、モジュールスタックが作成した sg-cache です。
+      en: The node ID comes from the replication group's members (cache-replication-group has confirmed ownership); its security group is the sg-cache created by the module stack.
     reproduce: { run: 'aws elasticache describe-cache-clusters --cache-cluster-id "{{ var.replicationGroupId }}-001" --query "CacheClusters[0].SecurityGroups"', runsOn: workstation }
     manualFallback:
       where: { breadcrumb: [ElastiCache, Valkey 缓存, '{{ var.replicationGroupId }}', 节点], region: app }
       observed:
-        question: 节点的安全组是哪一个？
+        question:
+          zh-CN: 节点的安全组是哪一个？
+          ja: ノードのセキュリティグループはどれですか？
+          en: Which security group does the node use?
         options:
-          - { value: ok, label: 'cloudalbum-{{ session.env }}-cache', expected: true }
-          - { value: other, label: 其他 }
+          - { value: ok, label: { zh-CN: 'cloudalbum-{{ session.env }}-cache', ja: "cloudalbum-{{ session.env }}-cache", en: "cloudalbum-{{ session.env }}-cache" }, expected: true }
+          - { value: other, label: { zh-CN: 其他, ja: その他, en: Something else } }
 
   - id: cache-sg-rule
-    title: sg-cache 的 6379 入站只放行实验机的安全组
+    title:
+      zh-CN: sg-cache 的 6379 入站只放行实验机的安全组
+      ja: sg-cache の 6379 インバウンドはラボ用インスタンスのセキュリティグループだけを許可している
+      en: sg-cache allows inbound 6379 only from the lab instance's security group
     type: aws-readonly
     service: ec2
     action: DescribeSecurityGroupRules
@@ -114,40 +172,98 @@ checks:
       - path: $.SecurityGroupRules
         where: { IsEgress: false, FromPort: 6379 }
         op: some
-        label: 6379 的来源是实验机安全组
+        label:
+          zh-CN: 6379 的来源是实验机安全组
+          ja: 6379 のソースがラボ用インスタンスのセキュリティグループ
+          en: The source of 6379 is the lab instance's security group
         value:
           - { path: $.ReferencedGroupInfo.GroupId, op: eq, value: '{{ target.sgId }}' }
       - path: $.SecurityGroupRules
         where: { IsEgress: false, CidrIpv4: 0.0.0.0/0 }
         op: len_eq
         value: 0
-        label: 对 0.0.0.0/0 开放的入站规则
-    explain: 安全组的来源可以是另一个安全组：只有挂着实验机安全组的网卡能连到 6379。fail-open 演示结束后这条规则必须恢复。
+        label:
+          zh-CN: 对 0.0.0.0/0 开放的入站规则
+          ja: 0.0.0.0/0 に開いたインバウンドルール
+          en: Inbound rules open to 0.0.0.0/0
+    explain:
+      zh-CN: 安全组的来源可以是另一个安全组：只有挂着实验机安全组的网卡能连到 6379。fail-open 演示结束后这条规则必须恢复。
+      ja: セキュリティグループのソースには別のセキュリティグループを指定できます。ラボ用インスタンスのセキュリティグループが付いたネットワークインターフェイスだけが 6379 に接続できます。fail-open のデモが終わったら、このルールは必ず元に戻す必要があります。
+      en: "A security group's source can be another security group: only network interfaces that carry the lab instance's security group can reach 6379. This rule must be restored after the fail-open demo."
     reproduce: { run: 'aws ec2 describe-security-group-rules --filters Name=group-id,Values=<sg-cache 的 ID> --query "SecurityGroupRules[?IsEgress==\`false\`].[FromPort,ReferencedGroupInfo.GroupId,CidrIpv4]" --output table', runsOn: workstation }
     pitfalls: [sg-not-restored]
     manualFallback:
       where: { breadcrumb: [EC2, 安全组, 'cloudalbum-{{ session.env }}-cache', 入站规则], region: app }
       observed:
-        question: 6379 端口入站规则的“源”是什么？
+        question:
+          zh-CN: 6379 端口入站规则的“源”是什么？
+          ja: 6379 番ポートのインバウンドルールの「ソース」は何ですか？
+          en: What is the "Source" of the inbound rule for port 6379?
         options:
-          - { value: sg, label: '实验机的安全组（{{ target.sgId }}）', expected: true }
-          - { value: none, label: 没有 6379 的规则, fixHint: fail-open 演示后没有恢复；执行 revoke-sg.sh restore }
-          - { value: cidr, label: 一个 IP 地址段, fixHint: 不要在控制台修改栈管理的安全组；重新执行 scripts/module enable cache }
+          - value: sg
+            label:
+              zh-CN: '实验机的安全组（{{ target.sgId }}）'
+              ja: ラボ用インスタンスのセキュリティグループ（{{ target.sgId }}）
+              en: The lab instance's security group ({{ target.sgId }})
+            expected: true
+          - value: none
+            label:
+              zh-CN: 没有 6379 的规则
+              ja: 6379 のルールがない
+              en: There is no rule for 6379
+            fixHint:
+              zh-CN: fail-open 演示后没有恢复；执行 revoke-sg.sh restore
+              ja: fail-open のデモの後に元に戻されていません。revoke-sg.sh restore を実行してください
+              en: It was not restored after the fail-open demo; run revoke-sg.sh restore
+          - value: cidr
+            label:
+              zh-CN: 一个 IP 地址段
+              ja: IP アドレスの範囲
+              en: An IP address range
+            fixHint:
+              zh-CN: 不要在控制台修改栈管理的安全组；重新执行 scripts/module enable cache
+              ja: スタックが管理するセキュリティグループをコンソールで変更しないでください。scripts/module enable cache を再実行します
+              en: Do not change the stack-managed security group in the console; run scripts/module enable cache again
 
   - id: who-can-connect
-    title: 说出两处连接测试的结果与原因
+    title:
+      zh-CN: 说出两处连接测试的结果与原因
+      ja: 2 か所からの接続テストの結果と理由を答える
+      en: Report the results of the two connection tests and why
     type: manual
     spec:
       observed:
-        question: 实验机上的 PING 与工作台上的 TCP 测试分别得到什么？
+        question:
+          zh-CN: 实验机上的 PING 与工作台上的 TCP 测试分别得到什么？
+          ja: ラボ用インスタンスでの PING と、ワークベンチでの TCP テストは、それぞれどうなりましたか？
+          en: What did the PING on the lab instance and the TCP test on the workbench return?
         options:
-          - { value: pong-blocked, label: 实验机得到 PONG，工作台 blocked, expected: true }
-          - { value: both-ok, label: 两边都能连上, fixHint: 工作台和实验机同在默认 VPC，但 sg-cache 只放行实验机的安全组 }
-          - { value: both-blocked, label: 两边都连不上, fixHint: 实验机上要用 TLS（openssl s_client）；确认 cache-sg-rule 通过 }
+          - { value: pong-blocked, label: { zh-CN: 实验机得到 PONG，工作台 blocked, ja: ラボ用インスタンスは PONG、ワークベンチは blocked, en: "PONG on the lab instance, blocked on the workbench" }, expected: true }
+          - value: both-ok
+            label:
+              zh-CN: 两边都能连上
+              ja: どちらも接続できた
+              en: Both could connect
+            fixHint:
+              zh-CN: 工作台和实验机同在默认 VPC，但 sg-cache 只放行实验机的安全组
+              ja: ワークベンチとラボ用インスタンスはどちらもデフォルト VPC にありますが、sg-cache はラボ用インスタンスのセキュリティグループだけを許可しています
+              en: The workbench and the lab instance are both in the default VPC, but sg-cache only allows the lab instance's security group
+          - value: both-blocked
+            label:
+              zh-CN: 两边都连不上
+              ja: どちらも接続できなかった
+              en: Neither could connect
+            fixHint:
+              zh-CN: 实验机上要用 TLS（openssl s_client）；确认 cache-sg-rule 通过
+              ja: ラボ用インスタンスでは TLS（openssl s_client）を使う必要があります。cache-sg-rule が合格していることを確認してください
+              en: The lab instance has to use TLS (openssl s_client); make sure cache-sg-rule passes
 
   # ---- 回收验证
   - id: cache-gone
-    title: 本会话的复制组已删除
+    title:
+      zh-CN: 本会话的复制组已删除
+      ja: このセッションのレプリケーショングループが削除されている
+      en: This session's replication group has been deleted
     type: aws-readonly
     service: elasticache
     action: DescribeReplicationGroups
@@ -159,11 +275,26 @@ checks:
     manualFallback:
       where: { breadcrumb: [ElastiCache, Valkey 缓存], region: app }
       observed:
-        question: 列表中还能找到 cloudalbum-{{ session.env }}-cache 吗？
+        question:
+          zh-CN: 列表中还能找到 cloudalbum-{{ session.env }}-cache 吗？
+          ja: 一覧にまだ cloudalbum-{{ session.env }}-cache がありますか？
+          en: Is cloudalbum-{{ session.env }}-cache still in the list?
         options:
-          - { value: gone, label: 找不到, expected: true }
-          - { value: present, label: 还在 }
+          - { value: gone, label: { zh-CN: 找不到, ja: 見つからない, en: Not found }, expected: true }
+          - { value: present, label: { zh-CN: 还在, ja: まだある, en: Still there } }
 
 pitfalls:
-  - { id: sg-not-restored, title: sg-cache 的 6379 规则没有恢复, match: [ { checkId: cache-sg-rule, result: fail } ],
-      cause: fail-open 演示的恢复脚本没有执行（例如运行器被中断），实验机连不上缓存，时间线一直走 error-bypass, fix: '在工作台执行 bash experiments/cache/faults/revoke-sg.sh restore（带上 CACHE_SG_ID 与 APP_SG_ID）' }
+  - id: sg-not-restored
+    title:
+      zh-CN: sg-cache 的 6379 规则没有恢复
+      ja: sg-cache の 6379 ルールが元に戻っていない
+      en: The sg-cache rule for 6379 was not restored
+    match: [ { checkId: cache-sg-rule, result: fail } ]
+    cause:
+      zh-CN: fail-open 演示的恢复脚本没有执行（例如运行器被中断），实验机连不上缓存，时间线一直走 error-bypass
+      ja: fail-open デモの復旧スクリプトが実行されなかったため（たとえばランナーが中断された）、ラボ用インスタンスがキャッシュに接続できず、タイムラインがずっと error-bypass になっています
+      en: The fail-open demo's restore script did not run (for example because the runner was interrupted), so the lab instance cannot reach the cache and the timeline stays on error-bypass
+    fix:
+      zh-CN: '在工作台执行 bash experiments/cache/faults/revoke-sg.sh restore（带上 CACHE_SG_ID 与 APP_SG_ID）'
+      ja: ワークベンチで bash experiments/cache/faults/revoke-sg.sh restore を実行してください（CACHE_SG_ID と APP_SG_ID を指定します）
+      en: Run bash experiments/cache/faults/revoke-sg.sh restore on the workbench (with CACHE_SG_ID and APP_SG_ID set)

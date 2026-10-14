@@ -1,38 +1,64 @@
 checks:
   # ---- 起始状态（before 一律 once）
   - id: ip-inline-baseline
-    title: 起始状态：缩略图在“上传完成”请求内由 sharp 同步生成（inline）
+    title:
+      zh-CN: 起始状态：缩略图在“上传完成”请求内由 sharp 同步生成（inline）
+      ja: 開始状態：サムネイルは「アップロード完了」のリクエストの中で sharp が同期的に生成している（inline）
+      en: 'Start state: sharp generates thumbnails synchronously inside the "upload complete" request (inline)'
     type: capability
     module: image-processing
     drift: { policy: once }
     assert:
-      - { path: $.driver, op: eq, value: inline, label: 驱动 }
-    explain: inline 是 L0 的实现：complete 接口要等 sharp 处理完才返回，批量上传时两个 vCPU 都被占满。
+      - { path: $.driver, op: eq, value: inline, label: { zh-CN: 驱动, ja: ドライバー, en: Driver } }
+    explain:
+      zh-CN: inline 是 L0 的实现：complete 接口要等 sharp 处理完才返回，批量上传时两个 vCPU 都被占满。
+      ja: inline は L0 の実装です。complete の API は sharp の処理が終わるまで返らず、一括アップロードでは 2 つの vCPU がどちらも使い切られます。
+      en: "inline is the L0 implementation: the complete API waits for sharp to finish before it returns, and a bulk upload maxes out both vCPUs."
 
   - id: storage-s3-start
-    title: 起始状态：原图已经在 S3（Lambda 读不到 EBS）
+    title:
+      zh-CN: 起始状态：原图已经在 S3（Lambda 读不到 EBS）
+      ja: 開始状態：元画像はすでに S3 にある（Lambda は EBS を読めない）
+      en: "Start state: the originals are already in S3 (Lambda cannot read EBS)"
     type: capability
     module: storage
     drift: { policy: once }
     assert:
-      - { path: $.driver, op: eq, value: s3, label: 驱动 }
-      - { path: $, op: healthy, label: 状态正常 }
-    explain: DEP-003 要求 lambda 档的原图在 S3；起始状态已经预置了 storage(s3)，桶上只开了 EventBridge 投递。
+      - { path: $.driver, op: eq, value: s3, label: { zh-CN: 驱动, ja: ドライバー, en: Driver } }
+      - { path: $, op: healthy, label: { zh-CN: 状态正常, ja: 状態が正常, en: Healthy } }
+    explain:
+      zh-CN: DEP-003 要求 lambda 档的原图在 S3；起始状态已经预置了 storage(s3)，桶上只开了 EventBridge 投递。
+      ja: DEP-003 により、lambda 階層では元画像が S3 にある必要があります。開始状態ではすでに storage(s3) が用意されており、バケットでは EventBridge への配信だけが有効になっています。
+      en: DEP-003 requires the originals of the lambda tier to be in S3; the start state already provides storage(s3), with only EventBridge delivery turned on for the bucket.
 
   # ---- 接入 Lambda
   - id: ip-wired
-    title: image-processing 已切换到 Lambda，且状态正常
+    title:
+      zh-CN: image-processing 已切换到 Lambda，且状态正常
+      ja: image-processing が Lambda に切り替わり、状態が正常
+      en: image-processing has switched to Lambda and is healthy
     type: capability
     module: image-processing
     drift: { policy: must-hold, monitor: true }
     assert:
-      - { path: $.driver, op: eq, value: lambda, label: 驱动 }
-      - { path: $, op: healthy, label: 状态正常（本卡 expectedWarnings 为空，即必须是 ok） }
-    explain: 探针会读函数配置、EventBridge 规则与失败队列深度；失败队列有消息或照片长时间停在 PROCESSING 时状态是 degraded。
+      - { path: $.driver, op: eq, value: lambda, label: { zh-CN: 驱动, ja: ドライバー, en: Driver } }
+      - path: $
+        op: healthy
+        label:
+          zh-CN: 状态正常（本卡 expectedWarnings 为空，即必须是 ok）
+          ja: 状態が正常（このカードの expectedWarnings は空なので ok でなければならない）
+          en: Healthy (this card's expectedWarnings is empty, so it must be ok)
+    explain:
+      zh-CN: 探针会读函数配置、EventBridge 规则与失败队列深度；失败队列有消息或照片长时间停在 PROCESSING 时状态是 degraded。
+      ja: プローブは関数の設定、EventBridge のルール、失敗キューの深さを読み取ります。失敗キューにメッセージがあるときや、写真が長い間 PROCESSING のままのときは degraded になります。
+      en: The probe reads the function configuration, the EventBridge rule and the failure queue depth; it is degraded when the failure queue has messages or photos stay in PROCESSING for a long time.
     reproduce: { run: 'curl -s http://127.0.0.1/api/capabilities | jq ".modules[\"image-processing\"] | {driver, status, detail}"', runsOn: lab }
 
   - id: ip-path-seen
-    title: 最近的真实上传交给了 Lambda 异步处理
+    title:
+      zh-CN: 最近的真实上传交给了 Lambda 异步处理
+      ja: 最近の実際のアップロードが Lambda の非同期処理に渡された
+      en: A recent real upload was handed to Lambda for asynchronous processing
     type: local
     on: lab
     checkId: path-seen
@@ -40,11 +66,23 @@ checks:
     dependsOn: [ip-wired]
     drift: { policy: once }
     assert:
-      - { path: $.count, op: gte, value: 1, label: 出现 image-processing=lambda:async 的请求数 }
-    explain: 在应用预览里上传任意一张照片即可满足；路径签名由应用按实际调用的驱动生成，探测请求不计入。
+      - path: $.count
+        op: gte
+        value: 1
+        label:
+          zh-CN: 出现 image-processing=lambda:async 的请求数
+          ja: image-processing=lambda:async が現れたリクエスト数
+          en: Requests showing image-processing=lambda:async
+    explain:
+      zh-CN: 在应用预览里上传任意一张照片即可满足；路径签名由应用按实际调用的驱动生成，探测请求不计入。
+      ja: アプリのプレビューで任意の写真を 1 枚アップロードすれば満たせます。経路の署名はアプリが実際に呼び出したドライバーに応じて生成し、プローブのリクエストは数えません。
+      en: Uploading any photo in the app preview is enough; the app builds the path signature from the driver it actually called, and probe requests do not count.
 
   - id: lambda-config
-    title: 缩略图函数是本会话创建的，nodejs22.x、arm64、已就绪
+    title:
+      zh-CN: 缩略图函数是本会话创建的，nodejs22.x、arm64、已就绪
+      ja: サムネイル関数はこのセッションで作成され、nodejs22.x、arm64 で、準備完了
+      en: The thumbnail function was created by this session and is nodejs22.x, arm64 and active
     type: aws-readonly
     service: lambda
     action: GetFunctionConfiguration
@@ -53,23 +91,40 @@ checks:
     ownership: { resource: '{{ $.FunctionArn }}', mode: session, createdAfter: session.readyAt }
     drift: { policy: must-hold }
     assert:
-      - { path: $.Runtime, op: eq, value: nodejs22.x, label: 运行时 }
-      - { path: $.Architectures, op: contains, value: arm64, label: 架构 }
-      - { path: $.State, op: eq, value: Active, label: 函数状态 }
-      - { path: $.MemorySize, op: eq, value: 1024, label: 内存（MB；CPU 与内存成比例分配） }
-      - { path: $.Timeout, op: eq, value: 30, label: 超时（秒） }
-    explain: 函数由本会话的 image-processing 模块栈创建；部署包由 scripts/module 打包上传到工具链桶。
+      - { path: $.Runtime, op: eq, value: nodejs22.x, label: { zh-CN: 运行时, ja: ランタイム, en: Runtime } }
+      - { path: $.Architectures, op: contains, value: arm64, label: { zh-CN: 架构, ja: アーキテクチャ, en: Architecture } }
+      - { path: $.State, op: eq, value: Active, label: { zh-CN: 函数状态, ja: 関数の状態, en: Function state } }
+      - { path: $.MemorySize, op: eq, value: 1024, label: { zh-CN: 内存（MB；CPU 与内存成比例分配）, ja: メモリ（MB。CPU はメモリに比例して割り当てられる）, en: Memory (MB; CPU is allocated in proportion to memory) } }
+      - { path: $.Timeout, op: eq, value: 30, label: { zh-CN: 超时（秒）, ja: タイムアウト（秒）, en: Timeout (seconds) } }
+    explain:
+      zh-CN: 函数由本会话的 image-processing 模块栈创建；部署包由 scripts/module 打包上传到工具链桶。
+      ja: 関数はこのセッションの image-processing モジュールスタックで作成されたものです。デプロイパッケージは scripts/module がパッケージングしてツールチェーンのバケットにアップロードします。
+      en: This session's image-processing module stack created the function; scripts/module packages the deployment package and uploads it to the toolchain bucket.
     reproduce: { run: 'aws lambda get-function-configuration --function-name "{{ var.functionName }}" --query "{Runtime:Runtime,Arch:Architectures,State:State,Memory:MemorySize}"', runsOn: workstation }
     manualFallback:
       where: { breadcrumb: [Lambda, 函数, '{{ var.functionName }}', 配置, 常规配置], region: app }
       observed:
-        question: 函数的运行时与架构是什么？
+        question:
+          zh-CN: 函数的运行时与架构是什么？
+          ja: 関数のランタイムとアーキテクチャは何ですか？
+          en: What are the function's runtime and architecture?
         options:
-          - { value: ok, label: Node.js 22.x、arm64, expected: true }
-          - { value: other, label: 其他, fixHint: 不要在控制台修改栈管理的函数；重新执行 scripts/module enable image-processing }
+          - { value: ok, label: { zh-CN: Node.js 22.x、arm64, ja: Node.js 22.x、arm64, en: "Node.js 22.x, arm64" }, expected: true }
+          - value: other
+            label:
+              zh-CN: 其他
+              ja: その他
+              en: Something else
+            fixHint:
+              zh-CN: 不要在控制台修改栈管理的函数；重新执行 scripts/module enable image-processing
+              ja: スタックが管理する関数をコンソールで変更しないでください。scripts/module enable image-processing を再実行します
+              en: Do not change the stack-managed function in the console; run scripts/module enable image-processing again
 
   - id: lambda-async-config
-    title: 异步调用：重试 2 次，失败事件送往本模块的失败队列
+    title:
+      zh-CN: 异步调用：重试 2 次，失败事件送往本模块的失败队列
+      ja: 非同期呼び出し：再試行は 2 回で、失敗したイベントはこのモジュールの失敗キューに送られる
+      en: "Asynchronous invocation: 2 retries, with failed events sent to this module's failure queue"
     type: aws-readonly
     service: lambda
     action: GetFunctionEventInvokeConfig
@@ -78,21 +133,43 @@ checks:
     dependsOn: [lambda-config]
     drift: { policy: must-hold }
     assert:
-      - { path: $.MaximumRetryAttempts, op: eq, value: 2, label: 最大重试次数 }
-      - { path: $.MaximumEventAgeInSeconds, op: eq, value: 3600, label: 最大事件年龄（秒） }
-      - { path: $.DestinationConfig.OnFailure.Destination, op: endsWith, value: ':cloudalbum-{{ session.env }}-image-processing-failures', label: 失败目标 }
-    explain: EventBridge 对 Lambda 是异步调用：函数报错时 Lambda 自己重试（0～2 次），重试用尽或事件过期后送往失败目标。
+      - { path: $.MaximumRetryAttempts, op: eq, value: 2, label: { zh-CN: 最大重试次数, ja: 最大再試行回数, en: Maximum retry attempts } }
+      - { path: $.MaximumEventAgeInSeconds, op: eq, value: 3600, label: { zh-CN: 最大事件年龄（秒）, ja: イベントの最大有効期間（秒）, en: Maximum event age (seconds) } }
+      - { path: $.DestinationConfig.OnFailure.Destination, op: endsWith, value: ':cloudalbum-{{ session.env }}-image-processing-failures', label: { zh-CN: 失败目标, ja: 失敗時の送信先, en: On-failure destination } }
+    explain:
+      zh-CN: EventBridge 对 Lambda 是异步调用：函数报错时 Lambda 自己重试（0～2 次），重试用尽或事件过期后送往失败目标。
+      ja: EventBridge から Lambda への呼び出しは非同期です。関数がエラーになると Lambda 自身が再試行し（0～2 回）、再試行を使い切るかイベントの期限が切れると、失敗時の送信先に送ります。
+      en: "EventBridge invokes Lambda asynchronously: when the function errors, Lambda retries on its own (0–2 times), and once retries are used up or the event expires, it goes to the on-failure destination."
     reproduce: { run: 'aws lambda get-function-event-invoke-config --function-name "{{ var.functionName }}"', runsOn: workstation }
     manualFallback:
       where: { breadcrumb: [Lambda, 函数, '{{ var.functionName }}', 配置, 异步调用], region: app }
       observed:
-        question: “重试次数”与“失败时的目标”分别是什么？
+        question:
+          zh-CN: “重试次数”与“失败时的目标”分别是什么？
+          ja: 「再試行」と「失敗時の送信先」はそれぞれ何ですか？
+          en: What are "Retry attempts" and the "On-failure destination"?
         options:
-          - { value: ok, label: 重试 2 次，目标是 image-processing-failures 队列, expected: true }
-          - { value: other, label: 其他, fixHint: 异步调用配置由模块栈管理；重新执行 scripts/module enable image-processing }
+          - value: ok
+            label:
+              zh-CN: 重试 2 次，目标是 image-processing-failures 队列
+              ja: 再試行 2 回、送信先は image-processing-failures キュー
+              en: 2 retries, with the image-processing-failures queue as the destination
+            expected: true
+          - value: other
+            label:
+              zh-CN: 其他
+              ja: その他
+              en: Something else
+            fixHint:
+              zh-CN: 异步调用配置由模块栈管理；重新执行 scripts/module enable image-processing
+              ja: 非同期呼び出しの設定はモジュールスタックが管理しています。scripts/module enable image-processing を再実行してください
+              en: The asynchronous invocation configuration is managed by the module stack; run scripts/module enable image-processing again
 
   - id: rule-enabled
-    title: EventBridge 规则已启用，只匹配原图桶 raw/ 前缀的 Object Created
+    title:
+      zh-CN: EventBridge 规则已启用，只匹配原图桶 raw/ 前缀的 Object Created
+      ja: EventBridge のルールが有効で、元画像バケットの raw/ プレフィックスの Object Created だけに一致する
+      en: The EventBridge rule is enabled and only matches Object Created under the raw/ prefix of the original-image bucket
     type: aws-readonly
     service: events
     action: DescribeRule
@@ -101,22 +178,39 @@ checks:
     dependsOn: [lambda-config]
     drift: { policy: must-hold }
     assert:
-      - { path: $.State, op: eq, value: ENABLED, label: 规则状态 }
-      - { path: $.EventPattern, op: contains, value: 'Object Created', label: 事件类型 }
-      - { path: $.EventPattern, op: contains, value: 'raw/', label: 前缀过滤（避免递归） }
-    explain: 规则名与函数名来自同一个模块栈的输出（lambda-config 已确认该栈属于本会话）。
+      - { path: $.State, op: eq, value: ENABLED, label: { zh-CN: 规则状态, ja: ルールの状態, en: Rule state } }
+      - { path: $.EventPattern, op: contains, value: 'Object Created', label: { zh-CN: 事件类型, ja: イベントタイプ, en: Event type } }
+      - { path: $.EventPattern, op: contains, value: 'raw/', label: { zh-CN: 前缀过滤（避免递归）, ja: プレフィックスによるフィルター（再帰を防ぐ）, en: Prefix filter (to avoid recursion) } }
+    explain:
+      zh-CN: 规则名与函数名来自同一个模块栈的输出（lambda-config 已确认该栈属于本会话）。
+      ja: ルール名と関数名は同じモジュールスタックの出力から取得します（lambda-config でそのスタックがこのセッションのものであることを確認済み）。
+      en: The rule name and function name come from the outputs of the same module stack (lambda-config has confirmed that the stack belongs to this session).
     reproduce: { run: 'aws events describe-rule --name "{{ var.ruleName }}" --query "{State:State,Pattern:EventPattern}"', runsOn: workstation }
     manualFallback:
       where: { breadcrumb: [Amazon EventBridge, 规则, '{{ var.ruleName }}'], region: app }
       observed:
-        question: 规则的状态是什么？
+        question:
+          zh-CN: 规则的状态是什么？
+          ja: ルールの状態は何ですか？
+          en: What is the rule's state?
         options:
-          - { value: enabled, label: 已启用, expected: true }
-          - { value: disabled, label: 已禁用, fixHint: 规则由模块栈管理；重新执行 scripts/module enable image-processing }
+          - { value: enabled, label: { zh-CN: 已启用, ja: 有効, en: Enabled }, expected: true }
+          - value: disabled
+            label:
+              zh-CN: 已禁用
+              ja: 無効
+              en: Disabled
+            fixHint:
+              zh-CN: 规则由模块栈管理；重新执行 scripts/module enable image-processing
+              ja: ルールはモジュールスタックが管理しています。scripts/module enable image-processing を再実行してください
+              en: The rule is managed by the module stack; run scripts/module enable image-processing again
 
   # ---- 看懂触发与权限
   - id: rule-targets
-    title: 规则的目标是本函数，并配置了重试策略与死信队列
+    title:
+      zh-CN: 规则的目标是本函数，并配置了重试策略与死信队列
+      ja: ルールのターゲットはこの関数で、再試行ポリシーとデッドレターキューが設定されている
+      en: The rule's target is this function, with a retry policy and a dead-letter queue
     type: aws-readonly
     service: events
     action: ListTargetsByRule
@@ -125,37 +219,81 @@ checks:
     dependsOn: [lambda-config, rule-enabled]
     drift: { policy: once }
     assert:
-      - { path: $.Targets, op: len_gte, value: 1, label: 目标数 }
+      - { path: $.Targets, op: len_gte, value: 1, label: { zh-CN: 目标数, ja: ターゲットの数, en: Number of targets } }
       - path: $.Targets
         op: some
-        label: 目标是本函数、配置了 DLQ
+        label:
+          zh-CN: 目标是本函数、配置了 DLQ
+          ja: ターゲットがこの関数で、DLQ が設定されている
+          en: The target is this function, with a DLQ
         value:
           - { path: $.Arn, op: eq, value: '{{$check.lambda-config.FunctionArn}}' }
           - { path: $.DeadLetterConfig.Arn, op: endsWith, value: ':cloudalbum-{{ session.env }}-image-processing-failures' }
-    explain: 规则目标上的 DLQ 处理“EventBridge 投递不到 Lambda”；函数上的失败目标处理“Lambda 执行失败”。两层失败都汇入同一个失败队列，由应用对账。
+    explain:
+      zh-CN: 规则目标上的 DLQ 处理“EventBridge 投递不到 Lambda”；函数上的失败目标处理“Lambda 执行失败”。两层失败都汇入同一个失败队列，由应用对账。
+      ja: ルールのターゲットにある DLQ は「EventBridge が Lambda に配信できない」場合を、関数の失敗時の送信先は「Lambda の実行が失敗した」場合を扱います。どちらの失敗も同じ失敗キューに集まり、アプリが照合します。
+      en: The DLQ on the rule target handles "EventBridge cannot deliver to Lambda"; the function's on-failure destination handles "Lambda execution failed". Both kinds of failure land in the same failure queue, where the app reconciles them.
     reproduce: { run: 'aws events list-targets-by-rule --rule "{{ var.ruleName }}"', runsOn: workstation }
     manualFallback:
       where: { breadcrumb: [Amazon EventBridge, 规则, '{{ var.ruleName }}', 目标], region: app }
       observed:
-        question: 目标是哪个资源？是否配置了死信队列？
+        question:
+          zh-CN: 目标是哪个资源？是否配置了死信队列？
+          ja: ターゲットはどのリソースですか？ デッドレターキューは設定されていますか？
+          en: Which resource is the target, and is a dead-letter queue configured?
         options:
-          - { value: ok, label: 目标是缩略图函数，死信队列是 image-processing-failures, expected: true }
-          - { value: other, label: 其他 }
+          - value: ok
+            label:
+              zh-CN: 目标是缩略图函数，死信队列是 image-processing-failures
+              ja: ターゲットはサムネイル関数で、デッドレターキューは image-processing-failures
+              en: The target is the thumbnail function, and the dead-letter queue is image-processing-failures
+            expected: true
+          - { value: other, label: { zh-CN: 其他, ja: その他, en: Something else } }
 
   - id: why-two-buckets
-    title: 说出缩略图为什么写到另一个桶
+    title:
+      zh-CN: 说出缩略图为什么写到另一个桶
+      ja: サムネイルを別のバケットに書き込む理由を答える
+      en: Explain why thumbnails are written to another bucket
     type: manual
     spec:
       observed:
-        question: 函数从原图桶的 raw/ 读，却把缩略图写到展示桶的 variants/。如果改成写回原图桶的 raw/，会发生什么？
+        question:
+          zh-CN: 函数从原图桶的 raw/ 读，却把缩略图写到展示桶的 variants/。如果改成写回原图桶的 raw/，会发生什么？
+          ja: 関数は元画像バケットの raw/ から読み、サムネイルは表示用バケットの variants/ に書き込みます。元画像バケットの raw/ に書き戻すように変えると、何が起こりますか？
+          en: The function reads from raw/ in the original-image bucket but writes thumbnails to variants/ in the display bucket. What happens if you change it to write back to raw/ in the original-image bucket?
         options:
-          - { value: recursion, label: 写入再次触发规则，函数调用自己，形成递归并持续计费, expected: true }
-          - { value: nothing, label: 没有区别, fixHint: 看看规则的事件模式匹配了哪个桶、哪个前缀 }
-          - { value: faster, label: 少一次跨桶复制，更快, fixHint: 同区域的两个桶之间没有“复制”；问题在于输出会不会再次触发输入 }
+          - value: recursion
+            label:
+              zh-CN: 写入再次触发规则，函数调用自己，形成递归并持续计费
+              ja: 書き込みが再びルールを起動し、関数が自分自身を呼び出して再帰になり、課金が続く
+              en: The write fires the rule again, the function invokes itself, and the recursion keeps running up charges
+            expected: true
+          - value: nothing
+            label:
+              zh-CN: 没有区别
+              ja: 違いはない
+              en: No difference
+            fixHint:
+              zh-CN: 看看规则的事件模式匹配了哪个桶、哪个前缀
+              ja: ルールのイベントパターンがどのバケットのどのプレフィックスに一致しているかを見てください
+              en: Look at which bucket and which prefix the rule's event pattern matches
+          - value: faster
+            label:
+              zh-CN: 少一次跨桶复制，更快
+              ja: バケット間のコピーが 1 回減って速くなる
+              en: One fewer cross-bucket copy, so it is faster
+            fixHint:
+              zh-CN: 同区域的两个桶之间没有“复制”；问题在于输出会不会再次触发输入
+              ja: 同じリージョンの 2 つのバケットの間に「コピー」はありません。問題は、出力が再び入力を起動するかどうかです
+              en: There is no "copy" between two buckets in the same Region; the question is whether the output triggers the input again
 
   # ---- 失败路径
   - id: lambda-no-fault-rate
-    title: 函数环境变量中没有 FAULT_RATE（故障注入已还原）
+    title:
+      zh-CN: 函数环境变量中没有 FAULT_RATE（故障注入已还原）
+      ja: 関数の環境変数に FAULT_RATE がない（障害注入が元に戻されている）
+      en: The function's environment variables have no FAULT_RATE (fault injection has been reverted)
     type: aws-readonly
     service: lambda
     action: GetFunctionConfiguration
@@ -164,31 +302,62 @@ checks:
     dependsOn: [lambda-config]
     drift: { policy: must-hold }
     assert:
-      - { path: $.Environment.Variables.FAULT_RATE, op: absent, label: FAULT_RATE }
-    explain: 选读的“暂时错误”演示会临时给函数加 FAULT_RATE；结束前必须删除，否则一半照片会进入失败队列。
+      - { path: $.Environment.Variables.FAULT_RATE, op: absent, label: { zh-CN: FAULT_RATE, ja: FAULT_RATE, en: FAULT_RATE } }
+    explain:
+      zh-CN: 选读的“暂时错误”演示会临时给函数加 FAULT_RATE；结束前必须删除，否则一半照片会进入失败队列。
+      ja: 参考の「一時的なエラー」のデモでは、関数に一時的に FAULT_RATE を追加します。終了前に必ず削除してください。残っていると写真の半分が失敗キューに入ります。
+      en: The optional transient-error demo temporarily adds FAULT_RATE to the function; it must be removed before you finish, or half of the photos end up in the failure queue.
     reproduce: { run: 'aws lambda get-function-configuration --function-name "{{ var.functionName }}" --query "Environment.Variables.FAULT_RATE"', runsOn: workstation }
     pitfalls: [fault-rate-left]
     manualFallback:
       where: { breadcrumb: [Lambda, 函数, '{{ var.functionName }}', 配置, 环境变量], region: app }
       observed:
-        question: 环境变量里有 FAULT_RATE 吗？
+        question:
+          zh-CN: 环境变量里有 FAULT_RATE 吗？
+          ja: 環境変数に FAULT_RATE はありますか？
+          en: Is there a FAULT_RATE in the environment variables?
         options:
-          - { value: absent, label: 没有, expected: true }
-          - { value: present, label: 有, fixHint: 重新执行 scripts/module enable image-processing，用栈的配置覆盖手工修改 }
+          - { value: absent, label: { zh-CN: 没有, ja: ない, en: No }, expected: true }
+          - value: present
+            label:
+              zh-CN: 有
+              ja: ある
+              en: Yes
+            fixHint:
+              zh-CN: 重新执行 scripts/module enable image-processing，用栈的配置覆盖手工修改
+              ja: scripts/module enable image-processing を再実行し、スタックの設定で手動の変更を上書きしてください
+              en: Run scripts/module enable image-processing again to overwrite the manual change with the stack's configuration
 
   # ---- 紧急刹车
   - id: throttle-observed
-    title: 说出预留并发为 0 期间看到的现象
+    title:
+      zh-CN: 说出预留并发为 0 期间看到的现象
+      ja: 予約済み同時実行が 0 の間に見えた現象を答える
+      en: Describe what you saw while reserved concurrency was 0
     type: manual
     spec:
       observed:
-        question: 预留并发设为 0 的那段时间里上传了照片，函数“监控”页的 Throttles 或 AsyncEventsDropped 怎样？
+        question:
+          zh-CN: 预留并发设为 0 的那段时间里上传了照片，函数“监控”页的 Throttles 或 AsyncEventsDropped 怎样？
+          ja: 予約済み同時実行を 0 にしていた間に写真をアップロードしました。関数の「モニタリング」ページの Throttles や AsyncEventsDropped はどうなりましたか？
+          en: You uploaded photos while reserved concurrency was 0. What did Throttles or AsyncEventsDropped show on the function's "Monitor" page?
         options:
-          - { value: nonzero, label: 出现了非零值, expected: true }
-          - { value: zero, label: 都是 0, fixHint: 确认 get-function-concurrency 返回 0，并在此期间上传照片；指标约有 1～2 分钟延迟 }
+          - { value: nonzero, label: { zh-CN: 出现了非零值, ja: 0 以外の値が現れた, en: Non-zero values appeared }, expected: true }
+          - value: zero
+            label:
+              zh-CN: 都是 0
+              ja: どちらも 0
+              en: Both stayed at 0
+            fixHint:
+              zh-CN: 确认 get-function-concurrency 返回 0，并在此期间上传照片；指标约有 1～2 分钟延迟
+              ja: get-function-concurrency が 0 を返すことを確認し、その間に写真をアップロードしてください。メトリクスには 1～2 分ほどの遅れがあります
+              en: Make sure get-function-concurrency returns 0 and upload photos during that time; the metrics lag by about 1–2 minutes
 
   - id: concurrency-restored
-    title: 函数没有残留的预留并发（没有一直处于暂停状态）
+    title:
+      zh-CN: 函数没有残留的预留并发（没有一直处于暂停状态）
+      ja: 関数に予約済み同時実行が残っていない（ずっと一時停止したままになっていない）
+      en: No reserved concurrency is left on the function (it is not stuck paused)
     type: aws-readonly
     service: lambda
     action: GetFunctionConcurrency
@@ -197,34 +366,73 @@ checks:
     dependsOn: [lambda-config]
     drift: { policy: must-hold }
     assert:
-      - { path: $.ReservedConcurrentExecutions, op: absent, label: 预留并发（应为未设置） }
-    explain: 预留并发既是保底也是上限；设为 0 等于暂停函数。模块栈不设预留并发，演示结束后必须删除。
+      - { path: $.ReservedConcurrentExecutions, op: absent, label: { zh-CN: 预留并发（应为未设置）, ja: 予約済み同時実行（未設定であるべき）, en: Reserved concurrency (should be unset) } }
+    explain:
+      zh-CN: 预留并发既是保底也是上限；设为 0 等于暂停函数。模块栈不设预留并发，演示结束后必须删除。
+      ja: 予約済み同時実行は最低保証であると同時に上限でもあり、0 にすると関数を一時停止するのと同じです。モジュールスタックは予約済み同時実行を設定しないので、デモが終わったら必ず削除してください。
+      en: Reserved concurrency is both a guaranteed minimum and a ceiling, and 0 means the function is paused. The module stack sets no reserved concurrency, so it must be removed after the demo.
     reproduce: { run: 'aws lambda get-function-concurrency --function-name "{{ var.functionName }}"', runsOn: workstation }
     pitfalls: [throttle-left-on]
     manualFallback:
       where: { breadcrumb: [Lambda, 函数, '{{ var.functionName }}', 配置, 并发和递归检测], region: app }
       observed:
-        question: “预留并发”显示什么？
+        question:
+          zh-CN: “预留并发”显示什么？
+          ja: 「予約された同時実行数」には何と表示されていますか？
+          en: What does "Reserved concurrency" show?
         options:
-          - { value: none, label: 未设置（使用账号的非预留并发）, expected: true }
-          - { value: set, label: 设置了数值, fixHint: 执行 aws lambda delete-function-concurrency }
+          - { value: none, label: { zh-CN: 未设置（使用账号的非预留并发）, ja: 未設定（アカウントの予約されていない同時実行を使用）, en: Not set (uses the account's unreserved concurrency) }, expected: true }
+          - value: set
+            label:
+              zh-CN: 设置了数值
+              ja: 数値が設定されている
+              en: A value is set
+            fixHint:
+              zh-CN: 执行 aws lambda delete-function-concurrency
+              ja: aws lambda delete-function-concurrency を実行してください
+              en: Run aws lambda delete-function-concurrency
 
   # ---- 选做：冷启动
   - id: cold-start-observed
-    title: 在 REPORT 行里找到 Init Duration
+    title:
+      zh-CN: 在 REPORT 行里找到 Init Duration
+      ja: REPORT 行で Init Duration を見つける
+      en: Find Init Duration in the REPORT lines
     type: manual
     required: false
     spec:
       observed:
-        question: 闲置 15 分钟后上传的第一张照片，对应的 REPORT 日志行里有 Init Duration 吗？紧接着的 5 张呢？
+        question:
+          zh-CN: 闲置 15 分钟后上传的第一张照片，对应的 REPORT 日志行里有 Init Duration 吗？紧接着的 5 张呢？
+          ja: 15 分間アイドルにした後で最初にアップロードした写真の REPORT ログ行に Init Duration はありますか？ 続けてアップロードした 5 枚はどうですか？
+          en: Does the REPORT log line for the first photo uploaded after 15 idle minutes have an Init Duration? And the 5 uploaded right after it?
         options:
-          - { value: first-only, label: 只有第一张有, expected: true }
-          - { value: all, label: 每张都有, fixHint: 连续上传时 Lambda 会复用执行环境；并发上传会创建多个环境，各自有一次冷启动 }
-          - { value: none, label: 都没有, fixHint: 闲置时间可能不够长，或者配置了预置并发 }
+          - { value: first-only, label: { zh-CN: 只有第一张有, ja: 最初の 1 枚にだけある, en: Only the first one has it }, expected: true }
+          - value: all
+            label:
+              zh-CN: 每张都有
+              ja: どれにもある
+              en: Every one has it
+            fixHint:
+              zh-CN: 连续上传时 Lambda 会复用执行环境；并发上传会创建多个环境，各自有一次冷启动
+              ja: 続けてアップロードすると Lambda は実行環境を再利用します。同時にアップロードすると複数の環境が作られ、それぞれで 1 回コールドスタートが起きます
+              en: When you upload one after another, Lambda reuses the execution environment; concurrent uploads create several environments, each with its own cold start
+          - value: none
+            label:
+              zh-CN: 都没有
+              ja: どれにもない
+              en: None of them has it
+            fixHint:
+              zh-CN: 闲置时间可能不够长，或者配置了预置并发
+              ja: アイドルの時間が足りなかったか、プロビジョニングされた同時実行が設定されている可能性があります
+              en: Either it was not idle long enough, or provisioned concurrency is configured
 
   # ---- 回收验证
   - id: function-gone
-    title: 本会话的缩略图函数已删除
+    title:
+      zh-CN: 本会话的缩略图函数已删除
+      ja: このセッションのサムネイル関数が削除されている
+      en: This session's thumbnail function has been deleted
     type: aws-readonly
     service: lambda
     action: GetFunctionConfiguration
@@ -236,13 +444,40 @@ checks:
     manualFallback:
       where: { breadcrumb: [Lambda, 函数], region: app }
       observed:
-        question: 列表中还能找到 cloudalbum-{{ session.env }}-image-processing-thumbnail 吗？
+        question:
+          zh-CN: 列表中还能找到 cloudalbum-{{ session.env }}-image-processing-thumbnail 吗？
+          ja: 一覧にまだ cloudalbum-{{ session.env }}-image-processing-thumbnail がありますか？
+          en: Is cloudalbum-{{ session.env }}-image-processing-thumbnail still in the list?
         options:
-          - { value: gone, label: 找不到, expected: true }
-          - { value: present, label: 还在 }
+          - { value: gone, label: { zh-CN: 找不到, ja: 見つからない, en: Not found }, expected: true }
+          - { value: present, label: { zh-CN: 还在, ja: まだある, en: Still there } }
 
 pitfalls:
-  - { id: throttle-left-on, title: 函数仍被“紧急刹车”, match: [ { checkId: concurrency-restored, result: fail } ],
-      cause: 预留并发为 0 时所有调用都被限流，新照片的事件被丢弃并进入失败队列, fix: 执行 aws lambda delete-function-concurrency，然后在预览中重新上传 }
-  - { id: fault-rate-left, title: 故障注入没有还原, match: [ { checkId: lambda-no-fault-rate, result: fail } ],
-      cause: 选读演示给函数加了 FAULT_RATE 环境变量, fix: 重新执行 scripts/module enable image-processing，用栈的配置覆盖手工修改 }
+  - id: throttle-left-on
+    title:
+      zh-CN: 函数仍被“紧急刹车”
+      ja: 関数に「緊急ブレーキ」がかかったまま
+      en: The function still has the emergency brake on
+    match: [ { checkId: concurrency-restored, result: fail } ]
+    cause:
+      zh-CN: 预留并发为 0 时所有调用都被限流，新照片的事件被丢弃并进入失败队列
+      ja: 予約済み同時実行が 0 だと、すべての呼び出しがスロットリングされ、新しい写真のイベントは破棄されて失敗キューに入ります
+      en: With reserved concurrency at 0 every invocation is throttled, and events for new photos are dropped and sent to the failure queue
+    fix:
+      zh-CN: 执行 aws lambda delete-function-concurrency，然后在预览中重新上传
+      ja: aws lambda delete-function-concurrency を実行してから、プレビューでもう一度アップロードしてください
+      en: Run aws lambda delete-function-concurrency, then upload again in the preview
+  - id: fault-rate-left
+    title:
+      zh-CN: 故障注入没有还原
+      ja: 障害注入が元に戻されていない
+      en: Fault injection was not reverted
+    match: [ { checkId: lambda-no-fault-rate, result: fail } ]
+    cause:
+      zh-CN: 选读演示给函数加了 FAULT_RATE 环境变量
+      ja: 参考のデモで、関数に環境変数 FAULT_RATE が追加されています
+      en: The optional demo added the FAULT_RATE environment variable to the function
+    fix:
+      zh-CN: 重新执行 scripts/module enable image-processing，用栈的配置覆盖手工修改
+      ja: scripts/module enable image-processing を再実行し、スタックの設定で手動の変更を上書きしてください
+      en: Run scripts/module enable image-processing again to overwrite the manual change with the stack's configuration

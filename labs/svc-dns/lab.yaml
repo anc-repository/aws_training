@@ -9,50 +9,132 @@ id: svc-dns
 kind: service
 version: 1.0.0
 status: beta
-service: Amazon Route 53
-function: 域名解析
-title: Amazon Route 53：域名解析
-subtitle: http://<EIP> → 固定域名
-summary: 让相册用固定域名访问：背后的 IP 变了，域名链接在 TTL 过后自动恢复；顺带认识 Alias、TTL 与健康检查。
-story: |
-  L0 的链接里写的是 http://<EIP>，邮件和分享链接也是 IP。一旦地址变化（换实例、迁移、上 ALB 或 CDN），旧链接全部失效。
-  这张卡片给相册一个固定域名：先亲手“换一次 IP”看旧链接怎么失效，再启用 Route 53，同样的演练里域名链接在 TTL 过后自动恢复。
+service:
+  zh-CN: Amazon Route 53
+  ja: Amazon Route 53
+  en: Amazon Route 53
+function:
+  zh-CN: 域名解析
+  ja: 名前解決
+  en: Domain name resolution
+title:
+  zh-CN: Amazon Route 53：域名解析
+  ja: Amazon Route 53：名前解決
+  en: "Amazon Route 53: domain name resolution"
+subtitle:
+  zh-CN: http://<EIP> → 固定域名
+  ja: http://<EIP> → 固定のドメイン名
+  en: http://<EIP> → a fixed domain name
+summary:
+  zh-CN: 让相册用固定域名访问：背后的 IP 变了，域名链接在 TTL 过后自动恢复；顺带认识 Alias、TTL 与健康检查。
+  ja: アルバムに固定のドメイン名でアクセスできるようにします。背後の IP が変わっても、ドメイン名のリンクは TTL が過ぎれば自動で復旧します。あわせて Alias、TTL、ヘルスチェックも学びます。
+  en: "Give the album a fixed domain name: when the IP behind it changes, domain links recover on their own once the TTL passes. Along the way, meet Alias records, TTLs and health checks."
+story:
+  zh-CN: |
+    L0 的链接里写的是 http://<EIP>，邮件和分享链接也是 IP。一旦地址变化（换实例、迁移、上 ALB 或 CDN），旧链接全部失效。
+    这张卡片给相册一个固定域名：先亲手“换一次 IP”看旧链接怎么失效，再启用 Route 53，同样的演练里域名链接在 TTL 过后自动恢复。
+  ja: |
+    L0 のリンクには http://<EIP> と書かれており、メールや共有リンクも IP です。アドレスが変わると（インスタンスの交換、移行、ALB や CDN の導入）、古いリンクはすべて使えなくなります。
+    このカードではアルバムに固定のドメイン名を付けます。まず自分の手で「IP を 1 回変えて」古いリンクが使えなくなる様子を見てから Route 53 を有効にし、同じ訓練でドメイン名のリンクが TTL の経過後に自動で復旧することを確かめます。
+  en: |
+    At L0 the links say http://<EIP>, and so do the emails and share links. As soon as the address changes (a new instance, a migration, adding an ALB or CDN), every old link breaks.
+    This card gives the album a fixed domain name: first change the IP once yourself and watch old links break, then enable Route 53 and run the same drill to see domain links recover on their own after the TTL.
 objectives:
-  - { text: 区分域名注册与 DNS 托管，完成 NS 委派或使用已有托管区域, domain: resilient, relatesTo: enable-dns }
-  - { text: 用换 IP 演练证明“名字固定、目标可换”, domain: resilient, relatesTo: ip-after }
-  - { text: 说清 A、CNAME 与 Alias 的区别，以及区域顶点为什么只能用 Alias, domain: cost, relatesTo: alias-cname }
-  - { text: 理解 TTL、健康检查与故障转移的时间构成, domain: resilient, relatesTo: failover }
+  - text:
+      zh-CN: 区分域名注册与 DNS 托管，完成 NS 委派或使用已有托管区域
+      ja: ドメインの登録と DNS ホスティングを区別し、NS 委任を行うか既存のホストゾーンを使う
+      en: Tell domain registration apart from DNS hosting, and set up NS delegation or use an existing hosted zone
+    domain: resilient
+    relatesTo: enable-dns
+  - text:
+      zh-CN: 用换 IP 演练证明“名字固定、目标可换”
+      ja: IP 変更の訓練で「名前は固定、宛先は交換可能」を証明する
+      en: Use an IP change drill to prove that the name stays fixed while the target can change
+    domain: resilient
+    relatesTo: ip-after
+  - text:
+      zh-CN: 说清 A、CNAME 与 Alias 的区别，以及区域顶点为什么只能用 Alias
+      ja: A、CNAME、Alias の違いと、ゾーンの頂点で Alias しか使えない理由を説明できる
+      en: Explain the difference between A, CNAME and Alias records, and why the zone apex can only use Alias
+    domain: cost
+    relatesTo: alias-cname
+  - text:
+      zh-CN: 理解 TTL、健康检查与故障转移的时间构成
+      ja: TTL、ヘルスチェック、フェイルオーバーにかかる時間の内訳を理解する
+      en: Understand how TTLs, health checks and failover add up in time
+    domain: resilient
+    relatesTo: failover
 difficulty: intermediate
 estimatedMinutes: 60
 timeLimitMinutes: 120
 extensions: { maxCount: 2, minutesEach: 30 }
-retain: { allowed: true, maxHours: 24, reason: NS 委派可能需要较长时间生效；保留后可在下一张卡片（例如 svc-tls）中继续使用同一个托管区域 }
+retain:
+  allowed: true
+  maxHours: 24
+  reason:
+    zh-CN: NS 委派可能需要较长时间生效；保留后可在下一张卡片（例如 svc-tls）中继续使用同一个托管区域
+    ja: NS 委任の反映には時間がかかることがあります。保持すれば次のカード（例：svc-tls）でも同じホストゾーンを使い続けられます
+    en: NS delegation can take a long time to take effect; if you keep the environment, the next card (for example svc-tls) can keep using the same hosted zone
 regions:
   supported: [ap-northeast-1]
   alsoUses: [global, us-east-1]
 services:
-  - { id: route53, name: Amazon Route 53, role: primary, module: dns }
-  - { id: ec2, name: Amazon EC2（弹性 IP，记录目标）, role: supporting, module: ec2 }
-  - { id: iam, name: AWS IAM（实例角色）, role: context, module: iam }
-  - { id: ssm-session-manager, name: AWS Systems Manager Session Manager（平台管理通道）, role: observed }
+  - { id: route53, name: { zh-CN: Amazon Route 53, ja: Amazon Route 53, en: Amazon Route 53 }, role: primary, module: dns }
+  - { id: ec2, name: { zh-CN: Amazon EC2（弹性 IP，记录目标）, ja: Amazon EC2（Elastic IP、レコードの宛先）, en: "Amazon EC2 (Elastic IP, the record target)" }, role: supporting, module: ec2 }
+  - { id: iam, name: { zh-CN: AWS IAM（实例角色）, ja: AWS IAM（インスタンスロール）, en: AWS IAM (instance role) }, role: context, module: iam }
+  - id: ssm-session-manager
+    name:
+      zh-CN: AWS Systems Manager Session Manager（平台管理通道）
+      ja: AWS Systems Manager Session Manager（プラットフォームの管理チャネル）
+      en: AWS Systems Manager Session Manager (platform management channel)
+    role: observed
 modules: { target: [dns], start: [iam], context: [], related: [tls, cdn, load-balancer] }
 prerequisites:
   cards: [ { id: svc-ec2, kind: soft } ]
   learnerInputs:
     - { id: domain }
     - { id: hosted-zone, required: false }
-  knowledge: [域名、记录与 TTL 的基本概念, 在注册商处修改 NS 的方法]
+  knowledge: [{ zh-CN: 域名、记录与 TTL 的基本概念, ja: ドメイン名、レコード、TTL の基本, en: "Basics of domain names, records and TTLs" }, { zh-CN: 在注册商处修改 NS 的方法, ja: レジストラーで NS を変更する方法, en: How to change NS records at your registrar }]
 
 startProfile:
   provisions:
-    - { item: iam, kind: module, basis: credential, set: { IAM_CREDENTIALS: role },
-        reason: 平台约定除 svc-ec2、svc-iam 外起始状态都带实例角色；记录与健康检查状态的控制面感知因此可用 }
-    - { item: mgmt-channel, kind: platform, reason: 实验机挂只含 AmazonSSMManagedInstanceCore 的 CloudAlbumAppRole，是平台的管理通道，不是应用权限 }
-    - { item: workstation, kind: platform, reason: 每个会话一台工作台，用于运行 scripts/module、AWS CLI 与对比实验 }
-    - { item: check-bundle, kind: platform, reason: 检查包随 CloudAlbum 发布包安装在实验机的 /opt/atl（06 PM-04） }
-    - { item: preview-direct-https, kind: platform, reason: 预览用 Let's Encrypt IP 证书；本卡不涉及 tls 模块，保持开启 }
+    - item: iam
+      kind: module
+      basis: credential
+      set: { IAM_CREDENTIALS: role }
+      reason:
+        zh-CN: 平台约定除 svc-ec2、svc-iam 外起始状态都带实例角色；记录与健康检查状态的控制面感知因此可用
+        ja: プラットフォームの取り決めにより、svc-ec2 と svc-iam 以外の開始状態にはインスタンスロールが付いています。これによりレコードとヘルスチェックの状態をコントロールプレーンから確認できます
+        en: By platform convention, every start state except svc-ec2 and svc-iam includes an instance role, which lets the control plane see the records and health check status
+    - item: mgmt-channel
+      kind: platform
+      reason:
+        zh-CN: 实验机挂只含 AmazonSSMManagedInstanceCore 的 CloudAlbumAppRole，是平台的管理通道，不是应用权限
+        ja: ラボ用インスタンスには AmazonSSMManagedInstanceCore だけを含む CloudAlbumAppRole が付いています。これはプラットフォームの管理チャネルであり、アプリの権限ではありません
+        en: The lab instance carries CloudAlbumAppRole with only AmazonSSMManagedInstanceCore. It is the platform's management channel, not an app permission
+    - item: workstation
+      kind: platform
+      reason:
+        zh-CN: 每个会话一台工作台，用于运行 scripts/module、AWS CLI 与对比实验
+        ja: セッションごとに 1 台のワークベンチがあり、scripts/module、AWS CLI、比較実験の実行に使います
+        en: Each session has one workbench for running scripts/module, the AWS CLI and comparison experiments
+    - item: check-bundle
+      kind: platform
+      reason:
+        zh-CN: 检查包随 CloudAlbum 发布包安装在实验机的 /opt/atl（06 PM-04）
+        ja: チェックバンドルは CloudAlbum のリリースパッケージとともにラボ用インスタンスの /opt/atl にインストールされます（06 PM-04）
+        en: The check bundle is installed with the CloudAlbum release package in /opt/atl on the lab instance (06 PM-04)
+    - item: preview-direct-https
+      kind: platform
+      reason:
+        zh-CN: 预览用 Let's Encrypt IP 证书；本卡不涉及 tls 模块，保持开启
+        ja: プレビューには Let's Encrypt の IP 証明書を使います。このカードは tls モジュールに関係しないため、有効のままにします
+        en: The preview uses a Let's Encrypt IP certificate; this card does not involve the tls module, so it stays on
   platform: { preview: { directHttps: 'on' } }
-  reason: dns 指向 EIP 时只要求实例关联弹性 IP（L0 已满足），没有其他硬依赖；平台只额外准备实例角色（档位 atl/svc-dns/default）。自有域名是你的前置输入，不在起始状态里
+  reason:
+    zh-CN: dns 指向 EIP 时只要求实例关联弹性 IP（L0 已满足），没有其他硬依赖；平台只额外准备实例角色（档位 atl/svc-dns/default）。自有域名是你的前置输入，不在起始状态里
+    ja: EIP を指す dns は、インスタンスに Elastic IP が関連付けられていること（L0 で満たされています）だけを必要とし、ほかに必須の依存はありません。プラットフォームが追加で用意するのはインスタンスロールだけです（プロファイル atl/svc-dns/default）。自分のドメインはあなたの事前入力で、開始状態には含まれません
+    en: dns pointing at the EIP only needs an Elastic IP associated with the instance (already true at L0) and has no other hard dependency; the platform only adds the instance role (profile atl/svc-dns/default). Your own domain is a pre-input from you, not part of the start state
 targetModules:
   - id: dns
     driver: route53
@@ -67,14 +149,23 @@ provision: { class: A, cleanupBudgetMinutes: 30 }
 
 variables:
   hostedZoneId:
-    label: 托管区域 ID
+    label:
+      zh-CN: 托管区域 ID
+      ja: ホストゾーン ID
+      en: Hosted zone ID
     from: derived
     fillFrom: stack.dns.EnvDnsHostedZoneId
     pattern: '^Z[A-Z0-9]{4,32}$'
     example: Z0123456789ABCDEFGHIJ
-    help: 启用 dns 后由 dns 栈输出自动取得（新建或你指定的已有托管区域）
+    help:
+      zh-CN: 启用 dns 后由 dns 栈输出自动取得（新建或你指定的已有托管区域）
+      ja: dns を有効にすると dns スタックの出力から自動で取得します（新しく作成したもの、またはあなたが指定した既存のホストゾーン）
+      en: Filled in automatically from the dns stack outputs once dns is enabled (a new hosted zone, or the existing one you specified)
   recordName:
-    label: 记录名
+    label:
+      zh-CN: 记录名
+      ja: レコード名
+      en: Record name
     from: derived
     fillFrom: stack.dns.EnvDnsRecordName
     pattern: '^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z][a-z0-9-]{0,62}$'
@@ -83,22 +174,43 @@ variables:
 cost:
   currency: USD
   tier: low
-  mainDrivers: [Route 53 托管区域（按月）, Route 53 标准查询, 健康检查（选做，按月）]
+  mainDrivers: [{ zh-CN: Route 53 托管区域（按月）, ja: Route 53 のホストゾーン（月額）, en: Route 53 hosted zone (monthly) }, { zh-CN: Route 53 标准查询, ja: Route 53 の標準クエリ, en: Route 53 standard queries }, { zh-CN: 健康检查（选做，按月）, ja: ヘルスチェック（任意、月額）, en: "Health checks (optional, monthly)" }]
   basis:
-    - { ref: start-profile, note: 实验机 EC2、EBS（根卷与数据卷）、公网 IPv4 }
-    - { ref: workstation, note: 工作台 EC2、EBS、公网 IPv4 }
-    - { key: hosted-zone, pricingKey: route53.hosted-zone, billing: monthly, quantity: 1, source: target, whenRetained: true,
-        note: 使用本账号已有的托管区域时不新增；创建后很快删除的托管区域有不收费的宽限规则，以官方定价为准 }
+    - ref: start-profile
+      note:
+        zh-CN: 实验机 EC2、EBS（根卷与数据卷）、公网 IPv4
+        ja: ラボ用インスタンスの EC2、EBS（ルートボリュームとデータボリューム）、パブリック IPv4
+        en: Lab instance EC2, EBS (root and data volumes) and public IPv4
+    - { ref: workstation, note: { zh-CN: 工作台 EC2、EBS、公网 IPv4, ja: ワークベンチの EC2、EBS、パブリック IPv4, en: "Workbench EC2, EBS and public IPv4" } }
+    - key: hosted-zone
+      pricingKey: route53.hosted-zone
+      billing: monthly
+      quantity: 1
+      source: target
+      whenRetained: true
+      note:
+        zh-CN: 使用本账号已有的托管区域时不新增；创建后很快删除的托管区域有不收费的宽限规则，以官方定价为准
+        ja: このアカウントの既存のホストゾーンを使う場合は増えません。作成後すぐに削除したホストゾーンには課金されない猶予の規定があります。正確な料金は公式の料金表を確認してください
+        en: Nothing extra if you use a hosted zone that already exists in this account; hosted zones deleted shortly after creation fall under a no-charge grace rule — check the official pricing
     - { key: queries, pricingKey: route53.queries, billing: usage, quantity: 1, unit: Queries, assumedUsagePerHour: 2000, source: target, whenRetained: false }
   assumptions:
-    - 标准查询按每小时约 2000 次估算（演练脚本每 5 秒查询一次 + 浏览），指向 AWS 资源的 Alias 查询不收费，以官方定价为准
-    - 托管区域按月计费，报价按会话时长折算；域名注册费不在本卡范围内
-    - 换 IP 演练期间（每次约 5 分钟）多一个临时公网 IPv4，演练结束时释放，金额可忽略，未计入
+    - zh-CN: 标准查询按每小时约 2000 次估算（演练脚本每 5 秒查询一次 + 浏览），指向 AWS 资源的 Alias 查询不收费，以官方定价为准
+      ja: 標準クエリは 1 時間あたり約 2000 回で見積もっています（訓練スクリプトの 5 秒ごとのクエリ＋閲覧）。AWS リソースを指す Alias のクエリは無料です。正確な料金は公式の料金表を確認してください
+      en: Standard queries are estimated at about 2,000 per hour (the drill script queries every 5 seconds, plus browsing); Alias queries to AWS resources are free — check the official pricing
+    - zh-CN: 托管区域按月计费，报价按会话时长折算；域名注册费不在本卡范围内
+      ja: ホストゾーンは月額課金で、見積もりはセッション時間で按分しています。ドメインの登録料金はこのカードの範囲外です
+      en: Hosted zones are billed monthly, and the quote prorates that over the session length; domain registration fees are outside this card
+    - zh-CN: 换 IP 演练期间（每次约 5 分钟）多一个临时公网 IPv4，演练结束时释放，金额可忽略，未计入
+      ja: IP 変更の訓練中（1 回約 5 分）は一時的なパブリック IPv4 が 1 つ増え、訓練の終了時に解放されます。金額はごくわずかなので含めていません
+      en: During each IP change drill (about 5 minutes) there is one extra temporary public IPv4 address, released when the drill ends; the amount is negligible and not included
 
 steps:
   - id: ip-before
     type: experiment
-    title: before：换一次 IP，看 IP 链接有多脆弱
+    title:
+      zh-CN: before：换一次 IP，看 IP 链接有多脆弱
+      ja: before：IP を 1 回変えて、IP のリンクがいかに壊れやすいかを見る
+      en: "before: change the IP once and see how fragile IP links are"
     manual: manual/10-ip-before.md
     experiment: { module: dns, id: ip-change-drill, label: before }
     panel: terminal-workstation
@@ -107,7 +219,10 @@ steps:
 
   - id: domain
     type: observe
-    title: 准备域名：已有托管区域，或能做 NS 委派
+    title:
+      zh-CN: 准备域名：已有托管区域，或能做 NS 委派
+      ja: ドメインの準備：既存のホストゾーン、または NS 委任ができること
+      en: "Prepare a domain: an existing hosted zone, or the ability to delegate NS"
     manual: manual/20-domain.md
     panel: terminal-workstation
     estMinutes: 5
@@ -116,18 +231,36 @@ steps:
   - id: enable-dns
     type: script
     wire: true
-    title: 启用 Route 53 并接入应用（A 记录 → 实验机 EIP）
+    title:
+      zh-CN: 启用 Route 53 并接入应用（A 记录 → 实验机 EIP）
+      ja: Route 53 を有効にしてアプリに組み込む（A レコード → ラボ用インスタンスの EIP）
+      en: Enable Route 53 and wire it into the app (A record → the lab instance's EIP)
     manual: manual/30-enable-dns.md
     methods: [script]
     panel: terminal-workstation
     estMinutes: 15
-    startsBilling: { class: fixed-monthly, pricingKeys: [route53.hosted-zone], note: 托管区域按月计费（使用已有托管区域时不新增） }
-    wait: { typicalMinutes: 5, maxMinutes: 30, text: 新建托管区域时要等注册商 / 父域的 NS 委派生效 }
+    startsBilling:
+      class: fixed-monthly
+      pricingKeys: [ route53.hosted-zone ]
+      note:
+        zh-CN: 托管区域按月计费（使用已有托管区域时不新增）
+        ja: ホストゾーンは月額課金です（既存のホストゾーンを使う場合は増えません）
+        en: Hosted zones are billed monthly (nothing extra if you use an existing one)
+    wait:
+      typicalMinutes: 5
+      maxMinutes: 30
+      text:
+        zh-CN: 新建托管区域时要等注册商 / 父域的 NS 委派生效
+        ja: ホストゾーンを新しく作る場合は、レジストラー／親ドメインでの NS 委任が反映されるまで待ちます
+        en: With a new hosted zone, wait for the NS delegation at the registrar / parent domain to take effect
     checks: [cap-dns-healthy, dns-module-state, dns-stack, dns-resolves-eip, dns-record]
 
   - id: ip-after
     type: experiment
-    title: after：同样的换 IP 演练，域名链接在 TTL 过后自动恢复
+    title:
+      zh-CN: after：同样的换 IP 演练，域名链接在 TTL 过后自动恢复
+      ja: after：同じ IP 変更の訓練で、ドメイン名のリンクが TTL の経過後に自動で復旧する
+      en: "after: the same IP change drill, and domain links recover on their own after the TTL"
     manual: manual/40-ip-after.md
     experiment: { module: dns, id: ip-change-drill, label: after }
     requires: { steps: [enable-dns] }
@@ -137,7 +270,10 @@ steps:
 
   - id: alias-cname
     type: cli
-    title: Alias 与 CNAME：区域顶点只能用 Alias
+    title:
+      zh-CN: Alias 与 CNAME：区域顶点只能用 Alias
+      ja: Alias と CNAME：ゾーンの頂点では Alias しか使えない
+      en: "Alias and CNAME: the zone apex can only use Alias"
     manual: manual/50-alias-cname.md
     requires: { steps: [enable-dns] }
     panel: terminal-workstation
@@ -146,9 +282,16 @@ steps:
 
   - id: failover
     type: experiment
-    title: （选做）健康检查与故障转移：停掉 Nginx，客户端多久拿到维护页
+    title:
+      zh-CN: （选做）健康检查与故障转移：停掉 Nginx，客户端多久拿到维护页
+      ja: （任意）ヘルスチェックとフェイルオーバー：Nginx を止めると、クライアントがメンテナンスページを受け取るまでどれくらいかかるか
+      en: "(Optional) Health checks and failover: stop Nginx and see how long clients take to get the maintenance page"
     manual: manual/60-failover.md
-    optional: { reason: 不影响完成；需要再部署一次 dns 栈并等待健康检查 }
+    optional:
+      reason:
+        zh-CN: 不影响完成；需要再部署一次 dns 栈并等待健康检查
+        ja: 完了には影響しません。dns スタックをもう一度デプロイし、ヘルスチェックを待つ必要があります
+        en: Does not affect completion; you need to deploy the dns stack again and wait for the health check
     experiment: { module: dns, id: failover-drill, label: after }
     requires: { steps: [enable-dns] }
     panel: terminal-workstation
@@ -174,30 +317,84 @@ experiments:
   - { module: dns, id: weighted-sample, labels: [after], required: false, runner: workstation, validity: functional, corroborateWith: [cap-dns-healthy] }
 
 quiz: { file: quiz.yaml, draw: 3 }
-badge: { title: 固定域名, icon: assets/badge.svg }
+badge: { title: { zh-CN: 固定域名, ja: 固定ドメイン名, en: Fixed domain name }, icon: assets/badge.svg }
 tracks: [networking, resilient, saa-main]
 
 cleanup:
-  summary: 结束实验后，平台删除 dns 栈中的记录与（选做的）健康检查；本会话新建的托管区域也一并删除（结束对话框中可以勾选保留）。你在注册商或父域添加的 NS 委派平台无权删除，请自己删掉，否则留下悬空委派。
+  summary:
+    zh-CN: 结束实验后，平台删除 dns 栈中的记录与（选做的）健康检查；本会话新建的托管区域也一并删除（结束对话框中可以勾选保留）。你在注册商或父域添加的 NS 委派平台无权删除，请自己删掉，否则留下悬空委派。
+    ja: ラボを終了すると、プラットフォームが dns スタックのレコードと（任意の）ヘルスチェックを削除します。このセッションで新しく作成したホストゾーンも一緒に削除します（終了ダイアログで保持を選ぶこともできます）。レジストラーや親ドメインに追加した NS 委任はプラットフォームには削除する権限がないため、自分で削除してください。残すと宙に浮いた委任になります。
+    en: When you end the lab, the platform deletes the records and the (optional) health check in the dns stack, along with any hosted zone this session created (you can choose to keep it in the end dialog). The platform has no permission to remove the NS delegation you added at your registrar or parent domain — remove it yourself, or you leave a dangling delegation behind.
   autoReclaim: true
-  dataRisk: [没有业务数据；托管区域中只有本卡创建的记录]
+  dataRisk:
+    - zh-CN: 没有业务数据；托管区域中只有本卡创建的记录
+      ja: 業務データはありません。ホストゾーンにあるのはこのカードで作成したレコードだけです
+      en: There is no business data; the hosted zone only holds the records this card created
   learnerCreatedHints:
-    - { resourceType: 'AWS::Route53::RecordSet', how: 第 5 步手工建的 Alias 记录请在结束前自己删除（回收器按 CloudTrail 认领，有分钟级延迟） }
-    - { resourceType: 'AWS::EC2::EIP', how: 换 IP 演练中途失败时，到控制台确认实验机仍挂着原 EIP，并释放临时 EIP（未关联的 EIP 也计费） }
+    - resourceType: 'AWS::Route53::RecordSet'
+      how:
+        zh-CN: 第 5 步手工建的 Alias 记录请在结束前自己删除（回收器按 CloudTrail 认领，有分钟级延迟）
+        ja: ステップ 5 で手動作成した Alias レコードは、終了前に自分で削除してください（回収処理は CloudTrail で特定するため、分単位の遅れがあります）
+        en: Delete the Alias record you created by hand in step 5 yourself before ending (the reclaimer finds it through CloudTrail, with a delay of minutes)
+    - resourceType: 'AWS::EC2::EIP'
+      how:
+        zh-CN: 换 IP 演练中途失败时，到控制台确认实验机仍挂着原 EIP，并释放临时 EIP（未关联的 EIP 也计费）
+        ja: IP 変更の訓練が途中で失敗した場合は、コンソールでラボ用インスタンスに元の EIP が付いていることを確認し、一時的な EIP を解放してください（関連付けられていない EIP も課金されます）
+        en: If an IP change drill failed halfway, check in the console that the lab instance still has its original EIP, and release the temporary EIP (an unassociated EIP is billed too)
   verify:
     - dns-stack-gone
 
 saa:
   domains: [resilient, cost]
   topics:
-    - { id: alias-vs-cname, title: A、CNAME 与 Alias；区域顶点只能用 Alias, domain: cost, relatesTo: alias-cname }
-    - { id: ttl, title: TTL 与缓存：迁移前先调低 TTL, domain: resilient, relatesTo: ip-after }
-    - { id: routing-policies, title: 简单、加权、故障转移等路由策略, domain: resilient, relatesTo: failover }
-    - { id: health-checks, title: 端点、计算型与基于告警的健康检查；Evaluate Target Health, domain: resilient, relatesTo: failover }
-    - { id: registration-vs-hosting, title: 域名注册与 DNS 托管是两件事；NS 委派, domain: resilient, relatesTo: enable-dns }
+    - id: alias-vs-cname
+      title:
+        zh-CN: A、CNAME 与 Alias；区域顶点只能用 Alias
+        ja: A、CNAME、Alias。ゾーンの頂点では Alias しか使えない
+        en: A, CNAME and Alias; the zone apex can only use Alias
+      domain: cost
+      relatesTo: alias-cname
+    - { id: ttl, title: { zh-CN: TTL 与缓存：迁移前先调低 TTL, ja: TTL とキャッシュ：移行の前に TTL を下げておく, en: "TTLs and caching: lower the TTL before a migration" }, domain: resilient, relatesTo: ip-after }
+    - { id: routing-policies, title: { zh-CN: 简单、加权、故障转移等路由策略, ja: シンプル、加重、フェイルオーバーなどのルーティングポリシー, en: "Routing policies such as simple, weighted and failover" }, domain: resilient, relatesTo: failover }
+    - id: health-checks
+      title:
+        zh-CN: 端点、计算型与基于告警的健康检查；Evaluate Target Health
+        ja: エンドポイント、算出、アラームに基づくヘルスチェック。Evaluate Target Health
+        en: Endpoint, calculated and alarm-based health checks; Evaluate Target Health
+      domain: resilient
+      relatesTo: failover
+    - id: registration-vs-hosting
+      title:
+        zh-CN: 域名注册与 DNS 托管是两件事；NS 委派
+        ja: ドメインの登録と DNS ホスティングは別物。NS 委任
+        en: Domain registration and DNS hosting are two different things; NS delegation
+      domain: resilient
+      relatesTo: enable-dns
   confusables:
-    - { a: Alias 记录, b: CNAME 记录, rule: Alias 可以用在区域顶点、指向 AWS 资源时查询免费，但不能指向 IP；CNAME 不能用在区域顶点 }
-    - { a: 公有托管区域, b: 私有托管区域, rule: 私有托管区域只在关联的 VPC 内解析，要求 VPC 开启 DNS 支持与 DNS 主机名 }
+    - a:
+        zh-CN: Alias 记录
+        ja: Alias レコード
+        en: Alias record
+      b:
+        zh-CN: CNAME 记录
+        ja: CNAME レコード
+        en: CNAME record
+      rule:
+        zh-CN: Alias 可以用在区域顶点、指向 AWS 资源时查询免费，但不能指向 IP；CNAME 不能用在区域顶点
+        ja: Alias はゾーンの頂点で使え、AWS リソースを指すクエリは無料ですが、IP は指せません。CNAME はゾーンの頂点では使えません
+        en: Alias works at the zone apex and queries to AWS resources are free, but it cannot point at an IP; CNAME cannot be used at the zone apex
+    - a:
+        zh-CN: 公有托管区域
+        ja: パブリックホストゾーン
+        en: Public hosted zone
+      b:
+        zh-CN: 私有托管区域
+        ja: プライベートホストゾーン
+        en: Private hosted zone
+      rule:
+        zh-CN: 私有托管区域只在关联的 VPC 内解析，要求 VPC 开启 DNS 支持与 DNS 主机名
+        ja: プライベートホストゾーンは関連付けた VPC 内でしか解決されず、VPC で DNS サポートと DNS ホスト名を有効にする必要があります
+        en: A private hosted zone only resolves inside the associated VPCs, which must have DNS support and DNS hostnames enabled
 
 tags: [dns, route53, alias, ttl, failover]
 

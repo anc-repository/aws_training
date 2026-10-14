@@ -3,61 +3,125 @@
 checks:
   # ---- 起始状态（before 一律 once）
   - id: cost-local-baseline
-    title: 起始状态：cost 是本地估算，清单里有 EC2 实例
+    title:
+      zh-CN: 起始状态：cost 是本地估算，清单里有 EC2 实例
+      ja: 開始状態：cost はローカルの見積もりで、一覧に EC2 インスタンスがある
+      en: "Start state: cost is the local estimate, and the list includes the EC2 instance"
     type: capability
     module: cost
     drift: { policy: once }
     assert:
-      - { path: $.driver, op: eq, value: local, label: 驱动 }
-      - { path: $.status, op: eq, value: 'off', label: 模块状态（本地实现） }
-      - { path: $.detail, op: contains, value: EC2, label: 本地清单含 EC2 }
-    explain: 本地估算按 registry 的计费维度 × 模块启用时长列出“现在有哪些按小时计费的资源”，不写任何价格；它就是 /lab 顶栏左侧的那行字。
+      - { path: $.driver, op: eq, value: local, label: { zh-CN: 驱动, ja: ドライバー, en: Driver } }
+      - { path: $.status, op: eq, value: 'off', label: { zh-CN: 模块状态（本地实现）, ja: モジュールの状態（ローカル実装）, en: Module status (local implementation) } }
+      - { path: $.detail, op: contains, value: EC2, label: { zh-CN: 本地清单含 EC2, ja: ローカルの一覧に EC2 がある, en: Local list includes EC2 } }
+    explain:
+      zh-CN: 本地估算按 registry 的计费维度 × 模块启用时长列出“现在有哪些按小时计费的资源”，不写任何价格；它就是 /lab 顶栏左侧的那行字。
+      ja: ローカルの見積もりは、registry の課金ディメンション × モジュールの有効期間から「いまどの時間課金リソースがあるか」を一覧にし、価格は一切書きません。/lab のトップバー左側に出ているあの 1 行がそれです。
+      en: The local estimate lists which hourly-billed resources exist right now, from the registry's billing dimensions × how long each module has been on, without any prices; it is the line on the left of the /lab top bar.
     reproduce: { run: 'curl -s http://127.0.0.1/api/capabilities | jq ".modules.cost | {driver, status, localHealth, detail}"', runsOn: lab }
 
   - id: local-blind-spots
-    title: 说出本地清单看不到的费用
+    title:
+      zh-CN: 说出本地清单看不到的费用
+      ja: ローカルの一覧では見えない費用を答える
+      en: Name the costs the local list cannot see
     type: manual
     spec:
       observed:
-        question: 下面哪一组费用，本地清单（registry 计费维度 × 启用时长）一定看不到？
+        question:
+          zh-CN: 下面哪一组费用，本地清单（registry 计费维度 × 启用时长）一定看不到？
+          ja: ローカルの一覧（registry の課金ディメンション × 有効期間）で必ず見えないのは、次のどの費用ですか？
+          en: Which of these costs can the local list (registry billing dimensions × time enabled) never see?
         options:
-          - { value: transfer-and-manual, label: 数据传出等按用量计费的部分，以及在控制台手工创建的资源, expected: true }
-          - { value: ec2, label: 实验机本身的 EC2 实例小时, fixHint: EC2 实例与公网 IPv4 就在清单里 }
-          - { value: rds, label: 经 scripts/module 启用的 RDS, fixHint: 经 scripts/module 启用的按小时计费模块启用即出现在清单里 }
+          - value: transfer-and-manual
+            label:
+              zh-CN: 数据传出等按用量计费的部分，以及在控制台手工创建的资源
+              ja: データ転送（アウト）などの従量課金部分と、コンソールで手動作成したリソース
+              en: Usage-based charges such as data transfer out, and resources created by hand in the console
+            expected: true
+          - value: ec2
+            label:
+              zh-CN: 实验机本身的 EC2 实例小时
+              ja: ラボ用インスタンス自体の EC2 インスタンス時間
+              en: The lab instance's own EC2 instance hours
+            fixHint:
+              zh-CN: EC2 实例与公网 IPv4 就在清单里
+              ja: EC2 インスタンスとパブリック IPv4 はまさに一覧に載っています
+              en: The EC2 instance and the public IPv4 address are right there in the list
+          - value: rds
+            label:
+              zh-CN: 经 scripts/module 启用的 RDS
+              ja: scripts/module で有効にした RDS
+              en: RDS enabled through scripts/module
+            fixHint:
+              zh-CN: 经 scripts/module 启用的按小时计费模块启用即出现在清单里
+              ja: scripts/module で有効にした時間課金のモジュールは、有効化した瞬間に一覧に現れます
+              en: Hourly-billed modules enabled through scripts/module show up in the list as soon as they are enabled
       input: { label: 再写一类你认为它看不到的费用, pattern: '^.{2,60}$' }
 
   - id: cost-present
-    title: 应用可达，capabilities 中有 cost（实验时间窗的佐证）
+    title:
+      zh-CN: 应用可达，capabilities 中有 cost（实验时间窗的佐证）
+      ja: アプリにアクセスでき、capabilities に cost がある（実験の時間帯の裏付け）
+      en: The app is reachable and capabilities includes cost (evidence of the lab time window)
     type: capability
     module: cost
     drift: { policy: once }
     assert:
-      - { path: $.driver, op: in, value: [local, budgets], label: 驱动 }
+      - { path: $.driver, op: in, value: [local, budgets], label: { zh-CN: 驱动, ja: ドライバー, en: Driver } }
 
   # ---- 单价（选做）
   - id: cost-rates-estimate
-    title: 填写了注明出处的单价后，本地清单显示“估算”金额
+    title:
+      zh-CN: 填写了注明出处的单价后，本地清单显示“估算”金额
+      ja: 出典を明記した単価を入力すると、ローカルの一覧に「見積もり」の金額が表示される
+      en: After you enter prices with a stated source, the local list shows an estimated amount
     type: capability
     module: cost
     drift: { policy: once }
     assert:
-      - { path: $.detail, op: contains, value: 估算, label: detail 含估算 }
-    explain: 只有 cost-rates.yaml 中注明 source（官方定价页 URL）与 retrievedAt（抄录日期）、resource 与 registry 逐字一致的按小时条目才参与估算（CFG-010）。
+      - { path: $.detail, op: contains, value: 估算, label: { zh-CN: detail 含估算, ja: detail に見積もりがある, en: detail includes an estimate } }
+    explain:
+      zh-CN: 只有 cost-rates.yaml 中注明 source（官方定价页 URL）与 retrievedAt（抄录日期）、resource 与 registry 逐字一致的按小时条目才参与估算（CFG-010）。
+      ja: 見積もりに使われるのは、cost-rates.yaml で source（公式料金ページの URL）と retrievedAt（書き写した日付）を明記し、resource が registry と一字一句一致する時間課金の項目だけです（CFG-010）。
+      en: Only hourly entries in cost-rates.yaml that state a source (the official pricing page URL) and retrievedAt (the date you copied it), and whose resource matches the registry exactly, count toward the estimate (CFG-010).
 
   - id: cfg010-understood
-    title: 理解为什么没有出处的单价不参与估算
+    title:
+      zh-CN: 理解为什么没有出处的单价不参与估算
+      ja: 出典のない単価が見積もりに使われない理由を理解する
+      en: Understand why prices without a source are left out of the estimate
     type: manual
     spec:
       observed:
-        question: 你故意删掉某个条目的 source 后，会发生什么？
+        question:
+          zh-CN: 你故意删掉某个条目的 source 后，会发生什么？
+          ja: ある項目の source をわざと削除すると、どうなりますか？
+          en: What happens when you deliberately delete the source of an entry?
         options:
-          - { value: excluded, label: 这个条目不参与估算，detail 提示“未注明出处”，并出现 CFG-010 警告, expected: true }
-          - { value: default, label: 项目会用内置的默认单价补上, fixHint: 本项目不提供任何默认单价（D14） }
-          - { value: crash, label: 应用拒绝启动, fixHint: CFG-010 是 warn 级规则，不阻止启动 }
+          - value: excluded
+            label:
+              zh-CN: 这个条目不参与估算，detail 提示“未注明出处”，并出现 CFG-010 警告
+              ja: その項目は見積もりに使われず、detail に「未注明出处」（出典なし）と表示され、CFG-010 の警告が出る
+              en: That entry is left out of the estimate, detail says "未注明出处" (no source stated), and a CFG-010 warning appears
+            expected: true
+          - { value: default, label: { zh-CN: 项目会用内置的默认单价补上, ja: プロジェクトが組み込みの既定単価で補う, en: The project fills in a built-in default price }, fixHint: { zh-CN: 本项目不提供任何默认单价（D14）, ja: このプロジェクトは既定の単価を一切提供しません（D14）, en: This project provides no default prices at all (D14) } }
+          - value: crash
+            label:
+              zh-CN: 应用拒绝启动
+              ja: アプリが起動を拒否する
+              en: The app refuses to start
+            fixHint:
+              zh-CN: CFG-010 是 warn 级规则，不阻止启动
+              ja: CFG-010 は warn レベルのルールで、起動は妨げません
+              en: CFG-010 is a warn-level rule and does not block startup
 
   # ---- 成本分配标签
   - id: tag-active
-    title: 成本分配标签 Project 已激活
+    title:
+      zh-CN: 成本分配标签 Project 已激活
+      ja: コスト配分タグ Project が有効になっている
+      en: The Project cost allocation tag is active
     type: aws-readonly
     service: ce
     action: ListCostAllocationTags
@@ -66,21 +130,38 @@ checks:
     ttl: 30m
     drift: { policy: once }
     assert:
-      - { path: $.CostAllocationTags, where: { TagKey: Project, Status: Active }, op: len_eq, value: 1, label: Project 为 Active }
-    explain: 未激活也可以继续：项目预算会一直显示 0，这本身就是观察点。Cost Explorer API 可能按请求计费，检查结果缓存 30 分钟。
+      - { path: $.CostAllocationTags, where: { TagKey: Project, Status: Active }, op: len_eq, value: 1, label: { zh-CN: Project 为 Active, ja: Project が Active, en: Project is Active } }
+    explain:
+      zh-CN: 未激活也可以继续：项目预算会一直显示 0，这本身就是观察点。Cost Explorer API 可能按请求计费，检查结果缓存 30 分钟。
+      ja: 有効になっていなくても続けられます。プロジェクト予算はずっと 0 と表示されますが、それ自体が観察ポイントです。Cost Explorer API はリクエストごとに課金される場合があるため、チェック結果は 30 分間キャッシュされます。
+      en: "You can carry on even if it is not active: the project budget will keep showing 0, which is itself something to observe. The Cost Explorer API may be billed per request, so the check result is cached for 30 minutes."
     reproduce: { run: 'aws ce list-cost-allocation-tags --tag-keys Project --region us-east-1', runsOn: workstation }
     pitfalls: [tag-not-active]
     manualFallback:
       where: { breadcrumb: [Billing and Cost Management, 成本分配标签, 用户定义的成本分配标签], region: global }
       observed:
-        question: Project 标签的状态是什么？
+        question:
+          zh-CN: Project 标签的状态是什么？
+          ja: Project タグの状態は何ですか？
+          en: What is the status of the Project tag?
         options:
-          - { value: active, label: 有效（Active）, expected: true }
-          - { value: inactive, label: 无效或找不到, fixHint: 执行平台动作“激活成本分配标签”；新标签键要一段时间才能激活，激活后还要一段时间才生效 }
+          - { value: active, label: { zh-CN: 有效（Active）, ja: 有効（Active）, en: Active }, expected: true }
+          - value: inactive
+            label:
+              zh-CN: 无效或找不到
+              ja: 無効、または見つからない
+              en: Inactive or not found
+            fixHint:
+              zh-CN: 执行平台动作“激活成本分配标签”；新标签键要一段时间才能激活，激活后还要一段时间才生效
+              ja: プラットフォームアクション「コスト配分タグを有効化」を実行してください。新しいタグキーは有効化できるまでに時間がかかり、有効化後も反映まで時間がかかります
+              en: Run the platform action "Activate cost allocation tags"; new tag keys take a while before they can be activated, and a while longer before they take effect
 
   # ---- 接入
   - id: cost-wired
-    title: cost 已切换到 AWS Budgets（订阅确认前可以等待）
+    title:
+      zh-CN: cost 已切换到 AWS Budgets（订阅确认前可以等待）
+      ja: cost が AWS Budgets に切り替わっている（サブスクリプションの確認前は待機できる）
+      en: cost has switched to AWS Budgets (it can wait until the subscription is confirmed)
     type: capability
     module: cost
     wait: { typicalMinutes: 3, maxMinutes: 15 }
@@ -89,40 +170,55 @@ checks:
       - { path: $.detail, op: contains, value: 订阅未确认 }
     drift: { policy: must-hold, monitor: true }
     assert:
-      - { path: $.driver, op: eq, value: budgets, label: 驱动 }
+      - { path: $.driver, op: eq, value: budgets, label: { zh-CN: 驱动, ja: ドライバー, en: Driver } }
     anyOf:
-      - [ { path: $, op: healthy, label: 状态正常 } ]
-      - [ { path: $.status, op: eq, value: degraded, label: 状态为 degraded }, { path: $.detail, op: contains, value: 尚未生效, label: 原因是成本分配标签尚未生效 } ]
-    explain: 成本分配标签尚未生效不是规则表中的 warn，会话内通常等不到，这里用 anyOf 显式允许这一种 degraded；订阅未确认是等待型（pendingIf）。
+      - [ { path: $, op: healthy, label: { zh-CN: 状态正常, ja: 状態が正常, en: Healthy } } ]
+      - [ { path: $.status, op: eq, value: degraded, label: { zh-CN: 状态为 degraded, ja: 状態が degraded, en: Status is degraded } }, { path: $.detail, op: contains, value: 尚未生效, label: { zh-CN: 原因是成本分配标签尚未生效, ja: 原因はコスト配分タグがまだ反映されていないこと, en: Because the cost allocation tag has not taken effect yet } } ]
+    explain:
+      zh-CN: 成本分配标签尚未生效不是规则表中的 warn，会话内通常等不到，这里用 anyOf 显式允许这一种 degraded；订阅未确认是等待型（pendingIf）。
+      ja: 「コスト配分タグがまだ反映されていない」はルール表の warn ではなく、セッション中に待っても通常は反映されないため、ここでは anyOf でこの 1 種類の degraded だけを明示的に許可しています。サブスクリプション未確認は待機型（pendingIf）です。
+      en: '"Cost allocation tag not in effect yet" is not a warn in the rule table and usually will not resolve within a session, so anyOf explicitly allows this one kind of degraded here; an unconfirmed subscription is a waiting state (pendingIf).'
     reproduce: { run: 'curl -s http://127.0.0.1/api/capabilities | jq ".modules.cost | {driver, status, detail}"', runsOn: lab }
     pitfalls: [cost-subscription-pending]
 
   - id: cost-healthy-or-tag-pending
-    title: cost 为 AWS Budgets，正常或只因成本分配标签尚未生效而降级
+    title:
+      zh-CN: cost 为 AWS Budgets，正常或只因成本分配标签尚未生效而降级
+      ja: cost が AWS Budgets で、正常、またはコスト配分タグが未反映であることだけが原因で低下している
+      en: cost is AWS Budgets, and is healthy or degraded only because the cost allocation tag has not taken effect
     type: capability
     module: cost
     drift: { policy: must-hold }
     assert:
-      - { path: $.driver, op: eq, value: budgets, label: 驱动 }
+      - { path: $.driver, op: eq, value: budgets, label: { zh-CN: 驱动, ja: ドライバー, en: Driver } }
     anyOf:
-      - [ { path: $, op: healthy, label: 状态正常 } ]
-      - [ { path: $.status, op: eq, value: degraded, label: 状态为 degraded }, { path: $.detail, op: contains, value: 尚未生效, label: 原因是成本分配标签尚未生效 } ]
+      - [ { path: $, op: healthy, label: { zh-CN: 状态正常, ja: 状態が正常, en: Healthy } } ]
+      - [ { path: $.status, op: eq, value: degraded, label: { zh-CN: 状态为 degraded, ja: 状態が degraded, en: Status is degraded } }, { path: $.detail, op: contains, value: 尚未生效, label: { zh-CN: 原因是成本分配标签尚未生效, ja: 原因はコスト配分タグがまだ反映されていないこと, en: Because the cost allocation tag has not taken effect yet } } ]
 
   - id: cost-module-state
-    title: modules.state.json 记录 cost 已启用（budgets）
+    title:
+      zh-CN: modules.state.json 记录 cost 已启用（budgets）
+      ja: modules.state.json に cost が有効（budgets）と記録されている
+      en: modules.state.json records cost as enabled (budgets)
     type: local
     on: lab
     checkId: module-state
     args: { module: cost }
     drift: { policy: must-hold }
     assert:
-      - { path: $.modules.cost.enabled, op: eq, value: true, label: 已启用 }
-      - { path: $.modules.cost.driver, op: eq, value: budgets, label: 驱动 }
-    explain: cost 是纯基础设施型模块，不在请求路径上；接入的证据是模块状态加上控制面中本会话创建的预算（下一项）。
+      - { path: $.modules.cost.enabled, op: eq, value: true, label: { zh-CN: 已启用, ja: 有効, en: Enabled } }
+      - { path: $.modules.cost.driver, op: eq, value: budgets, label: { zh-CN: 驱动, ja: ドライバー, en: Driver } }
+    explain:
+      zh-CN: cost 是纯基础设施型模块，不在请求路径上；接入的证据是模块状态加上控制面中本会话创建的预算（下一项）。
+      ja: cost は純粋なインフラ型のモジュールで、リクエストの経路にはありません。組み込みの証拠は、モジュールの状態と、コントロールプレーン上でこのセッションが作成した予算（次の項目）です。
+      en: cost is a pure infrastructure module that is not on the request path; the evidence that it is wired in is the module state plus the budgets this session created in the control plane (next item).
     reproduce: { run: 'sudo cloudalbum module-state --module cost --json', runsOn: lab }
 
   - id: budgets-exist
-    title: 本会话的项目预算与账号预算都存在，按月
+    title:
+      zh-CN: 本会话的项目预算与账号预算都存在，按月
+      ja: このセッションのプロジェクト予算とアカウント予算がどちらも存在し、月次である
+      en: This session's project and account budgets both exist and are monthly
     type: aws-readonly
     service: budgets
     action: DescribeBudgets
@@ -131,21 +227,38 @@ checks:
     ownership: { resource: 'arn:aws:budgets::{{ session.accountId }}:budget/cloudalbum-{{ session.env }}-project-monthly', mode: session, createdAfter: session.readyAt }
     drift: { policy: must-hold }
     assert:
-      - { path: $.Budgets, where: { BudgetName: 'cloudalbum-{{ session.env }}-project-monthly', TimeUnit: MONTHLY, BudgetType: COST }, op: len_eq, value: 1, label: 项目预算 }
-      - { path: $.Budgets, where: { BudgetName: 'cloudalbum-{{ session.env }}-account-monthly', TimeUnit: MONTHLY, BudgetType: COST }, op: len_eq, value: 1, label: 账号预算 }
-    explain: 预算是 cost 模块栈的成员（CloudFormation 创建），归属由栈成员关系确认；Budgets 是全局服务，读取走 us-east-1。
+      - { path: $.Budgets, where: { BudgetName: 'cloudalbum-{{ session.env }}-project-monthly', TimeUnit: MONTHLY, BudgetType: COST }, op: len_eq, value: 1, label: { zh-CN: 项目预算, ja: プロジェクト予算, en: Project budget } }
+      - { path: $.Budgets, where: { BudgetName: 'cloudalbum-{{ session.env }}-account-monthly', TimeUnit: MONTHLY, BudgetType: COST }, op: len_eq, value: 1, label: { zh-CN: 账号预算, ja: アカウント予算, en: Account budget } }
+    explain:
+      zh-CN: 预算是 cost 模块栈的成员（CloudFormation 创建），归属由栈成员关系确认；Budgets 是全局服务，读取走 us-east-1。
+      ja: 予算は cost モジュールスタックのメンバー（CloudFormation で作成）で、所有はスタックのメンバー関係で確認します。Budgets はグローバルサービスなので、読み取りは us-east-1 経由です。
+      en: The budgets are members of the cost module stack (created by CloudFormation), so stack membership confirms ownership; Budgets is a global service and is read through us-east-1.
     reproduce: { run: 'aws budgets describe-budgets --account-id {{ session.accountId }} --query "Budgets[].[BudgetName,TimeUnit,BudgetLimit.Amount]"', runsOn: workstation }
     manualFallback:
       where: { breadcrumb: [Billing and Cost Management, 预算], region: global }
       observed:
-        question: 能看到 cloudalbum-{{ session.env }}-project-monthly 与 cloudalbum-{{ session.env }}-account-monthly 两个月度预算吗？
+        question:
+          zh-CN: 能看到 cloudalbum-{{ session.env }}-project-monthly 与 cloudalbum-{{ session.env }}-account-monthly 两个月度预算吗？
+          ja: cloudalbum-{{ session.env }}-project-monthly と cloudalbum-{{ session.env }}-account-monthly の 2 つの月次予算が見えますか？
+          en: Can you see the two monthly budgets cloudalbum-{{ session.env }}-project-monthly and cloudalbum-{{ session.env }}-account-monthly?
         options:
-          - { value: both, label: 两个都在, expected: true }
-          - { value: missing, label: 缺少一个或都没有, fixHint: 重新执行 scripts/module enable cost（带上两个金额） }
+          - { value: both, label: { zh-CN: 两个都在, ja: 2 つともある, en: Both are there }, expected: true }
+          - value: missing
+            label:
+              zh-CN: 缺少一个或都没有
+              ja: 1 つ足りない、またはどちらもない
+              en: One or both are missing
+            fixHint:
+              zh-CN: 重新执行 scripts/module enable cost（带上两个金额）
+              ja: scripts/module enable cost を再実行してください（2 つの金額を指定します）
+              en: Run scripts/module enable cost again (with both amounts)
 
   # ---- 订阅
   - id: cost-subscription-confirmed
-    title: cost 主题有已确认的邮件订阅
+    title:
+      zh-CN: cost 主题有已确认的邮件订阅
+      ja: cost トピックに確認済みのメールサブスクリプションがある
+      en: The cost topic has a confirmed email subscription
     type: aws-readonly
     service: sns
     action: ListSubscriptionsByTopic
@@ -157,40 +270,90 @@ checks:
       - { path: $.Subscriptions, where: { SubscriptionArn: PendingConfirmation }, op: len_gte, value: 1 }
     drift: { policy: must-hold }
     assert:
-      - { path: $.Subscriptions, where: { SubscriptionArn: { op: startsWith, value: 'arn:' }, Protocol: email }, op: len_gte, value: 1, label: 已确认的邮件订阅 }
-    explain: 预算通知同时发给邮箱与 cost 主题；主题的邮件订阅要收件人点击确认链接后才投递。
+      - { path: $.Subscriptions, where: { SubscriptionArn: { op: startsWith, value: 'arn:' }, Protocol: email }, op: len_gte, value: 1, label: { zh-CN: 已确认的邮件订阅, ja: 確認済みのメールサブスクリプション, en: Confirmed email subscription } }
+    explain:
+      zh-CN: 预算通知同时发给邮箱与 cost 主题；主题的邮件订阅要收件人点击确认链接后才投递。
+      ja: 予算の通知はメールアドレスと cost トピックの両方に送られます。トピックのメールサブスクリプションは、受信者が確認リンクをクリックして初めて配信されます。
+      en: Budget notifications go to both the email address and the cost topic; the topic's email subscription only delivers after the recipient clicks the confirmation link.
     reproduce: { run: 'aws sns list-subscriptions-by-topic --topic-arn "{{ var.costTopicArn }}" --query "Subscriptions[].[Protocol,SubscriptionArn]"', runsOn: workstation }
     pitfalls: [cost-subscription-pending]
     manualFallback:
       where: { breadcrumb: [SNS, 主题, 'cloudalbum-{{ session.env }}-cost', 订阅], region: app }
       observed:
-        question: 邮件订阅的状态是什么？
+        question:
+          zh-CN: 邮件订阅的状态是什么？
+          ja: メールサブスクリプションの状態は何ですか？
+          en: What is the status of the email subscription?
         options:
-          - { value: confirmed, label: 已确认, expected: true }
-          - { value: pending, label: 等待确认, fixHint: 到邮箱找 AWS Notification - Subscription Confirmation 邮件，点击确认链接 }
+          - { value: confirmed, label: { zh-CN: 已确认, ja: 確認済み, en: Confirmed }, expected: true }
+          - value: pending
+            label:
+              zh-CN: 等待确认
+              ja: 確認待ち
+              en: Pending confirmation
+            fixHint:
+              zh-CN: 到邮箱找 AWS Notification - Subscription Confirmation 邮件，点击确认链接
+              ja: メールボックスで AWS Notification - Subscription Confirmation のメールを探し、確認リンクをクリックしてください
+              en: Find the AWS Notification - Subscription Confirmation email in your mailbox and click the confirmation link
 
   - id: cost-subscription-manual
-    title: 我已在邮箱中点击了订阅确认链接
+    title:
+      zh-CN: 我已在邮箱中点击了订阅确认链接
+      ja: メールボックスでサブスクリプションの確認リンクをクリックした
+      en: I clicked the subscription confirmation link in my mailbox
     type: manual
     spec:
-      confirm: 我已在 {{ learner.inputs.notify-email }} 的邮箱中找到 cost 主题的 “AWS Notification - Subscription Confirmation” 并点击了确认链接
+      confirm:
+        zh-CN: 我已在 {{ learner.inputs.notify-email }} 的邮箱中找到 cost 主题的 “AWS Notification - Subscription Confirmation” 并点击了确认链接
+        ja: "{{ learner.inputs.notify-email }} のメールボックスで cost トピックの「AWS Notification - Subscription Confirmation」を見つけ、確認リンクをクリックしました"
+        en: I found the cost topic's "AWS Notification - Subscription Confirmation" in the {{ learner.inputs.notify-email }} mailbox and clicked the confirmation link
 
   # ---- 并排对照
   - id: two-sides-recorded
-    title: 记录同一时刻本地清单与 Budgets 两侧的数值与差异原因
+    title:
+      zh-CN: 记录同一时刻本地清单与 Budgets 两侧的数值与差异原因
+      ja: 同じ時点でのローカルの一覧と Budgets の値、およびその差の理由を記録する
+      en: Record the local list and Budgets values at the same moment, and why they differ
     type: manual
     spec:
       observed:
-        question: 同一时刻两侧不一致，最主要的原因是？
+        question:
+          zh-CN: 同一时刻两侧不一致，最主要的原因是？
+          ja: 同じ時点で 2 つの値が一致しない、最も大きな理由は何ですか？
+          en: What is the main reason the two sides disagree at the same moment?
         options:
-          - { value: lag, label: Budgets 依据的账单数据有数小时到一天的延迟，本地清单启用即出现, expected: true }
-          - { value: broken, label: 预算配置错了, fixHint: 先看 Budgets 的“上次更新”时间；新账号或刚启用的资源通常还没有账单数据 }
-          - { value: price, label: 本地清单用了不同的单价, fixHint: 本地清单默认不显示金额，只有你注明出处抄录的单价才参与估算 }
+          - value: lag
+            label:
+              zh-CN: Budgets 依据的账单数据有数小时到一天的延迟，本地清单启用即出现
+              ja: Budgets が使う請求データには数時間から 1 日の遅れがあるが、ローカルの一覧は有効化した瞬間に現れる
+              en: The billing data Budgets uses lags by hours to a day, while the local list appears the moment something is enabled
+            expected: true
+          - value: broken
+            label:
+              zh-CN: 预算配置错了
+              ja: 予算の設定が間違っている
+              en: The budget is misconfigured
+            fixHint:
+              zh-CN: 先看 Budgets 的“上次更新”时间；新账号或刚启用的资源通常还没有账单数据
+              ja: まず Budgets の「最終更新」時刻を見てください。新しいアカウントや有効にしたばかりのリソースには、通常まだ請求データがありません
+              en: Look at the "Last updated" time in Budgets first; new accounts and just-enabled resources usually have no billing data yet
+          - value: price
+            label:
+              zh-CN: 本地清单用了不同的单价
+              ja: ローカルの一覧が別の単価を使っている
+              en: The local list uses different prices
+            fixHint:
+              zh-CN: 本地清单默认不显示金额，只有你注明出处抄录的单价才参与估算
+              ja: ローカルの一覧は既定では金額を表示しません。あなたが出典を明記して書き写した単価だけが見積もりに使われます
+              en: By default the local list shows no amounts; only prices you copied with a stated source count toward the estimate
       input: { label: 两侧的数值（例如“本地 3 项按小时资源；项目预算实际 0.00”）, pattern: '^.{4,120}$' }
 
   # ---- 预算动作（选做）
   - id: budget-action-canary
-    title: 项目预算上有一个只作用于金丝雀角色的“附加 IAM 策略”动作
+    title:
+      zh-CN: 项目预算上有一个只作用于金丝雀角色的“附加 IAM 策略”动作
+      ja: プロジェクト予算に、カナリアロールだけに作用する「IAM ポリシーのアタッチ」アクションがある
+      en: The project budget has an "attach IAM policy" action that only acts on the canary role
     type: aws-readonly
     service: budgets
     action: DescribeBudgetActionsForBudget
@@ -198,22 +361,44 @@ checks:
     params: { AccountId: '{{ session.accountId }}', BudgetName: 'cloudalbum-{{ session.env }}-project-monthly' }
     drift: { policy: once }
     assert:
-      - { path: $.Actions, where: { ActionType: APPLY_IAM_POLICY }, op: len_eq, value: 1, label: 附加 IAM 策略的动作 }
-      - { path: '$.Actions[0].Definition.IamActionDefinition.Roles[0]', op: eq, value: 'cloudalbum-{{ session.env }}-cost-canary', label: 目标是金丝雀角色 }
-      - { path: '$.Actions[0].Definition.IamActionDefinition.PolicyArn', op: endsWith, value: ':policy/AWSDenyAll', label: 拒绝策略 }
-    explain: 预算属于本会话的 cost 栈（budgets-exist 已确认归属）；动作只附加 AWSDenyAll 到一个没有任何组件使用的金丝雀角色，绝不指向应用角色或实验机。
+      - { path: $.Actions, where: { ActionType: APPLY_IAM_POLICY }, op: len_eq, value: 1, label: { zh-CN: 附加 IAM 策略的动作, ja: IAM ポリシーをアタッチするアクション, en: Action that attaches an IAM policy } }
+      - { path: '$.Actions[0].Definition.IamActionDefinition.Roles[0]', op: eq, value: 'cloudalbum-{{ session.env }}-cost-canary', label: { zh-CN: 目标是金丝雀角色, ja: 対象がカナリアロール, en: Target is the canary role } }
+      - { path: '$.Actions[0].Definition.IamActionDefinition.PolicyArn', op: endsWith, value: ':policy/AWSDenyAll', label: { zh-CN: 拒绝策略, ja: 拒否ポリシー, en: Deny policy } }
+    explain:
+      zh-CN: 预算属于本会话的 cost 栈（budgets-exist 已确认归属）；动作只附加 AWSDenyAll 到一个没有任何组件使用的金丝雀角色，绝不指向应用角色或实验机。
+      ja: 予算はこのセッションの cost スタックに属しています（budgets-exist で所有を確認済み）。アクションは、どのコンポーネントも使っていないカナリアロールに AWSDenyAll をアタッチするだけで、アプリのロールやラボ用インスタンスを対象にすることはありません。
+      en: The budget belongs to this session's cost stack (budgets-exist has confirmed ownership); the action only attaches AWSDenyAll to a canary role that no component uses, and never targets the app role or the lab instance.
     reproduce: { run: 'aws budgets describe-budget-actions-for-budget --account-id {{ session.accountId }} --budget-name cloudalbum-{{ session.env }}-project-monthly', runsOn: workstation }
     manualFallback:
       where: { breadcrumb: [Billing and Cost Management, 预算, 'cloudalbum-{{ session.env }}-project-monthly', 操作], region: global }
       observed:
-        question: 预算动作的类型与目标是什么？
+        question:
+          zh-CN: 预算动作的类型与目标是什么？
+          ja: 予算アクションの種類と対象は何ですか？
+          en: What are the budget action's type and target?
         options:
-          - { value: canary, label: 应用 IAM 策略，目标角色 cloudalbum-…-cost-canary, expected: true }
-          - { value: none, label: 没有动作, fixHint: 以 --param EnableBudgetAction=true 重新执行 scripts/module enable cost }
+          - value: canary
+            label:
+              zh-CN: 应用 IAM 策略，目标角色 cloudalbum-…-cost-canary
+              ja: IAM ポリシーの適用、対象ロールは cloudalbum-…-cost-canary
+              en: Apply IAM policy, target role cloudalbum-…-cost-canary
+            expected: true
+          - value: none
+            label:
+              zh-CN: 没有动作
+              ja: アクションがない
+              en: No action
+            fixHint:
+              zh-CN: 以 --param EnableBudgetAction=true 重新执行 scripts/module enable cost
+              ja: --param EnableBudgetAction=true を付けて scripts/module enable cost を再実行してください
+              en: Run scripts/module enable cost again with --param EnableBudgetAction=true
 
   # ---- 回收验证
   - id: cost-stack-gone
-    title: 本会话的 cost 栈已删除
+    title:
+      zh-CN: 本会话的 cost 栈已删除
+      ja: このセッションの cost スタックが削除されている
+      en: This session's cost stack has been deleted
     type: aws-readonly
     service: cloudformation
     action: DescribeStacks
@@ -225,14 +410,40 @@ checks:
     manualFallback:
       where: { breadcrumb: [CloudFormation, 堆栈], region: app }
       observed:
-        question: 列表中还能找到 cloudalbum-{{ session.env }}-cost 吗？
+        question:
+          zh-CN: 列表中还能找到 cloudalbum-{{ session.env }}-cost 吗？
+          ja: 一覧にまだ cloudalbum-{{ session.env }}-cost がありますか？
+          en: Is cloudalbum-{{ session.env }}-cost still in the list?
         options:
-          - { value: gone, label: 找不到, expected: true }
-          - { value: present, label: 还在 }
+          - { value: gone, label: { zh-CN: 找不到, ja: 見つからない, en: Not found }, expected: true }
+          - { value: present, label: { zh-CN: 还在, ja: まだある, en: Still there } }
 
 pitfalls:
-  - { id: tag-not-active, title: 成本分配标签还没有生效, match: [ { checkId: tag-active, result: fail } ],
-      cause: 新的标签键要过一段时间才出现在可激活列表，激活后还要一段时间才生效（以官方文档为准）；Organizations 成员账号只能由管理账号激活,
-      fix: 执行平台动作“激活成本分配标签”，最好提前一天；未激活也可以继续，项目预算会显示 0 }
-  - { id: cost-subscription-pending, title: 订阅还没有确认, match: [ { checkId: cost-wired, result: pending }, { checkId: cost-subscription-confirmed, result: pending } ],
-      cause: SNS 的邮件订阅要收件人点击确认链接后才投递, fix: 到邮箱（含垃圾邮件箱）找确认邮件并点击 }
+  - id: tag-not-active
+    title:
+      zh-CN: 成本分配标签还没有生效
+      ja: コスト配分タグがまだ反映されていない
+      en: The cost allocation tag has not taken effect yet
+    match: [ { checkId: tag-active, result: fail } ]
+    cause:
+      zh-CN: 新的标签键要过一段时间才出现在可激活列表，激活后还要一段时间才生效（以官方文档为准）；Organizations 成员账号只能由管理账号激活
+      ja: 新しいタグキーは有効化できる一覧に現れるまで時間がかかり、有効化後も反映まで時間がかかります（公式ドキュメントを確認してください）。Organizations のメンバーアカウントでは管理アカウントしか有効化できません
+      en: New tag keys take a while to appear in the list of activatable tags, and a while longer to take effect after activation (see the official docs); in an Organizations member account only the management account can activate them
+    fix:
+      zh-CN: 执行平台动作“激活成本分配标签”，最好提前一天；未激活也可以继续，项目预算会显示 0
+      ja: プラットフォームアクション「コスト配分タグを有効化」を、できれば前日に実行してください。有効になっていなくても続けられます。その場合プロジェクト予算は 0 と表示されます
+      en: Run the platform action "Activate cost allocation tags", ideally the day before; you can carry on without it, and the project budget will show 0
+  - id: cost-subscription-pending
+    title:
+      zh-CN: 订阅还没有确认
+      ja: サブスクリプションがまだ確認されていない
+      en: The subscription has not been confirmed yet
+    match: [ { checkId: cost-wired, result: pending }, { checkId: cost-subscription-confirmed, result: pending } ]
+    cause:
+      zh-CN: SNS 的邮件订阅要收件人点击确认链接后才投递
+      ja: SNS のメールサブスクリプションは、受信者が確認リンクをクリックして初めて配信されます
+      en: An SNS email subscription only delivers after the recipient clicks the confirmation link
+    fix:
+      zh-CN: 到邮箱（含垃圾邮件箱）找确认邮件并点击
+      ja: メールボックス（迷惑メールフォルダーを含む）で確認メールを探してクリックしてください
+      en: Find the confirmation email in your mailbox (including the spam folder) and click it

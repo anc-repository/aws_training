@@ -6,14 +6,28 @@ questions:
     type: single
     kind: scenario
     services: [cognito-identity-pool, iam, s3]
-    stem: 已登录用户需要直接把照片上传到 S3 中“只属于自己”的前缀，且授权由 IAM 而不是应用代码执行。应该怎么做？
+    stem:
+      zh-CN: 已登录用户需要直接把照片上传到 S3 中“只属于自己”的前缀，且授权由 IAM 而不是应用代码执行。应该怎么做？
+      ja: サインイン済みのユーザーが、S3 の「自分だけの」プレフィックスに写真を直接アップロードする必要があり、認可はアプリのコードではなく IAM で行いたいと考えています。どうすべきですか？
+      en: Signed-in users need to upload photos straight to an S3 prefix that belongs only to them, with authorization enforced by IAM rather than application code. What should you do?
     options:
-      - { id: a, text: '使用 Cognito Identity Pool 的已认证角色，资源写成 private/${cognito-identity.amazonaws.com:sub}/*' }
-      - { id: b, text: 把用户加入 User Pool 的组 }
-      - { id: c, text: 把桶设为公共可写 }
-      - { id: d, text: '在桶策略中允许 Principal: * 的 PutObject' }
+      - id: a
+        text:
+          zh-CN: '使用 Cognito Identity Pool 的已认证角色，资源写成 private/${cognito-identity.amazonaws.com:sub}/*'
+          ja: Cognito Identity Pool の認証済みロールを使い、リソースを private/${cognito-identity.amazonaws.com:sub}/* と書く
+          en: Use the Cognito Identity Pool's authenticated role, with the resource written as private/${cognito-identity.amazonaws.com:sub}/*
+      - { id: b, text: { zh-CN: 把用户加入 User Pool 的组, ja: ユーザーを User Pool のグループに追加する, en: Add users to a User Pool group } }
+      - { id: c, text: { zh-CN: 把桶设为公共可写, ja: バケットを公開書き込み可能にする, en: Make the bucket publicly writable } }
+      - id: d
+        text:
+          zh-CN: '在桶策略中允许 Principal: * 的 PutObject'
+          ja: "バケットポリシーで Principal: * の PutObject を許可する"
+          en: "Allow PutObject for Principal: * in the bucket policy"
     answer: [a]
-    explain: Identity Pool 把 User Pool 的 ID 令牌换成 STS 临时凭证，策略变量把每个身份限制在自己的前缀；User Pool 的组本身不产生 AWS 凭证。
+    explain:
+      zh-CN: Identity Pool 把 User Pool 的 ID 令牌换成 STS 临时凭证，策略变量把每个身份限制在自己的前缀；User Pool 的组本身不产生 AWS 凭证。
+      ja: Identity Pool は User Pool の ID トークンを STS の一時的な認証情報に交換し、ポリシー変数で各 ID を自分のプレフィックスに制限します。User Pool のグループだけでは AWS の認証情報は生まれません。
+      en: The Identity Pool exchanges the User Pool ID token for STS temporary credentials, and the policy variable limits each identity to its own prefix; a User Pool group by itself produces no AWS credentials.
     relatesTo: enable
     difficulty: 1
   - id: idp-trust-aud
@@ -21,14 +35,24 @@ questions:
     type: single
     kind: concept
     services: [cognito-identity-pool, iam]
-    stem: Identity Pool 已认证角色的信任策略中，为防止被其他身份池扮演，必须加入的条件是？
+    stem:
+      zh-CN: Identity Pool 已认证角色的信任策略中，为防止被其他身份池扮演，必须加入的条件是？
+      ja: Identity Pool の認証済みロールの信頼ポリシーで、ほかの Identity Pool に引き受けられないようにするために必ず入れるべき条件はどれですか？
+      en: In the trust policy of an Identity Pool's authenticated role, which condition must be included to stop other identity pools from assuming it?
     options:
-      - { id: a, text: cognito-identity.amazonaws.com:aud 等于本身份池 ID }
-      - { id: b, text: aws:SourceIp }
-      - { id: c, text: s3:prefix }
-      - { id: d, text: kms:ViaService }
+      - id: a
+        text:
+          zh-CN: cognito-identity.amazonaws.com:aud 等于本身份池 ID
+          ja: cognito-identity.amazonaws.com:aud がこの Identity Pool の ID と等しい
+          en: cognito-identity.amazonaws.com:aud equals this identity pool's ID
+      - { id: b, text: { zh-CN: aws:SourceIp, ja: aws:SourceIp, en: aws:SourceIp } }
+      - { id: c, text: { zh-CN: s3:prefix, ja: s3:prefix, en: s3:prefix } }
+      - { id: d, text: { zh-CN: kms:ViaService, ja: kms:ViaService, en: kms:ViaService } }
     answer: [a]
-    explain: 同时要求 cognito-identity.amazonaws.com:amr 包含 authenticated。缺少 aud 条件时，任何身份池都可能扮演这个角色。
+    explain:
+      zh-CN: 同时要求 cognito-identity.amazonaws.com:amr 包含 authenticated。缺少 aud 条件时，任何身份池都可能扮演这个角色。
+      ja: あわせて cognito-identity.amazonaws.com:amr に authenticated が含まれることも要求します。aud の条件がないと、どの Identity Pool でもこのロールを引き受けられるおそれがあります。
+      en: Also require cognito-identity.amazonaws.com:amr to include authenticated. Without the aud condition, any identity pool might assume this role.
     relatesTo: read-policy
     difficulty: 1
   - id: idp-multipart-fail
@@ -36,14 +60,28 @@ questions:
     type: multi
     kind: scenario
     services: [s3, kms]
-    stem: 浏览器用临时凭证向 S3 分片上传，CreateMultipartUpload 成功但整体上传失败。可能的原因是？（选 2 项）
+    stem:
+      zh-CN: 浏览器用临时凭证向 S3 分片上传，CreateMultipartUpload 成功但整体上传失败。可能的原因是？（选 2 项）
+      ja: ブラウザーが一時的な認証情報で S3 にマルチパートアップロードしたところ、CreateMultipartUpload は成功したもののアップロード全体が失敗しました。考えられる原因はどれですか？（2 つ選択）
+      en: A browser uploads to S3 in parts with temporary credentials; CreateMultipartUpload succeeds but the upload as a whole fails. What could be the cause? (Choose 2.)
     options:
-      - { id: a, text: 桶的 CORS 没有暴露 ETag 响应头 }
-      - { id: b, text: 桶使用 SSE-KMS，而上传角色缺少 kms:Decrypt }
-      - { id: c, text: 桶没有开启版本控制 }
-      - { id: d, text: 没有开启 S3 Transfer Acceleration }
+      - id: a
+        text:
+          zh-CN: 桶的 CORS 没有暴露 ETag 响应头
+          ja: バケットの CORS が ETag レスポンスヘッダーを公開していない
+          en: The bucket's CORS does not expose the ETag response header
+      - id: b
+        text:
+          zh-CN: 桶使用 SSE-KMS，而上传角色缺少 kms:Decrypt
+          ja: バケットが SSE-KMS を使っており、アップロードするロールに kms:Decrypt がない
+          en: The bucket uses SSE-KMS and the uploading role lacks kms:Decrypt
+      - { id: c, text: { zh-CN: 桶没有开启版本控制, ja: バケットのバージョニングが有効になっていない, en: Versioning is not enabled on the bucket } }
+      - { id: d, text: { zh-CN: 没有开启 S3 Transfer Acceleration, ja: S3 Transfer Acceleration が有効になっていない, en: S3 Transfer Acceleration is not enabled } }
     answer: [a, b]
-    explain: 浏览器需要读到每一片的 ETag 才能完成合并；SSE-KMS 下分片上传除 kms:GenerateDataKey 外还需要 kms:Decrypt。
+    explain:
+      zh-CN: 浏览器需要读到每一片的 ETag 才能完成合并；SSE-KMS 下分片上传除 kms:GenerateDataKey 外还需要 kms:Decrypt。
+      ja: ブラウザーは各パートの ETag を読み取れないと結合を完了できません。SSE-KMS では、マルチパートアップロードに kms:GenerateDataKey だけでなく kms:Decrypt も必要です。
+      en: The browser needs to read each part's ETag to complete the merge; with SSE-KMS, multipart uploads need kms:Decrypt in addition to kms:GenerateDataKey.
     relatesTo: resume
     difficulty: 2
   - id: idp-sub-variable
@@ -51,14 +89,24 @@ questions:
     type: single
     kind: concept
     services: [cognito-identity-pool, iam]
-    stem: 策略变量 ${cognito-identity.amazonaws.com:sub} 在请求时被替换成什么？
+    stem:
+      zh-CN: 策略变量 ${cognito-identity.amazonaws.com:sub} 在请求时被替换成什么？
+      ja: ポリシー変数 ${cognito-identity.amazonaws.com:sub} は、リクエスト時に何に置き換えられますか？
+      en: What does the policy variable ${cognito-identity.amazonaws.com:sub} get replaced with at request time?
     options:
-      - { id: a, text: Identity Pool 的 Identity ID（形如 ap-northeast-1:uuid） }
-      - { id: b, text: User Pool 中用户的 sub }
-      - { id: c, text: 用户的邮箱 }
-      - { id: d, text: IAM 角色的 ARN }
+      - id: a
+        text:
+          zh-CN: Identity Pool 的 Identity ID（形如 ap-northeast-1:uuid）
+          ja: Identity Pool の Identity ID（ap-northeast-1:uuid の形式）
+          en: The Identity Pool's Identity ID (like ap-northeast-1:uuid)
+      - { id: b, text: { zh-CN: User Pool 中用户的 sub, ja: User Pool にあるユーザーの sub, en: The user's sub in the User Pool } }
+      - { id: c, text: { zh-CN: 用户的邮箱, ja: ユーザーのメールアドレス, en: The user's email address } }
+      - { id: d, text: { zh-CN: IAM 角色的 ARN, ja: IAM ロールの ARN, en: The IAM role's ARN } }
     answer: [a]
-    explain: 前缀必须用 Identity ID（应用把它保存到 users.identity_id）；用 User Pool 的 sub 拼前缀会与策略变量对不上，所有写入都会被拒绝。
+    explain:
+      zh-CN: 前缀必须用 Identity ID（应用把它保存到 users.identity_id）；用 User Pool 的 sub 拼前缀会与策略变量对不上，所有写入都会被拒绝。
+      ja: プレフィックスには Identity ID を使う必要があります（アプリはこれを users.identity_id に保存しています）。User Pool の sub でプレフィックスを組み立てるとポリシー変数と一致せず、すべての書き込みが拒否されます。
+      en: The prefix must use the Identity ID (the app stores it in users.identity_id); building the prefix from the User Pool sub would not match the policy variable, and every write would be denied.
     relatesTo: read-policy
     difficulty: 2
   - id: idp-guest
@@ -66,14 +114,24 @@ questions:
     type: single
     kind: scenario
     services: [cognito-identity-pool]
-    stem: 一个身份池开启了“允许未认证身份”，并给未认证角色授予了上传桶的 s3:PutObject。主要风险是？
+    stem:
+      zh-CN: 一个身份池开启了“允许未认证身份”，并给未认证角色授予了上传桶的 s3:PutObject。主要风险是？
+      ja: ある Identity Pool で「未認証 ID を許可」が有効になっており、未認証ロールにアップロード用バケットの s3:PutObject が付与されています。主なリスクは何ですか？
+      en: An identity pool has "allow unauthenticated identities" turned on, and its unauthenticated role is granted s3:PutObject on the upload bucket. What is the main risk?
     options:
-      - { id: a, text: 任何人不登录就能换到可以写桶的临时凭证 }
-      - { id: b, text: 已登录用户的令牌会过期得更快 }
-      - { id: c, text: 桶的加密会被关闭 }
-      - { id: d, text: User Pool 会被删除 }
+      - id: a
+        text:
+          zh-CN: 任何人不登录就能换到可以写桶的临时凭证
+          ja: 誰でもサインインせずに、バケットに書き込める一時的な認証情報を取得できる
+          en: Anyone can get temporary credentials that can write to the bucket without signing in
+      - { id: b, text: { zh-CN: 已登录用户的令牌会过期得更快, ja: サインイン済みユーザーのトークンがより早く期限切れになる, en: Signed-in users' tokens expire faster } }
+      - { id: c, text: { zh-CN: 桶的加密会被关闭, ja: バケットの暗号化が無効になる, en: The bucket's encryption is turned off } }
+      - { id: d, text: { zh-CN: User Pool 会被删除, ja: User Pool が削除される, en: The User Pool is deleted } }
     answer: [a]
-    explain: 访客身份同样换得到 STS 凭证；只有确实需要匿名访问时才开启，并把未认证角色的权限收得极窄。
+    explain:
+      zh-CN: 访客身份同样换得到 STS 凭证；只有确实需要匿名访问时才开启，并把未认证角色的权限收得极窄。
+      ja: ゲスト ID でも STS の認証情報を取得できます。匿名アクセスが本当に必要なときだけ有効にし、未認証ロールの権限はできるだけ狭くしてください。
+      en: Guest identities get STS credentials too; turn this on only when anonymous access is really needed, and keep the unauthenticated role's permissions extremely narrow.
     relatesTo: enable
     difficulty: 1
   - id: idp-vs-presign
@@ -81,13 +139,23 @@ questions:
     type: single
     kind: concept
     services: [s3, cognito-identity-pool]
-    stem: 与“后端为每一片签发预签名 URL”相比，“浏览器持有临时凭证直传”的主要代价是？
+    stem:
+      zh-CN: 与“后端为每一片签发预签名 URL”相比，“浏览器持有临时凭证直传”的主要代价是？
+      ja: 「バックエンドがパートごとに署名付き URL を発行する」方法と比べたときの、「ブラウザーが一時的な認証情報を持って直接アップロードする」方法の主な代償はどれですか？
+      en: Compared with "the backend issues a presigned URL for every part", what is the main cost of "the browser holds temporary credentials and uploads directly"?
     options:
-      - { id: a, text: 服务端控制力变弱：IAM 管不了对象大小与类型，凭证到期前无法单独撤销 }
-      - { id: b, text: 上传的字节必须经过 EC2 }
-      - { id: c, text: 不再支持分片上传 }
-      - { id: d, text: 每一片都要先请求后端 }
+      - id: a
+        text:
+          zh-CN: 服务端控制力变弱：IAM 管不了对象大小与类型，凭证到期前无法单独撤销
+          ja: サーバー側の制御力が弱くなる：IAM ではオブジェクトのサイズや種類を制御できず、認証情報は期限切れになるまで個別に取り消せない
+          en: "Weaker server-side control: IAM cannot govern object size and type, and the credentials cannot be revoked individually before they expire"
+      - { id: b, text: { zh-CN: 上传的字节必须经过 EC2, ja: アップロードするバイトが EC2 を経由しなければならない, en: The uploaded bytes have to pass through EC2 } }
+      - { id: c, text: { zh-CN: 不再支持分片上传, ja: マルチパートアップロードが使えなくなる, en: Multipart upload is no longer supported } }
+      - { id: d, text: { zh-CN: 每一片都要先请求后端, ja: パートごとに毎回バックエンドにリクエストする必要がある, en: Every part has to ask the backend first } }
     answer: [a]
-    explain: 后端请求数下降了，但大小、类型只能在 complete 时校验，没导入的对象靠暂存桶的生命周期规则兜底。
+    explain:
+      zh-CN: 后端请求数下降了，但大小、类型只能在 complete 时校验，没导入的对象靠暂存桶的生命周期规则兜底。
+      ja: バックエンドへのリクエスト数は減りますが、サイズと種類は complete の時点でしか検証できません。取り込まれなかったオブジェクトは、ステージングバケットのライフサイクルルールが最後の受け皿になります。
+      en: Backend requests go down, but size and type can only be checked on complete; objects that are never imported are caught by the staging bucket's lifecycle rule.
     relatesTo: after-bench
     difficulty: 2

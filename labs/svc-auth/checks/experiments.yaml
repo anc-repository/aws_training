@@ -1,6 +1,9 @@
 checks:
   - id: exp-features-before
-    title: feature-matrix 的 before（本地账号的功能矩阵）有一条有效结果
+    title:
+      zh-CN: feature-matrix 的 before（本地账号的功能矩阵）有一条有效结果
+      ja: feature-matrix の before（ローカルアカウントの機能マトリクス）に有効な結果が 1 件ある
+      en: feature-matrix has a valid before result (feature matrix of local accounts)
     type: experiment
     module: auth
     experiment: feature-matrix
@@ -8,7 +11,10 @@ checks:
     accept: [valid]
 
   - id: exp-brute-before
-    title: brute-force 的 before（本地锁定与限速）有一条有效结果
+    title:
+      zh-CN: brute-force 的 before（本地锁定与限速）有一条有效结果
+      ja: brute-force の before（ローカルのロックとレート制限）に有効な結果が 1 件ある
+      en: brute-force has a valid before result (local lockout and rate limiting)
     type: experiment
     module: auth
     experiment: brute-force

@@ -1,18 +1,32 @@
 # 接入与分配：capability、经分配的入口链、8080 源站监听器的校验头、分配的归属与源站配置
 checks:
   - id: cap-cdn-healthy
-    title: capabilities 中 cdn 的驱动为 cloudfront，且状态正常
+    title:
+      zh-CN: capabilities 中 cdn 的驱动为 cloudfront，且状态正常
+      ja: capabilities で cdn のドライバーが cloudfront で、状態が正常
+      en: In capabilities, the cdn driver is cloudfront and its status is healthy
     type: capability
     module: cdn
     drift: { policy: must-hold, monitor: true }
     assert:
-      - { path: $.driver, op: eq, value: cloudfront, label: 驱动 }
-      - { path: $, op: healthy, label: 状态正常（只允许本卡声明的预期警告） }
-    explain: 本卡的 expectedWarnings 为空，所以 cdn 必须是 ok；若出现 degraded，证据会列出是哪条规则导致的。
+      - { path: $.driver, op: eq, value: cloudfront, label: { zh-CN: 驱动, ja: ドライバー, en: Driver } }
+      - path: $
+        op: healthy
+        label:
+          zh-CN: 状态正常（只允许本卡声明的预期警告）
+          ja: 状態が正常（このカードで宣言した想定内の警告のみ許可）
+          en: Healthy (only the expected warnings this card declares are allowed)
+    explain:
+      zh-CN: 本卡的 expectedWarnings 为空，所以 cdn 必须是 ok；若出现 degraded，证据会列出是哪条规则导致的。
+      ja: このカードの expectedWarnings は空なので、cdn は ok でなければなりません。degraded になった場合は、どのルールが原因かが証拠に示されます。
+      en: This card's expectedWarnings is empty, so cdn must be ok; if it is degraded, the evidence lists the rule that caused it.
     reproduce: { run: 'curl -s http://127.0.0.1/api/capabilities | jq ".modules.cdn | {driver, status, detail}"', runsOn: lab }
 
   - id: entry-cloudfront
-    title: 经本会话分配请求 /api/health/live，入口链以 cloudfront 开头
+    title:
+      zh-CN: 经本会话分配请求 /api/health/live，入口链以 cloudfront 开头
+      ja: このセッションのディストリビューション経由で /api/health/live をリクエストし、入口チェーンが cloudfront で始まる
+      en: A request for /api/health/live through this session's distribution has an entry chain that starts with cloudfront
     type: http-header
     from: platform
     target: cdn
@@ -21,32 +35,44 @@ checks:
     dependsOn: [distribution-deployed]
     drift: { policy: must-hold }
     assert:
-      - { path: $.status, op: eq, value: 200, label: 状态码 }
-      - { path: $.pathSegments.entry, op: startsWith, value: cloudfront, label: 入口链 }
-      - { path: $.headers.x-amz-cf-id, op: exists, label: 带 X-Amz-Cf-Id }
+      - { path: $.status, op: eq, value: 200, label: { zh-CN: 状态码, ja: ステータスコード, en: Status code } }
+      - { path: $.pathSegments.entry, op: startsWith, value: cloudfront, label: { zh-CN: 入口链, ja: 入口チェーン, en: Entry chain } }
+      - { path: $.headers.x-amz-cf-id, op: exists, label: { zh-CN: 带 X-Amz-Cf-Id, ja: X-Amz-Cf-Id あり, en: Has X-Amz-Cf-Id } }
     corroborate:
       - id: edge-tls
         via: builtin
         name: tls-san
         args: { expect: '*.cloudfront.net', san: '{{$.tls.subjectAltNames}}' }
-    explain: 目标域名取自 GetDistribution（本会话创建的分配），证书必须是 *.cloudfront.net。
+    explain:
+      zh-CN: 目标域名取自 GetDistribution（本会话创建的分配），证书必须是 *.cloudfront.net。
+      ja: リクエスト先のドメインは GetDistribution（このセッションで作成したディストリビューション）から取得し、証明書は *.cloudfront.net でなければなりません。
+      en: The target domain comes from GetDistribution (the distribution this session created), and the certificate must be *.cloudfront.net.
     reproduce: { run: 'curl -sI "https://{{ var.cdnDomain }}/api/health/live" | grep -iE "^(x-cache|x-cloudalbum-path):"', runsOn: workstation }
 
   - id: origin-direct-denied
-    title: 不带 X-Origin-Verify 直接访问 8080 源站监听器返回 403
+    title:
+      zh-CN: 不带 X-Origin-Verify 直接访问 8080 源站监听器返回 403
+      ja: X-Origin-Verify なしで 8080 のオリジンリスナーに直接アクセスすると 403 が返る
+      en: Direct requests to the 8080 origin listener without X-Origin-Verify get 403
     type: local
     on: lab
     checkId: http-probe
     args: { target: cdn-origin, path: /api/health/live, method: GET }
     drift: { policy: must-hold, monitor: true }
     assert:
-      - { path: '$.responses[0].status', op: eq, value: 403, label: 直连 8080 的状态码 }
-    explain: 8080 只接受带正确 X-Origin-Verify 的请求；从实验机本地访问可以绕开安全组，只测试 Nginx 的校验逻辑。
+      - { path: '$.responses[0].status', op: eq, value: 403, label: { zh-CN: 直连 8080 的状态码, ja: 8080 への直接アクセスのステータスコード, en: Status code of a direct request to 8080 } }
+    explain:
+      zh-CN: 8080 只接受带正确 X-Origin-Verify 的请求；从实验机本地访问可以绕开安全组，只测试 Nginx 的校验逻辑。
+      ja: 8080 は正しい X-Origin-Verify を持つリクエストだけを受け付けます。ラボ用インスタンス自身からアクセスすればセキュリティグループを通らないため、Nginx の検証ロジックだけをテストできます。
+      en: Port 8080 only accepts requests with the correct X-Origin-Verify. A request from the lab instance itself bypasses the security group, so it tests only the Nginx check.
     reproduce: { run: 'curl -s -o /dev/null -w "%{http_code}\n" http://127.0.0.1:8080/api/health/live', runsOn: lab }
     pitfalls: [verify-not-enforced]
 
   - id: distribution-deployed
-    title: 本次实验创建的分配已部署，源站为实验机公网 DNS:8080（仅 HTTP）并带校验头
+    title:
+      zh-CN: 本次实验创建的分配已部署，源站为实验机公网 DNS:8080（仅 HTTP）并带校验头
+      ja: このラボで作成したディストリビューションがデプロイ済みで、オリジンはラボ用インスタンスのパブリック DNS:8080（HTTP のみ）、検証ヘッダー付き
+      en: The distribution created in this lab is deployed, and its origin is the lab instance's public DNS:8080 (HTTP only) with the verification header
     type: aws-readonly
     service: cloudfront
     action: GetDistribution
@@ -64,31 +90,43 @@ checks:
       - { path: $.Distribution.Status, op: eq, value: InProgress }
     drift: { policy: must-hold, monitor: true }
     assert:
-      - { path: $.Distribution.Status, op: eq, value: Deployed, label: 状态 }
-      - { path: $.Distribution.DistributionConfig.Enabled, op: eq, value: true, label: 已启用 }
+      - { path: $.Distribution.Status, op: eq, value: Deployed, label: { zh-CN: 状态, ja: 状態, en: Status } }
+      - { path: $.Distribution.DistributionConfig.Enabled, op: eq, value: true, label: { zh-CN: 已启用, ja: 有効, en: Enabled } }
       - path: $.Distribution.DistributionConfig.Origins.Items
         where: { DomainName: '{{ target.publicDns }}', CustomOriginConfig.HTTPPort: 8080, CustomOriginConfig.OriginProtocolPolicy: http-only }
         op: len_eq
         value: 1
-        label: 指向实验机 8080、仅 HTTP 的源站
+        label:
+          zh-CN: 指向实验机 8080、仅 HTTP 的源站
+          ja: ラボ用インスタンスの 8080 を指す HTTP のみのオリジン
+          en: HTTP-only origin pointing at the lab instance on 8080
       - path: '$.Distribution.DistributionConfig.Origins.Items[0].CustomHeaders.Items'
         where: { HeaderName: X-Origin-Verify }
         op: len_eq
         value: 1
-        label: 源站带 X-Origin-Verify 头
+        label:
+          zh-CN: 源站带 X-Origin-Verify 头
+          ja: オリジンに X-Origin-Verify ヘッダーがある
+          en: Origin has the X-Origin-Verify header
     evidence:
       redact: ['$..CustomHeaders.Items[*].HeaderValue']
       keep: ['$.Distribution.Id', '$.Distribution.Status', '$.Distribution.DomainName', '$.Distribution.ARN']
-    explain: 先确认分配是你在本次实验中创建的（本会话的 cdn 模块栈），再核对状态与源站配置。
+    explain:
+      zh-CN: 先确认分配是你在本次实验中创建的（本会话的 cdn 模块栈），再核对状态与源站配置。
+      ja: まずディストリビューションがこのラボで作成したもの（このセッションの cdn モジュールスタック）であることを確認し、次に状態とオリジンの設定を照合します。
+      en: The platform first confirms that you created the distribution in this lab (this session's cdn module stack), then checks its status and origin settings.
     reproduce: { run: 'aws cloudfront get-distribution --id {{ var.distributionId }} --query "Distribution.[Status,DomainName]"', runsOn: workstation }
     pitfalls: [ip-origin, still-deploying, not-mine]
     manualFallback:
       where: { breadcrumb: [CloudFront, 分配, '{{ var.distributionId }}'], region: global }
       observed:
-        question: “上次修改”一栏显示什么？
+        question:
+          zh-CN: “上次修改”一栏显示什么？
+          ja: 「最終更新日時」の欄には何と表示されていますか？
+          en: What does the "Last modified" column show?
         options:
-          - { value: date, label: 一个日期时间, expected: true }
-          - { value: deploying, label: 正在部署, fixHint: 再等几分钟 }
+          - { value: date, label: { zh-CN: 一个日期时间, ja: 日付と時刻, en: A date and time }, expected: true }
+          - { value: deploying, label: { zh-CN: 正在部署, ja: デプロイ中, en: Deploying }, fixHint: { zh-CN: 再等几分钟, ja: あと数分待ってください, en: Wait a few more minutes } }
       evidence:
         command: { run: 'aws cloudfront get-distribution --id {{ var.distributionId }}', runsOn: workstation }
         parse: json
@@ -96,7 +134,10 @@ checks:
           - { path: $.Distribution.Status, op: eq, value: Deployed }
 
   - id: invalidation-completed
-    title: 本分配有一条已完成的失效
+    title:
+      zh-CN: 本分配有一条已完成的失效
+      ja: このディストリビューションに完了した無効化が 1 件ある
+      en: This distribution has a completed invalidation
     type: aws-readonly
     service: cloudfront
     action: ListInvalidations
@@ -108,35 +149,109 @@ checks:
       - { path: $.InvalidationList.Items, where: { Status: InProgress }, op: len_gte, value: 1 }
     drift: { policy: once }
     assert:
-      - { path: $.InvalidationList.Items, where: { Status: Completed }, op: len_gte, value: 1, label: 已完成的失效 }
-    explain: 分配是本会话创建的（distribution-deployed 已确认归属），它的失效记录也只可能来自本会话。
+      - { path: $.InvalidationList.Items, where: { Status: Completed }, op: len_gte, value: 1, label: { zh-CN: 已完成的失效, ja: 完了した無効化, en: Completed invalidation } }
+    explain:
+      zh-CN: 分配是本会话创建的（distribution-deployed 已确认归属），它的失效记录也只可能来自本会话。
+      ja: ディストリビューションはこのセッションで作成したもの（distribution-deployed で所有を確認済み）なので、その無効化の記録もこのセッションのものに限られます。
+      en: The distribution was created by this session (distribution-deployed has confirmed ownership), so its invalidations can only come from this session.
     reproduce: { run: 'aws cloudfront list-invalidations --distribution-id {{ var.distributionId }} --query "InvalidationList.Items[].[Id,Status,CreateTime]"', runsOn: workstation }
     manualFallback:
       where: { breadcrumb: [CloudFront, 分配, '{{ var.distributionId }}', 失效], region: global }
       observed:
-        question: 失效列表中最近一条的状态是什么？
+        question:
+          zh-CN: 失效列表中最近一条的状态是什么？
+          ja: 無効化の一覧で、最新の 1 件の状態は何ですか？
+          en: What is the status of the latest entry in the invalidation list?
         options:
-          - { value: completed, label: 已完成, expected: true }
-          - { value: in-progress, label: 正在进行, fixHint: 失效通常在几分钟内完成 }
+          - { value: completed, label: { zh-CN: 已完成, ja: 完了, en: Completed }, expected: true }
+          - { value: in-progress, label: { zh-CN: 正在进行, ja: 進行中, en: In progress }, fixHint: { zh-CN: 失效通常在几分钟内完成, ja: 無効化は通常数分以内に完了します, en: An invalidation usually completes within a few minutes } }
 
   - id: invalidation-vs-versioning
-    title: 比较失效与版本化文件名的生效时间与费用
+    title:
+      zh-CN: 比较失效与版本化文件名的生效时间与费用
+      ja: 無効化とバージョン付きファイル名の反映時間と費用を比べる
+      en: Compare how fast invalidations and versioned file names take effect, and what they cost
     type: manual
     spec:
-      confirm: 我分别用“创建失效”和“版本化键”更新了同一张缩略图，并观察了生效时间
+      confirm:
+        zh-CN: 我分别用“创建失效”和“版本化键”更新了同一张缩略图，并观察了生效时间
+        ja: 「创建失效」（無効化を作成）と「版本化键」（バージョン付きキー）のそれぞれで同じサムネイルを更新し、反映までの時間を観察しました
+        en: I updated the same thumbnail with "创建失效" (create invalidation) and with "版本化键" (versioned key), and watched how long each took to take effect
       observed:
-        question: 哪一种方式在点击后立即生效，并且不消耗失效配额？
+        question:
+          zh-CN: 哪一种方式在点击后立即生效，并且不消耗失效配额？
+          ja: クリック後すぐに反映され、無効化の無料枠も消費しないのはどちらですか？
+          en: Which method takes effect right after the click and uses none of the invalidation allowance?
         options:
-          - { value: versioned, label: 版本化文件名（新的对象键）, expected: true }
-          - { value: invalidation, label: 创建失效, fixHint: 失效需要在全部边缘生效，通常要几十秒到几分钟；版本化键是新对象，第一次请求就回源取新内容 }
-    explain: 原生手动确认：生效时间与配额的差别只能由你在页面上观察（04 §5.2.6）。
+          - { value: versioned, label: { zh-CN: 版本化文件名（新的对象键）, ja: バージョン付きファイル名（新しいオブジェクトキー）, en: Versioned file name (a new object key) }, expected: true }
+          - value: invalidation
+            label:
+              zh-CN: 创建失效
+              ja: 無効化を作成
+              en: Create invalidation
+            fixHint:
+              zh-CN: 失效需要在全部边缘生效，通常要几十秒到几分钟；版本化键是新对象，第一次请求就回源取新内容
+              ja: 無効化はすべてのエッジに反映される必要があり、通常数十秒から数分かかります。バージョン付きキーは新しいオブジェクトなので、最初のリクエストでオリジンから新しい内容を取得します
+              en: An invalidation has to reach every edge, which usually takes tens of seconds to a few minutes; a versioned key is a new object, so the first request fetches the new content from the origin
+    explain:
+      zh-CN: 原生手动确认：生效时间与配额的差别只能由你在页面上观察（04 §5.2.6）。
+      ja: ネイティブの手動確認です。反映時間と無料枠の違いは、ページ上であなたが観察するしかありません（04 §5.2.6）。
+      en: A native manual confirmation — only you can observe the difference in timing and allowance on the page (04 §5.2.6).
 
 pitfalls:
-  - { id: verify-not-enforced, title: 8080 没有校验 X-Origin-Verify, match: [ { checkId: origin-direct-denied, result: fail } ],
-      cause: 8080 监听器没有校验 X-Origin-Verify（源站任何人都能绕过 CloudFront 访问）, fix: 重新执行 scripts/module enable cdn，让脚本重新投放 cdn-origin.conf }
-  - { id: ip-origin, title: 源站填成了 IP, match: [ { checkId: distribution-deployed, assertionLabel: 指向实验机 8080、仅 HTTP 的源站 } ],
-      cause: CloudFront 的自定义源站只接受域名；源站必须是实验机的公网 DNS 名, fix: 不要在控制台修改分配的源站；重新执行 scripts/module enable cdn }
-  - { id: still-deploying, title: 分配仍在部署, match: [ { checkId: distribution-deployed, result: pending } ],
-      cause: 分配的配置正在传播到全部边缘站点, fix: 等待几分钟，平台会自动重测 }
-  - { id: not-mine, title: 分配不属于本会话, match: [ { checkId: distribution-deployed, errorCode: OWNERSHIP_MISMATCH } ],
-      cause: 检测到的分配不是本次实验创建的（或创建它的会话不在本环境的交接链中）, fix: 在本次实验中重新执行 scripts/module enable cdn }
+  - id: verify-not-enforced
+    title:
+      zh-CN: 8080 没有校验 X-Origin-Verify
+      ja: 8080 で X-Origin-Verify を検証していない
+      en: Port 8080 does not check X-Origin-Verify
+    match: [ { checkId: origin-direct-denied, result: fail } ]
+    cause:
+      zh-CN: 8080 监听器没有校验 X-Origin-Verify（源站任何人都能绕过 CloudFront 访问）
+      ja: 8080 のリスナーが X-Origin-Verify を検証していません（誰でも CloudFront を経由せずにオリジンにアクセスできます）
+      en: The 8080 listener does not check X-Origin-Verify, so anyone can reach the origin without going through CloudFront
+    fix:
+      zh-CN: 重新执行 scripts/module enable cdn，让脚本重新投放 cdn-origin.conf
+      ja: scripts/module enable cdn を再実行し、スクリプトに cdn-origin.conf を配置し直させてください
+      en: Run scripts/module enable cdn again so the script redeploys cdn-origin.conf
+  - id: ip-origin
+    title:
+      zh-CN: 源站填成了 IP
+      ja: オリジンに IP を指定している
+      en: The origin is set to an IP address
+    match: [ { checkId: distribution-deployed, assertionLabel: 指向实验机 8080、仅 HTTP 的源站 } ]
+    cause:
+      zh-CN: CloudFront 的自定义源站只接受域名；源站必须是实验机的公网 DNS 名
+      ja: CloudFront のカスタムオリジンはドメイン名しか受け付けません。オリジンはラボ用インスタンスのパブリック DNS 名である必要があります
+      en: A CloudFront custom origin only accepts a domain name; the origin must be the lab instance's public DNS name
+    fix:
+      zh-CN: 不要在控制台修改分配的源站；重新执行 scripts/module enable cdn
+      ja: コンソールでディストリビューションのオリジンを変更しないでください。scripts/module enable cdn を再実行します
+      en: Do not change the distribution's origin in the console; run scripts/module enable cdn again
+  - id: still-deploying
+    title:
+      zh-CN: 分配仍在部署
+      ja: ディストリビューションがまだデプロイ中
+      en: The distribution is still deploying
+    match: [ { checkId: distribution-deployed, result: pending } ]
+    cause:
+      zh-CN: 分配的配置正在传播到全部边缘站点
+      ja: ディストリビューションの設定がすべてのエッジロケーションに伝播している途中です
+      en: The distribution's configuration is still propagating to every edge location
+    fix:
+      zh-CN: 等待几分钟，平台会自动重测
+      ja: 数分待ってください。プラットフォームが自動で再チェックします
+      en: Wait a few minutes; the platform re-checks automatically
+  - id: not-mine
+    title:
+      zh-CN: 分配不属于本会话
+      ja: ディストリビューションがこのセッションのものではない
+      en: The distribution does not belong to this session
+    match: [ { checkId: distribution-deployed, errorCode: OWNERSHIP_MISMATCH } ]
+    cause:
+      zh-CN: 检测到的分配不是本次实验创建的（或创建它的会话不在本环境的交接链中）
+      ja: 検出したディストリビューションはこのラボで作成されたものではありません（または作成したセッションがこの環境の引き継ぎチェーンに含まれていません）
+      en: The detected distribution was not created in this lab (or the session that created it is not in this environment's hand-off chain)
+    fix:
+      zh-CN: 在本次实验中重新执行 scripts/module enable cdn
+      ja: このラボの中で scripts/module enable cdn を再実行してください
+      en: Run scripts/module enable cdn again in this lab

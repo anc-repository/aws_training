@@ -7,48 +7,136 @@ id: svc-cdn
 kind: service
 version: 1.0.0
 status: beta
-service: Amazon CloudFront
-function: 内容分发与边缘缓存
-title: Amazon CloudFront：内容分发与边缘缓存
-subtitle: EC2 直出 → CloudFront 边缘缓存
-summary: 给 EC2 直出的相册加一层 CloudFront：命中缓存时不回源，源站流量与连接被卸载，用户拿到受信任的 HTTPS。
-story: |
-  L0 时每一张缩略图、每一个 JS 文件都由东京这台 EC2 的 Nginx 发出。
-  这张卡片让同样的内容从离用户最近的边缘节点返回，命中时根本不回源；源站只接受带密钥头、来自 CloudFront 网段的回源请求。
+service:
+  zh-CN: Amazon CloudFront
+  ja: Amazon CloudFront
+  en: Amazon CloudFront
+function:
+  zh-CN: 内容分发与边缘缓存
+  ja: コンテンツ配信とエッジキャッシュ
+  en: Content delivery and edge caching
+title:
+  zh-CN: Amazon CloudFront：内容分发与边缘缓存
+  ja: Amazon CloudFront：コンテンツ配信とエッジキャッシュ
+  en: "Amazon CloudFront: content delivery and edge caching"
+subtitle:
+  zh-CN: EC2 直出 → CloudFront 边缘缓存
+  ja: EC2 から直接配信 → CloudFront のエッジキャッシュ
+  en: Served directly by EC2 → CloudFront edge cache
+summary:
+  zh-CN: 给 EC2 直出的相册加一层 CloudFront：命中缓存时不回源，源站流量与连接被卸载，用户拿到受信任的 HTTPS。
+  ja: EC2 から直接配信しているアルバムの前に CloudFront を置きます。キャッシュにヒットすればオリジンへ戻らず、オリジンのトラフィックと接続がオフロードされ、ユーザーは信頼された HTTPS を受け取れます。
+  en: Put CloudFront in front of the album that EC2 serves directly. Cache hits never go back to the origin, so origin traffic and connections are offloaded, and users get trusted HTTPS.
+story:
+  zh-CN: |
+    L0 时每一张缩略图、每一个 JS 文件都由东京这台 EC2 的 Nginx 发出。
+    这张卡片让同样的内容从离用户最近的边缘节点返回，命中时根本不回源；源站只接受带密钥头、来自 CloudFront 网段的回源请求。
+  ja: |
+    L0 では、サムネイルも JS ファイルもすべて東京にあるこの EC2 の Nginx が返しています。
+    このカードでは同じコンテンツをユーザーに最も近いエッジロケーションから返し、ヒットしたときはオリジンにまったく戻りません。オリジンは、秘密のヘッダーを持ち CloudFront のアドレス範囲から来たオリジンリクエストだけを受け付けます。
+  en: |
+    At L0, every thumbnail and every JS file is sent by Nginx on this one EC2 instance in Tokyo.
+    This card serves the same content from the edge location closest to the user, and a cache hit never goes back to the origin at all. The origin only accepts origin requests that carry a secret header and come from CloudFront address ranges.
 objectives:
-  - { text: 用托管前缀列表加自定义头保护自定义源站, domain: secure, relatesTo: enable-cdn }
-  - { text: 用服务端证据区分“边缘命中”和“源站响应”, domain: performance, relatesTo: observe-edge-cache }
-  - { text: 说清缓存策略、源请求策略、响应头策略各管什么, domain: performance, relatesTo: observe-edge-cache }
-  - { text: 理解 CDN 降低源站出网流量与负载的原理, domain: cost, relatesTo: after }
-  - { text: 比较失效与版本化文件名, domain: performance, relatesTo: invalidation }
+  - text:
+      zh-CN: 用托管前缀列表加自定义头保护自定义源站
+      ja: マネージドプレフィックスリストとカスタムヘッダーでカスタムオリジンを保護する
+      en: Protect a custom origin with a managed prefix list and a custom header
+    domain: secure
+    relatesTo: enable-cdn
+  - text:
+      zh-CN: 用服务端证据区分“边缘命中”和“源站响应”
+      ja: サーバー側の証拠で「エッジでのヒット」と「オリジンからのレスポンス」を見分ける
+      en: Tell an edge hit from an origin response using server-side evidence
+    domain: performance
+    relatesTo: observe-edge-cache
+  - text:
+      zh-CN: 说清缓存策略、源请求策略、响应头策略各管什么
+      ja: キャッシュポリシー、オリジンリクエストポリシー、レスポンスヘッダーポリシーの役割を説明できる
+      en: Explain what the cache policy, the origin request policy and the response headers policy each control
+    domain: performance
+    relatesTo: observe-edge-cache
+  - text:
+      zh-CN: 理解 CDN 降低源站出网流量与负载的原理
+      ja: CDN がオリジンのアウトバウンド通信量と負荷を減らす仕組みを理解する
+      en: Understand how a CDN reduces origin egress traffic and load
+    domain: cost
+    relatesTo: after
+  - { text: { zh-CN: 比较失效与版本化文件名, ja: 無効化とバージョン付きファイル名を比較する, en: Compare invalidations with versioned file names }, domain: performance, relatesTo: invalidation }
 difficulty: intermediate
 estimatedMinutes: 75
 timeLimitMinutes: 120
 extensions: { maxCount: 2, minutesEach: 30 }
-retain: { allowed: true, maxHours: 24, reason: 分配的禁用与删除较慢，保留后可在下一张卡片（例如 svc-waf）中继续 }
+retain:
+  allowed: true
+  maxHours: 24
+  reason:
+    zh-CN: 分配的禁用与删除较慢，保留后可在下一张卡片（例如 svc-waf）中继续
+    ja: ディストリビューションの無効化と削除には時間がかかります。保持すれば次のカード（例：svc-waf）で続きから使えます
+    en: Disabling and deleting a distribution is slow; if you keep it, you can continue with it in the next card (for example svc-waf)
 regions:
   supported: [ap-northeast-1]
   alsoUses: [global, us-east-1]
 services:
-  - { id: cloudfront, name: Amazon CloudFront, role: primary, module: cdn }
-  - { id: ec2, name: Amazon EC2（源站）, role: supporting, module: ec2 }
-  - { id: iam, name: AWS IAM（实例角色）, role: context, module: iam }
-  - { id: ssm-session-manager, name: AWS Systems Manager Session Manager（平台管理通道）, role: observed }
+  - { id: cloudfront, name: { zh-CN: Amazon CloudFront, ja: Amazon CloudFront, en: Amazon CloudFront }, role: primary, module: cdn }
+  - { id: ec2, name: { zh-CN: Amazon EC2（源站）, ja: Amazon EC2（オリジン）, en: Amazon EC2 (origin) }, role: supporting, module: ec2 }
+  - { id: iam, name: { zh-CN: AWS IAM（实例角色）, ja: AWS IAM（インスタンスロール）, en: AWS IAM (instance role) }, role: context, module: iam }
+  - id: ssm-session-manager
+    name:
+      zh-CN: AWS Systems Manager Session Manager（平台管理通道）
+      ja: AWS Systems Manager Session Manager（プラットフォームの管理チャネル）
+      en: AWS Systems Manager Session Manager (platform management channel)
+    role: observed
 modules: { target: [cdn], start: [iam], context: [], related: [waf, dns, tls, storage] }
 prerequisites:
   cards: [ { id: svc-ec2, kind: soft } ]
-  knowledge: [HTTP 缓存头（Cache-Control、Age、ETag）, DNS 与 HTTPS 基础]
+  knowledge:
+    - zh-CN: HTTP 缓存头（Cache-Control、Age、ETag）
+      ja: HTTP のキャッシュ関連ヘッダー（Cache-Control、Age、ETag）
+      en: HTTP caching headers (Cache-Control, Age, ETag)
+    - zh-CN: DNS 与 HTTPS 基础
+      ja: DNS と HTTPS の基礎
+      en: DNS and HTTPS basics
 
 startProfile:
   provisions:
-    - { item: iam, kind: module, basis: credential, set: { IAM_CREDENTIALS: role },
-        reason: 平台约定除 svc-ec2、svc-iam 外起始状态都带实例角色；cdn 的失效按钮与 GetDistribution 控制面感知因此可用，启用后状态为 ok }
-    - { item: mgmt-channel, kind: platform, reason: 实验机挂只含 AmazonSSMManagedInstanceCore 的 CloudAlbumAppRole，是平台的管理通道，不是应用权限 }
-    - { item: workstation, kind: platform, reason: 每个会话一台工作台，用于运行 scripts/module、AWS CLI 与对比实验 }
-    - { item: check-bundle, kind: platform, reason: 检查包随 CloudAlbum 发布包安装在实验机的 /opt/atl（06 PM-04） }
-    - { item: preview-direct-https, kind: platform, reason: 预览用 Let's Encrypt IP 证书；本卡对比的是“EC2 直出”与“经 CloudFront”，不涉及 tls 模块，保持开启 }
+    - item: iam
+      kind: module
+      basis: credential
+      set: { IAM_CREDENTIALS: role }
+      reason:
+        zh-CN: 平台约定除 svc-ec2、svc-iam 外起始状态都带实例角色；cdn 的失效按钮与 GetDistribution 控制面感知因此可用，启用后状态为 ok
+        ja: プラットフォームの取り決めにより、svc-ec2 と svc-iam 以外の開始状態にはインスタンスロールが付いています。これにより cdn の無効化ボタンと GetDistribution によるコントロールプレーンの確認が使え、有効化後の状態は ok になります
+        en: By platform convention, every start state except svc-ec2 and svc-iam includes an instance role. This makes the cdn invalidation button and the GetDistribution control-plane check work, so the status is ok after enabling
+    - item: mgmt-channel
+      kind: platform
+      reason:
+        zh-CN: 实验机挂只含 AmazonSSMManagedInstanceCore 的 CloudAlbumAppRole，是平台的管理通道，不是应用权限
+        ja: ラボ用インスタンスには AmazonSSMManagedInstanceCore だけを含む CloudAlbumAppRole が付いています。これはプラットフォームの管理チャネルであり、アプリの権限ではありません
+        en: The lab instance carries CloudAlbumAppRole with only AmazonSSMManagedInstanceCore. It is the platform's management channel, not an app permission
+    - item: workstation
+      kind: platform
+      reason:
+        zh-CN: 每个会话一台工作台，用于运行 scripts/module、AWS CLI 与对比实验
+        ja: セッションごとに 1 台のワークベンチがあり、scripts/module、AWS CLI、比較実験の実行に使います
+        en: Each session has one workbench for running scripts/module, the AWS CLI and comparison experiments
+    - item: check-bundle
+      kind: platform
+      reason:
+        zh-CN: 检查包随 CloudAlbum 发布包安装在实验机的 /opt/atl（06 PM-04）
+        ja: チェックバンドルは CloudAlbum のリリースパッケージとともにラボ用インスタンスの /opt/atl にインストールされます（06 PM-04）
+        en: The check bundle is installed with the CloudAlbum release package in /opt/atl on the lab instance (06 PM-04)
+    - item: preview-direct-https
+      kind: platform
+      reason:
+        zh-CN: 预览用 Let's Encrypt IP 证书；本卡对比的是“EC2 直出”与“经 CloudFront”，不涉及 tls 模块，保持开启
+        ja: プレビューには Let's Encrypt の IP 証明書を使います。このカードで比べるのは「EC2 から直接」と「CloudFront 経由」であり、tls モジュールは関係しないため有効のままにします
+        en: The preview uses a Let's Encrypt IP certificate. This card compares "served directly by EC2" with "through CloudFront" and does not involve the tls module, so it stays on
   platform: { preview: { directHttps: 'on' } }
-  reason: cdn 以 EC2 为源站时只要求实例关联弹性 IP（L0 已满足），没有其他硬依赖；平台只额外准备实例角色（档位 atl/svc-cdn/default）
+  reason:
+    zh-CN: cdn 以 EC2 为源站时只要求实例关联弹性 IP（L0 已满足），没有其他硬依赖；平台只额外准备实例角色（档位 atl/svc-cdn/default）
+    ja: EC2 をオリジンにする cdn は、インスタンスに Elastic IP が関連付けられていること（L0 で満たされています）だけを必要とし、ほかに必須の依存はありません。プラットフォームが追加で用意するのはインスタンスロールだけです（プロファイル atl/svc-cdn/default）
+    en: With EC2 as the origin, cdn only needs an Elastic IP associated with the instance (already true at L0) and has no other hard dependency. The platform only adds the instance role (profile atl/svc-cdn/default)
 targetModules:
   - id: cdn
     driver: cloudfront
@@ -63,14 +151,23 @@ provision: { class: A, cleanupBudgetMinutes: 90 }
 
 variables:
   distributionId:
-    label: 分配 ID
+    label:
+      zh-CN: 分配 ID
+      ja: ディストリビューション ID
+      en: Distribution ID
     from: derived
     fillFrom: stack.cdn.EnvCdnDistributionId
     pattern: '^E[A-Z0-9]{8,20}$'
     example: E2QWRUHAPOMQZL
-    help: 接入应用后由 cdn 栈输出自动取得；也可以在 CloudFront 控制台“分配”列表中看到
+    help:
+      zh-CN: 接入应用后由 cdn 栈输出自动取得；也可以在 CloudFront 控制台“分配”列表中看到
+      ja: アプリへの組み込み後、cdn スタックの出力から自動で取得します。CloudFront コンソールの「ディストリビューション」一覧でも確認できます
+      en: Filled in automatically from the cdn stack outputs after you wire the service into the app; you can also find it in the Distributions list of the CloudFront console
   cdnDomain:
-    label: 分配域名
+    label:
+      zh-CN: 分配域名
+      ja: ディストリビューションのドメイン名
+      en: Distribution domain name
     from: derived
     fillFrom: stack.cdn.InfoDistributionDomainName
     pattern: '^[a-z0-9]+\.cloudfront\.net$'
@@ -78,24 +175,45 @@ variables:
 cost:
   currency: USD
   tier: low
-  mainDrivers: [CloudFront 请求数, CloudFront 出网流量, 超出免费配额的失效路径]
+  mainDrivers: [{ zh-CN: CloudFront 请求数, ja: CloudFront のリクエスト数, en: CloudFront requests }, { zh-CN: CloudFront 出网流量, ja: CloudFront のデータ転送（アウト）, en: CloudFront data transfer out }, { zh-CN: 超出免费配额的失效路径, ja: 無料枠を超えた無効化パス, en: Invalidation paths beyond the free allowance }]
   basis:
-    - { ref: start-profile, note: 实验机 EC2、EBS（根卷与数据卷）、公网 IPv4 }
-    - { ref: workstation, note: 工作台 EC2、EBS、公网 IPv4 }
+    - ref: start-profile
+      note:
+        zh-CN: 实验机 EC2、EBS（根卷与数据卷）、公网 IPv4
+        ja: ラボ用インスタンスの EC2、EBS（ルートボリュームとデータボリューム）、パブリック IPv4
+        en: Lab instance EC2, EBS (root and data volumes) and public IPv4
+    - { ref: workstation, note: { zh-CN: 工作台 EC2、EBS、公网 IPv4, ja: ワークベンチの EC2、EBS、パブリック IPv4, en: "Workbench EC2, EBS and public IPv4" } }
     - { key: cf-requests, pricingKey: cloudfront.requests.https, billing: usage, quantity: 1, unit: requests,
         assumedUsagePerHour: 5000, source: target, whenRetained: false }
     - { key: cf-dto, pricingKey: cloudfront.dto, billing: usage, quantity: 1, unit: GB,
         assumedUsagePerHour: 0.2, source: target, whenRetained: false }
-    - { key: cf-invalidation, pricingKey: cloudfront.invalidation, billing: usage, quantity: 1, unit: paths,
-        assumedUsagePerHour: 2, source: learner-created, whenRetained: false, note: 失效路径在每月免费配额内通常不收费 }
+    - key: cf-invalidation
+      pricingKey: cloudfront.invalidation
+      billing: usage
+      quantity: 1
+      unit: paths
+      assumedUsagePerHour: 2
+      source: learner-created
+      whenRetained: false
+      note:
+        zh-CN: 失效路径在每月免费配额内通常不收费
+        ja: 毎月の無料枠内の無効化パスには通常料金がかかりません
+        en: Invalidation paths within the monthly free allowance are usually free
   assumptions:
-    - CloudFront 按量计费，按每小时约 5000 次请求、0.2 GB 出网估算（实验脚本 + 页面浏览）；学习流量通常在免费额度内，以官方定价为准
-    - 回源流量（EC2 → CloudFront）不计出网费用，以官方定价为准
+    - zh-CN: CloudFront 按量计费，按每小时约 5000 次请求、0.2 GB 出网估算（实验脚本 + 页面浏览）；学习流量通常在免费额度内，以官方定价为准
+      ja: CloudFront は従量課金です。1 時間あたり約 5000 リクエスト、0.2 GB のデータ転送で見積もっています（実験スクリプトとページ閲覧）。学習用の通信量は通常無料枠に収まります。正確な料金は公式の料金表を確認してください
+      en: CloudFront is billed by usage. The estimate assumes about 5,000 requests and 0.2 GB of data transfer per hour (experiment scripts plus page views). Learning traffic usually stays within the free tier; check the official pricing
+    - zh-CN: 回源流量（EC2 → CloudFront）不计出网费用，以官方定价为准
+      ja: オリジンへのトラフィック（EC2 → CloudFront）にはデータ転送料金がかかりません。正確な料金は公式の料金表を確認してください
+      en: Origin traffic (EC2 → CloudFront) is not charged as data transfer out; check the official pricing
 
 steps:
   - id: orient
     type: observe
-    title: 起始状态：入口只有 EC2 的 Nginx
+    title:
+      zh-CN: 起始状态：入口只有 EC2 的 Nginx
+      ja: 開始状態：入口は EC2 の Nginx だけ
+      en: "Start state: the only entry point is Nginx on EC2"
     manual: manual/10-orient.md
     panel: preview
     estMinutes: 5
@@ -103,7 +221,10 @@ steps:
 
   - id: baseline
     type: experiment
-    title: 记录 before：EC2 直出时的源站负载
+    title:
+      zh-CN: 记录 before：EC2 直出时的源站负载
+      ja: before を記録：EC2 から直接配信するときのオリジン負荷
+      en: "Record before: origin load when EC2 serves directly"
     manual: manual/20-baseline.md
     experiment: { module: cdn, id: media-load, label: before }
     panel: terminal-workstation
@@ -113,18 +234,30 @@ steps:
   - id: enable-cdn
     type: script
     wire: true
-    title: 启用 CloudFront 并接入应用（源站 = 实验机的 8080 源站监听器）
+    title:
+      zh-CN: 启用 CloudFront 并接入应用（源站 = 实验机的 8080 源站监听器）
+      ja: CloudFront を有効にしてアプリに組み込む（オリジン＝ラボ用インスタンスの 8080 オリジンリスナー）
+      en: Enable CloudFront and wire it into the app (origin = the 8080 origin listener on the lab instance)
     manual: manual/30-enable-cdn.md
     methods: [script]
     panel: terminal-workstation
     estMinutes: 20
-    startsBilling: { class: usage, pricingKeys: [cloudfront.requests.https, cloudfront.dto], note: 按量计费 }
-    wait: { typicalMinutes: 5, maxMinutes: 20, text: 分配状态会从“正在部署”变为“已启用” }
+    startsBilling: { class: usage, pricingKeys: [cloudfront.requests.https, cloudfront.dto], note: { zh-CN: 按量计费, ja: 従量課金, en: Billed by usage } }
+    wait:
+      typicalMinutes: 5
+      maxMinutes: 20
+      text:
+        zh-CN: 分配状态会从“正在部署”变为“已启用”
+        ja: ディストリビューションの状態が「デプロイ中」から「有効」に変わります
+        en: The distribution status changes from "Deploying" to "Enabled"
     checks: [cap-cdn-healthy, entry-cloudfront, origin-direct-denied, distribution-deployed]
 
   - id: observe-edge-cache
     type: observe
-    title: 亲眼看到边缘命中：同一请求先 Miss 后 Hit，命中的那次没有回源
+    title:
+      zh-CN: 亲眼看到边缘命中：同一请求先 Miss 后 Hit，命中的那次没有回源
+      ja: エッジでのヒットを自分の目で確認：同じリクエストが Miss の後に Hit になり、ヒットしたほうはオリジンに戻らない
+      en: "See an edge hit for yourself: the same request is a Miss and then a Hit, and the hit never reaches the origin"
     manual: manual/40-observe-edge-cache.md
     requires: { steps: [enable-cdn] }
     panel: terminal-workstation
@@ -133,7 +266,10 @@ steps:
 
   - id: after
     type: experiment
-    title: 记录 after：经 CloudFront 时的源站负载
+    title:
+      zh-CN: 记录 after：经 CloudFront 时的源站负载
+      ja: after を記録：CloudFront 経由のときのオリジン負荷
+      en: "Record after: origin load through CloudFront"
     manual: manual/50-after.md
     experiment: { module: cdn, id: media-load, label: after }
     requires: { steps: [enable-cdn] }
@@ -143,7 +279,10 @@ steps:
 
   - id: invalidation
     type: cli
-    title: 覆盖同名对象后，用失效与版本化文件名两种方式更新
+    title:
+      zh-CN: 覆盖同名对象后，用失效与版本化文件名两种方式更新
+      ja: 同じ名前のオブジェクトを上書きし、無効化とバージョン付きファイル名の 2 通りで更新する
+      en: Overwrite an object with the same name, then update it two ways — invalidation and versioned file names
     manual: manual/60-invalidation.md
     requires: { steps: [enable-cdn] }
     panel: terminal-workstation
@@ -152,9 +291,12 @@ steps:
 
   - id: compression
     type: experiment
-    title: （选做）压缩：文本资源经 CloudFront 返回 br
+    title:
+      zh-CN: （选做）压缩：文本资源经 CloudFront 返回 br
+      ja: （任意）圧縮：テキスト系リソースが CloudFront 経由で br で返る
+      en: "(Optional) Compression: text assets come back as br through CloudFront"
     manual: manual/70-compression.md
-    optional: { reason: 不影响完成 }
+    optional: { reason: { zh-CN: 不影响完成, ja: 完了には影響しません, en: Does not affect completion } }
     experiment: { module: cdn, id: compression, label: after }
     requires: { steps: [enable-cdn] }
     estMinutes: 10
@@ -179,30 +321,84 @@ experiments:
   - { module: cdn, id: compression, labels: [after], required: false, runner: workstation }
 
 quiz: { file: quiz.yaml, draw: 3 }
-badge: { title: 边缘缓存, icon: assets/badge.svg }
+badge: { title: { zh-CN: 边缘缓存, ja: エッジキャッシュ, en: Edge cache }, icon: assets/badge.svg }
 tracks: [cost-optimized, networking, performant, quick-compare, saa-main]
 
 cleanup:
-  summary: 结束实验后，平台会删除本次会话的全部资源，包括 CloudFront 分配与它的缓存策略、响应头策略。分配要先禁用、等部署完成后才能删除，回收需要一段时间。
+  summary:
+    zh-CN: 结束实验后，平台会删除本次会话的全部资源，包括 CloudFront 分配与它的缓存策略、响应头策略。分配要先禁用、等部署完成后才能删除，回收需要一段时间。
+    ja: ラボを終了すると、プラットフォームがこのセッションのリソースをすべて削除します。CloudFront ディストリビューションと、そのキャッシュポリシー、レスポンスヘッダーポリシーも含まれます。ディストリビューションは無効にしてデプロイ完了を待ってからでないと削除できないため、回収には時間がかかります。
+    en: When you end the lab, the platform deletes every resource of this session, including the CloudFront distribution and its cache policy and response headers policy. A distribution must be disabled and finish deploying before it can be deleted, so reclaiming takes a while.
   autoReclaim: true
-  dataRisk: [没有业务数据；实验机与其上的照片随会话删除，报告中保留证据摘要]
+  dataRisk:
+    - zh-CN: 没有业务数据；实验机与其上的照片随会话删除，报告中保留证据摘要
+      ja: 業務データはありません。ラボ用インスタンスとその上の写真はセッションとともに削除され、レポートには証拠の要約が残ります
+      en: There is no business data. The lab instance and its photos are deleted with the session; the report keeps an evidence summary
   learnerCreatedHints:
-    - { resourceType: 'AWS::CloudFront::Distribution', how: 先禁用，状态变为已部署后再删除 }
-    - { resourceType: 'AWS::CloudFront::CachePolicy', how: 分配删除后才能删除被引用的自定义缓存策略 }
-    - { resourceType: 'AWS::CloudFront::ResponseHeadersPolicy', how: 分配删除后才能删除被引用的响应头策略 }
+    - { resourceType: 'AWS::CloudFront::Distribution', how: { zh-CN: 先禁用，状态变为已部署后再删除, ja: まず無効にし、状態がデプロイ済みになってから削除します, en: "Disable it first, and delete it once its status is Deployed" } }
+    - resourceType: 'AWS::CloudFront::CachePolicy'
+      how:
+        zh-CN: 分配删除后才能删除被引用的自定义缓存策略
+        ja: 参照されているカスタムキャッシュポリシーは、ディストリビューションを削除した後でないと削除できません
+        en: A custom cache policy that is in use can only be deleted after the distribution is deleted
+    - resourceType: 'AWS::CloudFront::ResponseHeadersPolicy'
+      how:
+        zh-CN: 分配删除后才能删除被引用的响应头策略
+        ja: 参照されているレスポンスヘッダーポリシーは、ディストリビューションを削除した後でないと削除できません
+        en: A response headers policy that is in use can only be deleted after the distribution is deleted
   verify:
     - dist-gone
 
 saa:
   domains: [performance, cost, secure]
   topics:
-    - { id: three-policies, title: 缓存策略、源请求策略、响应头策略的分工, domain: performance, relatesTo: observe-edge-cache }
-    - { id: custom-origin, title: 自定义源站只能是域名；前缀列表 + 自定义头保护源站, domain: secure, relatesTo: enable-cdn }
-    - { id: origin-egress, title: AWS 源站回源到 CloudFront 的流量不计出网费, domain: cost, relatesTo: after }
-    - { id: invalidation, title: 失效与版本化文件名, domain: performance, relatesTo: invalidation }
+    - id: three-policies
+      title:
+        zh-CN: 缓存策略、源请求策略、响应头策略的分工
+        ja: キャッシュポリシー、オリジンリクエストポリシー、レスポンスヘッダーポリシーの役割分担
+        en: How the cache policy, origin request policy and response headers policy divide the work
+      domain: performance
+      relatesTo: observe-edge-cache
+    - id: custom-origin
+      title:
+        zh-CN: 自定义源站只能是域名；前缀列表 + 自定义头保护源站
+        ja: カスタムオリジンはドメイン名のみ。プレフィックスリスト＋カスタムヘッダーでオリジンを保護
+        en: A custom origin must be a domain name; protect it with a prefix list plus a custom header
+      domain: secure
+      relatesTo: enable-cdn
+    - id: origin-egress
+      title:
+        zh-CN: AWS 源站回源到 CloudFront 的流量不计出网费
+        ja: AWS のオリジンから CloudFront へのトラフィックにはデータ転送料金がかからない
+        en: Traffic from an AWS origin to CloudFront is not charged as data transfer out
+      domain: cost
+      relatesTo: after
+    - { id: invalidation, title: { zh-CN: 失效与版本化文件名, ja: 無効化とバージョン付きファイル名, en: Invalidations and versioned file names }, domain: performance, relatesTo: invalidation }
   confusables:
-    - { a: 缓存失效, b: 版本化文件名, rule: 失效需要时间且超出免费配额要收费；版本化文件名让新版本成为新对象，立即生效 }
-    - { a: CloudFront, b: Global Accelerator, rule: CloudFront 在边缘缓存内容；Global Accelerator 提供静态 Anycast IP 与骨干网加速，不缓存 }
+    - a:
+        zh-CN: 缓存失效
+        ja: キャッシュの無効化
+        en: Cache invalidation
+      b:
+        zh-CN: 版本化文件名
+        ja: バージョン付きファイル名
+        en: Versioned file names
+      rule:
+        zh-CN: 失效需要时间且超出免费配额要收费；版本化文件名让新版本成为新对象，立即生效
+        ja: 無効化は反映に時間がかかり、無料枠を超えると課金されます。バージョン付きファイル名なら新しいバージョンが新しいオブジェクトになり、すぐに反映されます
+        en: An invalidation takes time and is charged beyond the free allowance; a versioned file name makes the new version a new object, which takes effect immediately
+    - a:
+        zh-CN: CloudFront
+        ja: CloudFront
+        en: CloudFront
+      b:
+        zh-CN: Global Accelerator
+        ja: Global Accelerator
+        en: Global Accelerator
+      rule:
+        zh-CN: CloudFront 在边缘缓存内容；Global Accelerator 提供静态 Anycast IP 与骨干网加速，不缓存
+        ja: CloudFront はエッジでコンテンツをキャッシュします。Global Accelerator は静的なエニーキャスト IP とバックボーンでの高速化を提供し、キャッシュはしません
+        en: CloudFront caches content at the edge; Global Accelerator provides static anycast IPs and backbone acceleration and does not cache
 
 tags: [cdn, cloudfront, edge, caching, performance]
 

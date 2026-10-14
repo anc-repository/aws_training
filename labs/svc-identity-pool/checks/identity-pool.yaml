@@ -1,42 +1,74 @@
 checks:
   # ---- 起始状态（before 一律 once）
   - id: identity-pool-none-baseline
-    title: 起始状态：F14 由应用自签的前缀令牌授权（none 驱动）
+    title:
+      zh-CN: 起始状态：F14 由应用自签的前缀令牌授权（none 驱动）
+      ja: 開始状態：F14 はアプリが署名するプレフィックストークンで認可されている（none ドライバー）
+      en: "Start state: F14 is authorized by an app-signed prefix token (the none driver)"
     type: capability
     module: identity-pool
     drift: { policy: once }
     assert:
-      - { path: $.driver, op: eq, value: none, label: 驱动 }
-      - { path: $.status, op: eq, value: 'off', label: 模块状态（本地实现） }
-    explain: IDENTITY_POOL_ID 为空时，POST /api/uploads/session 返回 HMAC 前缀令牌（raw/<userId>/），storage=s3 下每一片都要先 POST /api/uploads/parts:sign。
+      - { path: $.driver, op: eq, value: none, label: { zh-CN: 驱动, ja: ドライバー, en: Driver } }
+      - { path: $.status, op: eq, value: 'off', label: { zh-CN: 模块状态（本地实现）, ja: モジュールの状態（ローカル実装）, en: Module status (local implementation) } }
+    explain:
+      zh-CN: IDENTITY_POOL_ID 为空时，POST /api/uploads/session 返回 HMAC 前缀令牌（raw/<userId>/），storage=s3 下每一片都要先 POST /api/uploads/parts:sign。
+      ja: IDENTITY_POOL_ID が空のとき、POST /api/uploads/session は HMAC のプレフィックストークン（raw/<userId>/）を返し、storage=s3 ではパートごとに先に POST /api/uploads/parts:sign が必要です。
+      en: With IDENTITY_POOL_ID empty, POST /api/uploads/session returns an HMAC prefix token (raw/<userId>/), and with storage=s3 every part first needs POST /api/uploads/parts:sign.
 
   - id: f14-path-seen
-    title: 服务端记录到真实的 F14 上传请求（前缀令牌或 STS 凭证）
+    title:
+      zh-CN: 服务端记录到真实的 F14 上传请求（前缀令牌或 STS 凭证）
+      ja: サーバーが実際の F14 のアップロードリクエスト（プレフィックストークンまたは STS の認証情報）を記録している
+      en: The server recorded real F14 upload requests (prefix token or STS credentials)
     type: local
     on: lab
     checkId: path-seen
     args: { segment: identity-pool, pattern: '^(none:token|cognito:sts)$', window: 15m, minCount: 1, excludeProbe: true }
     drift: { policy: once }
     assert:
-      - { path: $.count, op: gte, value: 1, label: 出现 identity-pool=none:token 或 cognito:sts 的请求数 }
-    explain: 对比实验由测试用户发起（不带实验头），这一项是服务端证据：应用按实际调用的驱动生成路径签名，探测请求不计入。
+      - path: $.count
+        op: gte
+        value: 1
+        label:
+          zh-CN: 出现 identity-pool=none:token 或 cognito:sts 的请求数
+          ja: identity-pool=none:token または cognito:sts が現れたリクエスト数
+          en: Requests showing identity-pool=none:token or cognito:sts
+    explain:
+      zh-CN: 对比实验由测试用户发起（不带实验头），这一项是服务端证据：应用按实际调用的驱动生成路径签名，探测请求不计入。
+      ja: 比較実験はテストユーザーが行う（実験用のヘッダーは付けない）ため、この項目はサーバー側の証拠です。アプリは実際に呼び出したドライバーに応じて経路の署名を生成し、プローブのリクエストは数えません。
+      en: "The comparison experiments are run by the test users (without experiment headers), so this item is server-side evidence: the app builds the path signature from the driver it actually called, and probe requests do not count."
 
   # ---- 启用 Identity Pool
   - id: identity-pool-wired
-    title: identity-pool 已切换到 Cognito，只允许预期的 DEP-030 警告
+    title:
+      zh-CN: identity-pool 已切换到 Cognito，只允许预期的 DEP-030 警告
+      ja: identity-pool が Cognito に切り替わり、想定内の DEP-030 警告のみ
+      en: identity-pool has switched to Cognito, with only the expected DEP-030 warning
     type: capability
     module: identity-pool
     expectedWarnings: [DEP-030]
     drift: { policy: must-hold, monitor: true }
     wait: { typicalMinutes: 3, maxMinutes: 15 }
     assert:
-      - { path: $.driver, op: eq, value: cognito, label: 驱动 }
-      - { path: $, op: healthy, label: 状态正常（APP_BASE_URL 仍是 http 时 DEP-030 使其为 degraded，这是预期的） }
-    explain: 探针调用 DescribeIdentityPool 并对暂存桶 HeadBucket。DEP-030：在 http 站点上下发临时凭证等于明文传输；平台预览方案 B 让浏览器走 https://<EIP>。
+      - { path: $.driver, op: eq, value: cognito, label: { zh-CN: 驱动, ja: ドライバー, en: Driver } }
+      - path: $
+        op: healthy
+        label:
+          zh-CN: 状态正常（APP_BASE_URL 仍是 http 时 DEP-030 使其为 degraded，这是预期的）
+          ja: 状態が正常（APP_BASE_URL がまだ http のときは DEP-030 で degraded になるが、これは想定内）
+          en: Healthy (DEP-030 makes it degraded while APP_BASE_URL is still http, which is expected)
+    explain:
+      zh-CN: 探针调用 DescribeIdentityPool 并对暂存桶 HeadBucket。DEP-030：在 http 站点上下发临时凭证等于明文传输；平台预览方案 B 让浏览器走 https://<EIP>。
+      ja: プローブは DescribeIdentityPool を呼び出し、ステージングバケットに HeadBucket を行います。DEP-030：http のサイトで一時的な認証情報を配布すると平文での送信になります。プラットフォームのプレビュー方式 B では、ブラウザーは https://<EIP> を使います。
+      en: "The probe calls DescribeIdentityPool and runs HeadBucket on the staging bucket. DEP-030: handing out temporary credentials on an http site means sending them in clear text; the platform's preview option B has the browser use https://<EIP>."
     reproduce: { run: 'curl -s http://127.0.0.1/api/capabilities | jq ".modules[\"identity-pool\"] | {driver, status, detail}"', runsOn: lab }
 
   - id: identity-pool-probe
-    title: 平台探测端点经 Identity Pool 驱动（identity-pool=cognito:probe）
+    title:
+      zh-CN: 平台探测端点经 Identity Pool 驱动（identity-pool=cognito:probe）
+      ja: プラットフォームのプローブ用エンドポイントが Identity Pool のドライバーを通る（identity-pool=cognito:probe）
+      en: The platform's probe endpoint goes through the Identity Pool driver (identity-pool=cognito:probe)
     type: http-header
     from: lab
     target: self
@@ -45,15 +77,21 @@ checks:
     dependsOn: [identity-pool-wired]
     drift: { policy: must-hold }
     assert:
-      - { path: $.status, op: eq, value: 200, label: 状态码 }
-      - { path: $.json.driver, op: eq, value: cognito, label: 驱动 }
-      - { path: $.json.identityPoolId, op: eq, value: '{{ var.identityPoolId }}', label: 身份池是本会话栈的输出 }
-      - { path: $.json.allowUnauthenticated, op: eq, value: false, label: 不允许访客身份 }
-      - { path: $.pathSegments.identity-pool, op: eq, value: 'cognito:probe', label: 路径段 identity-pool }
-    explain: 探测主体没有终端用户的 ID 令牌，端点只调用 DescribeIdentityPool 与 HeadBucket，不签发 STS 凭证（06 PM-11）；“真的走了 STS”的证据见 sts-path-seen。
+      - { path: $.status, op: eq, value: 200, label: { zh-CN: 状态码, ja: ステータスコード, en: Status code } }
+      - { path: $.json.driver, op: eq, value: cognito, label: { zh-CN: 驱动, ja: ドライバー, en: Driver } }
+      - { path: $.json.identityPoolId, op: eq, value: '{{ var.identityPoolId }}', label: { zh-CN: 身份池是本会话栈的输出, ja: Identity Pool がこのセッションのスタックの出力, en: The identity pool is an output of this session's stack } }
+      - { path: $.json.allowUnauthenticated, op: eq, value: false, label: { zh-CN: 不允许访客身份, ja: ゲスト ID を許可しない, en: Guest identities not allowed } }
+      - { path: $.pathSegments.identity-pool, op: eq, value: 'cognito:probe', label: { zh-CN: 路径段 identity-pool, ja: 経路セグメント identity-pool, en: Path segment identity-pool } }
+    explain:
+      zh-CN: 探测主体没有终端用户的 ID 令牌，端点只调用 DescribeIdentityPool 与 HeadBucket，不签发 STS 凭证（06 PM-11）；“真的走了 STS”的证据见 sts-path-seen。
+      ja: プローブの主体にはエンドユーザーの ID トークンがないため、エンドポイントは DescribeIdentityPool と HeadBucket だけを呼び出し、STS の認証情報は発行しません（06 PM-11）。「実際に STS を通った」ことの証拠は sts-path-seen を見てください。
+      en: The probe principal has no end-user ID token, so the endpoint only calls DescribeIdentityPool and HeadBucket and issues no STS credentials (06 PM-11); the evidence that STS was really used is sts-path-seen.
 
   - id: sts-path-seen
-    title: 真实上传经 Identity Pool 换取了 STS 临时凭证
+    title:
+      zh-CN: 真实上传经 Identity Pool 换取了 STS 临时凭证
+      ja: 実際のアップロードで Identity Pool から STS の一時的な認証情報を取得した
+      en: A real upload exchanged the sign-in for STS temporary credentials through the Identity Pool
     type: local
     on: lab
     checkId: path-seen
@@ -61,11 +99,23 @@ checks:
     dependsOn: [identity-pool-wired]
     drift: { policy: once }
     assert:
-      - { path: $.count, op: gte, value: 1, label: 出现 identity-pool=cognito:sts 的请求数 }
-    explain: 在应用预览里一次选两张照片上传（多文件走 F14）即可满足。只有换取凭证成功的 /api/uploads/credentials 与导入成功的 complete 带这个路径段；/api/uploads/session 只是开会话，路径段为 cognito:session，不计入。
+      - path: $.count
+        op: gte
+        value: 1
+        label:
+          zh-CN: 出现 identity-pool=cognito:sts 的请求数
+          ja: identity-pool=cognito:sts が現れたリクエスト数
+          en: Requests showing identity-pool=cognito:sts
+    explain:
+      zh-CN: 在应用预览里一次选两张照片上传（多文件走 F14）即可满足。只有换取凭证成功的 /api/uploads/credentials 与导入成功的 complete 带这个路径段；/api/uploads/session 只是开会话，路径段为 cognito:session，不计入。
+      ja: アプリのプレビューで写真を 2 枚まとめて選んでアップロードすれば満たせます（複数ファイルは F14 を通ります）。この経路セグメントが付くのは、認証情報の交換に成功した /api/uploads/credentials と、取り込みに成功した complete だけです。/api/uploads/session はセッションを開くだけで経路セグメントは cognito:session となり、数えません。
+      en: Uploading two photos at once in the app preview is enough (multiple files go through F14). Only a successful /api/uploads/credentials exchange and a successful complete import carry this path segment; /api/uploads/session only opens a session, has the segment cognito:session and does not count.
 
   - id: identity-pool-no-guests
-    title: 身份池由本会话创建，不允许未认证（访客）身份，身份提供方是本会话的 User Pool
+    title:
+      zh-CN: 身份池由本会话创建，不允许未认证（访客）身份，身份提供方是本会话的 User Pool
+      ja: Identity Pool はこのセッションで作成され、未認証（ゲスト）ID を許可せず、ID プロバイダーはこのセッションの User Pool
+      en: The identity pool was created by this session, allows no unauthenticated (guest) identities, and its identity provider is this session's User Pool
     type: aws-readonly
     service: cognito-identity
     action: DescribeIdentityPool
@@ -75,20 +125,37 @@ checks:
     dependsOn: [identity-pool-wired]
     drift: { policy: must-hold }
     assert:
-      - { path: $.AllowUnauthenticatedIdentities, op: eq, value: false, label: 不允许访客身份 }
-      - { path: '$.CognitoIdentityProviders[0].ProviderName', op: endsWith, value: '/{{ var.userPoolId }}', label: 身份提供方是本会话的 User Pool }
-    explain: 访客身份会让任何人都能换到凭证；身份提供方的 ClientId 由 auth 的 injects 传入（不使用 ImportValue）。
+      - { path: $.AllowUnauthenticatedIdentities, op: eq, value: false, label: { zh-CN: 不允许访客身份, ja: ゲスト ID を許可しない, en: Guest identities not allowed } }
+      - { path: '$.CognitoIdentityProviders[0].ProviderName', op: endsWith, value: '/{{ var.userPoolId }}', label: { zh-CN: 身份提供方是本会话的 User Pool, ja: ID プロバイダーがこのセッションの User Pool, en: The identity provider is this session's User Pool } }
+    explain:
+      zh-CN: 访客身份会让任何人都能换到凭证；身份提供方的 ClientId 由 auth 的 injects 传入（不使用 ImportValue）。
+      ja: ゲスト ID を許可すると、誰でも認証情報を取得できてしまいます。ID プロバイダーの ClientId は auth の injects から渡されます（ImportValue は使いません）。
+      en: Guest identities would let anyone obtain credentials; the identity provider's ClientId comes in through auth's injects (ImportValue is not used).
     reproduce: { run: 'aws cognito-identity describe-identity-pool --identity-pool-id "{{ var.identityPoolId }}" --query "{guests:AllowUnauthenticatedIdentities,providers:CognitoIdentityProviders}"', runsOn: workstation }
     manualFallback:
       where: { breadcrumb: [Amazon Cognito, 身份池, 'cloudalbum_{{ session.env }}_uploads', 用户访问权限], region: app }
       observed:
-        question: “访客访问”是什么状态？
+        question:
+          zh-CN: “访客访问”是什么状态？
+          ja: 「ゲストアクセス」の状態は何ですか？
+          en: What is the status of "Guest access"?
         options:
-          - { value: inactive, label: 未激活, expected: true }
-          - { value: active, label: 已激活, fixHint: 不要在控制台修改栈管理的身份池；重新执行 scripts/module enable identity-pool }
+          - { value: inactive, label: { zh-CN: 未激活, ja: 無効, en: Inactive }, expected: true }
+          - value: active
+            label:
+              zh-CN: 已激活
+              ja: 有効
+              en: Active
+            fixHint:
+              zh-CN: 不要在控制台修改栈管理的身份池；重新执行 scripts/module enable identity-pool
+              ja: スタックが管理する Identity Pool をコンソールで変更しないでください。scripts/module enable identity-pool を再実行します
+              en: Do not change the stack-managed identity pool in the console; run scripts/module enable identity-pool again
 
   - id: identity-pool-roles
-    title: 已认证身份的默认角色是 Uploader 角色，没有未认证角色
+    title:
+      zh-CN: 已认证身份的默认角色是 Uploader 角色，没有未认证角色
+      ja: 認証済み ID のデフォルトロールが Uploader ロールで、未認証ロールがない
+      en: The default role for authenticated identities is the Uploader role, and there is no unauthenticated role
     type: aws-readonly
     service: cognito-identity
     action: GetIdentityPoolRoles
@@ -97,21 +164,43 @@ checks:
     dependsOn: [identity-pool-no-guests]
     drift: { policy: must-hold }
     assert:
-      - { path: $.Roles.authenticated, op: eq, value: '{{ var.uploaderRoleArn }}', label: 已认证角色 }
-      - { path: $.Roles.unauthenticated, op: absent, label: 没有未认证角色 }
-    explain: 身份池的归属已由 identity-pool-no-guests 确认；角色映射是 IdentityPoolRoleAttachment 资源。
+      - { path: $.Roles.authenticated, op: eq, value: '{{ var.uploaderRoleArn }}', label: { zh-CN: 已认证角色, ja: 認証済みロール, en: Authenticated role } }
+      - { path: $.Roles.unauthenticated, op: absent, label: { zh-CN: 没有未认证角色, ja: 未認証ロールがない, en: No unauthenticated role } }
+    explain:
+      zh-CN: 身份池的归属已由 identity-pool-no-guests 确认；角色映射是 IdentityPoolRoleAttachment 资源。
+      ja: Identity Pool の所有は identity-pool-no-guests で確認済みです。ロールのマッピングは IdentityPoolRoleAttachment リソースです。
+      en: identity-pool-no-guests has already confirmed ownership of the identity pool; the role mapping is an IdentityPoolRoleAttachment resource.
     reproduce: { run: 'aws cognito-identity get-identity-pool-roles --identity-pool-id "{{ var.identityPoolId }}"', runsOn: workstation }
     manualFallback:
       where: { breadcrumb: [Amazon Cognito, 身份池, 'cloudalbum_{{ session.env }}_uploads', 用户访问权限], region: app }
       observed:
-        question: “已经过身份验证的角色”是哪一个？
+        question:
+          zh-CN: “已经过身份验证的角色”是哪一个？
+          ja: 「認証されたロール」はどれですか？
+          en: Which one is the "Authenticated role"?
         options:
-          - { value: uploader, label: 'cloudalbum-{{ session.env }}-identity-pool-uploader', expected: true }
-          - { value: other, label: 其他角色或为空, fixHint: 重新执行 scripts/module enable identity-pool }
+          - value: uploader
+            label:
+              zh-CN: 'cloudalbum-{{ session.env }}-identity-pool-uploader'
+              ja: cloudalbum-{{ session.env }}-identity-pool-uploader
+              en: cloudalbum-{{ session.env }}-identity-pool-uploader
+            expected: true
+          - value: other
+            label:
+              zh-CN: 其他角色或为空
+              ja: 別のロール、または空
+              en: Another role, or empty
+            fixHint:
+              zh-CN: 重新执行 scripts/module enable identity-pool
+              ja: scripts/module enable identity-pool を再実行してください
+              en: Run scripts/module enable identity-pool again
 
   # ---- 读策略
   - id: uploader-trust
-    title: Uploader 角色的信任策略同时限定 aud（本身份池）与 amr（authenticated）
+    title:
+      zh-CN: Uploader 角色的信任策略同时限定 aud（本身份池）与 amr（authenticated）
+      ja: Uploader ロールの信頼ポリシーが aud（この Identity Pool）と amr（authenticated）の両方で限定されている
+      en: The Uploader role's trust policy restricts both aud (this identity pool) and amr (authenticated)
     type: aws-readonly
     service: iam
     action: GetRole
@@ -120,34 +209,83 @@ checks:
     ownership: { resource: '{{ var.uploaderRoleArn }}', mode: session, createdAfter: session.readyAt }
     drift: { policy: must-hold }
     assert:
-      - { path: $.Role.AssumeRolePolicyDocument, op: contains, value: AssumeRoleWithWebIdentity, label: Web 身份联合 }
-      - { path: $.Role.AssumeRolePolicyDocument, op: matches, value: 'cognito-identity\.amazonaws\.com(:|%3A)aud', label: 有 aud 条件 }
-      - { path: $.Role.AssumeRolePolicyDocument, op: matches, value: 'cognito-identity\.amazonaws\.com(:|%3A)amr', label: 有 amr 条件 }
-      - { path: $.Role.AssumeRolePolicyDocument, op: contains, value: authenticated, label: amr 为 authenticated }
-    explain: 缺少 aud 条件时，任何身份池（包括别人账号里的）都可能扮演这个角色。IAM 返回的策略文档是 URL 编码的，所以冒号可能显示为 %3A。
+      - { path: $.Role.AssumeRolePolicyDocument, op: contains, value: AssumeRoleWithWebIdentity, label: { zh-CN: Web 身份联合, ja: ウェブ ID フェデレーション, en: Web identity federation } }
+      - { path: $.Role.AssumeRolePolicyDocument, op: matches, value: 'cognito-identity\.amazonaws\.com(:|%3A)aud', label: { zh-CN: 有 aud 条件, ja: aud の条件がある, en: Has an aud condition } }
+      - { path: $.Role.AssumeRolePolicyDocument, op: matches, value: 'cognito-identity\.amazonaws\.com(:|%3A)amr', label: { zh-CN: 有 amr 条件, ja: amr の条件がある, en: Has an amr condition } }
+      - { path: $.Role.AssumeRolePolicyDocument, op: contains, value: authenticated, label: { zh-CN: amr 为 authenticated, ja: amr が authenticated, en: amr is authenticated } }
+    explain:
+      zh-CN: 缺少 aud 条件时，任何身份池（包括别人账号里的）都可能扮演这个角色。IAM 返回的策略文档是 URL 编码的，所以冒号可能显示为 %3A。
+      ja: aud の条件がないと、どの Identity Pool（他人のアカウントのものも含む）でもこのロールを引き受けられるおそれがあります。IAM が返すポリシードキュメントは URL エンコードされているため、コロンが %3A と表示されることがあります。
+      en: Without an aud condition, any identity pool (including ones in other people's accounts) might assume this role. IAM returns policy documents URL-encoded, so colons may show up as %3A.
     reproduce: { run: 'aws iam get-role --role-name "{{ var.uploaderRoleName }}" --query Role.AssumeRolePolicyDocument', runsOn: workstation }
     manualFallback:
       where: { breadcrumb: [IAM, 角色, '{{ var.uploaderRoleName }}', 信任关系], region: global }
       observed:
-        question: 信任策略的 Condition 里有哪些条件键？
+        question:
+          zh-CN: 信任策略的 Condition 里有哪些条件键？
+          ja: 信頼ポリシーの Condition にはどの条件キーがありますか？
+          en: Which condition keys are in the trust policy's Condition?
         options:
-          - { value: both, label: 'cognito-identity.amazonaws.com:aud 与 cognito-identity.amazonaws.com:amr', expected: true }
-          - { value: aud-only, label: 只有 aud, fixHint: 缺少 amr 条件时未认证身份也可能扮演；不要在控制台修改栈管理的角色 }
+          - value: both
+            label:
+              zh-CN: 'cognito-identity.amazonaws.com:aud 与 cognito-identity.amazonaws.com:amr'
+              ja: cognito-identity.amazonaws.com:aud と cognito-identity.amazonaws.com:amr
+              en: cognito-identity.amazonaws.com:aud and cognito-identity.amazonaws.com:amr
+            expected: true
+          - value: aud-only
+            label:
+              zh-CN: 只有 aud
+              ja: aud だけ
+              en: Only aud
+            fixHint:
+              zh-CN: 缺少 amr 条件时未认证身份也可能扮演；不要在控制台修改栈管理的角色
+              ja: amr の条件がないと、未認証の ID でも引き受けられるおそれがあります。スタックが管理するロールをコンソールで変更しないでください
+              en: Without an amr condition, unauthenticated identities might assume it too; do not change the stack-managed role in the console
 
   - id: uploader-permissions
-    title: 看懂 Uploader 角色的权限：只能写 private/${cognito-identity.amazonaws.com:sub}/
+    title:
+      zh-CN: 看懂 Uploader 角色的权限：只能写 private/${cognito-identity.amazonaws.com:sub}/
+      ja: Uploader ロールの権限を読み解く：private/${cognito-identity.amazonaws.com:sub}/ にしか書き込めない
+      en: "Read the Uploader role's permissions: it can only write to private/${cognito-identity.amazonaws.com:sub}/"
     type: manual
     spec:
       where: { breadcrumb: [IAM, 角色, '{{ var.uploaderRoleName }}', 权限, staging-own-prefix], region: global }
       observed:
-        question: s3:PutObject 的资源是哪一种？
+        question:
+          zh-CN: s3:PutObject 的资源是哪一种？
+          ja: s3:PutObject のリソースはどれですか？
+          en: Which is the resource of s3:PutObject?
         options:
-          - { value: variable, label: 'arn:aws:s3:::<暂存桶>/private/${cognito-identity.amazonaws.com:sub}/*', expected: true }
-          - { value: bucket, label: 'arn:aws:s3:::<暂存桶>/*', fixHint: 这样每个用户都能写别人的前缀；不要在控制台修改栈管理的角色 }
-          - { value: user-pool-sub, label: 'private/${cognito-idp…:sub}/*（User Pool 的 sub）', fixHint: 策略变量取的是 Identity ID（形如 ap-northeast-1:uuid），不是 User Pool 的 sub }
+          - value: variable
+            label:
+              zh-CN: 'arn:aws:s3:::<暂存桶>/private/${cognito-identity.amazonaws.com:sub}/*'
+              ja: arn:aws:s3:::<ステージングバケット>/private/${cognito-identity.amazonaws.com:sub}/*
+              en: arn:aws:s3:::<staging bucket>/private/${cognito-identity.amazonaws.com:sub}/*
+            expected: true
+          - value: bucket
+            label:
+              zh-CN: 'arn:aws:s3:::<暂存桶>/*'
+              ja: arn:aws:s3:::<ステージングバケット>/*
+              en: arn:aws:s3:::<staging bucket>/*
+            fixHint:
+              zh-CN: 这样每个用户都能写别人的前缀；不要在控制台修改栈管理的角色
+              ja: これではどのユーザーも他人のプレフィックスに書き込めてしまいます。スタックが管理するロールをコンソールで変更しないでください
+              en: That would let every user write other users' prefixes; do not change the stack-managed role in the console
+          - value: user-pool-sub
+            label:
+              zh-CN: 'private/${cognito-idp…:sub}/*（User Pool 的 sub）'
+              ja: private/${cognito-idp…:sub}/*（User Pool の sub）
+              en: private/${cognito-idp…:sub}/* (the User Pool sub)
+            fixHint:
+              zh-CN: 策略变量取的是 Identity ID（形如 ap-northeast-1:uuid），不是 User Pool 的 sub
+              ja: ポリシー変数が取るのは Identity ID（ap-northeast-1:uuid の形式）で、User Pool の sub ではありません
+              en: The policy variable takes the Identity ID (like ap-northeast-1:uuid), not the User Pool sub
 
   - id: staging-cors
-    title: 暂存桶的 CORS 暴露 ETag，允许 PUT / POST / DELETE / GET
+    title:
+      zh-CN: 暂存桶的 CORS 暴露 ETag，允许 PUT / POST / DELETE / GET
+      ja: ステージングバケットの CORS が ETag を公開し、PUT / POST / DELETE / GET を許可している
+      en: The staging bucket's CORS exposes ETag and allows PUT / POST / DELETE / GET
     type: aws-readonly
     service: s3
     action: GetBucketCors
@@ -156,45 +294,95 @@ checks:
     ownership: { resource: '{{ var.stagingBucketArn }}', mode: session, createdAfter: session.readyAt }
     drift: { policy: must-hold }
     assert:
-      - { path: '$.CORSRules[0].ExposeHeaders', op: contains, value: ETag, label: 暴露 ETag（分片上传必需） }
-      - { path: '$.CORSRules[0].AllowedMethods', op: contains, value: PUT, label: 允许 PUT（UploadPart） }
-      - { path: '$.CORSRules[0].AllowedMethods', op: contains, value: POST, label: 允许 POST（创建 / 完成分片上传） }
-      - { path: '$.CORSRules[0].AllowedMethods', op: contains, value: DELETE, label: 允许 DELETE（中止分片上传） }
-    explain: 浏览器读不到每一片的 ETag 就无法完成合并；没有 DELETE 时取消上传会失败。
+      - { path: '$.CORSRules[0].ExposeHeaders', op: contains, value: ETag, label: { zh-CN: 暴露 ETag（分片上传必需）, ja: ETag を公開（マルチパートアップロードに必須）, en: Exposes ETag (required for multipart upload) } }
+      - { path: '$.CORSRules[0].AllowedMethods', op: contains, value: PUT, label: { zh-CN: 允许 PUT（UploadPart）, ja: PUT を許可（UploadPart）, en: Allows PUT (UploadPart) } }
+      - { path: '$.CORSRules[0].AllowedMethods', op: contains, value: POST, label: { zh-CN: 允许 POST（创建 / 完成分片上传）, ja: POST を許可（マルチパートアップロードの作成 / 完了）, en: Allows POST (create / complete multipart upload) } }
+      - { path: '$.CORSRules[0].AllowedMethods', op: contains, value: DELETE, label: { zh-CN: 允许 DELETE（中止分片上传）, ja: DELETE を許可（マルチパートアップロードの中止）, en: Allows DELETE (abort multipart upload) } }
+    explain:
+      zh-CN: 浏览器读不到每一片的 ETag 就无法完成合并；没有 DELETE 时取消上传会失败。
+      ja: ブラウザーが各パートの ETag を読み取れないと、結合を完了できません。DELETE がないと、アップロードの取り消しが失敗します。
+      en: If the browser cannot read each part's ETag it cannot complete the merge; without DELETE, cancelling an upload fails.
     reproduce: { run: 'aws s3api get-bucket-cors --bucket "{{ var.stagingBucket }}"', runsOn: workstation }
     manualFallback:
       where: { breadcrumb: [Amazon S3, 存储桶, '{{ var.stagingBucket }}', 权限, 跨源资源共享 (CORS)], region: app }
       observed:
-        question: ExposeHeaders 里有什么？
+        question:
+          zh-CN: ExposeHeaders 里有什么？
+          ja: ExposeHeaders には何がありますか？
+          en: What is in ExposeHeaders?
         options:
-          - { value: etag, label: ETag, expected: true }
-          - { value: none, label: 空, fixHint: 重新执行 scripts/module enable identity-pool }
+          - { value: etag, label: { zh-CN: ETag, ja: ETag, en: ETag }, expected: true }
+          - value: none
+            label:
+              zh-CN: 空
+              ja: 空
+              en: Empty
+            fixHint:
+              zh-CN: 重新执行 scripts/module enable identity-pool
+              ja: scripts/module enable identity-pool を再実行してください
+              en: Run scripts/module enable identity-pool again
 
   - id: policy-sim-result
-    title: 记录 Policy Simulator 的模拟结果
+    title:
+      zh-CN: 记录 Policy Simulator 的模拟结果
+      ja: Policy Simulator のシミュレーション結果を記録する
+      en: Record the Policy Simulator result
     type: manual
     spec:
       observed:
-        question: 对 Uploader 角色模拟 s3:PutObject，资源是“别人的 identityId”前缀时，结果是什么？
+        question:
+          zh-CN: 对 Uploader 角色模拟 s3:PutObject，资源是“别人的 identityId”前缀时，结果是什么？
+          ja: Uploader ロールで s3:PutObject をシミュレーションし、リソースを「他人の identityId」のプレフィックスにしたとき、結果はどうなりましたか？
+          en: When you simulate s3:PutObject for the Uploader role with "someone else's identityId" prefix as the resource, what is the result?
         options:
-          - { value: implicit-deny, label: implicitDeny（被隐式拒绝）, expected: true }
-          - { value: allowed, label: allowed, fixHint: 检查上下文键 cognito-identity.amazonaws.com:sub 是否填了你自己的 identityId，资源是否换成了别人的前缀 }
+          - { value: implicit-deny, label: { zh-CN: implicitDeny（被隐式拒绝）, ja: implicitDeny（暗黙的に拒否）, en: implicitDeny (implicitly denied) }, expected: true }
+          - value: allowed
+            label:
+              zh-CN: allowed
+              ja: allowed
+              en: allowed
+            fixHint:
+              zh-CN: 检查上下文键 cognito-identity.amazonaws.com:sub 是否填了你自己的 identityId，资源是否换成了别人的前缀
+              ja: コンテキストキー cognito-identity.amazonaws.com:sub に自分の identityId を入れたか、リソースを他人のプレフィックスに変えたかを確認してください
+              en: Check that the context key cognito-identity.amazonaws.com:sub holds your own identityId and that the resource was changed to someone else's prefix
 
   # ---- 选做：运行时 A/B
   - id: bypass-paths
-    title: 记录两种会话的路径头
+    title:
+      zh-CN: 记录两种会话的路径头
+      ja: 2 種類のセッションの経路ヘッダーを記録する
+      en: Record the path headers of the two kinds of session
     type: manual
     required: false
     spec:
       observed:
-        question: '管理员带 X-Compare-Bypass: identity-pool 开会话时，响应头 X-CloudAlbum-Path 的 identity-pool 段是什么？'
+        question:
+          zh-CN: '管理员带 X-Compare-Bypass: identity-pool 开会话时，响应头 X-CloudAlbum-Path 的 identity-pool 段是什么？'
+          ja: "管理者が X-Compare-Bypass: identity-pool を付けてセッションを開いたとき、レスポンスヘッダー X-CloudAlbum-Path の identity-pool セグメントは何ですか？"
+          en: "When an admin opens a session with X-Compare-Bypass: identity-pool, what is the identity-pool segment of the X-CloudAlbum-Path response header?"
         options:
-          - { value: bypass, label: 'cognito:bypass（本次改由前缀令牌上传）', expected: true }
-          - { value: session, label: 'cognito:session', fixHint: 旁路头只对管理员有效，且只在 POST /api/uploads/session 上生效 }
+          - value: bypass
+            label:
+              zh-CN: 'cognito:bypass（本次改由前缀令牌上传）'
+              ja: cognito:bypass（今回はプレフィックストークンでアップロード）
+              en: cognito:bypass (this time the upload uses a prefix token)
+            expected: true
+          - value: session
+            label:
+              zh-CN: 'cognito:session'
+              ja: cognito:session
+              en: cognito:session
+            fixHint:
+              zh-CN: 旁路头只对管理员有效，且只在 POST /api/uploads/session 上生效
+              ja: バイパスのヘッダーは管理者にしか効かず、POST /api/uploads/session でしか有効になりません
+              en: The bypass header only works for admins, and only on POST /api/uploads/session
 
   # ---- 清理核对
   - id: identity-pool-gone
-    title: 本会话的身份池已删除
+    title:
+      zh-CN: 本会话的身份池已删除
+      ja: このセッションの Identity Pool が削除されている
+      en: This session's identity pool has been deleted
     type: aws-readonly
     service: cognito-identity
     action: DescribeIdentityPool
@@ -206,7 +394,10 @@ checks:
     manualFallback:
       where: { breadcrumb: [Amazon Cognito, 身份池], region: app }
       observed:
-        question: 列表中还能找到 cloudalbum_{{ session.env }}_uploads 吗？
+        question:
+          zh-CN: 列表中还能找到 cloudalbum_{{ session.env }}_uploads 吗？
+          ja: 一覧にまだ cloudalbum_{{ session.env }}_uploads がありますか？
+          en: Is cloudalbum_{{ session.env }}_uploads still in the list?
         options:
-          - { value: gone, label: 找不到, expected: true }
-          - { value: present, label: 还在 }
+          - { value: gone, label: { zh-CN: 找不到, ja: 見つからない, en: Not found }, expected: true }
+          - { value: present, label: { zh-CN: 还在, ja: まだある, en: Still there } }

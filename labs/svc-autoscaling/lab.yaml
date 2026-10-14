@@ -5,10 +5,22 @@ id: svc-autoscaling
 kind: service
 version: 0.1.0
 status: planned
-service: Amazon EC2 Auto Scaling
-function: 弹性伸缩
-title: Amazon EC2 Auto Scaling：弹性伸缩
-summary: 把单实例换成 ALB 后面的一组无状态实例：压测时自动扩容，终止一台几分钟内自动补齐，实例刷新几乎零错误。
+service:
+  zh-CN: Amazon EC2 Auto Scaling
+  ja: Amazon EC2 Auto Scaling
+  en: Amazon EC2 Auto Scaling
+function:
+  zh-CN: 弹性伸缩
+  ja: オートスケーリング
+  en: Auto scaling
+title:
+  zh-CN: Amazon EC2 Auto Scaling：弹性伸缩
+  ja: Amazon EC2 Auto Scaling：オートスケーリング
+  en: "Amazon EC2 Auto Scaling: auto scaling"
+summary:
+  zh-CN: 把单实例换成 ALB 后面的一组无状态实例：压测时自动扩容，终止一台几分钟内自动补齐，实例刷新几乎零错误。
+  ja: 単一インスタンスを ALB の背後にあるステートレスなインスタンス群に置き換えます。負荷試験中は自動でスケールアウトし、1 台を終了しても数分で自動補充され、インスタンスの更新もほぼエラーなしで終わります。
+  en: Replace the single instance with a group of stateless instances behind an ALB. The group scales out under load, replaces a terminated instance within minutes, and finishes an instance refresh with almost no errors.
 difficulty: advanced
 estimatedMinutes: 120
 timeLimitMinutes: 180
@@ -17,7 +29,7 @@ retain: {allowed: true, maxHours: 12}
 regions:
   supported: [ap-northeast-1]
 services:
-- {id: autoscaling, name: Amazon EC2 Auto Scaling, role: primary, module: autoscaling}
+- {id: autoscaling, name: { zh-CN: Amazon EC2 Auto Scaling, ja: Amazon EC2 Auto Scaling, en: Amazon EC2 Auto Scaling }, role: primary, module: autoscaling}
 - {id: iam, role: context, module: iam}
 - {id: s3, role: context, module: storage}
 - {id: rds, role: context, module: database}
@@ -39,7 +51,10 @@ startProfile:
     kind: module
     basis: credential
     set: {IAM_CREDENTIALS: role}
-    reason: 平台约定除 svc-ec2、svc-iam 外起始状态都带实例角色（C3）
+    reason:
+      zh-CN: 平台约定除 svc-ec2、svc-iam 外起始状态都带实例角色（C3）
+      ja: プラットフォームの取り決めにより、svc-ec2 と svc-iam 以外の開始状態にはインスタンスロールが付いています（C3）
+      en: By platform convention, every start state except svc-ec2 and svc-iam includes an instance role (C3)
   - item: storage
     kind: module
     basis: closure
@@ -58,7 +73,12 @@ startProfile:
   platform:
     preview: {directHttps: 'off'}
   branches:
-    ASG-001: {choose: storage, reason: 与 l8-ha 一致；EFS 做法见 sc-ha-web 的 efs 变体}
+    ASG-001:
+      choose: storage
+      reason:
+        zh-CN: 与 l8-ha 一致；EFS 做法见 sc-ha-web 的 efs 变体
+        ja: l8-ha と同じです。EFS を使う方法は sc-ha-web の efs バリアントを参照してください
+        en: Same as l8-ha; for the EFS approach, see the efs variant of sc-ha-web
 targetModules:
 - id: autoscaling
   driver: asg
@@ -66,7 +86,7 @@ targetModules:
 expectedWarnings: [ASG-009, ASG-010, ASG-011, ASG-012, ASG-013, SEC-002, DEP-011]
 cost: {tier: high}
 provision: {class: D}
-badge: {title: 弹性伸缩}
+badge: {title: { zh-CN: 弹性伸缩, ja: オートスケーリング, en: Auto scaling }}
 tracks: [cost-optimized, resilient, saa-main]
 saa:
   domains: [resilient, performance, cost]

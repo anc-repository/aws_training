@@ -1,28 +1,43 @@
 checks:
   # ---- 起始状态（before 一律 once）
   - id: auth-local-baseline
-    title: 起始状态：账号由 EC2 本地管理（local）
+    title:
+      zh-CN: 起始状态：账号由 EC2 本地管理（local）
+      ja: 開始状態：アカウントは EC2 がローカルで管理している（local）
+      en: "Start state: EC2 manages accounts locally (local)"
     type: capability
     module: auth
     drift: { policy: once }
     assert:
-      - { path: $.driver, op: eq, value: local, label: 驱动 }
-    explain: local 档在 users 表里保存 argon2id 哈希，用自己的 ES256 密钥签发 JWT，验证邮件写入本地 outbox。
+      - { path: $.driver, op: eq, value: local, label: { zh-CN: 驱动, ja: ドライバー, en: Driver } }
+    explain:
+      zh-CN: local 档在 users 表里保存 argon2id 哈希，用自己的 ES256 密钥签发 JWT，验证邮件写入本地 outbox。
+      ja: local では users テーブルに argon2id のハッシュを保存し、自前の ES256 キーで JWT に署名し、確認メールはローカルの outbox に書き込みます。
+      en: The local tier stores argon2id hashes in the users table, signs JWTs with its own ES256 key, and writes verification emails to the local outbox.
 
   # ---- 启用 Cognito
   - id: auth-wired
-    title: auth 已切换到 Cognito，只允许预期的 DEP-013 警告
+    title:
+      zh-CN: auth 已切换到 Cognito，只允许预期的 DEP-013 警告
+      ja: auth が Cognito に切り替わっており、想定内の DEP-013 警告のみ
+      en: auth has switched to Cognito, with only the expected DEP-013 warning
     type: capability
     module: auth
     drift: { policy: must-hold, monitor: true }
     assert:
-      - { path: $.driver, op: eq, value: cognito, label: 驱动 }
-      - { path: $, op: healthy, label: 状态正常（DEP-013 是本卡的预期警告） }
-    explain: L0 的 EMAIL_DRIVER=outbox 与 AUTH_DRIVER=cognito 同时出现会触发 DEP-013（Cognito 自己发验证码，outbox 看不到），模块因此是 degraded；其他警告都不允许。
+      - { path: $.driver, op: eq, value: cognito, label: { zh-CN: 驱动, ja: ドライバー, en: Driver } }
+      - { path: $, op: healthy, label: { zh-CN: 状态正常（DEP-013 是本卡的预期警告）, ja: 状態が正常（DEP-013 はこのカードの想定内の警告）, en: Healthy (DEP-013 is this card's expected warning) } }
+    explain:
+      zh-CN: L0 的 EMAIL_DRIVER=outbox 与 AUTH_DRIVER=cognito 同时出现会触发 DEP-013（Cognito 自己发验证码，outbox 看不到），模块因此是 degraded；其他警告都不允许。
+      ja: L0 の EMAIL_DRIVER=outbox と AUTH_DRIVER=cognito が同時にあると DEP-013 が発生します（Cognito が自分で確認コードを送るため outbox には見えません）。そのためモジュールは degraded になります。ほかの警告は許可されません。
+      en: L0's EMAIL_DRIVER=outbox together with AUTH_DRIVER=cognito triggers DEP-013 (Cognito sends the verification codes itself, so the outbox never sees them), which makes the module degraded; no other warning is allowed.
     reproduce: { run: 'curl -s http://127.0.0.1/api/capabilities | jq ".modules.auth | {driver, status, detail}"', runsOn: lab }
 
   - id: auth-probe-cognito
-    title: 应用的认证端口指向本会话的 User Pool（sdk 子模式）
+    title:
+      zh-CN: 应用的认证端口指向本会话的 User Pool（sdk 子模式）
+      ja: アプリの認証ポートがこのセッションの User Pool を指している（sdk サブモード）
+      en: The app's auth port points at this session's User Pool (sdk sub-mode)
     type: http-header
     from: lab
     target: self
@@ -31,16 +46,22 @@ checks:
     dependsOn: [auth-wired]
     drift: { policy: must-hold }
     assert:
-      - { path: $.status, op: eq, value: 200, label: 状态码 }
-      - { path: $.json.driver, op: eq, value: cognito, label: 认证驱动 }
-      - { path: $.json.loginMode, op: eq, value: sdk, label: 登录方式 }
-      - { path: $.json.userPoolId, op: eq, value: '{{ var.userPoolId }}', label: User Pool }
-      - { path: $.pathSegments.auth, op: startsWith, value: cognito, label: 路径段 auth }
-    explain: 由实验机本地请求探测端点（引擎自动附带本机令牌）；User Pool ID 必须是本会话 auth 栈的输出。
+      - { path: $.status, op: eq, value: 200, label: { zh-CN: 状态码, ja: ステータスコード, en: Status code } }
+      - { path: $.json.driver, op: eq, value: cognito, label: { zh-CN: 认证驱动, ja: 認証ドライバー, en: Auth driver } }
+      - { path: $.json.loginMode, op: eq, value: sdk, label: { zh-CN: 登录方式, ja: サインイン方式, en: Sign-in mode } }
+      - { path: $.json.userPoolId, op: eq, value: '{{ var.userPoolId }}', label: { zh-CN: User Pool, ja: User Pool, en: User Pool } }
+      - { path: $.pathSegments.auth, op: startsWith, value: cognito, label: { zh-CN: 路径段 auth, ja: 経路セグメント auth, en: Path segment auth } }
+    explain:
+      zh-CN: 由实验机本地请求探测端点（引擎自动附带本机令牌）；User Pool ID 必须是本会话 auth 栈的输出。
+      ja: ラボ用インスタンス上からプローブ用エンドポイントにリクエストします（エンジンがホストのトークンを自動で付けます）。User Pool ID はこのセッションの auth スタックの出力でなければなりません。
+      en: The probe endpoint is requested locally on the lab instance (the engine attaches the host token automatically); the User Pool ID must be an output of this session's auth stack.
     reproduce: { run: 'curl -s -o /dev/null -D - "http://127.0.0.1/api/feed?limit=1" | grep -i "^x-cloudalbum-path:"', runsOn: lab }
 
   - id: user-pool
-    title: User Pool 是本会话创建的，开启了删除保护，用户名是邮箱
+    title:
+      zh-CN: User Pool 是本会话创建的，开启了删除保护，用户名是邮箱
+      ja: User Pool はこのセッションで作成され、削除保護が有効で、ユーザー名がメールアドレスになっている
+      en: The User Pool was created by this session, has deletion protection on, and uses email as the username
     type: aws-readonly
     service: cognito-idp
     action: DescribeUserPool
@@ -49,22 +70,39 @@ checks:
     ownership: { resource: '{{ $.UserPool.Arn }}', mode: session, createdAfter: session.readyAt }
     drift: { policy: must-hold }
     assert:
-      - { path: $.UserPool.DeletionProtection, op: eq, value: ACTIVE, label: 删除保护 }
-      - { path: $.UserPool.UsernameAttributes, op: contains, value: email, label: 用邮箱作为用户名 }
-      - { path: $.UserPool.Policies.PasswordPolicy.MinimumLength, op: gte, value: 10, label: 密码最小长度 }
-    explain: 先确认 User Pool 由本会话的 auth 模块栈创建；删除保护防止误删整个用户目录，回收器会先关闭它再删除。
+      - { path: $.UserPool.DeletionProtection, op: eq, value: ACTIVE, label: { zh-CN: 删除保护, ja: 削除保護, en: Deletion protection } }
+      - { path: $.UserPool.UsernameAttributes, op: contains, value: email, label: { zh-CN: 用邮箱作为用户名, ja: メールアドレスをユーザー名に使う, en: Email as username } }
+      - { path: $.UserPool.Policies.PasswordPolicy.MinimumLength, op: gte, value: 10, label: { zh-CN: 密码最小长度, ja: パスワードの最小長, en: Minimum password length } }
+    explain:
+      zh-CN: 先确认 User Pool 由本会话的 auth 模块栈创建；删除保护防止误删整个用户目录，回收器会先关闭它再删除。
+      ja: まず User Pool がこのセッションの auth モジュールスタックで作成されたことを確認します。削除保護はユーザーディレクトリ全体の誤削除を防ぎます。回収処理はまずこれを解除してから削除します。
+      en: The platform first confirms that this session's auth module stack created the User Pool. Deletion protection prevents the whole user directory from being deleted by mistake; the reclaimer turns it off before deleting.
     reproduce: { run: 'aws cognito-idp describe-user-pool --user-pool-id "{{ var.userPoolId }}" --query "UserPool.{Protection:DeletionProtection,Username:UsernameAttributes,MinLength:Policies.PasswordPolicy.MinimumLength}"', runsOn: workstation }
     manualFallback:
       where: { breadcrumb: [Amazon Cognito, 用户池, 'cloudalbum-{{ session.env }}-users', 设置], region: app }
       observed:
-        question: 用户池的“删除保护”显示什么？
+        question:
+          zh-CN: 用户池的“删除保护”显示什么？
+          ja: ユーザープールの「削除保護」には何と表示されていますか？
+          en: What does the user pool's "Deletion protection" show?
         options:
-          - { value: active, label: 已激活, expected: true }
-          - { value: inactive, label: 未激活, fixHint: 不要在控制台修改栈管理的用户池；重新执行 scripts/module enable auth }
+          - { value: active, label: { zh-CN: 已激活, ja: 有効, en: Active }, expected: true }
+          - value: inactive
+            label:
+              zh-CN: 未激活
+              ja: 無効
+              en: Inactive
+            fixHint:
+              zh-CN: 不要在控制台修改栈管理的用户池；重新执行 scripts/module enable auth
+              ja: スタックが管理するユーザープールをコンソールで変更しないでください。scripts/module enable auth を再実行します
+              en: Do not change the stack-managed user pool in the console; run scripts/module enable auth again
 
   # ---- 应用客户端
   - id: spa-client
-    title: 应用客户端是公有客户端，用户不能改写 custom:plan 与 custom:app_uid
+    title:
+      zh-CN: 应用客户端是公有客户端，用户不能改写 custom:plan 与 custom:app_uid
+      ja: アプリクライアントはパブリッククライアントで、ユーザーは custom:plan と custom:app_uid を書き換えられない
+      en: The app client is a public client, and users cannot rewrite custom:plan or custom:app_uid
     type: aws-readonly
     service: cognito-idp
     action: DescribeUserPoolClient
@@ -73,79 +111,176 @@ checks:
     dependsOn: [user-pool]
     drift: { policy: must-hold }
     assert:
-      - { path: $.UserPoolClient.ClientSecret, op: absent, label: 没有客户端密钥（公有客户端） }
+      - { path: $.UserPoolClient.ClientSecret, op: absent, label: { zh-CN: 没有客户端密钥（公有客户端）, ja: クライアントシークレットなし（パブリッククライアント）, en: No client secret (public client) } }
       - path: $.UserPoolClient.WriteAttributes
         op: every
-        label: 可写属性不含 custom:plan、custom:app_uid
+        label:
+          zh-CN: 可写属性不含 custom:plan、custom:app_uid
+          ja: 書き込み可能な属性に custom:plan、custom:app_uid が含まれない
+          en: Writable attributes exclude custom:plan and custom:app_uid
         value:
           - { path: $, op: nin, value: ['custom:plan', 'custom:app_uid'] }
-      - { path: $.UserPoolClient.EnableTokenRevocation, op: eq, value: true, label: 允许吊销 refresh token }
-    explain: 客户端 ID 与 User Pool 来自同一个模块栈的输出（user-pool 已确认归属）。可写属性是应用的责任：放开 custom:plan 等于让用户自己升级套餐。
+      - { path: $.UserPoolClient.EnableTokenRevocation, op: eq, value: true, label: { zh-CN: 允许吊销 refresh token, ja: リフレッシュトークンの取り消しを許可, en: Refresh token revocation allowed } }
+    explain:
+      zh-CN: 客户端 ID 与 User Pool 来自同一个模块栈的输出（user-pool 已确认归属）。可写属性是应用的责任：放开 custom:plan 等于让用户自己升级套餐。
+      ja: クライアント ID と User Pool は同じモジュールスタックの出力です（user-pool で所有を確認済み）。書き込み可能な属性はアプリの責任です。custom:plan を開放すると、ユーザーが自分でプランをアップグレードできてしまいます。
+      en: "The client ID and the User Pool come from the outputs of the same module stack (user-pool has confirmed ownership). Writable attributes are the app's responsibility: opening up custom:plan would let users upgrade their own plan."
     reproduce: { run: 'aws cognito-idp describe-user-pool-client --user-pool-id "{{ var.userPoolId }}" --client-id "{{ var.clientId }}" --query "UserPoolClient.{Write:WriteAttributes,Flows:ExplicitAuthFlows,Access:AccessTokenValidity,Revocation:EnableTokenRevocation}"', runsOn: workstation }
     manualFallback:
       where: { breadcrumb: [Amazon Cognito, 用户池, 'cloudalbum-{{ session.env }}-users', 应用程序客户端, cloudalbum-spa, 属性读写权限], region: app }
       observed:
-        question: “写入”一栏勾选了哪些属性？
+        question:
+          zh-CN: “写入”一栏勾选了哪些属性？
+          ja: 「書き込み」の欄でチェックされている属性はどれですか？
+          en: Which attributes are ticked in the "Write" column?
         options:
-          - { value: email-only, label: 只有 email, expected: true }
-          - { value: custom, label: 包括 custom:plan 或 custom:app_uid, fixHint: 不要在控制台修改栈管理的客户端；重新执行 scripts/module enable auth }
+          - { value: email-only, label: { zh-CN: 只有 email, ja: email だけ, en: Only email }, expected: true }
+          - value: custom
+            label:
+              zh-CN: 包括 custom:plan 或 custom:app_uid
+              ja: custom:plan または custom:app_uid を含む
+              en: Includes custom:plan or custom:app_uid
+            fixHint:
+              zh-CN: 不要在控制台修改栈管理的客户端；重新执行 scripts/module enable auth
+              ja: スタックが管理するクライアントをコンソールで変更しないでください。scripts/module enable auth を再実行します
+              en: Do not change the stack-managed client in the console; run scripts/module enable auth again
 
   - id: why-not-write-plan
-    title: 说出为什么不能让客户端写 custom:plan
+    title:
+      zh-CN: 说出为什么不能让客户端写 custom:plan
+      ja: クライアントに custom:plan を書き込ませてはいけない理由を説明する
+      en: Explain why the client must not be allowed to write custom:plan
     type: manual
     spec:
       observed:
-        question: 如果应用客户端的可写属性包含 custom:plan，会发生什么？
+        question:
+          zh-CN: 如果应用客户端的可写属性包含 custom:plan，会发生什么？
+          ja: アプリクライアントの書き込み可能な属性に custom:plan が含まれていると、何が起こりますか？
+          en: What happens if the app client's writable attributes include custom:plan?
         options:
-          - { value: escalation, label: 用户可以用自己的 access token 调用 UpdateUserAttributes 把自己升级成付费套餐, expected: true }
-          - { value: nothing, label: 没有影响，Cognito 会自动校验, fixHint: Cognito 只按客户端的可写属性放行；业务含义由应用负责（共享责任） }
+          - value: escalation
+            label:
+              zh-CN: 用户可以用自己的 access token 调用 UpdateUserAttributes 把自己升级成付费套餐
+              ja: ユーザーが自分のアクセストークンで UpdateUserAttributes を呼び出し、自分を有料プランにアップグレードできる
+              en: Users can call UpdateUserAttributes with their own access token and upgrade themselves to a paid plan
+            expected: true
+          - value: nothing
+            label:
+              zh-CN: 没有影响，Cognito 会自动校验
+              ja: 影響はない。Cognito が自動で検証する
+              en: Nothing — Cognito validates it automatically
+            fixHint:
+              zh-CN: Cognito 只按客户端的可写属性放行；业务含义由应用负责（共享责任）
+              ja: Cognito はクライアントの書き込み可能な属性に従って許可するだけです。業務上の意味はアプリが責任を持ちます（責任共有）
+              en: Cognito only allows what the client's writable attributes permit; what an attribute means to the business is the app's responsibility (shared responsibility)
 
   # ---- 注册与验证码
   - id: dep013-observed
-    title: auth 因预期的 DEP-013 而处于 degraded
+    title:
+      zh-CN: auth 因预期的 DEP-013 而处于 degraded
+      ja: auth は想定内の DEP-013 により degraded になっている
+      en: auth is degraded because of the expected DEP-013
     type: capability
     module: auth
     drift: { policy: once }
     assert:
-      - { path: $.status, op: eq, value: degraded, label: 状态 }
-      - { path: $, op: healthy, label: 降级只来自预期警告 }
-    explain: Cognito 自己发送验证码，本地 outbox 看不到这些邮件——这正是 DEP-013 提示的内容；改用 SES 发信时（email 模块）提示消失。
+      - { path: $.status, op: eq, value: degraded, label: { zh-CN: 状态, ja: 状態, en: Status } }
+      - { path: $, op: healthy, label: { zh-CN: 降级只来自预期警告, ja: 低下の原因は想定内の警告だけ, en: Degraded only by expected warnings } }
+    explain:
+      zh-CN: Cognito 自己发送验证码，本地 outbox 看不到这些邮件——这正是 DEP-013 提示的内容；改用 SES 发信时（email 模块）提示消失。
+      ja: Cognito は確認コードを自分で送るため、ローカルの outbox にはそのメールが見えません。これがまさに DEP-013 の内容です。SES での送信（email モジュール）に切り替えるとこの警告は消えます。
+      en: Cognito sends the verification codes itself, so the local outbox never sees those emails — which is exactly what DEP-013 points out. The warning disappears once mail goes through SES (the email module).
 
   - id: signup-code
-    title: 确认收到 Cognito 发出的验证码邮件
+    title:
+      zh-CN: 确认收到 Cognito 发出的验证码邮件
+      ja: Cognito から確認コードのメールが届いたことを確認する
+      en: Confirm that the verification email from Cognito arrived
     type: manual
     spec:
       observed:
-        question: 用你的邮箱注册后，验证码出现在哪里？
+        question:
+          zh-CN: 用你的邮箱注册后，验证码出现在哪里？
+          ja: 自分のメールアドレスで登録した後、確認コードはどこに届きましたか？
+          en: After you signed up with your own email address, where did the verification code show up?
         options:
-          - { value: mailbox, label: 我的邮箱收到了 Cognito 发来的邮件，/me/outbox 里没有, expected: true }
-          - { value: outbox, label: 只在 /me/outbox 里看到, fixHint: 确认 auth 已是 cognito（auth-wired 通过）后重新注册 }
-          - { value: none, label: 都没有收到, fixHint: Cognito 默认发件的每日额度很低；查看垃圾邮件，或稍后再试 }
+          - value: mailbox
+            label:
+              zh-CN: 我的邮箱收到了 Cognito 发来的邮件，/me/outbox 里没有
+              ja: 自分のメールボックスに Cognito からメールが届き、/me/outbox にはなかった
+              en: An email from Cognito arrived in my mailbox, and it was not in /me/outbox
+            expected: true
+          - value: outbox
+            label:
+              zh-CN: 只在 /me/outbox 里看到
+              ja: /me/outbox にだけあった
+              en: Only in /me/outbox
+            fixHint:
+              zh-CN: 确认 auth 已是 cognito（auth-wired 通过）后重新注册
+              ja: auth が cognito になっていること（auth-wired が合格）を確認してから、もう一度登録してください
+              en: Make sure auth is already cognito (auth-wired passes), then sign up again
+          - value: none
+            label:
+              zh-CN: 都没有收到
+              ja: どちらにも届かなかった
+              en: Neither
+            fixHint:
+              zh-CN: Cognito 默认发件的每日额度很低；查看垃圾邮件，或稍后再试
+              ja: Cognito の既定の送信は 1 日の上限がかなり低めです。迷惑メールフォルダーを確認するか、しばらくしてから再試行してください
+              en: Cognito's default email sending has a very low daily quota; check your spam folder or try again later
 
   # ---- 令牌
   - id: jwks-alg
-    title: 说出两种驱动的令牌签名算法
+    title:
+      zh-CN: 说出两种驱动的令牌签名算法
+      ja: 2 つのドライバーのトークン署名アルゴリズムを答える
+      en: Name the token signing algorithm of each driver
     type: manual
     spec:
       observed:
-        question: Cognito 的 JWKS 中密钥的 alg 是什么？本地驱动（第 1 步记录的 /.well-known/jwks.json）呢？
+        question:
+          zh-CN: Cognito 的 JWKS 中密钥的 alg 是什么？本地驱动（第 1 步记录的 /.well-known/jwks.json）呢？
+          ja: Cognito の JWKS にあるキーの alg は何ですか？ ローカルドライバー（ステップ 1 で記録した /.well-known/jwks.json）はどうですか？
+          en: What is the alg of the key in Cognito's JWKS? And for the local driver (the /.well-known/jwks.json you recorded in step 1)?
         options:
-          - { value: rs256-es256, label: Cognito 是 RS256，本地是 ES256, expected: true }
-          - { value: same, label: 两者相同, fixHint: 再看一次两个 JWKS 的 alg 字段 }
+          - { value: rs256-es256, label: { zh-CN: Cognito 是 RS256，本地是 ES256, ja: Cognito は RS256、ローカルは ES256, en: "Cognito uses RS256, local uses ES256" }, expected: true }
+          - { value: same, label: { zh-CN: 两者相同, ja: どちらも同じ, en: Both are the same }, fixHint: { zh-CN: 再看一次两个 JWKS 的 alg 字段, ja: 2 つの JWKS の alg フィールドをもう一度見てください, en: Look at the alg field of both JWKS again } }
 
   - id: revoke-semantics
-    title: 说出登出后旧 access token 的命运
+    title:
+      zh-CN: 说出登出后旧 access token 的命运
+      ja: サインアウト後に古いアクセストークンがどうなるかを答える
+      en: Explain what happens to an old access token after sign-out
     type: manual
     spec:
       observed:
-        question: Cognito 下用户登出（GlobalSignOut）后，后端本地验签的旧 access token 会怎样？
+        question:
+          zh-CN: Cognito 下用户登出（GlobalSignOut）后，后端本地验签的旧 access token 会怎样？
+          ja: Cognito でユーザーがサインアウト（GlobalSignOut）した後、バックエンドがローカルで署名を検証する古いアクセストークンはどうなりますか？
+          en: With Cognito, after a user signs out (GlobalSignOut), what happens to an old access token that the backend verifies locally?
         options:
-          - { value: until-exp, label: refresh token 立即失效；access token 在过期前（本卡配置 15 分钟）仍能通过本地验签, expected: true }
-          - { value: immediate, label: 立即失效, fixHint: 本地验签只看签名与 exp，不会询问 Cognito；本地驱动靠 tv（令牌版本）检查才做到立即失效 }
+          - value: until-exp
+            label:
+              zh-CN: refresh token 立即失效；access token 在过期前（本卡配置 15 分钟）仍能通过本地验签
+              ja: リフレッシュトークンはすぐに無効になるが、アクセストークンは有効期限（このカードの設定では 15 分）まではローカルの検証を通る
+              en: The refresh token stops working immediately, but the access token still passes local verification until it expires (15 minutes in this card)
+            expected: true
+          - value: immediate
+            label:
+              zh-CN: 立即失效
+              ja: すぐに無効になる
+              en: It stops working immediately
+            fixHint:
+              zh-CN: 本地验签只看签名与 exp，不会询问 Cognito；本地驱动靠 tv（令牌版本）检查才做到立即失效
+              ja: ローカルの検証は署名と exp しか見ず、Cognito には問い合わせません。ローカルドライバーは tv（トークンバージョン）のチェックによってすぐに無効化できていました
+              en: Local verification only checks the signature and exp and never asks Cognito; the local driver could revoke immediately only because of its tv (token version) check
 
   # ---- 回收验证
   - id: user-pool-gone
-    title: 本会话的 User Pool 已删除
+    title:
+      zh-CN: 本会话的 User Pool 已删除
+      ja: このセッションの User Pool が削除されている
+      en: This session's User Pool has been deleted
     type: aws-readonly
     service: cognito-idp
     action: DescribeUserPool
@@ -157,7 +292,10 @@ checks:
     manualFallback:
       where: { breadcrumb: [Amazon Cognito, 用户池], region: app }
       observed:
-        question: 列表中还能找到 cloudalbum-{{ session.env }}-users 吗？
+        question:
+          zh-CN: 列表中还能找到 cloudalbum-{{ session.env }}-users 吗？
+          ja: 一覧にまだ cloudalbum-{{ session.env }}-users がありますか？
+          en: Is cloudalbum-{{ session.env }}-users still in the list?
         options:
-          - { value: gone, label: 找不到, expected: true }
-          - { value: present, label: 还在 }
+          - { value: gone, label: { zh-CN: 找不到, ja: 見つからない, en: Not found }, expected: true }
+          - { value: present, label: { zh-CN: 还在, ja: まだある, en: Still there } }

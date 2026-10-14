@@ -3599,3 +3599,43 @@ rescan；待人工处理（清单）→ 要対応（リスト）/ needs you（ma
 
 测试：`pages/sessions/visuals.test.tsx`（本组词典 ja / en 全覆盖、不翻译项、图形组件几何与无 style 属性、阶段图标、日语下的 P11、
 分享副本三语与默认日语）；`report`、`end`、`certificates`、`share` 的用例补了图形断言；`EndPage.test.tsx` 的模块断言改为服务图标。
+
+## i18n-content-a
+
+卡片内容的 ja / en 译文（I4、I5），范围是按 id 字母序排序后的前一半 svc 卡片（svc-ami … svc-kms，20 张）：
+9 张 planned 卡片（ami、analytics、audit、autoscaling、backup、compliance、config、db-proxy、kms）只有目录元数据（服务名、机能名、
+标题、简介、徽章、起始状态说明），全部译完；11 张可以开始的卡片（auth、cache、cdn、cost、database、dns、ec2、email、iam、identity-pool、
+image-processing）的 lab.yaml、checks/*.yaml、quiz.yaml 中所有 schema 标为文本的字段（共 1864 个）与全部手册（109 个文件 →
+`manual/ja/`、`manual/en/` 各 109 个）译完。`npm run labs:i18n`：这 20 张卡片 ja / en 均 100%。
+
+有歧义时的取舍（都取最简单的做法）：
+
+| 问题 | 决定 |
+|---|---|
+| 本地化对象写成什么样 | 块式 `{ zh-CN, ja, en }`；原本在流式集合里的短标签（断言 label 等，三种语言合计 ≤ 110 字）就地写成流式映射，其余把最外层的流式集合改成块式。只改文本字段所在的那段源码，其余字节不动；转换后按 zh-CN 解析的文档与原文逐项相等（脚本校验），`labs:build` 的根目录产物与 HEAD 逐字节相同（只有 manifest 的 contentDigest 变化）。所以卡片版本号与 CHANGELOG 不变 |
+| CloudAlbum 应用自己的界面文字（按钮、徽章、提示行；`frontend/` 本轮不本地化） | 保留中文原文并在括号里附译文，例如「覆盖同名缩略图」（同名サムネイルの上書き）/ "覆盖同名缩略图" (overwrite the same-name thumbnail)，学员能在页面上找到对应文字。`frontend/` 本地化后需要把这些引用改成对应语言 |
+| AWS 控制台的菜单与字段名 | 译成控制台 ja / en 界面的写法（「インスタンスの状態 → インスタンスを停止」/ "Instance state → Stop instance"） |
+| 平台界面的名称 | 与界面词典一致：工作台终端 → ワークベンチのターミナル / workbench terminal；实验机终端 → ラボ用インスタンスのターミナル / lab instance terminal；应用预览 → アプリプレビュー / App preview；“检测”按钮 → 「チェック」/ Check |
+| `:::saa{confusable="…"}` 的属性值 | 保持中文：I4 比较指令属性，而工作台只用它是否存在（`Mdast.tsx`），属性值不显示 |
+| 代码块 | 命令原样保留；只翻译代码块里的中文注释与 `<…>` 占位（如 `<未検証のアドレス>`）；svc-cost 的 `resource: "EC2 实例（按需）"` 必须与 registry 逐字一致，保留 |
+| 00-overview 以外的标题 | 你做到了什么 → このラボでできたこと / What you did；考点回顾 → 試験ポイントの振り返り / Exam points recap；开始前 → 始める前に / Before you start；你在一个会话里能看到什么 → 1 回のセッションで確認できること / What you can see in one session |
+| `scripts/labs/test/i18n.test.ts` 失败（它假定仓库里的 svc-cdn 没有译文，在临时副本上再套一层本地化对象） | 测试在临时副本里先用 `sourceOnly()` 还原 svc-cdn 的 zh-CN 源文件（解开本地化对象、删除 `manual/ja|en/`），其余断言不变。这是本组唯一的范围外修改 |
+
+schema 没有标为文本、因此仍是中文的学员可见字段（需要 prep-i18n / 集成阶段决定是否加 `$defs/l10n`）：检查的
+`manualFallback.where.breadcrumb[]` 与 `spec.where.breadcrumb[]`（控制台路径，本组 88 处）、`spec.input.label`（4 处）；
+`permissions.notes` 是维护者备注，不需要。按语言构建后仍回退的还有：共享检查 `_shared/checks`（no-world-ssh 等）、简介页
+`resources.*.displayName`（来自 `_catalog/taxonomy.yaml` 的服务名）与 `expectedWarnings[].text`（规则消息，只有 zh-CN）。
+
+建议并入用语表的词（zh-CN → ja / en）：驱动 → ドライバー / driver；入口链 → 入口チェーン / entry chain；路径段 → 経路セグメント /
+path segment；探针、探测端点 → プローブ、プローブ用エンドポイント / probe, probe endpoint；感知器 → 検知処理 / sensor；预期警告 →
+想定内の警告 / expected warning；降级 → 低下 / Degraded；接入应用 → アプリへの組み込み / wire into the app；平台管理通道 →
+プラットフォームの管理チャネル / platform management channel；对账 → 照合 / reconcile；源站、回源 → オリジン、オリジンへのリクエスト /
+origin, origin request；分配（CloudFront）→ ディストリビューション / distribution；失效（CloudFront）→ 無効化 / invalidation；
+托管区域 → ホストゾーン / hosted zone；暂存桶 → ステージングバケット / staging bucket；原图桶 / 展示桶 → 元画像バケット / 表示用バケット /
+original-image bucket / display bucket；前缀令牌 → プレフィックストークン / prefix token；预留并发 / 预置并发 → 予約済み同時実行 /
+プロビジョニングされた同時実行 / reserved / provisioned concurrency；工作台（机器）→ ワークベンチ / workbench（与用语表“工作台”一致）。
+
+自测（2026-10-14）：`npm run labs:lint`（56 张，0 错误 0 警告）、`npm run labs:i18n`、`npm run labs:catalog -- --check`、
+`labs:build --out <临时目录>`（483 个文件；根目录与 HEAD 相同）、`npx vitest run --project atl-labs-tools`（30 / 30）、
+`--project atl-api --project atl-shared --project atl-workflows`（472 通过）、`npm run build -w @atl/web`、`npm run lint`、
+`npm run i18n:check -- --allow-empty`（结构问题 0；本组没有界面词典键）。

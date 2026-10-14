@@ -8,50 +8,130 @@ id: svc-image-processing
 kind: service
 version: 1.0.0
 status: beta
-service: AWS Lambda
-function: 缩略图生成
-title: AWS Lambda：缩略图生成
-subtitle: EC2 上的 sharp → S3 + EventBridge + Lambda
-summary: 缩略图从 EC2 上的 sharp 改由 S3 → EventBridge → Lambda 生成，批量上传时“上传完成”接口与 EC2 CPU 曲线的变化一目了然。
-story: |
-  L0 的缩略图在“上传完成”请求内由 sharp 同步生成。批量上传 200 张时，请求在信号量上排队，两个 vCPU 被占满，
-  浏览时间线也跟着卡。这张卡片让原图一落进 S3 就由 EventBridge 触发 Lambda 生成缩略图，EC2 只负责写回结果。
+service:
+  zh-CN: AWS Lambda
+  ja: AWS Lambda
+  en: AWS Lambda
+function:
+  zh-CN: 缩略图生成
+  ja: サムネイルの生成
+  en: Thumbnail generation
+title:
+  zh-CN: AWS Lambda：缩略图生成
+  ja: AWS Lambda：サムネイルの生成
+  en: "AWS Lambda: thumbnail generation"
+subtitle:
+  zh-CN: EC2 上的 sharp → S3 + EventBridge + Lambda
+  ja: EC2 上の sharp → S3 ＋ EventBridge ＋ Lambda
+  en: sharp on EC2 → S3 + EventBridge + Lambda
+summary:
+  zh-CN: 缩略图从 EC2 上的 sharp 改由 S3 → EventBridge → Lambda 生成，批量上传时“上传完成”接口与 EC2 CPU 曲线的变化一目了然。
+  ja: サムネイルの生成を EC2 上の sharp から S3 → EventBridge → Lambda に移します。一括アップロード時の「アップロード完了」API と EC2 の CPU のグラフの変化が一目でわかります。
+  en: Move thumbnail generation from sharp on EC2 to S3 → EventBridge → Lambda, and watch how the "upload complete" API and the EC2 CPU graph change during a bulk upload.
+story:
+  zh-CN: |
+    L0 的缩略图在“上传完成”请求内由 sharp 同步生成。批量上传 200 张时，请求在信号量上排队，两个 vCPU 被占满，
+    浏览时间线也跟着卡。这张卡片让原图一落进 S3 就由 EventBridge 触发 Lambda 生成缩略图，EC2 只负责写回结果。
+  ja: |
+    L0 のサムネイルは「アップロード完了」のリクエストの中で sharp が同期的に生成しています。200 枚を一括アップロードすると、リクエストはセマフォで順番待ちになり、2 つの vCPU が使い切られて、
+    タイムラインの閲覧まで遅くなります。このカードでは、元画像が S3 に置かれた瞬間に EventBridge が Lambda を起動してサムネイルを生成し、EC2 は結果を書き戻すだけになります。
+  en: |
+    At L0, sharp generates thumbnails synchronously inside the "upload complete" request. When 200 photos are uploaded at once, requests queue on a semaphore, both vCPUs are maxed out,
+    and browsing the timeline slows down too. With this card, as soon as an original lands in S3, EventBridge triggers Lambda to make the thumbnail, and EC2 only writes back the result.
 objectives:
-  - { text: 说清 EventBridge 异步调用 Lambda 的重试、最大事件年龄与失败目标, domain: resilient, relatesTo: failures }
-  - { text: 用输入输出分离避免递归调用, domain: cost, relatesTo: inspect }
-  - { text: 区分预留并发与预置并发, domain: performance, relatesTo: throttle }
-  - { text: 理解 Lambda 无法读取 EBS：状态必须外置, domain: resilient, relatesTo: enable }
+  - text:
+      zh-CN: 说清 EventBridge 异步调用 Lambda 的重试、最大事件年龄与失败目标
+      ja: EventBridge による Lambda の非同期呼び出しの再試行、イベントの最大有効期間、失敗時の送信先を説明できる
+      en: Explain retries, maximum event age and on-failure destinations when EventBridge invokes Lambda asynchronously
+    domain: resilient
+    relatesTo: failures
+  - { text: { zh-CN: 用输入输出分离避免递归调用, ja: 入力と出力を分けて再帰呼び出しを防ぐ, en: Separate input from output to avoid recursive invocations }, domain: cost, relatesTo: inspect }
+  - { text: { zh-CN: 区分预留并发与预置并发, ja: 予約済み同時実行とプロビジョニングされた同時実行を区別する, en: Tell reserved concurrency from provisioned concurrency }, domain: performance, relatesTo: throttle }
+  - text:
+      zh-CN: 理解 Lambda 无法读取 EBS：状态必须外置
+      ja: Lambda は EBS を読めないため、状態を外に出す必要があることを理解する
+      en: Understand that Lambda cannot read EBS, so state has to live outside the instance
+    domain: resilient
+    relatesTo: enable
 difficulty: intermediate
 estimatedMinutes: 90
 timeLimitMinutes: 150
 extensions: { maxCount: 2, minutesEach: 30 }
-retain: { allowed: true, maxHours: 24, reason: 函数、规则与队列都按调用计费，保留期间几乎不产生费用 }
+retain:
+  allowed: true
+  maxHours: 24
+  reason:
+    zh-CN: 函数、规则与队列都按调用计费，保留期间几乎不产生费用
+    ja: 関数、ルール、キューはどれも呼び出しごとの課金なので、保持している間の費用はほとんどかかりません
+    en: The function, rule and queues are all billed per invocation, so keeping them costs almost nothing
 regions:
   supported: [ap-northeast-1]
 services:
-  - { id: lambda, name: AWS Lambda, role: primary, module: image-processing }
-  - { id: s3, name: Amazon S3（起始状态预置的原图桶与展示桶）, role: context, module: storage }
-  - { id: iam, name: AWS IAM（实例角色）, role: context, module: iam }
-  - { id: eventbridge, name: Amazon EventBridge（触发规则）, role: observed }
-  - { id: sqs, name: Amazon SQS（模块自带的失败队列与结果队列）, role: observed }
-  - { id: cloudwatch-logs, name: Amazon CloudWatch Logs（函数日志）, role: observed }
+  - { id: lambda, name: { zh-CN: AWS Lambda, ja: AWS Lambda, en: AWS Lambda }, role: primary, module: image-processing }
+  - id: s3
+    name:
+      zh-CN: Amazon S3（起始状态预置的原图桶与展示桶）
+      ja: Amazon S3（開始状態で用意された元画像バケットと表示用バケット）
+      en: Amazon S3 (the original-image and display buckets prepared in the start state)
+    role: context
+    module: storage
+  - { id: iam, name: { zh-CN: AWS IAM（实例角色）, ja: AWS IAM（インスタンスロール）, en: AWS IAM (instance role) }, role: context, module: iam }
+  - { id: eventbridge, name: { zh-CN: Amazon EventBridge（触发规则）, ja: Amazon EventBridge（トリガーのルール）, en: Amazon EventBridge (the trigger rule) }, role: observed }
+  - id: sqs
+    name:
+      zh-CN: Amazon SQS（模块自带的失败队列与结果队列）
+      ja: Amazon SQS（モジュール付属の失敗キューと結果キュー）
+      en: Amazon SQS (the module's own failure and result queues)
+    role: observed
+  - { id: cloudwatch-logs, name: { zh-CN: Amazon CloudWatch Logs（函数日志）, ja: Amazon CloudWatch Logs（関数のログ）, en: Amazon CloudWatch Logs (function logs) }, role: observed }
 modules: { target: [image-processing], start: [iam, storage], context: [], related: [queue, tagging, workflow] }
 prerequisites:
   cards:
     - { id: svc-storage, kind: soft }
-  knowledge: [事件驱动与异步调用的基本概念]
+  knowledge: [{ zh-CN: 事件驱动与异步调用的基本概念, ja: イベント駆動と非同期呼び出しの基本, en: The basics of event-driven design and asynchronous invocation }]
 
 startProfile:
   provisions:
-    - { item: iam, kind: module, basis: credential, set: { IAM_CREDENTIALS: role },
-        reason: 平台约定除 svc-ec2、svc-iam 外起始状态都带实例角色（C3）；lambda 档本身也需要凭证 }
-    - { item: storage, kind: module, basis: closure, rule: DEP-003, set: { STORAGE_DRIVER: s3 },
-        reason: Lambda 读不到 EC2 的 EBS（DEP-003），原图必须先在 S3；storage 自身只需 iam，闭包到此为止 }
-    - { item: mgmt-channel, kind: platform, reason: 实验机挂只含 AmazonSSMManagedInstanceCore 的 CloudAlbumAppRole，是平台的管理通道，不是应用权限 }
-    - { item: workstation, kind: platform, reason: 每个会话一台工作台，用于运行 scripts/module、AWS CLI 与对比实验 }
-    - { item: preview-direct-https, kind: platform, reason: 预览使用方案 B 的 Let's Encrypt IP 证书；本卡不涉及 tls，保持开启 }
+    - item: iam
+      kind: module
+      basis: credential
+      set: { IAM_CREDENTIALS: role }
+      reason:
+        zh-CN: 平台约定除 svc-ec2、svc-iam 外起始状态都带实例角色（C3）；lambda 档本身也需要凭证
+        ja: プラットフォームの取り決めにより、svc-ec2 と svc-iam 以外の開始状態にはインスタンスロールが付いています（C3）。lambda 階層自体にも認証情報が必要です
+        en: By platform convention, every start state except svc-ec2 and svc-iam includes an instance role (C3); the lambda tier itself needs credentials too
+    - item: storage
+      kind: module
+      basis: closure
+      rule: DEP-003
+      set: { STORAGE_DRIVER: s3 }
+      reason:
+        zh-CN: Lambda 读不到 EC2 的 EBS（DEP-003），原图必须先在 S3；storage 自身只需 iam，闭包到此为止
+        ja: Lambda は EC2 の EBS を読めないため（DEP-003）、元画像は先に S3 にある必要があります。storage 自体は iam しか必要とせず、依存の閉包はここで終わります
+        en: Lambda cannot read EC2's EBS (DEP-003), so the originals must already be in S3; storage itself only needs iam, which closes the dependency chain
+    - item: mgmt-channel
+      kind: platform
+      reason:
+        zh-CN: 实验机挂只含 AmazonSSMManagedInstanceCore 的 CloudAlbumAppRole，是平台的管理通道，不是应用权限
+        ja: ラボ用インスタンスには AmazonSSMManagedInstanceCore だけを含む CloudAlbumAppRole が付いています。これはプラットフォームの管理チャネルであり、アプリの権限ではありません
+        en: The lab instance carries CloudAlbumAppRole with only AmazonSSMManagedInstanceCore. It is the platform's management channel, not an app permission
+    - item: workstation
+      kind: platform
+      reason:
+        zh-CN: 每个会话一台工作台，用于运行 scripts/module、AWS CLI 与对比实验
+        ja: セッションごとに 1 台のワークベンチがあり、scripts/module、AWS CLI、比較実験の実行に使います
+        en: Each session has one workbench for running scripts/module, the AWS CLI and comparison experiments
+    - item: preview-direct-https
+      kind: platform
+      reason:
+        zh-CN: 预览使用方案 B 的 Let's Encrypt IP 证书；本卡不涉及 tls，保持开启
+        ja: プレビューには方式 B の Let's Encrypt IP 証明書を使います。このカードは tls に関係しないため、有効のままにします
+        en: The preview uses the option B Let's Encrypt IP certificate; this card does not involve tls, so it stays on
   platform: { preview: { directHttps: 'on' } }
-  reason: lambda 档要求原图在 S3（DEP-003）；工具链栈（存放部署包）由平台的 base-deploy 创建（档位 atl/svc-image-processing/default）
+  reason:
+    zh-CN: lambda 档要求原图在 S3（DEP-003）；工具链栈（存放部署包）由平台的 base-deploy 创建（档位 atl/svc-image-processing/default）
+    ja: lambda 階層では元画像が S3 にある必要があります（DEP-003）。ツールチェーンのスタック（デプロイパッケージの置き場所）はプラットフォームの base-deploy が作成します（プロファイル atl/svc-image-processing/default）
+    en: The lambda tier needs the originals in S3 (DEP-003); the toolchain stack (where deployment packages go) is created by the platform's base-deploy (profile atl/svc-image-processing/default)
 targetModules:
   - { id: image-processing, driver: lambda, set: { IMAGE_RESULT_CHANNEL: queue }, wireStep: enable, adoptsExisting: false }
 expectedWarnings: []
@@ -61,36 +141,54 @@ platform:
 provision: { class: A }
 
 variables:
-  functionName: { label: 缩略图函数, from: derived, fillFrom: stack.image-processing.InfoFunctionName }
-  ruleName: { label: EventBridge 规则, from: derived, fillFrom: stack.image-processing.InfoRuleName }
-  logGroup: { label: 函数日志组, from: derived, fillFrom: stack.image-processing.InfoLogGroup }
-  failureQueueUrl: { label: 失败队列 URL, from: derived, fillFrom: stack.image-processing.EnvImageFailureQueueUrl }
+  functionName: { label: { zh-CN: 缩略图函数, ja: サムネイル関数, en: Thumbnail function }, from: derived, fillFrom: stack.image-processing.InfoFunctionName }
+  ruleName: { label: { zh-CN: EventBridge 规则, ja: EventBridge のルール, en: EventBridge rule }, from: derived, fillFrom: stack.image-processing.InfoRuleName }
+  logGroup: { label: { zh-CN: 函数日志组, ja: 関数のロググループ, en: Function log group }, from: derived, fillFrom: stack.image-processing.InfoLogGroup }
+  failureQueueUrl: { label: { zh-CN: 失败队列 URL, ja: 失敗キューの URL, en: Failure queue URL }, from: derived, fillFrom: stack.image-processing.EnvImageFailureQueueUrl }
 
 cost:
   currency: USD
   tier: low
   tierWithOptional: medium
-  mainDrivers: [Lambda 请求与 GB-秒, S3 请求, SQS 请求, CloudWatch Logs 摄取, 选做的预置并发]
+  mainDrivers: [{ zh-CN: Lambda 请求与 GB-秒, ja: Lambda のリクエストと GB 秒, en: Lambda requests and GB-seconds }, { zh-CN: S3 请求, ja: S3 のリクエスト, en: S3 requests }, { zh-CN: SQS 请求, ja: SQS のリクエスト, en: SQS requests }, { zh-CN: CloudWatch Logs 摄取, ja: CloudWatch Logs の取り込み, en: CloudWatch Logs ingestion }, { zh-CN: 选做的预置并发, ja: 任意のプロビジョニングされた同時実行, en: Optional provisioned concurrency }]
   basis:
-    - { ref: start-profile, note: 实验机 EC2、EBS、公网 IPv4；起始状态中的 S3 按量计费 }
-    - { ref: workstation, note: 工作台 EC2、EBS、公网 IPv4 }
+    - ref: start-profile
+      note:
+        zh-CN: 实验机 EC2、EBS、公网 IPv4；起始状态中的 S3 按量计费
+        ja: ラボ用インスタンスの EC2、EBS、パブリック IPv4。開始状態の S3 は従量課金
+        en: Lab instance EC2, EBS and public IPv4; the start state's S3 is billed by usage
+    - { ref: workstation, note: { zh-CN: 工作台 EC2、EBS、公网 IPv4, ja: ワークベンチの EC2、EBS、パブリック IPv4, en: "Workbench EC2, EBS and public IPv4" } }
     - { key: lambda-requests, pricingKey: lambda.requests, billing: usage, quantity: 1, unit: requests,
         assumedUsagePerHour: 2000, source: target, whenRetained: false }
     - { key: lambda-duration, pricingKey: lambda.duration, billing: usage, quantity: 1, unit: GB-second,
-        assumedUsagePerHour: 2000, source: target, whenRetained: false, note: 1024 MB 内存、含 INIT 阶段 }
+        assumedUsagePerHour: 2000, source: target, whenRetained: false, note: { zh-CN: 1024 MB 内存、含 INIT 阶段, ja: メモリ 1024 MB、INIT フェーズを含む, en: "1024 MB of memory, including the INIT phase" } }
     - { key: sqs-requests, pricingKey: sqs.requests, billing: usage, quantity: 1, unit: requests,
-        assumedUsagePerHour: 5000, source: target, whenRetained: true, note: 结果队列的长轮询 }
+        assumedUsagePerHour: 5000, source: target, whenRetained: true, note: { zh-CN: 结果队列的长轮询, ja: 結果キューのロングポーリング, en: Long polling of the result queue } }
     - { key: logs, pricingKey: logs.ingestion, billing: usage, quantity: 1, unit: GB,
         assumedUsagePerHour: 0.01, source: target, whenRetained: false }
-    - { key: provisioned-concurrency, pricingKey: lambda.provisioned-concurrency, billing: hourly, quantity: 1,
-        source: learner-created, optional: true, whenRetained: false, note: 选做的冷启动对照临时配置预置并发，测完立即删除 }
+    - key: provisioned-concurrency
+      pricingKey: lambda.provisioned-concurrency
+      billing: hourly
+      quantity: 1
+      source: learner-created
+      optional: true
+      whenRetained: false
+      note:
+        zh-CN: 选做的冷启动对照临时配置预置并发，测完立即删除
+        ja: 任意のコールドスタートの比較で一時的に設定するプロビジョニングされた同時実行。測定後すぐに削除します
+        en: Provisioned concurrency set up temporarily for the optional cold-start comparison, deleted right after measuring
   assumptions:
-    - 按每小时约 2000 次调用、每次 1 秒估算；学习规模的调用量通常在免费额度内，以官方定价为准
+    - zh-CN: 按每小时约 2000 次调用、每次 1 秒估算；学习规模的调用量通常在免费额度内，以官方定价为准
+      ja: 1 時間あたり約 2000 回の呼び出し、1 回 1 秒で見積もっています。学習規模の呼び出し量は通常無料枠に収まります。正確な料金は公式の料金表を確認してください
+      en: The estimate assumes about 2,000 invocations per hour at 1 second each; learning-scale invocation volumes usually stay within the free tier — check the official pricing
 
 steps:
   - id: baseline
     type: experiment
-    title: 记录 before：inline 生成缩略图时的突发上传
+    title:
+      zh-CN: 记录 before：inline 生成缩略图时的突发上传
+      ja: before を記録：inline でサムネイルを生成しているときの一斉アップロード
+      en: "Record before: an upload burst while thumbnails are generated inline"
     manual: manual/10-baseline.md
     experiment: { module: image-processing, id: upload-burst, label: before }
     panel: terminal-workstation
@@ -100,19 +198,31 @@ steps:
   - id: enable
     type: script
     wire: true
-    title: 接入 Lambda：部署函数、事件规则与队列
+    title:
+      zh-CN: 接入 Lambda：部署函数、事件规则与队列
+      ja: Lambda を組み込む：関数、イベントルール、キューをデプロイする
+      en: "Wire in Lambda: deploy the function, the event rule and the queues"
     manual: manual/20-enable.md
     methods: [script]
     requires: { steps: [baseline] }
     panel: terminal-workstation
     estMinutes: 12
-    startsBilling: { class: usage, pricingKeys: [lambda.requests, lambda.duration, sqs.requests], note: 按调用计费 }
-    wait: { typicalMinutes: 4, maxMinutes: 15, text: 打包上传到工具链桶、部署、先重启 worker 再重启 api、端到端探针 }
+    startsBilling: { class: usage, pricingKeys: [lambda.requests, lambda.duration, sqs.requests], note: { zh-CN: 按调用计费, ja: 呼び出しごとに課金, en: Billed per invocation } }
+    wait:
+      typicalMinutes: 4
+      maxMinutes: 15
+      text:
+        zh-CN: 打包上传到工具链桶、部署、先重启 worker 再重启 api、端到端探针
+        ja: パッケージを作成してツールチェーンのバケットにアップロードし、デプロイ、worker と api の順での再起動、エンドツーエンドのプローブを行います
+        en: Packaging and uploading to the toolchain bucket, deploying, restarting the worker and then api, and an end-to-end probe
     checks: [ip-wired, ip-path-seen, lambda-config, lambda-async-config, rule-enabled]
 
   - id: inspect
     type: console
-    title: 看懂触发、目标与权限
+    title:
+      zh-CN: 看懂触发、目标与权限
+      ja: トリガー、送信先、権限を読み解く
+      en: Read the trigger, the destinations and the permissions
     manual: manual/30-inspect.md
     methods: [console, cli]
     requires: { steps: [enable] }
@@ -122,7 +232,10 @@ steps:
 
   - id: after
     type: experiment
-    title: 记录 after：同样的突发上传由 Lambda 生成缩略图
+    title:
+      zh-CN: 记录 after：同样的突发上传由 Lambda 生成缩略图
+      ja: after を記録：同じ一斉アップロードで、サムネイルを Lambda が生成する
+      en: "Record after: the same upload burst, with Lambda generating the thumbnails"
     manual: manual/40-after.md
     experiment: { module: image-processing, id: upload-burst, label: after }
     requires: { steps: [enable] }
@@ -132,18 +245,24 @@ steps:
 
   - id: failures
     type: experiment
-    title: 失败路径：永久错误与暂时错误分别去了哪里
+    title:
+      zh-CN: 失败路径：永久错误与暂时错误分别去了哪里
+      ja: 失敗の経路：恒久的なエラーと一時的なエラーはそれぞれどこへ行くか
+      en: "Failure paths: where permanent and transient errors end up"
     manual: manual/50-failures.md
     experiment: { module: image-processing, id: failures, label: after }
     requires: { steps: [enable] }
     panel: terminal-workstation
     estMinutes: 15
-    wait: { typicalMinutes: 4, maxMinutes: 10, text: 异步重试 2 次，间隔约 1、2 分钟 }
+    wait: { typicalMinutes: 4, maxMinutes: 10, text: { zh-CN: 异步重试 2 次，间隔约 1、2 分钟, ja: 非同期の再試行は 2 回で、間隔はおよそ 1 分、2 分です, en: "Two asynchronous retries, about 1 and 2 minutes apart" } }
     checks: [exp-failures, lambda-no-fault-rate]
 
   - id: throttle
     type: cli
-    title: 紧急刹车：预留并发设为 0 会发生什么
+    title:
+      zh-CN: 紧急刹车：预留并发设为 0 会发生什么
+      ja: 緊急ブレーキ：予約済み同時実行を 0 にすると何が起こるか
+      en: "Emergency brake: what happens when reserved concurrency is 0"
     manual: manual/60-throttle.md
     requires: { steps: [enable] }
     panel: terminal-workstation
@@ -152,12 +271,25 @@ steps:
 
   - id: cold-start
     type: cli
-    title: （选做）冷启动与 Init Duration
+    title:
+      zh-CN: （选做）冷启动与 Init Duration
+      ja: （任意）コールドスタートと Init Duration
+      en: (Optional) Cold starts and Init Duration
     manual: manual/70-cold-start.md
-    optional: { reason: 需要闲置 15 分钟；剩余时间不足 30 分钟时跳过 }
+    optional:
+      reason:
+        zh-CN: 需要闲置 15 分钟；剩余时间不足 30 分钟时跳过
+        ja: 15 分間のアイドルが必要です。残り時間が 30 分未満ならスキップしてください
+        en: Needs 15 minutes of idle time; skip it if less than 30 minutes remain
     requires: { steps: [enable] }
     estMinutes: 20
-    startsBilling: { class: hourly, pricingKeys: [lambda.provisioned-concurrency], note: 只在临时配置预置并发时计费 }
+    startsBilling:
+      class: hourly
+      pricingKeys: [ lambda.provisioned-concurrency ]
+      note:
+        zh-CN: 只在临时配置预置并发时计费
+        ja: プロビジョニングされた同時実行を一時的に設定したときだけ課金されます
+        en: Only billed while provisioned concurrency is temporarily configured
     checks: [ { ref: cold-start-observed, required: false } ]
 
 finalChecks:
@@ -186,13 +318,19 @@ experiments:
   - { module: image-processing, id: neighbor, labels: [before, after], required: false, runner: workstation }
 
 quiz: { file: quiz.yaml, draw: 3 }
-badge: { title: 事件驱动, icon: assets/badge.svg }
+badge: { title: { zh-CN: 事件驱动, ja: イベント駆動, en: Event-driven }, icon: assets/badge.svg }
 tracks: [cost-optimized, performant, quick-compare, saa-main, serverless]
 
 cleanup:
-  summary: 结束实验后，平台删除本次会话创建的函数、事件规则、队列与日志组；原图与衍生图在 storage 的桶里，回收会清空后删桶。
+  summary:
+    zh-CN: 结束实验后，平台删除本次会话创建的函数、事件规则、队列与日志组；原图与衍生图在 storage 的桶里，回收会清空后删桶。
+    ja: ラボを終了すると、プラットフォームがこのセッションで作成した関数、イベントルール、キュー、ロググループを削除します。元画像と派生画像は storage のバケットにあり、回収時に中身を空にしてからバケットを削除します。
+    en: When you end the lab, the platform deletes the function, event rule, queues and log group this session created; the originals and derived images are in storage's buckets, which the reclaimer empties and deletes.
   autoReclaim: true
-  dataRisk: [上传的照片随桶删除；函数日志随日志组删除]
+  dataRisk:
+    - zh-CN: 上传的照片随桶删除；函数日志随日志组删除
+      ja: アップロードした写真はバケットとともに削除されます。関数のログはロググループとともに削除されます
+      en: Uploaded photos are deleted with the buckets; function logs are deleted with the log group
   learnerCreatedHints: []
   verify:
     - function-gone
@@ -200,13 +338,59 @@ cleanup:
 saa:
   domains: [performance, resilient, cost]
   topics:
-    - { id: async-invoke, title: 异步调用的重试、最大事件年龄与失败目标, domain: resilient, relatesTo: failures }
-    - { id: choreography, title: S3 事件经 EventBridge 的编舞；输入输出分离避免递归, domain: cost, relatesTo: inspect }
-    - { id: concurrency, title: 预留并发与预置并发；账号并发配额, domain: performance, relatesTo: throttle }
-    - { id: cold-start, title: 冷启动、Init Duration 与内存和 CPU 的关系, domain: performance, relatesTo: cold-start }
+    - id: async-invoke
+      title:
+        zh-CN: 异步调用的重试、最大事件年龄与失败目标
+        ja: 非同期呼び出しの再試行、イベントの最大有効期間、失敗時の送信先
+        en: Retries, maximum event age and on-failure destinations of asynchronous invocations
+      domain: resilient
+      relatesTo: failures
+    - id: choreography
+      title:
+        zh-CN: S3 事件经 EventBridge 的编舞；输入输出分离避免递归
+        ja: EventBridge を経由する S3 イベントのコレオグラフィー。入力と出力を分けて再帰を防ぐ
+        en: Choreography of S3 events through EventBridge; separating input and output to avoid recursion
+      domain: cost
+      relatesTo: inspect
+    - id: concurrency
+      title:
+        zh-CN: 预留并发与预置并发；账号并发配额
+        ja: 予約済み同時実行とプロビジョニングされた同時実行。アカウントの同時実行クォータ
+        en: Reserved vs provisioned concurrency; the account concurrency quota
+      domain: performance
+      relatesTo: throttle
+    - id: cold-start
+      title:
+        zh-CN: 冷启动、Init Duration 与内存和 CPU 的关系
+        ja: コールドスタート、Init Duration、メモリと CPU の関係
+        en: Cold starts, Init Duration, and how memory relates to CPU
+      domain: performance
+      relatesTo: cold-start
   confusables:
-    - { a: 预留并发, b: 预置并发, rule: 预留并发既是保底也是上限，设为 0 等于暂停函数；预置并发预先初始化执行环境、消除冷启动、按时长计费 }
-    - { a: 异步调用的失败目标, b: 事件源映射, rule: 失败目标处理 EventBridge / S3 等异步调用重试用尽后的事件；事件源映射由 Lambda 轮询 SQS 等来源 }
+    - a:
+        zh-CN: 预留并发
+        ja: 予約済み同時実行
+        en: Reserved concurrency
+      b:
+        zh-CN: 预置并发
+        ja: プロビジョニングされた同時実行
+        en: Provisioned concurrency
+      rule:
+        zh-CN: 预留并发既是保底也是上限，设为 0 等于暂停函数；预置并发预先初始化执行环境、消除冷启动、按时长计费
+        ja: 予約済み同時実行は最低保証であると同時に上限でもあり、0 にすると関数を一時停止するのと同じです。プロビジョニングされた同時実行は実行環境を事前に初期化してコールドスタートをなくし、時間で課金されます
+        en: Reserved concurrency is both a guaranteed minimum and a ceiling, and setting it to 0 pauses the function; provisioned concurrency pre-initializes execution environments to remove cold starts and is billed by time
+    - a:
+        zh-CN: 异步调用的失败目标
+        ja: 非同期呼び出しの失敗時の送信先
+        en: On-failure destination for asynchronous invocations
+      b:
+        zh-CN: 事件源映射
+        ja: イベントソースマッピング
+        en: Event source mapping
+      rule:
+        zh-CN: 失败目标处理 EventBridge / S3 等异步调用重试用尽后的事件；事件源映射由 Lambda 轮询 SQS 等来源
+        ja: 失敗時の送信先は、EventBridge / S3 などからの非同期呼び出しで再試行を使い切ったイベントを扱います。イベントソースマッピングは、Lambda が SQS などのソースをポーリングする仕組みです
+        en: An on-failure destination handles events from asynchronous invocations (EventBridge, S3 …) once retries are used up; an event source mapping is Lambda polling a source such as SQS
 
 tags: [image-processing, lambda, eventbridge, serverless, async]
 

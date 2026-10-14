@@ -6,14 +6,20 @@ questions:
     type: single
     kind: scenario
     services: [cognito-user-pool]
-    stem: 网页应用需要用户注册、登录、MFA 与社交登录，团队不想自己保存密码哈希。应使用？
+    stem:
+      zh-CN: 网页应用需要用户注册、登录、MFA 与社交登录，团队不想自己保存密码哈希。应使用？
+      ja: Web アプリにユーザー登録、サインイン、MFA、ソーシャルログインが必要ですが、チームはパスワードハッシュを自分たちで保存したくありません。何を使うべきですか？
+      en: A web app needs user sign-up, sign-in, MFA and social login, and the team does not want to store password hashes itself. What should it use?
     options:
-      - { id: a, text: Amazon Cognito User Pool }
-      - { id: b, text: Amazon Cognito Identity Pool }
-      - { id: c, text: 为每个用户创建 IAM 用户 }
-      - { id: d, text: IAM Identity Center }
+      - { id: a, text: { zh-CN: Amazon Cognito User Pool, ja: Amazon Cognito User Pool, en: Amazon Cognito User Pool } }
+      - { id: b, text: { zh-CN: Amazon Cognito Identity Pool, ja: Amazon Cognito Identity Pool, en: Amazon Cognito Identity Pool } }
+      - { id: c, text: { zh-CN: 为每个用户创建 IAM 用户, ja: ユーザーごとに IAM ユーザーを作成する, en: Create an IAM user for each user } }
+      - { id: d, text: { zh-CN: IAM Identity Center, ja: IAM Identity Center, en: IAM Identity Center } }
     answer: [a]
-    explain: User Pool 负责认证（你是谁）；Identity Pool 负责把已认证身份换成 AWS 临时凭证；IAM Identity Center 面向员工访问 AWS 账号与企业应用，而不是面向终端用户的应用注册。
+    explain:
+      zh-CN: User Pool 负责认证（你是谁）；Identity Pool 负责把已认证身份换成 AWS 临时凭证；IAM Identity Center 面向员工访问 AWS 账号与企业应用，而不是面向终端用户的应用注册。
+      ja: User Pool は認証（あなたは誰か）を担当し、Identity Pool は認証済みの ID を AWS の一時的な認証情報に交換します。IAM Identity Center は従業員が AWS アカウントや社内アプリにアクセスするためのもので、エンドユーザー向けアプリの登録には使いません。
+      en: The User Pool handles authentication (who you are); the Identity Pool exchanges an authenticated identity for temporary AWS credentials; IAM Identity Center is for employees accessing AWS accounts and business applications, not for end-user sign-up in an app.
     relatesTo: enable
     difficulty: 1
   - id: auth-alb
@@ -21,28 +27,56 @@ questions:
     type: single
     kind: scenario
     services: [cognito-user-pool, elb]
-    stem: 想在 ALB 上直接要求访问 /admin* 的用户先通过 Cognito 登录，前提是？
+    stem:
+      zh-CN: 想在 ALB 上直接要求访问 /admin* 的用户先通过 Cognito 登录，前提是？
+      ja: ALB で /admin* にアクセスするユーザーに、まず Cognito でのサインインを直接要求したいと考えています。前提条件はどれですか？
+      en: You want the ALB itself to require users who access /admin* to sign in with Cognito first. What is required?
     options:
-      - { id: a, text: 使用 HTTPS 监听器 }
-      - { id: b, text: 改用 NLB }
-      - { id: c, text: 目标组类型为 Lambda }
-      - { id: d, text: 开启粘性会话 }
+      - { id: a, text: { zh-CN: 使用 HTTPS 监听器, ja: HTTPS リスナーを使う, en: Use an HTTPS listener } }
+      - { id: b, text: { zh-CN: 改用 NLB, ja: NLB に切り替える, en: Switch to an NLB } }
+      - { id: c, text: { zh-CN: 目标组类型为 Lambda, ja: ターゲットグループのタイプを Lambda にする, en: Use a Lambda target group } }
+      - { id: d, text: { zh-CN: 开启粘性会话, ja: スティッキーセッションを有効にする, en: Turn on sticky sessions } }
     answer: [a]
-    explain: authenticate-cognito 动作只能用于 HTTPS 监听器，App Client 需要客户端密钥，回调地址为 /oauth2/idpresponse。
+    explain:
+      zh-CN: authenticate-cognito 动作只能用于 HTTPS 监听器，App Client 需要客户端密钥，回调地址为 /oauth2/idpresponse。
+      ja: authenticate-cognito アクションは HTTPS リスナーでしか使えません。アプリクライアントにはクライアントシークレットが必要で、コールバック URL は /oauth2/idpresponse です。
+      en: The authenticate-cognito action only works on an HTTPS listener; the app client needs a client secret, and the callback URL is /oauth2/idpresponse.
     difficulty: 2
   - id: auth-tokens
     domain: secure
     type: multi
     kind: concept
     services: [cognito-user-pool]
-    stem: 关于在后端使用 Cognito 令牌，正确的是哪两项？
+    stem:
+      zh-CN: 关于在后端使用 Cognito 令牌，正确的是哪两项？
+      ja: バックエンドで Cognito のトークンを扱う際の説明として、正しいものを 2 つ選んでください。
+      en: Which two statements about using Cognito tokens in a backend are correct?
     options:
-      - { id: a, text: 服务器端的机密客户端可以有客户端密钥，调用相关 API 时要计算 SECRET_HASH }
-      - { id: b, text: 校验 access token 时要同时校验 token_use 与 client_id }
-      - { id: c, text: 运行在浏览器里的 SPA 公有客户端也应保存客户端密钥 }
-      - { id: d, text: 本地验签的 access token 在 GlobalSignOut 后立即失效 }
+      - id: a
+        text:
+          zh-CN: 服务器端的机密客户端可以有客户端密钥，调用相关 API 时要计算 SECRET_HASH
+          ja: サーバー側の機密クライアントはクライアントシークレットを持てる。関連する API を呼び出すときは SECRET_HASH を計算する必要がある
+          en: A server-side confidential client can have a client secret, and must compute SECRET_HASH when calling the related APIs
+      - id: b
+        text:
+          zh-CN: 校验 access token 时要同时校验 token_use 与 client_id
+          ja: アクセストークンの検証では token_use と client_id も併せて検証する
+          en: When validating an access token, check token_use and client_id as well
+      - id: c
+        text:
+          zh-CN: 运行在浏览器里的 SPA 公有客户端也应保存客户端密钥
+          ja: ブラウザーで動く SPA のパブリッククライアントにもクライアントシークレットを保存すべきだ
+          en: A public SPA client running in the browser should also store a client secret
+      - id: d
+        text:
+          zh-CN: 本地验签的 access token 在 GlobalSignOut 后立即失效
+          ja: ローカルで署名を検証するアクセストークンは、GlobalSignOut の直後に無効になる
+          en: An access token that is verified locally stops working right after GlobalSignOut
     answer: [a, b]
-    explain: 公有客户端无法保密，不能有密钥；GlobalSignOut 让 refresh token 失效，但本地验签的 access token 在过期前仍然有效。
+    explain:
+      zh-CN: 公有客户端无法保密，不能有密钥；GlobalSignOut 让 refresh token 失效，但本地验签的 access token 在过期前仍然有效。
+      ja: パブリッククライアントは秘密を守れないため、シークレットを持てません。GlobalSignOut でリフレッシュトークンは無効になりますが、ローカルで検証するアクセストークンは有効期限まで使えます。
+      en: A public client cannot keep a secret, so it must not have one; GlobalSignOut invalidates refresh tokens, but an access token verified locally stays valid until it expires.
     relatesTo: tokens
     difficulty: 2
   - id: auth-write-attributes
@@ -50,13 +84,23 @@ questions:
     type: single
     kind: scenario
     services: [cognito-user-pool]
-    stem: 应用把用户的付费套餐保存在 Cognito 的自定义属性 custom:plan 中。为防止用户自行升级套餐，应该怎么做？
+    stem:
+      zh-CN: 应用把用户的付费套餐保存在 Cognito 的自定义属性 custom:plan 中。为防止用户自行升级套餐，应该怎么做？
+      ja: アプリはユーザーの有料プランを Cognito のカスタム属性 custom:plan に保存しています。ユーザーが自分でプランをアップグレードできないようにするには、どうすべきですか？
+      en: An app stores each user's paid plan in the Cognito custom attribute custom:plan. How do you stop users from upgrading their own plan?
     options:
-      - { id: a, text: 在应用客户端的可写属性中去掉 custom:plan，只由后端用管理员 API 修改 }
-      - { id: b, text: 开启 MFA }
-      - { id: c, text: 缩短 access token 的有效期 }
-      - { id: d, text: 开启用户池的删除保护 }
+      - id: a
+        text:
+          zh-CN: 在应用客户端的可写属性中去掉 custom:plan，只由后端用管理员 API 修改
+          ja: アプリクライアントの書き込み可能な属性から custom:plan を外し、バックエンドだけが管理者 API で変更する
+          en: Remove custom:plan from the app client's writable attributes and let only the backend change it with admin APIs
+      - { id: b, text: { zh-CN: 开启 MFA, ja: MFA を有効にする, en: Turn on MFA } }
+      - { id: c, text: { zh-CN: 缩短 access token 的有效期, ja: アクセストークンの有効期間を短くする, en: Shorten the access token lifetime } }
+      - { id: d, text: { zh-CN: 开启用户池的删除保护, ja: ユーザープールの削除保護を有効にする, en: Turn on deletion protection for the user pool } }
     answer: [a]
-    explain: 用户可以用自己的 access token 调用 UpdateUserAttributes 修改客户端允许写入的属性；业务敏感属性只能由后端以管理员身份修改。
+    explain:
+      zh-CN: 用户可以用自己的 access token 调用 UpdateUserAttributes 修改客户端允许写入的属性；业务敏感属性只能由后端以管理员身份修改。
+      ja: ユーザーは自分のアクセストークンで UpdateUserAttributes を呼び出し、クライアントが書き込みを許可している属性を変更できます。業務上重要な属性はバックエンドが管理者として変更するようにします。
+      en: Users can call UpdateUserAttributes with their own access token to change any attribute the client allows them to write; business-sensitive attributes must only be changed by the backend acting as an administrator.
     relatesTo: inspect-client
     difficulty: 2

@@ -1,7 +1,10 @@
 checks:
   # ---- 认识实验机
   - id: instance-shape
-    title: 实验机强制 IMDSv2、跳数 1、挂两块卷，实例配置文件只用于平台管理
+    title:
+      zh-CN: 实验机强制 IMDSv2、跳数 1、挂两块卷，实例配置文件只用于平台管理
+      ja: ラボ用インスタンスは IMDSv2 必須、ホップ数 1、ボリューム 2 つで、インスタンスプロファイルはプラットフォームの管理専用
+      en: The lab instance requires IMDSv2, has hop limit 1 and two volumes, and its instance profile is only for platform management
     type: aws-readonly
     service: ec2
     action: DescribeInstances
@@ -10,22 +13,39 @@ checks:
     ownership: { resource: 'arn:aws:ec2:{{ session.region }}:{{ session.accountId }}:instance/{{ target.instanceId }}', mode: session-or-start }
     drift: { policy: once }
     assert:
-      - { path: '$.Reservations[0].Instances[0].MetadataOptions.HttpTokens', op: eq, value: required, label: IMDSv2 必需 }
-      - { path: '$.Reservations[0].Instances[0].MetadataOptions.HttpPutResponseHopLimit', op: eq, value: 1, label: 跳数 }
-      - { path: '$.Reservations[0].Instances[0].BlockDeviceMappings', op: len_eq, value: 2, label: 根卷 + 数据卷 }
-      - { path: '$.Reservations[0].Instances[0].IamInstanceProfile.Arn', op: endsWith, value: '/CloudAlbumAppRole', label: 实例配置文件 }
-    explain: 读取实验机的元数据选项、挂载的卷与实例配置文件；实验机由平台在会话开始时创建（session-or-start）。
+      - { path: '$.Reservations[0].Instances[0].MetadataOptions.HttpTokens', op: eq, value: required, label: { zh-CN: IMDSv2 必需, ja: IMDSv2 が必須, en: IMDSv2 required } }
+      - { path: '$.Reservations[0].Instances[0].MetadataOptions.HttpPutResponseHopLimit', op: eq, value: 1, label: { zh-CN: 跳数, ja: ホップ数, en: Hop limit } }
+      - { path: '$.Reservations[0].Instances[0].BlockDeviceMappings', op: len_eq, value: 2, label: { zh-CN: 根卷 + 数据卷, ja: ルートボリューム＋データボリューム, en: Root volume + data volume } }
+      - { path: '$.Reservations[0].Instances[0].IamInstanceProfile.Arn', op: endsWith, value: '/CloudAlbumAppRole', label: { zh-CN: 实例配置文件, ja: インスタンスプロファイル, en: Instance profile } }
+    explain:
+      zh-CN: 读取实验机的元数据选项、挂载的卷与实例配置文件；实验机由平台在会话开始时创建（session-or-start）。
+      ja: ラボ用インスタンスのメタデータオプション、アタッチされたボリューム、インスタンスプロファイルを読み取ります。ラボ用インスタンスはセッション開始時にプラットフォームが作成したものです（session-or-start）。
+      en: Reads the lab instance's metadata options, attached volumes and instance profile; the platform created the lab instance when the session started (session-or-start).
     reproduce: { run: 'aws ec2 describe-instances --instance-ids {{ target.instanceId }} --query "Reservations[0].Instances[0].{Metadata:MetadataOptions,Volumes:BlockDeviceMappings[].DeviceName,Profile:IamInstanceProfile.Arn}"', runsOn: workstation }
     manualFallback:
       where: { breadcrumb: [EC2, 实例, '{{ target.instanceId }}', 安全], region: app }
       observed:
-        question: 实例元数据服务的“IMDSv2”一项显示什么？
+        question:
+          zh-CN: 实例元数据服务的“IMDSv2”一项显示什么？
+          ja: インスタンスメタデータサービスの「IMDSv2」の項目には何と表示されていますか？
+          en: What does the "IMDSv2" item of the instance metadata service show?
         options:
-          - { value: required, label: 必需, expected: true }
-          - { value: optional, label: 可选, fixHint: 实验机被改过；在“操作 → 实例设置 → 修改实例元数据选项”中改回“必需” }
+          - { value: required, label: { zh-CN: 必需, ja: 必須, en: Required }, expected: true }
+          - value: optional
+            label:
+              zh-CN: 可选
+              ja: オプション
+              en: Optional
+            fixHint:
+              zh-CN: 实验机被改过；在“操作 → 实例设置 → 修改实例元数据选项”中改回“必需”
+              ja: ラボ用インスタンスが変更されています。「アクション → インスタンスの設定 → インスタンスメタデータオプションの変更」で「必須」に戻してください
+              en: The lab instance has been changed; set it back to "Required" under "Actions → Instance settings → Modify instance metadata options"
 
   - id: data-volume-shape
-    title: 数据卷已加密、带 Backup=true 标签，且不随实例终止而删除
+    title:
+      zh-CN: 数据卷已加密、带 Backup=true 标签，且不随实例终止而删除
+      ja: データボリュームは暗号化され、Backup=true タグが付き、インスタンスの終了時に削除されない
+      en: The data volume is encrypted, tagged Backup=true, and not deleted when the instance terminates
     type: aws-readonly
     service: ec2
     action: DescribeVolumes
@@ -36,15 +56,21 @@ checks:
     dependsOn: [instance-shape]
     drift: { policy: once }
     assert:
-      - { path: $.Volumes, op: len_eq, value: 2, label: 挂载的卷数 }
+      - { path: $.Volumes, op: len_eq, value: 2, label: { zh-CN: 挂载的卷数, ja: アタッチされたボリュームの数, en: Number of attached volumes } }
       - path: $.Volumes
         op: every
-        label: 两块卷都已加密
+        label:
+          zh-CN: 两块卷都已加密
+          ja: 2 つのボリュームがどちらも暗号化済み
+          en: Both volumes encrypted
         value:
           - { path: $.Encrypted, op: eq, value: true }
       - path: $.Volumes
         op: some
-        label: 数据卷带 Backup=true 且 DeleteOnTermination=false
+        label:
+          zh-CN: 数据卷带 Backup=true 且 DeleteOnTermination=false
+          ja: データボリュームに Backup=true があり DeleteOnTermination=false
+          en: Data volume has Backup=true and DeleteOnTermination=false
         value:
           - path: $.Tags
             op: some
@@ -55,29 +81,65 @@ checks:
             op: some
             value:
               - { path: $.DeleteOnTermination, op: eq, value: false }
-    explain: 根卷随实例终止删除；数据卷是独立的 EBS 卷，生命周期与实例无关，可以卸下改挂到新实例、单独快照与扩容。
+    explain:
+      zh-CN: 根卷随实例终止删除；数据卷是独立的 EBS 卷，生命周期与实例无关，可以卸下改挂到新实例、单独快照与扩容。
+      ja: ルートボリュームはインスタンスの終了時に削除されます。データボリュームは独立した EBS ボリュームで、ライフサイクルはインスタンスと無関係です。デタッチして新しいインスタンスにアタッチし直したり、単独でスナップショットや拡張を行ったりできます。
+      en: The root volume is deleted when the instance terminates; the data volume is a separate EBS volume whose lifecycle is independent of the instance, so you can detach it and attach it to a new instance, snapshot it or grow it on its own.
     reproduce: { run: 'aws ec2 describe-volumes --filters Name=attachment.instance-id,Values={{ target.instanceId }} --query "Volumes[].{Id:VolumeId,Size:Size,Encrypted:Encrypted,DeleteOnTermination:Attachments[0].DeleteOnTermination,Tags:Tags}"', runsOn: workstation }
     manualFallback:
       where: { breadcrumb: [EC2, 实例, '{{ target.instanceId }}', 存储], region: app }
       observed:
-        question: 两块卷中，哪一块的“终止时删除”为“否”？
+        question:
+          zh-CN: 两块卷中，哪一块的“终止时删除”为“否”？
+          ja: 2 つのボリュームのうち、「終了時に削除」が「いいえ」なのはどちらですか？
+          en: Of the two volumes, which one has "Delete on termination" set to No?
         options:
-          - { value: data, label: 数据卷（较晚挂载的那块）, expected: true }
-          - { value: root, label: 根卷, fixHint: 根卷默认随实例终止删除；再看一次两块卷的设备名 }
+          - { value: data, label: { zh-CN: 数据卷（较晚挂载的那块）, ja: データボリューム（後からアタッチされたほう）, en: The data volume (the one attached later) }, expected: true }
+          - value: root
+            label:
+              zh-CN: 根卷
+              ja: ルートボリューム
+              en: The root volume
+            fixHint:
+              zh-CN: 根卷默认随实例终止删除；再看一次两块卷的设备名
+              ja: ルートボリュームは既定でインスタンスの終了時に削除されます。2 つのボリュームのデバイス名をもう一度見てください
+              en: By default the root volume is deleted when the instance terminates; look at the two volumes' device names again
 
   - id: mgmt-role-understood
-    title: 说出实验机上的 CloudAlbumAppRole 是给谁用的
+    title:
+      zh-CN: 说出实验机上的 CloudAlbumAppRole 是给谁用的
+      ja: ラボ用インスタンスの CloudAlbumAppRole が誰のためのものかを答える
+      en: Say who the CloudAlbumAppRole on the lab instance is for
     type: manual
     spec:
       observed:
-        question: 实验机的实例配置文件 CloudAlbumAppRole 目前只有 AmazonSSMManagedInstanceCore。它是给谁用的？
+        question:
+          zh-CN: 实验机的实例配置文件 CloudAlbumAppRole 目前只有 AmazonSSMManagedInstanceCore。它是给谁用的？
+          ja: ラボ用インスタンスのインスタンスプロファイル CloudAlbumAppRole には、今は AmazonSSMManagedInstanceCore しかありません。これは誰のためのものですか？
+          en: The lab instance's instance profile CloudAlbumAppRole currently only has AmazonSSMManagedInstanceCore. Who is it for?
         options:
-          - { value: platform, label: 给平台的管理通道（SSM Agent），应用并不使用它, expected: true }
-          - { value: app, label: 给 CloudAlbum 应用调用 AWS API, fixHint: 应用的 IAM_CREDENTIALS=none，从不读取实例角色；svc-iam 才会让应用用上它 }
+          - value: platform
+            label:
+              zh-CN: 给平台的管理通道（SSM Agent），应用并不使用它
+              ja: プラットフォームの管理チャネル（SSM Agent）用で、アプリは使っていない
+              en: For the platform's management channel (the SSM Agent); the app does not use it
+            expected: true
+          - value: app
+            label:
+              zh-CN: 给 CloudAlbum 应用调用 AWS API
+              ja: CloudAlbum アプリが AWS API を呼び出すため
+              en: For the CloudAlbum app to call AWS APIs
+            fixHint:
+              zh-CN: 应用的 IAM_CREDENTIALS=none，从不读取实例角色；svc-iam 才会让应用用上它
+              ja: アプリは IAM_CREDENTIALS=none で、インスタンスロールを読み取ることはありません。アプリがこれを使うようになるのは svc-iam からです
+              en: The app runs with IAM_CREDENTIALS=none and never reads the instance role; svc-iam is where the app starts using it
 
   # ---- 用一遍相册
   - id: entry-direct
-    title: 从公网访问弹性 IP，入口链只有 nginx
+    title:
+      zh-CN: 从公网访问弹性 IP，入口链只有 nginx
+      ja: インターネットから Elastic IP にアクセスすると、入口チェーンは nginx だけ
+      en: From the internet, the Elastic IP's entry chain is only nginx
     type: http-header
     from: platform
     target: public-ip
@@ -85,34 +147,57 @@ checks:
     method: GET
     drift: { policy: must-hold }
     assert:
-      - { path: $.status, op: eq, value: 200, label: 状态码 }
-      - { path: $.pathSegments.entry, op: eq, value: nginx, label: 入口链 }
-    explain: 平台从公网请求实验机弹性 IP 上的就绪检查，确认 Nginx 直接把请求交给 api。
+      - { path: $.status, op: eq, value: 200, label: { zh-CN: 状态码, ja: ステータスコード, en: Status code } }
+      - { path: $.pathSegments.entry, op: eq, value: nginx, label: { zh-CN: 入口链, ja: 入口チェーン, en: Entry chain } }
+    explain:
+      zh-CN: 平台从公网请求实验机弹性 IP 上的就绪检查，确认 Nginx 直接把请求交给 api。
+      ja: プラットフォームがインターネット側からラボ用インスタンスの Elastic IP の readiness チェックにリクエストし、Nginx がリクエストを直接 api に渡していることを確認します。
+      en: The platform requests the readiness check on the lab instance's Elastic IP from the internet and confirms that Nginx hands requests straight to api.
     reproduce: { run: 'curl -sk -o /dev/null -D - "https://{{ target.publicIp }}/api/health/ready" | grep -i "^x-cloudalbum-path:"', runsOn: workstation }
 
   - id: cap-ec2-healthy
-    title: ec2 模块正常
+    title:
+      zh-CN: ec2 模块正常
+      ja: ec2 モジュールが正常
+      en: The ec2 module is healthy
     type: capability
     module: ec2
     drift: { policy: must-hold }
     assert:
-      - { path: $.driver, op: eq, value: single, label: 驱动 }
-      - { path: $, op: healthy, label: 状态正常（本卡 expectedWarnings 为空，即必须是 ok） }
-    explain: 感知器只读本机（IMDSv2、挂载、磁盘、内存、定时器等），不调用任何 AWS API。
+      - { path: $.driver, op: eq, value: single, label: { zh-CN: 驱动, ja: ドライバー, en: Driver } }
+      - path: $
+        op: healthy
+        label:
+          zh-CN: 状态正常（本卡 expectedWarnings 为空，即必须是 ok）
+          ja: 状態が正常（このカードの expectedWarnings は空なので ok でなければならない）
+          en: Healthy (this card's expectedWarnings is empty, so it must be ok)
+    explain:
+      zh-CN: 感知器只读本机（IMDSv2、挂载、磁盘、内存、定时器等），不调用任何 AWS API。
+      ja: 検知処理はホストの情報（IMDSv2、マウント、ディスク、メモリ、タイマーなど）だけを読み取り、AWS API は一切呼び出しません。
+      en: The sensor only reads the host (IMDSv2, mounts, disk, memory, timers …) and calls no AWS API.
 
   - id: cap-iam-none
-    title: 应用没有使用任何 AWS 凭证
+    title:
+      zh-CN: 应用没有使用任何 AWS 凭证
+      ja: アプリは AWS の認証情報を一切使っていない
+      en: The app uses no AWS credentials at all
     type: capability
     module: iam
     drift: { policy: must-hold }
     assert:
-      - { path: $.driver, op: eq, value: none, label: 驱动 }
-      - { path: $.status, op: eq, value: 'off', label: 模块状态 }
-    explain: 实例挂着平台管理角色，但应用的 IAM_CREDENTIALS=none，从不读取它。
+      - { path: $.driver, op: eq, value: none, label: { zh-CN: 驱动, ja: ドライバー, en: Driver } }
+      - { path: $.status, op: eq, value: 'off', label: { zh-CN: 模块状态, ja: モジュールの状態, en: Module status } }
+    explain:
+      zh-CN: 实例挂着平台管理角色，但应用的 IAM_CREDENTIALS=none，从不读取它。
+      ja: インスタンスにはプラットフォームの管理ロールが付いていますが、アプリは IAM_CREDENTIALS=none で、それを読み取ることはありません。
+      en: The instance carries the platform's management role, but the app runs with IAM_CREDENTIALS=none and never reads it.
 
   # ---- 主机巡检
   - id: data-volume-mounted
-    title: 数据目录是独立的数据卷，/etc/cloudalbum 指向数据卷
+    title:
+      zh-CN: 数据目录是独立的数据卷，/etc/cloudalbum 指向数据卷
+      ja: データディレクトリは独立したデータボリュームで、/etc/cloudalbum はデータボリュームを指している
+      en: The data directory is a separate data volume, and /etc/cloudalbum points to the data volume
     type: capability
     module: ec2
     view: admin
@@ -122,64 +207,108 @@ checks:
         where: { id: data-volume, status: ok }
         op: len_eq
         value: 1
-        label: data-volume 检查项
-    explain: 感知器核对 /var/lib/cloudalbum 是独立挂载点（设备不同于根卷）、可读写，且 /etc/cloudalbum 指向数据卷上的 etc。
+        label:
+          zh-CN: data-volume 检查项
+          ja: data-volume のチェック項目
+          en: data-volume check item
+    explain:
+      zh-CN: 感知器核对 /var/lib/cloudalbum 是独立挂载点（设备不同于根卷）、可读写，且 /etc/cloudalbum 指向数据卷上的 etc。
+      ja: 検知処理は、/var/lib/cloudalbum が独立したマウントポイント（ルートボリュームとは別のデバイス）で読み書き可能であること、/etc/cloudalbum がデータボリューム上の etc を指していることを照合します。
+      en: The sensor checks that /var/lib/cloudalbum is a separate mount point (a different device from the root volume) and writable, and that /etc/cloudalbum points to etc on the data volume.
 
   - id: secrets-file-mode
-    title: 机密文件在数据卷上，权限 0640、属主 root
+    title:
+      zh-CN: 机密文件在数据卷上，权限 0640、属主 root
+      ja: 機密情報のファイルはデータボリューム上にあり、権限は 0640、所有者は root
+      en: The secrets file is on the data volume with mode 0640, owned by root
     type: local
     on: lab
     checkId: file-stat
     args: { path: /etc/cloudalbum/secrets.env }
     drift: { policy: must-hold }
     assert:
-      - { path: $.exists, op: eq, value: true, label: 文件存在 }
-      - { path: $.mode, op: eq, value: '0640', label: 权限 }
-      - { path: $.owner, op: eq, value: 0, label: 属主 UID（root） }
-    explain: 检查只读取元数据，从不读取文件内容。机密在数据卷上，换实例不会重新生成密钥。
+      - { path: $.exists, op: eq, value: true, label: { zh-CN: 文件存在, ja: ファイルが存在する, en: File exists } }
+      - { path: $.mode, op: eq, value: '0640', label: { zh-CN: 权限, ja: 権限, en: Mode } }
+      - { path: $.owner, op: eq, value: 0, label: { zh-CN: 属主 UID（root）, ja: 所有者の UID（root）, en: Owner UID (root) } }
+    explain:
+      zh-CN: 检查只读取元数据，从不读取文件内容。机密在数据卷上，换实例不会重新生成密钥。
+      ja: チェックはメタデータだけを読み取り、ファイルの中身は決して読みません。機密情報はデータボリュームにあるため、インスタンスを交換しても鍵は作り直されません。
+      en: The check only reads metadata, never the file contents. The secrets live on the data volume, so replacing the instance does not regenerate the keys.
 
   - id: api-loopback-only
-    title: api 进程只监听本机回环地址
+    title:
+      zh-CN: api 进程只监听本机回环地址
+      ja: api プロセスはローカルのループバックアドレスだけで待ち受けている
+      en: The api process only listens on the loopback address
     type: local
     on: lab
     checkId: port-listen
     args: { port: 3000 }
     drift: { policy: must-hold }
     assert:
-      - { path: $.listening, op: eq, value: true, label: 正在监听 }
+      - { path: $.listening, op: eq, value: true, label: { zh-CN: 正在监听, ja: 待ち受け中, en: Listening } }
       - path: $.addresses
         op: every
-        label: 只监听 127.0.0.1
+        label:
+          zh-CN: 只监听 127.0.0.1
+          ja: 127.0.0.1 だけで待ち受け
+          en: Only on 127.0.0.1
         value:
           - { path: $, op: startsWith, value: '127.0.0.1:' }
-    explain: 外部流量只能经 Nginx 进入；即使安全组放开了 3000，也连不到 api。
+    explain:
+      zh-CN: 外部流量只能经 Nginx 进入；即使安全组放开了 3000，也连不到 api。
+      ja: 外部からのトラフィックは Nginx を通ってしか入れません。セキュリティグループで 3000 を開いたとしても、api には接続できません。
+      en: External traffic can only come in through Nginx; even if the security group opened 3000, nobody could reach api.
 
   # ---- IMDSv2
   - id: imdsv2-enforced
-    title: 不带令牌访问 IMDS 返回 401
+    title:
+      zh-CN: 不带令牌访问 IMDS 返回 401
+      ja: トークンなしで IMDS にアクセスすると 401 が返る
+      en: Accessing IMDS without a token returns 401
     type: local
     on: lab
     checkId: imds-get
     args: { path: instance-id, checkV1Rejected: true }
     drift: { policy: must-hold }
     assert:
-      - { path: $.status, op: eq, value: 200, label: 带令牌的状态码 }
-      - { path: $.v1Status, op: eq, value: 401, label: 不带令牌的状态码 }
-    explain: IMDSv2 先要用 PUT 取会话令牌；只能让服务器发 GET 的 SSRF 拿不到令牌。
+      - { path: $.status, op: eq, value: 200, label: { zh-CN: 带令牌的状态码, ja: トークンありのステータスコード, en: Status code with a token } }
+      - { path: $.v1Status, op: eq, value: 401, label: { zh-CN: 不带令牌的状态码, ja: トークンなしのステータスコード, en: Status code without a token } }
+    explain:
+      zh-CN: IMDSv2 先要用 PUT 取会话令牌；只能让服务器发 GET 的 SSRF 拿不到令牌。
+      ja: IMDSv2 では、まず PUT でセッショントークンを取得する必要があります。サーバーに GET しか送らせられない SSRF では、トークンを手に入れられません。
+      en: IMDSv2 requires a PUT to get a session token first; an SSRF that can only make the server send GET requests never gets a token.
 
   # ---- 单点故障
   - id: spof-observed
-    title: 说出停机期间网站的状态
+    title:
+      zh-CN: 说出停机期间网站的状态
+      ja: 停止中のサイトの状態を答える
+      en: Describe the site's state while the instance is stopped
     type: manual
     spec:
       observed:
-        question: 实例停止期间，从工作台访问 /api/health/live 得到什么结果？
+        question:
+          zh-CN: 实例停止期间，从工作台访问 /api/health/live 得到什么结果？
+          ja: インスタンスの停止中に、ワークベンチから /api/health/live にアクセスするとどうなりましたか？
+          en: While the instance was stopped, what did the workbench get from /api/health/live?
         options:
-          - { value: down, label: 连接超时或被拒绝（全站不可用）, expected: true }
-          - { value: up, label: 仍然返回 200, fixHint: 确认实例状态确实变成了“已停止”，并且请求的是弹性 IP }
+          - { value: down, label: { zh-CN: 连接超时或被拒绝（全站不可用）, ja: 接続がタイムアウトするか拒否された（サイト全体が使えない）, en: The connection timed out or was refused (the whole site was down) }, expected: true }
+          - value: up
+            label:
+              zh-CN: 仍然返回 200
+              ja: それでも 200 が返った
+              en: It still returned 200
+            fixHint:
+              zh-CN: 确认实例状态确实变成了“已停止”，并且请求的是弹性 IP
+              ja: インスタンスの状態が本当に「停止済み」になったこと、リクエスト先が Elastic IP であることを確認してください
+              en: Check that the instance state really became Stopped and that you requested the Elastic IP
 
   - id: stop-start-events
-    title: CloudTrail 记录了对实验机的停止与启动
+    title:
+      zh-CN: CloudTrail 记录了对实验机的停止与启动
+      ja: CloudTrail にラボ用インスタンスの停止と起動が記録されている
+      en: CloudTrail recorded the lab instance being stopped and started
     type: aws-readonly
     service: cloudtrail
     action: LookupEvents
@@ -200,24 +329,39 @@ checks:
         where: { EventName: StopInstances }
         op: len_gte
         value: 1
-        label: StopInstances 事件
+        label:
+          zh-CN: StopInstances 事件
+          ja: StopInstances イベント
+          en: StopInstances event
       - path: $.Events
         where: { EventName: StartInstances }
         op: len_gte
         value: 1
-        label: StartInstances 事件
-    explain: 事件按资源名（实验机的实例 ID）查找；实验机在本会话开始时创建，这些事件只可能来自本会话。CloudTrail 事件历史有几分钟到十几分钟的延迟。
+        label:
+          zh-CN: StartInstances 事件
+          ja: StartInstances イベント
+          en: StartInstances event
+    explain:
+      zh-CN: 事件按资源名（实验机的实例 ID）查找；实验机在本会话开始时创建，这些事件只可能来自本会话。CloudTrail 事件历史有几分钟到十几分钟的延迟。
+      ja: イベントはリソース名（ラボ用インスタンスのインスタンス ID）で検索します。ラボ用インスタンスはこのセッションの開始時に作成されたため、これらのイベントはこのセッション由来のものに限られます。CloudTrail のイベント履歴には数分から十数分の遅れがあります。
+      en: Events are looked up by resource name (the lab instance's instance ID); the lab instance was created when this session started, so these events can only come from this session. The CloudTrail event history lags by a few minutes to over ten minutes.
     reproduce: { run: 'aws cloudtrail lookup-events --lookup-attributes AttributeKey=ResourceName,AttributeValue={{ target.instanceId }} --max-results 20 --query "Events[].[EventTime,EventName,Username]" --output table', runsOn: workstation }
     manualFallback:
       where: { breadcrumb: [CloudTrail, 事件历史], region: app }
       observed:
-        question: 按“资源名称 = {{ target.instanceId }}”筛选，能看到 StopInstances 与 StartInstances 吗？
+        question:
+          zh-CN: 按“资源名称 = {{ target.instanceId }}”筛选，能看到 StopInstances 与 StartInstances 吗？
+          ja: 「リソース名 = {{ target.instanceId }}」で絞り込むと、StopInstances と StartInstances が見えますか？
+          en: Filtering by "Resource name = {{ target.instanceId }}", can you see StopInstances and StartInstances?
         options:
-          - { value: both, label: 两个都能看到, expected: true }
-          - { value: none, label: 还看不到, fixHint: 事件历史有延迟，几分钟后再查 }
+          - { value: both, label: { zh-CN: 两个都能看到, ja: 両方見える, en: Both are there }, expected: true }
+          - { value: none, label: { zh-CN: 还看不到, ja: まだ見えない, en: Not yet }, fixHint: { zh-CN: 事件历史有延迟，几分钟后再查, ja: イベント履歴には遅れがあります。数分後にもう一度確認してください, en: The event history lags; check again in a few minutes } }
 
   - id: eip-unchanged
-    title: 停止再启动后，实验机仍关联同一个弹性 IP
+    title:
+      zh-CN: 停止再启动后，实验机仍关联同一个弹性 IP
+      ja: 停止して再起動した後も、ラボ用インスタンスには同じ Elastic IP が関連付けられている
+      en: After the stop and start, the lab instance still has the same Elastic IP
     type: aws-readonly
     service: ec2
     action: DescribeAddresses
@@ -232,13 +376,22 @@ checks:
         where: { InstanceId: '{{ target.instanceId }}' }
         op: len_eq
         value: 1
-        label: EIP 关联在实验机上
-    explain: 没有 EIP 时，停止再启动后自动分配的公网 IPv4 通常会改变；EIP 让地址保持不变（它同样按小时计费）。
+        label:
+          zh-CN: EIP 关联在实验机上
+          ja: EIP がラボ用インスタンスに関連付けられている
+          en: EIP associated with the lab instance
+    explain:
+      zh-CN: 没有 EIP 时，停止再启动后自动分配的公网 IPv4 通常会改变；EIP 让地址保持不变（它同样按小时计费）。
+      ja: EIP がないと、停止して再起動した後の自動割り当てのパブリック IPv4 は通常変わります。EIP ならアドレスは変わりません（EIP も時間課金されます）。
+      en: Without an EIP, the auto-assigned public IPv4 usually changes after a stop and start; an EIP keeps the address the same (it is also billed by the hour).
     reproduce: { run: 'aws ec2 describe-addresses --filters Name=public-ip,Values={{ target.publicIp }} --query "Addresses[].[PublicIp,InstanceId]"', runsOn: workstation }
     manualFallback:
       where: { breadcrumb: [EC2, 弹性 IP], region: app }
       observed:
-        question: 弹性 IP {{ target.publicIp }} 关联的实例 ID 是否就是实验机？
+        question:
+          zh-CN: 弹性 IP {{ target.publicIp }} 关联的实例 ID 是否就是实验机？
+          ja: Elastic IP {{ target.publicIp }} に関連付けられているインスタンス ID は、ラボ用インスタンスのものですか？
+          en: Is the instance ID associated with the Elastic IP {{ target.publicIp }} the lab instance?
         options:
-          - { value: 'yes', label: 是, expected: true }
-          - { value: 'no', label: 否或未关联, fixHint: 实例可能还没启动完成 }
+          - { value: 'yes', label: { zh-CN: 是, ja: はい, en: Yes }, expected: true }
+          - { value: 'no', label: { zh-CN: 否或未关联, ja: いいえ、または関連付けられていない, en: "No, or not associated" }, fixHint: { zh-CN: 实例可能还没启动完成, ja: インスタンスの起動がまだ終わっていない可能性があります, en: The instance may not have finished starting yet } }

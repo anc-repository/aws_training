@@ -1,6 +1,9 @@
 checks:
   - id: exp-before
-    title: upload-burst 的 before（inline）有一条有效结果
+    title:
+      zh-CN: upload-burst 的 before（inline）有一条有效结果
+      ja: upload-burst の before（inline）に有効な結果が 1 件ある
+      en: upload-burst has a valid before result (inline)
     type: experiment
     module: image-processing
     experiment: upload-burst
@@ -8,7 +11,10 @@ checks:
     accept: [valid]
 
   - id: exp-pair
-    title: upload-burst 的 before 与 after 都有效且可比
+    title:
+      zh-CN: upload-burst 的 before 与 after 都有效且可比
+      ja: upload-burst の before と after がどちらも有効で比較可能
+      en: upload-burst before and after are both valid and comparable
     type: experiment
     module: image-processing
     experiment: upload-burst
@@ -16,7 +22,10 @@ checks:
     accept: [valid]
 
   - id: exp-failures
-    title: failures 的 after（损坏的 JPEG 很快变成 FAILED）有一条有效结果
+    title:
+      zh-CN: failures 的 after（损坏的 JPEG 很快变成 FAILED）有一条有效结果
+      ja: failures の after（壊れた JPEG がすぐに FAILED になる）に有効な結果が 1 件ある
+      en: failures has a valid after result (corrupt JPEGs quickly become FAILED)
     type: experiment
     module: image-processing
     experiment: failures

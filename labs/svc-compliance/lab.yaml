@@ -5,10 +5,22 @@ id: svc-compliance
 kind: service
 version: 0.1.0
 status: planned
-service: AWS Config
-function: 配置合规与漂移检测
-title: AWS Config：配置合规与漂移检测
-summary: 本地自检只看得到本机，AWS Config 只看得到 AWS 资源：用覆盖矩阵、SSH 金丝雀与主机漂移三个实验看清两者的互补。
+service:
+  zh-CN: AWS Config
+  ja: AWS Config
+  en: AWS Config
+function:
+  zh-CN: 配置合规与漂移检测
+  ja: 設定のコンプライアンスとドリフト検出
+  en: Configuration compliance and drift detection
+title:
+  zh-CN: AWS Config：配置合规与漂移检测
+  ja: AWS Config：設定のコンプライアンスとドリフト検出
+  en: "AWS Config: configuration compliance and drift detection"
+summary:
+  zh-CN: 本地自检只看得到本机，AWS Config 只看得到 AWS 资源：用覆盖矩阵、SSH 金丝雀与主机漂移三个实验看清两者的互补。
+  ja: ローカルの自己診断に見えるのは自分のホストだけ、AWS Config に見えるのは AWS リソースだけです。カバレッジ表、SSH カナリア、ホストのドリフトという 3 つの実験で、両者がどう補い合うかを確認します。
+  en: A local self-check only sees its own host, and AWS Config only sees AWS resources. Three experiments (a coverage matrix, an SSH canary and host drift) show how the two complement each other.
 difficulty: intermediate
 estimatedMinutes: 75
 timeLimitMinutes: 120
@@ -17,7 +29,7 @@ retain: {allowed: true, maxHours: 24}
 regions:
   supported: [ap-northeast-1]
 services:
-- {id: config, name: AWS Config, role: primary, module: compliance}
+- {id: config, name: { zh-CN: AWS Config, ja: AWS Config, en: AWS Config }, role: primary, module: compliance}
 - {id: iam, role: context, module: iam}
 modules:
   target: [compliance]
@@ -38,8 +50,16 @@ startProfile:
     kind: module
     basis: credential
     set: {IAM_CREDENTIALS: role}
-    reason: 平台约定除 svc-ec2、svc-iam 外起始状态都带实例角色（C3）
-  - {item: preview-direct-https, kind: platform, reason: 预览使用方案 B 的 Let's Encrypt IP 证书（03 §6.2）}
+    reason:
+      zh-CN: 平台约定除 svc-ec2、svc-iam 外起始状态都带实例角色（C3）
+      ja: プラットフォームの取り決めにより、svc-ec2 と svc-iam 以外の開始状態にはインスタンスロールが付いています（C3）
+      en: By platform convention, every start state except svc-ec2 and svc-iam includes an instance role (C3)
+  - item: preview-direct-https
+    kind: platform
+    reason:
+      zh-CN: 预览使用方案 B 的 Let's Encrypt IP 证书（03 §6.2）
+      ja: プレビューには方式 B の Let's Encrypt IP 証明書を使います（03 §6.2）
+      en: The preview uses the option B Let's Encrypt IP certificate (03 §6.2)
   platform:
     preview: {directHttps: 'on'}
 targetModules:
@@ -47,10 +67,10 @@ targetModules:
 expectedWarnings: []
 platform:
   accountImpact:
-  - {id: config-recorder, scope: region, resource: Config 记录器与投递通道, preexisting: adopt-readonly, revert: delete, note: 本会话创建的回收时停止并删除}
+  - {id: config-recorder, scope: region, resource: { zh-CN: Config 记录器与投递通道, ja: Config レコーダーと配信チャネル, en: Config recorder and delivery channel }, preexisting: adopt-readonly, revert: delete, note: { zh-CN: 本会话创建的回收时停止并删除, ja: このセッションで作成したものは回収時に停止して削除します, en: Those created by this session are stopped and deleted on reclaim }}
 cost: {tier: medium}
 provision: {class: A}
-badge: {title: 合规守门}
+badge: {title: { zh-CN: 合规守门, ja: コンプライアンスの門番, en: Compliance gatekeeper }}
 tracks: [operations, saa-main, secure]
 saa:
   domains: [secure]

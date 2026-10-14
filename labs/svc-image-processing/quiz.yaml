@@ -6,14 +6,24 @@ questions:
     type: single
     kind: scenario
     services: [lambda, eventbridge, sqs]
-    stem: 一个由 EventBridge 异步调用的 Lambda 函数偶尔失败，团队希望在重试用尽后保留失败事件以便分析，且不写额外代码。应该怎么做？
+    stem:
+      zh-CN: 一个由 EventBridge 异步调用的 Lambda 函数偶尔失败，团队希望在重试用尽后保留失败事件以便分析，且不写额外代码。应该怎么做？
+      ja: EventBridge から非同期で呼び出される Lambda 関数がときどき失敗します。チームは、再試行を使い切った後の失敗イベントを分析のために残したいと考えていますが、追加のコードは書きたくありません。どうすべきですか？
+      en: A Lambda function invoked asynchronously by EventBridge fails now and then. The team wants to keep failed events for analysis once retries are used up, without writing extra code. What should they do?
     options:
-      - { id: a, text: 把函数超时改为 15 分钟 }
-      - { id: b, text: 在函数的异步调用配置中设置失败目标（如 SQS 队列），并设置重试次数 }
-      - { id: c, text: 改为同步调用 }
-      - { id: d, text: 为函数配置预置并发 }
+      - { id: a, text: { zh-CN: 把函数超时改为 15 分钟, ja: 関数のタイムアウトを 15 分にする, en: Raise the function timeout to 15 minutes } }
+      - id: b
+        text:
+          zh-CN: 在函数的异步调用配置中设置失败目标（如 SQS 队列），并设置重试次数
+          ja: 関数の非同期呼び出しの設定で失敗時の送信先（SQS キューなど）を設定し、再試行回数も設定する
+          en: Set an on-failure destination (such as an SQS queue) and the retry count in the function's asynchronous invocation configuration
+      - { id: c, text: { zh-CN: 改为同步调用, ja: 同期呼び出しに変える, en: Switch to synchronous invocation } }
+      - { id: d, text: { zh-CN: 为函数配置预置并发, ja: 関数にプロビジョニングされた同時実行を設定する, en: Configure provisioned concurrency for the function } }
     answer: [b]
-    explain: 异步调用支持 0～2 次重试与失败目标（Destinations）或 DLQ；同步调用的错误由调用方处理；预置并发只解决冷启动。
+    explain:
+      zh-CN: 异步调用支持 0～2 次重试与失败目标（Destinations）或 DLQ；同步调用的错误由调用方处理；预置并发只解决冷启动。
+      ja: 非同期呼び出しは 0～2 回の再試行と、失敗時の送信先（Destinations）または DLQ に対応しています。同期呼び出しのエラーは呼び出し元が処理します。プロビジョニングされた同時実行が解決するのはコールドスタートだけです。
+      en: Asynchronous invocation supports 0–2 retries and an on-failure destination (Destinations) or DLQ; errors from synchronous invocation are handled by the caller; provisioned concurrency only addresses cold starts.
     relatesTo: failures
     difficulty: 1
   - id: ip-recursion
@@ -21,14 +31,24 @@ questions:
     type: single
     kind: scenario
     services: [lambda, s3]
-    stem: 一个由 S3 上传触发的 Lambda 把缩略图写回同一个桶的同一前缀，很快产生大量调用与费用。根本的修复是？
+    stem:
+      zh-CN: 一个由 S3 上传触发的 Lambda 把缩略图写回同一个桶的同一前缀，很快产生大量调用与费用。根本的修复是？
+      ja: S3 へのアップロードで起動する Lambda が、サムネイルを同じバケットの同じプレフィックスに書き戻しており、すぐに大量の呼び出しと費用が発生しました。根本的な修正はどれですか？
+      en: A Lambda function triggered by S3 uploads writes thumbnails back to the same prefix in the same bucket, and quickly racks up a huge number of invocations and charges. What is the root-cause fix?
     options:
-      - { id: a, text: 调大函数内存 }
-      - { id: b, text: 把输出写到另一个桶，或写到不在触发范围内的前缀 }
-      - { id: c, text: 关闭 S3 版本控制 }
-      - { id: d, text: 给函数配置预置并发 }
+      - { id: a, text: { zh-CN: 调大函数内存, ja: 関数のメモリを増やす, en: Increase the function's memory } }
+      - id: b
+        text:
+          zh-CN: 把输出写到另一个桶，或写到不在触发范围内的前缀
+          ja: 出力を別のバケット、またはトリガーの範囲外のプレフィックスに書き込む
+          en: Write the output to another bucket, or to a prefix outside the trigger's scope
+      - { id: c, text: { zh-CN: 关闭 S3 版本控制, ja: S3 のバージョニングを無効にする, en: Turn off S3 versioning } }
+      - { id: d, text: { zh-CN: 给函数配置预置并发, ja: 関数にプロビジョニングされた同時実行を設定する, en: Configure provisioned concurrency for the function } }
     answer: [b]
-    explain: 输出再次触发函数形成递归；输入与输出分开是根本解法，预留并发上限只能兜底。
+    explain:
+      zh-CN: 输出再次触发函数形成递归；输入与输出分开是根本解法，预留并发上限只能兜底。
+      ja: 出力が再び関数を起動して再帰になっています。入力と出力を分けるのが根本的な解決策で、予約済み同時実行の上限は最後の安全策にしかなりません。
+      en: The output triggers the function again, creating recursion; separating input from output is the real fix, and a reserved concurrency cap is only a safety net.
     relatesTo: inspect
     difficulty: 1
   - id: ip-provisioned
@@ -36,14 +56,20 @@ questions:
     type: single
     kind: scenario
     services: [lambda]
-    stem: 一个面向用户的 Lambda API 在流量高峰时首个请求延迟明显升高（冷启动）。要消除这部分延迟，应使用？
+    stem:
+      zh-CN: 一个面向用户的 Lambda API 在流量高峰时首个请求延迟明显升高（冷启动）。要消除这部分延迟，应使用？
+      ja: ユーザー向けの Lambda API で、トラフィックのピーク時に最初のリクエストのレイテンシーが大きく上がります（コールドスタート）。この遅延をなくすには何を使うべきですか？
+      en: A user-facing Lambda API shows a clear latency jump on the first requests during traffic peaks (cold starts). What should be used to remove this delay?
     options:
-      - { id: a, text: 预留并发 }
-      - { id: b, text: 预置并发 }
-      - { id: c, text: 把函数放进 VPC }
-      - { id: d, text: 增加函数超时时间 }
+      - { id: a, text: { zh-CN: 预留并发, ja: 予約済み同時実行, en: Reserved concurrency } }
+      - { id: b, text: { zh-CN: 预置并发, ja: プロビジョニングされた同時実行, en: Provisioned concurrency } }
+      - { id: c, text: { zh-CN: 把函数放进 VPC, ja: 関数を VPC 内に置く, en: Put the function in a VPC } }
+      - { id: d, text: { zh-CN: 增加函数超时时间, ja: 関数のタイムアウトを延ばす, en: Increase the function timeout } }
     answer: [b]
-    explain: 预置并发预先初始化执行环境，按时长计费；预留并发只是保底与上限，不消除冷启动。
+    explain:
+      zh-CN: 预置并发预先初始化执行环境，按时长计费；预留并发只是保底与上限，不消除冷启动。
+      ja: プロビジョニングされた同時実行は実行環境を事前に初期化し、時間で課金されます。予約済み同時実行は最低保証と上限にすぎず、コールドスタートはなくなりません。
+      en: Provisioned concurrency pre-initializes execution environments and is billed by time; reserved concurrency is only a minimum and a ceiling and does not remove cold starts.
     relatesTo: cold-start
     difficulty: 1
   - id: ip-reserved-zero
@@ -51,13 +77,19 @@ questions:
     type: single
     kind: concept
     services: [lambda]
-    stem: 运维人员发现一个 Lambda 函数的下游数据库出现故障，希望立即停止该函数的所有调用、但保留函数与触发器配置。最直接的做法是？
+    stem:
+      zh-CN: 运维人员发现一个 Lambda 函数的下游数据库出现故障，希望立即停止该函数的所有调用、但保留函数与触发器配置。最直接的做法是？
+      ja: 運用担当者が、ある Lambda 関数の下流のデータベースに障害が起きていることに気づきました。関数とトリガーの設定は残したまま、その関数のすべての呼び出しをすぐに止めたいと考えています。最も直接的な方法はどれですか？
+      en: An operator notices that the database downstream of a Lambda function is failing and wants to stop every invocation of the function immediately while keeping the function and trigger configuration. What is the most direct way?
     options:
-      - { id: a, text: 把函数的预留并发设为 0 }
-      - { id: b, text: 把预置并发设为 0 }
-      - { id: c, text: 删除函数的执行角色 }
-      - { id: d, text: 把函数超时设为 1 秒 }
+      - { id: a, text: { zh-CN: 把函数的预留并发设为 0, ja: 関数の予約済み同時実行を 0 にする, en: Set the function's reserved concurrency to 0 } }
+      - { id: b, text: { zh-CN: 把预置并发设为 0, ja: プロビジョニングされた同時実行を 0 にする, en: Set provisioned concurrency to 0 } }
+      - { id: c, text: { zh-CN: 删除函数的执行角色, ja: 関数の実行ロールを削除する, en: Delete the function's execution role } }
+      - { id: d, text: { zh-CN: 把函数超时设为 1 秒, ja: 関数のタイムアウトを 1 秒にする, en: Set the function timeout to 1 second } }
     answer: [a]
-    explain: 预留并发既是保底也是上限，设为 0 会限流所有调用（控制台的“限制”按钮就是这样做的）；删除执行角色会破坏配置，超时只会制造更多失败。
+    explain:
+      zh-CN: 预留并发既是保底也是上限，设为 0 会限流所有调用（控制台的“限制”按钮就是这样做的）；删除执行角色会破坏配置，超时只会制造更多失败。
+      ja: 予約済み同時実行は最低保証であると同時に上限でもあり、0 にするとすべての呼び出しがスロットリングされます（コンソールの「スロットリング」ボタンがまさにこれを行います）。実行ロールを削除すると設定が壊れ、タイムアウトを短くしても失敗が増えるだけです。
+      en: Reserved concurrency is both a minimum and a ceiling, and 0 throttles every invocation (that is exactly what the console's "Throttle" button does); deleting the execution role breaks the configuration, and a short timeout only creates more failures.
     relatesTo: throttle
     difficulty: 2

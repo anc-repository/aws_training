@@ -8,47 +8,127 @@ id: svc-database
 kind: service
 version: 1.0.0
 status: beta
-service: Amazon RDS for PostgreSQL
-function: 托管关系数据库
-title: Amazon RDS for PostgreSQL：托管关系数据库
-subtitle: EBS 上的 SQLite → Multi-AZ 的 RDS for PostgreSQL
-summary: 把 SQLite 换成 Multi-AZ 的 RDS for PostgreSQL，同一套 Knex 仓储代码换来托管备份、时间点恢复与自动故障转移，并亲手触发一次故障转移。
-story: |
-  L0 的用户、相册与照片元数据在 EBS 上的一个 SQLite 文件里，与 Node 同进程读写：单写者，高并发写时同步驱动阻塞事件循环；
-  EC2 一停，数据库跟着停；备份和数据在同一块盘上。这张卡片把数据库换成 Multi-AZ 的 RDS for PostgreSQL，
-  再亲手触发一次故障转移，看应用经历一段写失败后自动重连。
+service:
+  zh-CN: Amazon RDS for PostgreSQL
+  ja: Amazon RDS for PostgreSQL
+  en: Amazon RDS for PostgreSQL
+function:
+  zh-CN: 托管关系数据库
+  ja: マネージドリレーショナルデータベース
+  en: Managed relational database
+title:
+  zh-CN: Amazon RDS for PostgreSQL：托管关系数据库
+  ja: Amazon RDS for PostgreSQL：マネージドリレーショナルデータベース
+  en: "Amazon RDS for PostgreSQL: managed relational database"
+subtitle:
+  zh-CN: EBS 上的 SQLite → Multi-AZ 的 RDS for PostgreSQL
+  ja: EBS 上の SQLite → マルチ AZ の RDS for PostgreSQL
+  en: SQLite on EBS → Multi-AZ RDS for PostgreSQL
+summary:
+  zh-CN: 把 SQLite 换成 Multi-AZ 的 RDS for PostgreSQL，同一套 Knex 仓储代码换来托管备份、时间点恢复与自动故障转移，并亲手触发一次故障转移。
+  ja: SQLite をマルチ AZ の RDS for PostgreSQL に置き換えます。同じ Knex のリポジトリコードのまま、マネージドなバックアップ、ポイントインタイムリカバリ、自動フェイルオーバーが手に入ります。フェイルオーバーも自分で 1 回起こしてみます。
+  en: Replace SQLite with Multi-AZ RDS for PostgreSQL. The same Knex repository code gets managed backups, point-in-time recovery and automatic failover — and you trigger a failover yourself.
+story:
+  zh-CN: |
+    L0 的用户、相册与照片元数据在 EBS 上的一个 SQLite 文件里，与 Node 同进程读写：单写者，高并发写时同步驱动阻塞事件循环；
+    EC2 一停，数据库跟着停；备份和数据在同一块盘上。这张卡片把数据库换成 Multi-AZ 的 RDS for PostgreSQL，
+    再亲手触发一次故障转移，看应用经历一段写失败后自动重连。
+  ja: |
+    L0 のユーザー、アルバム、写真のメタデータは EBS 上の 1 つの SQLite ファイルにあり、Node と同じプロセスで読み書きされます。書き込みは 1 つずつで、同時書き込みが多いと同期ドライバーがイベントループをブロックします。
+    EC2 が止まればデータベースも止まり、バックアップはデータと同じディスクにあります。このカードではデータベースをマルチ AZ の RDS for PostgreSQL に置き換え、
+    さらに自分でフェイルオーバーを起こして、アプリが一時的な書き込み失敗の後に自動で再接続する様子を確認します。
+  en: |
+    At L0, users, albums and photo metadata live in a single SQLite file on EBS, read and written in the same process as Node: one writer at a time, and under heavy concurrent writes the synchronous driver blocks the event loop;
+    when EC2 stops, the database stops too, and the backups sit on the same disk as the data. This card moves the database to Multi-AZ RDS for PostgreSQL,
+    then has you trigger a failover and watch the app reconnect automatically after a short period of failed writes.
 objectives:
-  - { text: 区分 Multi-AZ 实例部署与只读副本, domain: resilient, relatesTo: failover }
-  - { text: 说清自动备份与时间点恢复（恢复为新实例）, domain: resilient, relatesTo: inspect }
-  - { text: 用安全组链、PubliclyAccessible=false 与 rds.force_ssl 保护数据库, domain: secure, relatesTo: inspect }
-  - { text: 理解“换成 RDS 不会让单次查询变快”, domain: performance, relatesTo: after }
+  - { text: { zh-CN: 区分 Multi-AZ 实例部署与只读副本, ja: マルチ AZ のインスタンスデプロイとリードレプリカを区別する, en: Tell a Multi-AZ instance deployment from a read replica }, domain: resilient, relatesTo: failover }
+  - text:
+      zh-CN: 说清自动备份与时间点恢复（恢复为新实例）
+      ja: 自動バックアップとポイントインタイムリカバリ（新しいインスタンスとして復元）を説明できる
+      en: Explain automated backups and point-in-time recovery (restored as a new instance)
+    domain: resilient
+    relatesTo: inspect
+  - text:
+      zh-CN: 用安全组链、PubliclyAccessible=false 与 rds.force_ssl 保护数据库
+      ja: セキュリティグループの連鎖、PubliclyAccessible=false、rds.force_ssl でデータベースを保護する
+      en: Protect the database with chained security groups, PubliclyAccessible=false and rds.force_ssl
+    domain: secure
+    relatesTo: inspect
+  - text:
+      zh-CN: 理解“换成 RDS 不会让单次查询变快”
+      ja: 「RDS に変えても 1 回のクエリは速くならない」ことを理解する
+      en: Understand that moving to RDS does not make a single query faster
+    domain: performance
+    relatesTo: after
 difficulty: advanced
 estimatedMinutes: 120
 timeLimitMinutes: 180
 extensions: { maxCount: 2, minutesEach: 30 }
-retain: { allowed: true, maxHours: 8, reason: Multi-AZ 的两个实例继续按小时计费；保留后可以在 svc-db-proxy、sc-db-performance 中继续 }
+retain:
+  allowed: true
+  maxHours: 8
+  reason:
+    zh-CN: Multi-AZ 的两个实例继续按小时计费；保留后可以在 svc-db-proxy、sc-db-performance 中继续
+    ja: マルチ AZ の 2 つのインスタンスは時間課金が続きます。保持すれば svc-db-proxy、sc-db-performance で続きから使えます
+    en: The two Multi-AZ instances keep being billed hourly; if you keep the environment, you can continue in svc-db-proxy or sc-db-performance
 regions:
   supported: [ap-northeast-1]
 services:
-  - { id: rds, name: Amazon RDS for PostgreSQL, role: primary, module: database }
-  - { id: vpc, name: Amazon VPC（DB 子网组、sg-db）, role: observed }
-  - { id: iam, name: AWS IAM（实例角色，深度探针的 Describe 权限）, role: context, module: iam }
-  - { id: cloudwatch, name: Amazon CloudWatch（DatabaseConnections）, role: observed }
+  - { id: rds, name: { zh-CN: Amazon RDS for PostgreSQL, ja: Amazon RDS for PostgreSQL, en: Amazon RDS for PostgreSQL }, role: primary, module: database }
+  - { id: vpc, name: { zh-CN: Amazon VPC（DB 子网组、sg-db）, ja: Amazon VPC（DB サブネットグループ、sg-db）, en: "Amazon VPC (DB subnet group, sg-db)" }, role: observed }
+  - id: iam
+    name:
+      zh-CN: AWS IAM（实例角色，深度探针的 Describe 权限）
+      ja: AWS IAM（インスタンスロール、詳細プローブ用の Describe 権限）
+      en: AWS IAM (instance role; Describe permissions for the deep probe)
+    role: context
+    module: iam
+  - id: cloudwatch
+    name:
+      zh-CN: Amazon CloudWatch（DatabaseConnections）
+      ja: Amazon CloudWatch（DatabaseConnections）
+      en: Amazon CloudWatch (DatabaseConnections)
+    role: observed
 modules: { target: [database], start: [iam], context: [], related: [db-proxy, cache, backup, network] }
 prerequisites:
   cards:
     - { id: svc-ec2, kind: soft }
-  knowledge: [SQL 与事务的基本概念, 安全组的来源可以是另一个安全组]
+  knowledge: [{ zh-CN: SQL 与事务的基本概念, ja: SQL とトランザクションの基本, en: SQL and transaction basics }, { zh-CN: 安全组的来源可以是另一个安全组, ja: セキュリティグループのソースには別のセキュリティグループを指定できる, en: A security group's source can be another security group }]
 
 startProfile:
   provisions:
-    - { item: iam, kind: module, basis: credential, set: { IAM_CREDENTIALS: role },
-        reason: 平台约定除 svc-ec2、svc-iam 外起始状态都带实例角色（C3）；深度探针 rds:DescribeDBInstances 因此可用 }
-    - { item: mgmt-channel, kind: platform, reason: 实验机挂只含 AmazonSSMManagedInstanceCore 的 CloudAlbumAppRole，是平台的管理通道，不是应用权限 }
-    - { item: workstation, kind: platform, reason: 每个会话一台工作台，用于运行 scripts/module、AWS CLI 与对比实验 }
-    - { item: preview-direct-https, kind: platform, reason: 预览使用方案 B 的 Let's Encrypt IP 证书；本卡不涉及 tls，保持开启 }
+    - item: iam
+      kind: module
+      basis: credential
+      set: { IAM_CREDENTIALS: role }
+      reason:
+        zh-CN: 平台约定除 svc-ec2、svc-iam 外起始状态都带实例角色（C3）；深度探针 rds:DescribeDBInstances 因此可用
+        ja: プラットフォームの取り決めにより、svc-ec2 と svc-iam 以外の開始状態にはインスタンスロールが付いています（C3）。これにより詳細プローブの rds:DescribeDBInstances が使えます
+        en: By platform convention, every start state except svc-ec2 and svc-iam includes an instance role (C3), which makes the deep probe's rds:DescribeDBInstances work
+    - item: mgmt-channel
+      kind: platform
+      reason:
+        zh-CN: 实验机挂只含 AmazonSSMManagedInstanceCore 的 CloudAlbumAppRole，是平台的管理通道，不是应用权限
+        ja: ラボ用インスタンスには AmazonSSMManagedInstanceCore だけを含む CloudAlbumAppRole が付いています。これはプラットフォームの管理チャネルであり、アプリの権限ではありません
+        en: The lab instance carries CloudAlbumAppRole with only AmazonSSMManagedInstanceCore. It is the platform's management channel, not an app permission
+    - item: workstation
+      kind: platform
+      reason:
+        zh-CN: 每个会话一台工作台，用于运行 scripts/module、AWS CLI 与对比实验
+        ja: セッションごとに 1 台のワークベンチがあり、scripts/module、AWS CLI、比較実験の実行に使います
+        en: Each session has one workbench for running scripts/module, the AWS CLI and comparison experiments
+    - item: preview-direct-https
+      kind: platform
+      reason:
+        zh-CN: 预览使用方案 B 的 Let's Encrypt IP 证书；本卡不涉及 tls，保持开启
+        ja: プレビューには方式 B の Let's Encrypt IP 証明書を使います。このカードは tls に関係しないため、有効のままにします
+        en: The preview uses the option B Let's Encrypt IP certificate; this card does not involve tls, so it stays on
   platform: { preview: { directHttps: 'on' } }
-  reason: database 的 requires 为空；DB 子网组取默认 VPC 中至少两个 AZ 的默认子网（档位 atl/svc-database/default）
+  reason:
+    zh-CN: database 的 requires 为空；DB 子网组取默认 VPC 中至少两个 AZ 的默认子网（档位 atl/svc-database/default）
+    ja: database の requires は空です。DB サブネットグループには、デフォルト VPC の少なくとも 2 つの AZ にあるデフォルトサブネットを使います（プロファイル atl/svc-database/default）
+    en: database has no requires; the DB subnet group uses default subnets in at least two AZs of the default VPC (profile atl/svc-database/default)
 targetModules:
   - { id: database, driver: postgres, params: { MultiAz: 'true' }, wireStep: enable, adoptsExisting: false }
 expectedWarnings: []
@@ -58,31 +138,78 @@ platform:
 provision: { class: A }
 
 variables:
-  dbInstanceId: { label: 数据库实例 ID, from: derived, fillFrom: stack.database.InfoDbInstanceId }
-  dbHost: { label: 数据库端点, from: derived, fillFrom: stack.database.EnvDbHost }
+  dbInstanceId: { label: { zh-CN: 数据库实例 ID, ja: データベースインスタンス ID, en: DB instance ID }, from: derived, fillFrom: stack.database.InfoDbInstanceId }
+  dbHost: { label: { zh-CN: 数据库端点, ja: データベースのエンドポイント, en: Database endpoint }, from: derived, fillFrom: stack.database.EnvDbHost }
 
 cost:
   currency: USD
   tier: high
-  mainDrivers: [RDS 实例小时（Multi-AZ 的备库也按实例计）, gp3 存储, 超出免费额度的备份存储, 选做的恢复实例与只读副本]
+  mainDrivers:
+    - zh-CN: RDS 实例小时（Multi-AZ 的备库也按实例计）
+      ja: RDS のインスタンス時間（マルチ AZ のスタンバイも 1 インスタンスとして課金）
+      en: RDS instance hours (the Multi-AZ standby counts as an instance too)
+    - zh-CN: gp3 存储
+      ja: gp3 ストレージ
+      en: gp3 storage
+    - zh-CN: 超出免费额度的备份存储
+      ja: 無料分を超えたバックアップストレージ
+      en: Backup storage beyond the free allowance
+    - zh-CN: 选做的恢复实例与只读副本
+      ja: 任意の復元インスタンスとリードレプリカ
+      en: The optional restored instance and read replica
   basis:
-    - { ref: start-profile, note: 实验机 EC2、EBS（根卷与数据卷）、公网 IPv4 }
-    - { ref: workstation, note: 工作台 EC2、EBS、公网 IPv4 }
-    - { key: rds-instance, pricingKey: rds.instance, billing: hourly, quantity: 2, source: target, whenRetained: true,
-        note: db.t4g.micro Multi-AZ：主库与备库各按一个实例计 }
+    - ref: start-profile
+      note:
+        zh-CN: 实验机 EC2、EBS（根卷与数据卷）、公网 IPv4
+        ja: ラボ用インスタンスの EC2、EBS（ルートボリュームとデータボリューム）、パブリック IPv4
+        en: Lab instance EC2, EBS (root and data volumes) and public IPv4
+    - { ref: workstation, note: { zh-CN: 工作台 EC2、EBS、公网 IPv4, ja: ワークベンチの EC2、EBS、パブリック IPv4, en: "Workbench EC2, EBS and public IPv4" } }
+    - key: rds-instance
+      pricingKey: rds.instance
+      billing: hourly
+      quantity: 2
+      source: target
+      whenRetained: true
+      note:
+        zh-CN: db.t4g.micro Multi-AZ：主库与备库各按一个实例计
+        ja: db.t4g.micro のマルチ AZ。プライマリとスタンバイがそれぞれ 1 インスタンスとして課金されます
+        en: db.t4g.micro Multi-AZ; the primary and the standby are each billed as one instance
     - { key: rds-storage, pricingKey: rds.storage.gp3, billing: monthly, quantity: 40, unit: GB-month, source: target, whenRetained: true,
-        note: 20 GiB gp3 × 2（Multi-AZ） }
-    - { key: rds-pitr-instance, pricingKey: rds.instance, billing: hourly, quantity: 1, source: learner-created, optional: true, whenRetained: false,
-        note: 选做的时间点恢复出的新实例，验证后立即删除 }
-    - { key: rds-replica, pricingKey: rds.instance, billing: hourly, quantity: 1, source: target, optional: true, whenRetained: true,
-        note: 选做的只读副本（CreateReadReplica=true） }
+        note: { zh-CN: 20 GiB gp3 × 2（Multi-AZ）, ja: 20 GiB の gp3 × 2（マルチ AZ）, en: 20 GiB gp3 × 2 (Multi-AZ) } }
+    - key: rds-pitr-instance
+      pricingKey: rds.instance
+      billing: hourly
+      quantity: 1
+      source: learner-created
+      optional: true
+      whenRetained: false
+      note:
+        zh-CN: 选做的时间点恢复出的新实例，验证后立即删除
+        ja: 任意のポイントインタイムリカバリで作る新しいインスタンス。確認したらすぐに削除します
+        en: The new instance from the optional point-in-time recovery, deleted right after you verify it
+    - key: rds-replica
+      pricingKey: rds.instance
+      billing: hourly
+      quantity: 1
+      source: target
+      optional: true
+      whenRetained: true
+      note:
+        zh-CN: 选做的只读副本（CreateReadReplica=true）
+        ja: 任意のリードレプリカ（CreateReadReplica=true）
+        en: The optional read replica (CreateReadReplica=true)
   assumptions:
-    - 单 AZ 部署约为 Multi-AZ 的一半；自动备份不超过数据库存储大小的部分不另收费；以官方定价为准
+    - zh-CN: 单 AZ 部署约为 Multi-AZ 的一半；自动备份不超过数据库存储大小的部分不另收费；以官方定价为准
+      ja: シングル AZ のデプロイはマルチ AZ のおよそ半分です。データベースのストレージサイズを超えない分の自動バックアップには追加料金がかかりません。正確な料金は公式の料金表を確認してください
+      en: A single-AZ deployment costs about half of Multi-AZ; automated backups up to the size of the database storage cost nothing extra; check the official pricing
 
 steps:
   - id: orient
     type: observe
-    title: 观察 SQLite：数据库与应用同生共死
+    title:
+      zh-CN: 观察 SQLite：数据库与应用同生共死
+      ja: SQLite を観察する：データベースとアプリは一蓮托生
+      en: "Look at SQLite: the database lives and dies with the app"
     manual: manual/10-orient.md
     panel: preview
     estMinutes: 5
@@ -90,7 +217,10 @@ steps:
 
   - id: baseline
     type: experiment
-    title: 记录 before：混合读写（SQLite）
+    title:
+      zh-CN: 记录 before：混合读写（SQLite）
+      ja: before を記録：読み書き混在（SQLite）
+      en: "Record before: mixed reads and writes (SQLite)"
     manual: manual/20-baseline.md
     experiment: { module: database, id: mixed-rw, label: before }
     requires: { steps: [orient] }
@@ -100,7 +230,10 @@ steps:
 
   - id: baseline-failover
     type: experiment
-    title: 记录 before：重启 api 时的写失败区间
+    title:
+      zh-CN: 记录 before：重启 api 时的写失败区间
+      ja: before を記録：api 再起動中の書き込み失敗区間
+      en: "Record before: the window of failed writes while api restarts"
     manual: manual/25-baseline-failover.md
     experiment: { module: database, id: failover, label: before }
     requires: { steps: [orient] }
@@ -111,19 +244,37 @@ steps:
   - id: enable
     type: script
     wire: true
-    title: 接入 RDS：建 Multi-AZ 实例并迁移数据
+    title:
+      zh-CN: 接入 RDS：建 Multi-AZ 实例并迁移数据
+      ja: RDS を組み込む：マルチ AZ のインスタンスを作成してデータを移行する
+      en: "Wire in RDS: create a Multi-AZ instance and migrate the data"
     manual: manual/30-enable.md
     methods: [script]
     requires: { steps: [baseline, baseline-failover] }
     panel: terminal-workstation
     estMinutes: 30
-    startsBilling: { class: hourly, pricingKeys: [rds.instance, rds.storage.gp3], note: Multi-AZ 的两个实例从创建开始按小时计费 }
-    wait: { typicalMinutes: 20, maxMinutes: 45, text: 创建 Multi-AZ 实例、下载 CA、只读窗口内迁移、重启 }
+    startsBilling:
+      class: hourly
+      pricingKeys: [ rds.instance, rds.storage.gp3 ]
+      note:
+        zh-CN: Multi-AZ 的两个实例从创建开始按小时计费
+        ja: マルチ AZ の 2 つのインスタンスは作成した時点から時間課金されます
+        en: Both Multi-AZ instances are billed hourly from creation
+    wait:
+      typicalMinutes: 20
+      maxMinutes: 45
+      text:
+        zh-CN: 创建 Multi-AZ 实例、下载 CA、只读窗口内迁移、重启
+        ja: マルチ AZ インスタンスの作成、CA のダウンロード、読み取り専用期間中の移行、再起動を行います
+        en: Creating the Multi-AZ instance, downloading the CA, migrating during a read-only window, restarting
     checks: [db-wired, db-path-rds, db-instance]
 
   - id: inspect
     type: console
-    title: 看懂网络、加密与备份
+    title:
+      zh-CN: 看懂网络、加密与备份
+      ja: ネットワーク、暗号化、バックアップを読み解く
+      en: Read the network, encryption and backup settings
     manual: manual/40-inspect.md
     methods: [console, cli]
     requires: { steps: [enable] }
@@ -133,7 +284,10 @@ steps:
 
   - id: after
     type: experiment
-    title: 记录 after：同样的混合读写（RDS）
+    title:
+      zh-CN: 记录 after：同样的混合读写（RDS）
+      ja: after を記録：同じ読み書き混在（RDS）
+      en: "Record after: the same mixed reads and writes (RDS)"
     manual: manual/50-after.md
     experiment: { module: database, id: mixed-rw, label: after }
     requires: { steps: [enable] }
@@ -143,7 +297,10 @@ steps:
 
   - id: failover
     type: experiment
-    title: 故障转移：强制切到备库
+    title:
+      zh-CN: 故障转移：强制切到备库
+      ja: フェイルオーバー：スタンバイに強制的に切り替える
+      en: "Failover: force a switch to the standby"
     manual: manual/60-failover.md
     experiment: { module: database, id: failover, label: after }
     requires: { steps: [inspect] }
@@ -153,24 +310,44 @@ steps:
 
   - id: pitr
     type: cli
-    title: （选做）时间点恢复为新实例
+    title:
+      zh-CN: （选做）时间点恢复为新实例
+      ja: （任意）新しいインスタンスへのポイントインタイムリカバリ
+      en: (Optional) Point-in-time recovery to a new instance
     manual: manual/70-pitr.md
-    optional: { reason: 恢复出新实例需要十几分钟以上；剩余时间不足 40 分钟时跳过 }
+    optional:
+      reason:
+        zh-CN: 恢复出新实例需要十几分钟以上；剩余时间不足 40 分钟时跳过
+        ja: 新しいインスタンスの復元には 10 数分以上かかります。残り時間が 40 分未満ならスキップしてください
+        en: Restoring a new instance takes well over ten minutes; skip it if less than 40 minutes remain
     requires: { steps: [enable] }
     estMinutes: 30
-    startsBilling: { class: hourly, pricingKeys: [rds.instance], note: 恢复出的新实例按小时计费，验证后立即删除 }
-    wait: { typicalMinutes: 15, maxMinutes: 40, text: 从自动备份恢复出新实例 }
+    startsBilling:
+      class: hourly
+      pricingKeys: [ rds.instance ]
+      note:
+        zh-CN: 恢复出的新实例按小时计费，验证后立即删除
+        ja: 復元した新しいインスタンスは時間課金されます。確認したらすぐに削除してください
+        en: The restored instance is billed hourly; delete it right after you verify it
+    wait: { typicalMinutes: 15, maxMinutes: 40, text: { zh-CN: 从自动备份恢复出新实例, ja: 自動バックアップから新しいインスタンスを復元しています, en: Restoring a new instance from automated backups } }
     checks: [ { ref: pitr-instance, required: false } ]
 
   - id: replica
     type: experiment
-    title: （选做）只读副本：扩展读
+    title:
+      zh-CN: （选做）只读副本：扩展读
+      ja: （任意）リードレプリカ：読み取りのスケールアウト
+      en: "(Optional) Read replica: scale out reads"
     manual: manual/80-replica.md
-    optional: { reason: 副本是第 3 个按小时计费的实例，创建需要十几分钟以上 }
+    optional:
+      reason:
+        zh-CN: 副本是第 3 个按小时计费的实例，创建需要十几分钟以上
+        ja: レプリカは 3 台目の時間課金インスタンスで、作成に 10 数分以上かかります
+        en: The replica is a third hourly-billed instance and takes well over ten minutes to create
     experiment: { module: database, id: replica-read, label: after }
     requires: { steps: [enable] }
     estMinutes: 30
-    startsBilling: { class: hourly, pricingKeys: [rds.instance], note: 只读副本按实例小时计费 }
+    startsBilling: { class: hourly, pricingKeys: [rds.instance], note: { zh-CN: 只读副本按实例小时计费, ja: リードレプリカはインスタンス時間で課金されます, en: The read replica is billed by instance hours } }
     checks: [ { ref: exp-replica-read, required: false } ]
 
 finalChecks:
@@ -205,15 +382,25 @@ experiments:
     runner: workstation
 
 quiz: { file: quiz.yaml, draw: 3 }
-badge: { title: 托管数据库, icon: assets/badge.svg }
+badge: { title: { zh-CN: 托管数据库, ja: マネージドデータベース, en: Managed database }, icon: assets/badge.svg }
 tracks: [performant, quick-compare, resilient, saa-main]
 
 cleanup:
-  summary: 结束实验后，平台删除本次会话的数据库实例（跳过最终快照、删除自动备份）、已产生的最终快照、子网组、参数组与 sg-db。
+  summary:
+    zh-CN: 结束实验后，平台删除本次会话的数据库实例（跳过最终快照、删除自动备份）、已产生的最终快照、子网组、参数组与 sg-db。
+    ja: ラボを終了すると、プラットフォームがこのセッションのデータベースインスタンス（最終スナップショットを作らず、自動バックアップも削除）、作成済みの最終スナップショット、サブネットグループ、パラメータグループ、sg-db を削除します。
+    en: When you end the lab, the platform deletes this session's DB instance (skipping the final snapshot and deleting automated backups), any final snapshot already taken, the subnet group, the parameter group and sg-db.
   autoReclaim: true
-  dataRisk: [数据库中的数据随实例删除；不要写入真实的个人数据]
+  dataRisk:
+    - zh-CN: 数据库中的数据随实例删除；不要写入真实的个人数据
+      ja: データベース内のデータはインスタンスとともに削除されます。実在の個人データは書き込まないでください
+      en: Data in the database is deleted with the instance; do not write real personal data
   learnerCreatedHints:
-    - { resourceType: 'AWS::RDS::DBInstance', how: '选做 pitr 恢复出的实例：aws rds delete-db-instance --skip-final-snapshot --delete-automated-backups' }
+    - resourceType: 'AWS::RDS::DBInstance'
+      how:
+        zh-CN: '选做 pitr 恢复出的实例：aws rds delete-db-instance --skip-final-snapshot --delete-automated-backups'
+        ja: 任意の pitr で復元したインスタンス：aws rds delete-db-instance --skip-final-snapshot --delete-automated-backups
+        en: "Instance restored by the optional pitr step: aws rds delete-db-instance --skip-final-snapshot --delete-automated-backups"
   verify:
     - db-gone
     - { ref: pitr-gone, required: false }
@@ -221,13 +408,59 @@ cleanup:
 saa:
   domains: [resilient, performance, secure, cost]
   topics:
-    - { id: multi-az, title: Multi-AZ 实例部署：同步复制、自动故障转移、备库不可读, domain: resilient, relatesTo: failover }
-    - { id: pitr, title: 自动备份（最长 35 天）与时间点恢复（恢复为新实例）, domain: resilient, relatesTo: pitr }
-    - { id: db-network, title: DB 子网组、安全组链、PubliclyAccessible、rds.force_ssl, domain: secure, relatesTo: inspect }
-    - { id: read-replica, title: 只读副本：异步复制、扩展读、可跨区域, domain: performance, relatesTo: replica }
+    - id: multi-az
+      title:
+        zh-CN: Multi-AZ 实例部署：同步复制、自动故障转移、备库不可读
+        ja: マルチ AZ のインスタンスデプロイ：同期レプリケーション、自動フェイルオーバー、スタンバイは読み取り不可
+        en: "Multi-AZ instance deployment: synchronous replication, automatic failover, standby not readable"
+      domain: resilient
+      relatesTo: failover
+    - id: pitr
+      title:
+        zh-CN: 自动备份（最长 35 天）与时间点恢复（恢复为新实例）
+        ja: 自動バックアップ（最長 35 日）とポイントインタイムリカバリ（新しいインスタンスとして復元）
+        en: Automated backups (up to 35 days) and point-in-time recovery (restored as a new instance)
+      domain: resilient
+      relatesTo: pitr
+    - id: db-network
+      title:
+        zh-CN: DB 子网组、安全组链、PubliclyAccessible、rds.force_ssl
+        ja: DB サブネットグループ、セキュリティグループの連鎖、PubliclyAccessible、rds.force_ssl
+        en: DB subnet groups, chained security groups, PubliclyAccessible, rds.force_ssl
+      domain: secure
+      relatesTo: inspect
+    - id: read-replica
+      title:
+        zh-CN: 只读副本：异步复制、扩展读、可跨区域
+        ja: リードレプリカ：非同期レプリケーション、読み取りのスケールアウト、クロスリージョン可
+        en: "Read replicas: asynchronous replication, read scaling, cross-Region possible"
+      domain: performance
+      relatesTo: replica
   confusables:
-    - { a: Multi-AZ 实例部署, b: 只读副本, rule: Multi-AZ 备库同步复制、不可读，只用于故障转移；只读副本异步复制、可读，用于扩展读 }
-    - { a: 静态加密, b: rds.force_ssl, rule: 静态加密只能在创建时开启；rds.force_ssl 强制客户端用 TLS 连接，是传输加密 }
+    - a:
+        zh-CN: Multi-AZ 实例部署
+        ja: マルチ AZ のインスタンスデプロイ
+        en: Multi-AZ instance deployment
+      b:
+        zh-CN: 只读副本
+        ja: リードレプリカ
+        en: Read replica
+      rule:
+        zh-CN: Multi-AZ 备库同步复制、不可读，只用于故障转移；只读副本异步复制、可读，用于扩展读
+        ja: マルチ AZ のスタンバイは同期レプリケーションで読み取り不可、フェイルオーバー専用です。リードレプリカは非同期レプリケーションで読み取り可能、読み取りのスケールアウトに使います
+        en: A Multi-AZ standby is replicated synchronously, cannot be read and is only for failover; a read replica is replicated asynchronously, can be read and is for scaling reads
+    - a:
+        zh-CN: 静态加密
+        ja: 保管時の暗号化
+        en: Encryption at rest
+      b:
+        zh-CN: rds.force_ssl
+        ja: rds.force_ssl
+        en: rds.force_ssl
+      rule:
+        zh-CN: 静态加密只能在创建时开启；rds.force_ssl 强制客户端用 TLS 连接，是传输加密
+        ja: 保管時の暗号化は作成時にしか有効にできません。rds.force_ssl はクライアントに TLS での接続を強制するもので、転送時の暗号化です
+        en: Encryption at rest can only be turned on at creation; rds.force_ssl forces clients to connect over TLS, which is encryption in transit
 
 tags: [database, rds, postgresql, multi-az, backup]
 

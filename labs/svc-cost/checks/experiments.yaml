@@ -1,6 +1,9 @@
 checks:
   - id: exp-visibility-lag
-    title: visibility-lag 的 after（同一时刻两侧快照）有一条有效结果
+    title:
+      zh-CN: visibility-lag 的 after（同一时刻两侧快照）有一条有效结果
+      ja: visibility-lag の after（同じ時点での両側のスナップショット）に有効な結果が 1 件ある
+      en: visibility-lag has a valid after result (a snapshot of both sides at the same moment)
     type: experiment
     module: cost
     experiment: visibility-lag
@@ -9,7 +12,10 @@ checks:
     accept: [valid]
 
   - id: exp-tag-coverage
-    title: tag-coverage 的 after（Cost Explorer 按 Module 分组）有一条有效结果
+    title:
+      zh-CN: tag-coverage 的 after（Cost Explorer 按 Module 分组）有一条有效结果
+      ja: tag-coverage の after（Cost Explorer の Module 別集計）に有効な結果が 1 件ある
+      en: tag-coverage has a valid after result (Cost Explorer grouped by Module)
     type: experiment
     module: cost
     experiment: tag-coverage

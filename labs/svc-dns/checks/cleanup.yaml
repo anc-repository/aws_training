@@ -1,7 +1,10 @@
 # 回收后的验证（04 §3.2.12）：只允许 aws-readonly + expectError，结果写进报告的“清理”一节
 checks:
   - id: dns-stack-gone
-    title: 本会话的 dns 栈已删除
+    title:
+      zh-CN: 本会话的 dns 栈已删除
+      ja: このセッションの dns スタックが削除されている
+      en: This session's dns stack has been deleted
     type: aws-readonly
     service: cloudformation
     action: DescribeStacks
@@ -9,12 +12,26 @@ checks:
     params: { StackName: 'cloudalbum-{{ session.env }}-dns' }
     expectError: ValidationError
     required: false
-    explain: 回收完成后按栈名查询，期望返回“栈不存在”（ValidationError）。
+    explain:
+      zh-CN: 回收完成后按栈名查询，期望返回“栈不存在”（ValidationError）。
+      ja: 回収完了後にスタック名で照会し、「スタックが存在しない」（ValidationError）が返ることを期待します。
+      en: After reclaiming, the platform looks up the stack name and expects "stack does not exist" (ValidationError).
     reproduce: { run: 'aws cloudformation describe-stacks --stack-name cloudalbum-{{ session.env }}-dns', runsOn: workstation }
     manualFallback:
       where: { breadcrumb: [CloudFormation, 栈], region: app }
       observed:
-        question: '列表中还能找到 cloudalbum-{{ session.env }}-dns 吗？'
+        question:
+          zh-CN: '列表中还能找到 cloudalbum-{{ session.env }}-dns 吗？'
+          ja: 一覧にまだ cloudalbum-{{ session.env }}-dns がありますか？
+          en: Is cloudalbum-{{ session.env }}-dns still in the list?
         options:
-          - { value: gone, label: 找不到, expected: true }
-          - { value: present, label: 还在, fixHint: 回收需要一点时间；托管区域按保留选择处理 }
+          - { value: gone, label: { zh-CN: 找不到, ja: 見つからない, en: Not found }, expected: true }
+          - value: present
+            label:
+              zh-CN: 还在
+              ja: まだある
+              en: Still there
+            fixHint:
+              zh-CN: 回收需要一点时间；托管区域按保留选择处理
+              ja: 回収には少し時間がかかります。ホストゾーンは保持の選択に従って処理されます
+              en: Reclaiming takes a little time; the hosted zone is handled according to your keep choice

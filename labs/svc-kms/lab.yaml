@@ -5,10 +5,22 @@ id: svc-kms
 kind: service
 version: 0.1.0
 status: planned
-service: AWS KMS
-function: 数据加密密钥
-title: AWS KMS：数据加密密钥
-summary: 把“主密钥和密文在同一块盘上”的本地信封加密换成密钥不离开 KMS 的客户托管密钥：每次解密可审计，禁用密钥即可撤销。
+service:
+  zh-CN: AWS KMS
+  ja: AWS KMS
+  en: AWS KMS
+function:
+  zh-CN: 数据加密密钥
+  ja: データ暗号化キー
+  en: Data encryption keys
+title:
+  zh-CN: AWS KMS：数据加密密钥
+  ja: AWS KMS：データ暗号化キー
+  en: "AWS KMS: data encryption keys"
+summary:
+  zh-CN: 把“主密钥和密文在同一块盘上”的本地信封加密换成密钥不离开 KMS 的客户托管密钥：每次解密可审计，禁用密钥即可撤销。
+  ja: 「マスターキーと暗号文が同じディスクにある」ローカルのエンベロープ暗号化を、キーが KMS の外に出ないカスタマーマネージドキーに置き換えます。復号のたびに監査記録が残り、キーを無効にすればアクセスを取り消せます。
+  en: Replace local envelope encryption, where the master key sits on the same disk as the ciphertext, with a customer managed key that never leaves KMS. Every decryption is audited, and disabling the key revokes access.
 difficulty: intermediate
 estimatedMinutes: 75
 timeLimitMinutes: 120
@@ -17,7 +29,7 @@ retain: {allowed: true, maxHours: 24}
 regions:
   supported: [ap-northeast-1]
 services:
-- {id: kms, name: AWS KMS, role: primary, module: kms}
+- {id: kms, name: { zh-CN: AWS KMS, ja: AWS KMS, en: AWS KMS }, role: primary, module: kms}
 - {id: iam, role: context, module: iam}
 modules:
   target: [kms]
@@ -34,9 +46,17 @@ startProfile:
     kind: module
     basis: credential
     set: {IAM_CREDENTIALS: role}
-    reason: 平台约定除 svc-ec2、svc-iam 外起始状态都带实例角色（C3）
-  - {item: gps-sample-photos, kind: seed, reason: 带 GPS 信息的示例照片（06 种子登记表）}
-  - {item: preview-direct-https, kind: platform, reason: 预览使用方案 B 的 Let's Encrypt IP 证书（03 §6.2）}
+    reason:
+      zh-CN: 平台约定除 svc-ec2、svc-iam 外起始状态都带实例角色（C3）
+      ja: プラットフォームの取り決めにより、svc-ec2 と svc-iam 以外の開始状態にはインスタンスロールが付いています（C3）
+      en: By platform convention, every start state except svc-ec2 and svc-iam includes an instance role (C3)
+  - {item: gps-sample-photos, kind: seed, reason: { zh-CN: 带 GPS 信息的示例照片（06 种子登记表）, ja: GPS 情報付きのサンプル写真（06 シード登録表）, en: Sample photos with GPS data (06 seed register) }}
+  - item: preview-direct-https
+    kind: platform
+    reason:
+      zh-CN: 预览使用方案 B 的 Let's Encrypt IP 证书（03 §6.2）
+      ja: プレビューには方式 B の Let's Encrypt IP 証明書を使います（03 §6.2）
+      en: The preview uses the option B Let's Encrypt IP certificate (03 §6.2)
   platform:
     preview: {directHttps: 'on'}
 targetModules:
@@ -46,7 +66,7 @@ targetModules:
 expectedWarnings: []
 cost: {tier: low}
 provision: {class: A}
-badge: {title: 密钥在 KMS}
+badge: {title: { zh-CN: 密钥在 KMS, ja: キーは KMS の中, en: Keys stay in KMS }}
 tracks: [saa-main, secure]
 saa:
   domains: [secure]

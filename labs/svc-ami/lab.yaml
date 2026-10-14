@@ -5,10 +5,22 @@ id: svc-ami
 kind: service
 version: 0.1.0
 status: planned
-service: EC2 Image Builder
-function: 黄金 AMI 构建
-title: EC2 Image Builder：黄金 AMI 构建
-summary: 把“公共 AMI + 开机现场安装”换成 Image Builder 烘焙、测试、晋升的黄金 AMI：开机更快、启动不再依赖外部仓库，但镜像会老化。
+service:
+  zh-CN: EC2 Image Builder
+  ja: EC2 Image Builder
+  en: EC2 Image Builder
+function:
+  zh-CN: 黄金 AMI 构建
+  ja: ゴールデン AMI の構築
+  en: Golden AMI builds
+title:
+  zh-CN: EC2 Image Builder：黄金 AMI 构建
+  ja: EC2 Image Builder：ゴールデン AMI の構築
+  en: "EC2 Image Builder: golden AMI builds"
+summary:
+  zh-CN: 把“公共 AMI + 开机现场安装”换成 Image Builder 烘焙、测试、晋升的黄金 AMI：开机更快、启动不再依赖外部仓库，但镜像会老化。
+  ja: 「公開 AMI ＋起動時のその場インストール」を、Image Builder でベイク・テスト・昇格したゴールデン AMI に置き換えます。起動が速くなり外部リポジトリに依存しなくなりますが、イメージは古くなっていきます。
+  en: Replace "public AMI plus install-on-boot" with a golden AMI that Image Builder bakes, tests and promotes. Instances boot faster and no longer depend on external repositories, but images go stale over time.
 difficulty: intermediate
 estimatedMinutes: 135
 timeLimitMinutes: 210
@@ -17,7 +29,7 @@ retain: {allowed: true, maxHours: 24}
 regions:
   supported: [ap-northeast-1]
 services:
-- {id: imagebuilder, name: EC2 Image Builder, role: primary, module: ami}
+- {id: imagebuilder, name: { zh-CN: EC2 Image Builder, ja: EC2 Image Builder, en: EC2 Image Builder }, role: primary, module: ami}
 - {id: iam, role: context, module: iam}
 modules:
   target: [ami]
@@ -37,8 +49,16 @@ startProfile:
     kind: module
     basis: credential
     set: {IAM_CREDENTIALS: role}
-    reason: 平台约定除 svc-ec2、svc-iam 外起始状态都带实例角色（C3）
-  - {item: preview-direct-https, kind: platform, reason: 预览使用方案 B 的 Let's Encrypt IP 证书（03 §6.2）}
+    reason:
+      zh-CN: 平台约定除 svc-ec2、svc-iam 外起始状态都带实例角色（C3）
+      ja: プラットフォームの取り決めにより、svc-ec2 と svc-iam 以外の開始状態にはインスタンスロールが付いています（C3）
+      en: By platform convention, every start state except svc-ec2 and svc-iam includes an instance role (C3)
+  - item: preview-direct-https
+    kind: platform
+    reason:
+      zh-CN: 预览使用方案 B 的 Let's Encrypt IP 证书（03 §6.2）
+      ja: プレビューには方式 B の Let's Encrypt IP 証明書を使います（03 §6.2）
+      en: The preview uses the option B Let's Encrypt IP certificate (03 §6.2)
   platform:
     preview: {directHttps: 'on'}
 targetModules:
@@ -46,7 +66,7 @@ targetModules:
 expectedWarnings: []
 cost: {tier: medium}
 provision: {class: A}
-badge: {title: 黄金镜像}
+badge: {title: { zh-CN: 黄金镜像, ja: ゴールデンイメージ, en: Golden image }}
 tracks: [operations, resilient, saa-main]
 saa:
   domains: [resilient, performance, secure]
