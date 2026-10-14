@@ -1,0 +1,67 @@
+/*
+ * 架构图（09「视觉组件」）：只用已有 token；连线 --border-strong（亮 3.64 / 暗 3.49 : 1，对 --surface），
+ * 新增 / 选做用 --accent（亮 6.04 / 暗 6.78 : 1）；标签 --text / --text-2。不写 style 属性（CSP style-src 'self'）。
+ * 窄屏：full 图在自己的横向滚动容器里，页面本身不横向滚动；mini 图按容器宽度缩放。
+ */
+.arch{margin:0; min-width:0; max-width:100%}
+.arch-panels{display:flex; flex-wrap:wrap; gap:var(--sp-3); align-items:flex-start; min-width:0}
+.arch-panel{display:flex; align-items:center; gap:var(--sp-2); min-width:0; max-width:100%}
+.arch-body{min-width:0; max-width:100%}
+.arch-cap{font-size:12px; font-weight:600; color:var(--text-2); margin:0 0 var(--sp-1)}
+.arch-scroll{overflow-x:auto; max-width:100%; border-radius:var(--radius-card)}
+.arch-svg{display:block; max-width:none; font-family:var(--font-sans)}
+.arch-scale .arch-svg,.arch-mini .arch-svg{max-width:100%; height:auto}
+.arch-arrow{display:inline-flex; color:var(--text-3)}
+.arch-arrow svg{fill:none; stroke:currentColor; stroke-width:1.8; stroke-linecap:round; stroke-linejoin:round}
+@media (max-width: 767px){
+  .arch-pair .arch-panel{flex-direction:column; align-items:flex-start}
+  .arch-pair .arch-arrow{transform:rotate(90deg)}
+}
+/* 泳道 */
+.al-bg{fill:var(--surface-2); opacity:.7}
+.al-bg.odd{opacity:.35}
+.al-title{font-size:11px; font-weight:600; fill:var(--text-2)}
+/* VPC 边界框 */
+.af > rect{fill:none; stroke:var(--border-strong); stroke-width:1.2; stroke-dasharray:6 3}
+.af.st-new > rect,.af.st-optional > rect,.af.st-changed > rect{stroke:var(--accent); stroke-width:1.8}
+.af-label{font-size:10px; font-weight:700; fill:var(--text-2); font-family:var(--font-mono); dominant-baseline:middle}
+.arch-mini .af > rect{stroke-width:.8; stroke-dasharray:3 2}
+/* 连线 */
+.ae{fill:none; stroke:var(--border-strong); stroke-width:1.5; stroke-linecap:round}
+.ae.attach{stroke-dasharray:3 3}
+.ae.aux{stroke-dasharray:6 3}
+.ae.dep{stroke-dasharray:1 3.5}
+.ae.hl{stroke:var(--accent); stroke-width:2}
+.ae.opt{stroke-dasharray:6 3}
+.arch-mini .ae{stroke-width:1}
+.arch-mini .ae.hl{stroke-width:1.4}
+.am{fill:var(--border-strong)}
+.am.hl{fill:var(--accent)}
+/* 节点 */
+.an-ring{fill:none; stroke:var(--accent); stroke-width:2}
+.arch-mini .an-ring{stroke-width:1.5}
+.an.st-optional .an-ring{stroke-dasharray:4 3}
+.an.st-changed .an-ring{stroke-width:1.4; stroke-dasharray:1.5 2.5}
+.an.st-implied .an-ring{stroke:var(--border-strong); stroke-width:1.2; stroke-dasharray:3 3}
+.an-badge circle{fill:var(--accent); stroke:var(--surface); stroke-width:2}
+.an-badge path{stroke:var(--on-ink); stroke-width:1.8; stroke-linecap:round}
+.an-label{font-size:11px; font-weight:500; fill:var(--text)}
+.an-label.local{font-family:var(--font-mono); fill:var(--text-2)}
+.an-ghost rect{fill:var(--surface); stroke:var(--border-strong); stroke-width:1.2; stroke-dasharray:3 2.5}
+.an-ghost path{fill:none; stroke:var(--text-3); stroke-width:1.5; stroke-linecap:round}
+/* 图例 */
+.arch-legend{display:flex; flex-wrap:wrap; gap:var(--sp-2) var(--sp-4); list-style:none; margin:var(--sp-2) 0 0; padding:0; font-size:12px; color:var(--text-2)}
+.arch-legend li{display:inline-flex; align-items:center; gap:6px}
+.lg-ring{fill:none; stroke:var(--accent); stroke-width:2}
+.st-optional .lg-ring{stroke-dasharray:3 2.5}
+.st-changed .lg-ring{stroke-width:1.4; stroke-dasharray:1.5 2.5}
+.st-implied .lg-ring{stroke:var(--border-strong); stroke-width:1.2; stroke-dasharray:2.5 2.5}
+.lg-plus{stroke:var(--accent); stroke-width:2; stroke-linecap:round}
+.lg-ghost{fill:none; stroke:var(--border-strong); stroke-width:1.2; stroke-dasharray:3 2}
+@media (forced-colors: active){
+  .ae,.af > rect,.an-ghost rect,.lg-ghost{stroke:CanvasText}
+  .ae.hl,.an-ring,.lg-ring,.lg-plus{stroke:Highlight}
+  .am{fill:CanvasText} .am.hl,.an-badge circle{fill:Highlight}
+  .al-bg{fill:Canvas}
+  .al-title,.an-label,.af-label{fill:CanvasText}
+}

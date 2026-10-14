@@ -1,0 +1,44 @@
+/*
+ * 基础图形组件（09「视觉组件」）：步骤类型图标、指标图标、进度环、条形图。只用已有 token；不写 style 属性。
+ * 进度与条形的颜色按 08 §6.12：单系列 --viz-after，对照 --viz-before，第三个 --viz-third；不用红绿。
+ */
+.step-ico{display:inline-block; flex:none; vertical-align:-3px; fill:none; stroke:currentColor; stroke-width:1.6; stroke-linecap:round; stroke-linejoin:round}
+.step-ico .fill{fill:currentColor; stroke:none}
+.step-tag{display:inline-flex; align-items:center; gap:4px; font-size:12px; color:var(--text-2); white-space:nowrap}
+
+.mi-strip{display:inline-flex; flex-wrap:wrap; align-items:center; gap:var(--sp-1) var(--sp-3); min-width:0}
+.mi{display:inline-flex; align-items:center; gap:4px; font-size:12px; color:var(--text-2); white-space:nowrap; font-variant-numeric:tabular-nums}
+.mi-ico{flex:none; display:inline-block}
+.mi-ico rect.on{fill:var(--text-2)}
+.mi-ico rect.off{fill:none; stroke:var(--border-strong); stroke-width:1}
+.mi-ico.line{fill:none; stroke:currentColor; stroke-width:1.5; stroke-linecap:round; stroke-linejoin:round}
+.mi-ico.line .fill{fill:currentColor; stroke:none}
+.mi-cost{font-family:var(--font-mono); font-weight:700; letter-spacing:-.5px}
+.mi-cost .on{color:var(--text-2)}
+.mi-cost .off{color:var(--border)}
+.mi.compact{gap:0}
+
+.pring{display:inline-block; flex:none; vertical-align:middle}
+.pring-track{fill:none; stroke:var(--viz-grid)}
+.pring-fill{fill:none; stroke:var(--viz-after); stroke-linecap:round}
+.pring.pass .pring-fill{stroke:var(--st-pass)}
+.pring.neutral .pring-fill{stroke:var(--text-2)}
+.pring-text{fill:var(--text); font-weight:600; font-variant-numeric:tabular-nums}
+
+.bchart{width:100%; border-collapse:collapse; font-size:13px; table-layout:auto}
+.bchart-cap{caption-side:top; text-align:left; font-size:13px; font-weight:600; color:var(--text); padding:0 0 var(--sp-2)}
+.bchart th,.bchart td{padding:3px 0; vertical-align:middle}
+.bchart-label{text-align:left; font-weight:400; color:var(--text); padding-right:var(--sp-3)!important; max-width:40%; overflow-wrap:anywhere}
+.bchart-label > span{vertical-align:middle}
+.bchart-icon{display:inline-flex; margin-right:6px; vertical-align:middle}
+.bchart-bar{width:60%}
+.bchart-bar svg{display:block; width:100%; height:12px}
+.bchart-track{fill:var(--surface-2)}
+.bchart-fill{fill:var(--viz-after)}
+.bchart-fill.before{fill:var(--viz-before)}
+.bchart-fill.third{fill:var(--viz-third)}
+.bchart-val{padding-left:var(--sp-2)!important; text-align:right; white-space:nowrap; color:var(--text-2); font-variant-numeric:tabular-nums}
+@media (forced-colors: active){
+  .pring-fill,.mi-ico.line{stroke:CanvasText} .pring-track{stroke:GrayText}
+  .bchart-fill,.mi-ico rect.on{fill:CanvasText} .bchart-track{fill:Canvas}
+}

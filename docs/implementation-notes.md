@@ -3390,3 +3390,33 @@ cfn-lint 1.57.2（`D:/workspace/.tools/cfnlint-venv`）与 `scripts/module --dry
 | `npm run labs:lint`、`npm run labs:derive` | 56 张卡 0 错误 0 警告；22 张卡推导 0 错误 |
 | `cfn-lint --regions ap-northeast-1 us-east-1 -- infra/modules/*.yaml` | 0 发现 |
 | `scripts/module plan shell-access|waf|tls --single --dry-run`、`plan --start-of svc-shell-access|svc-waf --dry-run` | 退出码 0；tls 没有域名时给出提示并跳过 |
+
+## i18n-prep-visual
+
+视觉组件（I6 a、b，以及 e / f 用到的基础图形）：服务图标集、自动架构图、步骤类型 / 指标图标、进度环、条形图、组件展示页。
+规格见 docs/platform/09-i18n-and-visual.md「视觉组件」。只新增 `platform/web/src/ui/{glyphs,diagram,charts}/**`、
+`platform/web/src/dev-gallery/**`、`platform/web/scripts/gen-glyph-registry.{mjs,d.mts}`，没有修改任何页面。
+
+有歧义时的取舍（都取最简单的做法）：
+
+| 问题 | 决定 |
+|---|---|
+| “40 个模块按 A～F 六组配色”，但 registry 中 ec2 的组是 `base` | 用已有的 7 个类别 token：A～F 六色 + 中性的 `--cat-base`（ec2）；不新增 token |
+| 组色在色觉模拟下不能两两区分（dataviz 校验器：deutan ΔE 2.0） | 组色只作辅助编码（与 05 §2.10 一致）；服务身份靠图案，组靠几何符号（≥ 40px 徽章左上角）。对比度全部 ≥ 3:1（文字 ≥ 4.5:1） |
+| 16px 下缩写不可读 | < 40px 只画图案；≥ 40px 徽章模式才带缩写与组符号 |
+| “registry 中的依赖”怎么用 | 生成脚本把 requires 推成 hard / cond / anyOf：hard 用于依赖闭包（缺的模块以“依赖带入”画出）与补充点线；`severity: warn` 不算硬依赖。主请求路径与附着关系是 `model.ts` 中手写的固定规则 |
+| “入口类型”没有现成字段 | 同一状态里有 load-balancer 就以 ALB 为入口，否则画 EC2 上的 Nginx（两者共用一个格位）；CloudFront 在边缘泳道 |
+| VPC 画在哪条泳道 | 不占泳道，画成包住入口～数据泳道的边界框 |
+| “开始时”怎样体现“有 vs 没有” | 目标模块有本地实现（`from` ≠ none）时，在完成后的同一格位画 ghost（虚线框 + 驱动名）；两张图共用并集布局 |
+| 运维与安全泳道的连线 | 横切关注点，不画连线（否则线太多） |
+| 组件展示页 `/__dev/gallery` | `/__dev` 已代理给 API；改为独立的开发入口 `/src/dev-gallery/`，不改路由表与 vite.config.ts |
+| i18n 框架并行开发 | 视觉组件自带 `visual.*` 键的三语词典与 `VisualI18nProvider`（外部 translate → 内置所选语言 → en → zh-CN）；没有 Provider 时跟随 `<html lang>`，默认 ja |
+| 生成脚本要“构建时生成” | 生成文件提交进仓库；单元测试逐字比较、`--check` 供 CI；没有改 `platform/web/package.json`（不在范围内），建议集成时挂进 build |
+| BarChart 的“查看数据表” | 直接用 `<table>` 画条形图（行标题 + 装饰条 + 数值），图表本身就是数据表；条宽用 SVG 属性（CSP 不允许 style 属性），因此条端不做圆角 |
+
+自测：`npx vitest run src/ui/glyphs src/ui/diagram src/ui/charts`（3 个文件 36 个用例通过，含 7 个快照；platform/web 全量运行时 workspace / App 的部分用例在并行负载下 1 秒超时——这些文件正由 i18n 会话修改，单独运行 61 / 61 通过）、`npx eslint` 本节路径 0 问题、`tsc -p platform/web/tsconfig.json`
+与 `tsconfig.node.json` 通过、`vite build` 通过（展示页不进产物）；`shoot.py` 在亮 / 暗 × 1280 / 400px × ja / en / zh-CN 下截图，
+页面无横向滚动、无控制台错误。
+
+需要别人配合：页面接入（目录卡片、简介页、手册、报告与学习，见 09 V9）；i18n 框架在根部包 `VisualI18nProvider`（可选）并决定
+`visual.fn.*` 是否改由术语表 / 主词典提供；`platform/web/package.json` 增加 `gen:glyphs`（与 CI 的 `--check`）；08-ui-design.md 顶部指向 09 的说明（I7）。

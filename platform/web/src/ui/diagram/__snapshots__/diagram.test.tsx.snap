@@ -1,0 +1,500 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`<ArchDiagram> > mini diagrams can be decorative and match the snapshot 1`] = `"<div class="arch-panels"><div class="arch-panel" data-state="after"><div class="arch-body"><svg class="arch-svg mini" width="166" height="54" viewBox="0 0 166 54" focusable="false" data-state="after" aria-hidden="true"><defs><marker id="ID-after-m-n" viewBox="0 0 8 8" refX="7" refY="4" markerUnits="userSpaceOnUse" markerWidth="4" markerHeight="4" orient="auto-start-reverse"><path class="am" d="M0 0L8 4L0 8z"></path></marker><marker id="ID-after-m-h" viewBox="0 0 8 8" refX="7" refY="4" markerUnits="userSpaceOnUse" markerWidth="4.5" markerHeight="4.5" orient="auto-start-reverse"><path class="am hl" d="M0 0L8 4L0 8z"></path></marker></defs><g class="al" data-lane="client"><rect class="al-bg" x="4" y="0" width="30" height="54" rx="3"></rect></g><g class="al" data-lane="entry"><rect class="al-bg odd" x="36" y="0" width="30" height="54" rx="3"></rect></g><g class="al" data-lane="compute"><rect class="al-bg" x="68" y="0" width="30" height="54" rx="3"></rect></g><g class="al" data-lane="data"><rect class="al-bg odd" x="100" y="0" width="30" height="54" rx="3"></rect></g><g class="al" data-lane="ops"><rect class="al-bg" x="132" y="0" width="30" height="54" rx="3"></rect></g><g class="ae-layer"><path class="ae flow" d="M30 14C35 14 35 14 40 14" marker-end="url(#ID-after-m-n)" data-edge="browser>nginx"></path><path class="ae flow" d="M62 14C67 14 67 14 72 14" marker-end="url(#ID-after-m-n)" data-edge="nginx>ec2"></path><path class="ae flow hl" d="M94 14C99 14 99 14 104 14" marker-end="url(#ID-after-m-h)" data-edge="ec2>notification"></path><path class="ae flow hl" d="M115 25V29" marker-end="url(#ID-after-m-h)" data-edge="notification>email"></path></g><g class="an st-present" data-node="browser"><g class="sg pseudo" transform="translate(10 5) scale(0.75)"><rect class="sg-tile" x=".5" y=".5" width="23" height="23" rx="5"></rect><g class="sg-motif"><rect x="3.5" y="5" width="17" height="14" rx="1.5"></rect><path d="M3.5 9h17"></path><circle class="f" cx="6.3" cy="7" r=".9"></circle><circle class="f" cx="9" cy="7" r=".9"></circle></g></g></g><g class="an st-present" data-node="nginx"><g class="sg pseudo" transform="translate(42 5) scale(0.75)"><rect class="sg-tile" x=".5" y=".5" width="23" height="23" rx="5"></rect><g class="sg-motif"><rect x="5" y="4.5" width="14" height="15" rx="1.5"></rect><path d="M2.5 12h7M7 9.5l2.5 2.5L7 14.5M12.5 9h4M12.5 12h4M12.5 15h4"></path></g></g></g><g class="an st-present" data-node="ec2"><g class="sg g-base" transform="translate(74 5) scale(0.75)"><rect class="sg-tile" x=".5" y=".5" width="23" height="23" rx="5"></rect><g class="sg-motif"><rect x="7" y="7" width="10" height="10" rx="1.5"></rect><path d="M10 4v3M14 4v3M10 17v3M14 17v3M4 10h3M4 14h3M17 10h3M17 14h3"></path></g></g></g><g class="an st-new" data-node="notification"><rect class="an-ring" x="103.5" y="2.5" width="23" height="23" rx="5"></rect><g class="sg g-d" transform="translate(106 5) scale(0.75)"><rect class="sg-tile" x=".5" y=".5" width="23" height="23" rx="5"></rect><g class="sg-motif"><path d="M4.5 10v4h3l7.5 4.5v-13L7.5 10z"></path><path d="M18 9.2a3.6 3.6 0 0 1 0 5.6"></path></g></g></g><g class="an st-new" data-node="email"><rect class="an-ring" x="103.5" y="28.5" width="23" height="23" rx="5"></rect><g class="sg g-d" transform="translate(106 31) scale(0.75)"><rect class="sg-tile" x=".5" y=".5" width="23" height="23" rx="5"></rect><g class="sg-motif"><rect x="4" y="6" width="16" height="12" rx="1.5"></rect><path d="M4.5 7l7.5 6 7.5-6"></path></g></g></g><g class="an st-present" data-node="iam"><g class="sg g-b" transform="translate(138 5) scale(0.75)"><rect class="sg-tile" x=".5" y=".5" width="23" height="23" rx="5"></rect><g class="sg-motif"><circle cx="8" cy="12" r="3.5"></circle><path d="M11.5 12H20M17 12v3M20 12v3"></path></g></g></g></svg></div></div></div>"`;
+
+exports[`buildArchModel > matches the layout snapshots > sc-edge-protection 1`] = `
+{
+  "full": {
+    "frame": null,
+    "lanes": [
+      "client@8+120",
+      "edge@132+120",
+      "entry@256+120",
+      "compute@380+120",
+      "ops@504+120",
+    ],
+    "nodes": [
+      "browser:0,0@68,62",
+      "cdn:1,0@192,62",
+      "ec2:3,0@440,62",
+      "iam:4,0@564,62",
+      "nginx:2,0@316,62",
+      "waf:1,1@192,138",
+    ],
+    "size": "632x184",
+  },
+  "mini": {
+    "frame": null,
+    "lanes": [
+      "client@4+30",
+      "edge@36+30",
+      "entry@68+30",
+      "compute@100+30",
+      "ops@132+30",
+    ],
+    "nodes": [
+      "browser:0,0@19,14",
+      "cdn:1,0@51,14",
+      "ec2:3,0@115,14",
+      "iam:4,0@147,14",
+      "nginx:2,0@83,14",
+      "waf:1,1@51,40",
+    ],
+    "size": "166x54",
+  },
+  "model": {
+    "added": [
+      "cdn",
+      "waf",
+    ],
+    "after": {
+      "edges": [
+        "browser>cdn:flow*",
+        "cdn>nginx:flow*",
+        "waf>cdn:attach*",
+        "nginx>ec2:flow",
+      ],
+      "frame": null,
+      "nodes": {
+        "browser": "present",
+        "cdn": "new",
+        "ec2": "present",
+        "iam": "present",
+        "nginx": "present",
+        "waf": "new",
+      },
+    },
+    "before": {
+      "edges": [
+        "browser>nginx:flow",
+        "nginx>ec2:flow",
+      ],
+      "frame": null,
+      "nodes": {
+        "browser": "present",
+        "cdn": "ghost",
+        "ec2": "present",
+        "iam": "present",
+        "nginx": "present",
+        "waf": "ghost",
+      },
+    },
+  },
+}
+`;
+
+exports[`buildArchModel > matches the layout snapshots > sc-ha-web 1`] = `
+{
+  "full": {
+    "frame": null,
+    "lanes": [
+      "client@8+120",
+      "entry@132+120",
+      "compute@256+120",
+      "data@380+120",
+      "ops@504+120",
+    ],
+    "nodes": [
+      "ami:4,1@564,138",
+      "autoscaling:2,1@316,138",
+      "browser:0,0@68,62",
+      "database:3,0@440,62",
+      "ec2:2,0@316,62",
+      "iam:4,0@564,62",
+      "load-balancer:1,0@192,62",
+      "nginx:1,0@192,62",
+      "storage:3,1@440,138",
+    ],
+    "size": "632x184",
+  },
+  "mini": {
+    "frame": null,
+    "lanes": [
+      "client@4+30",
+      "entry@36+30",
+      "compute@68+30",
+      "data@100+30",
+      "ops@132+30",
+    ],
+    "nodes": [
+      "ami:4,1@147,40",
+      "autoscaling:2,1@83,40",
+      "browser:0,0@19,14",
+      "database:3,0@115,14",
+      "ec2:2,0@83,14",
+      "iam:4,0@147,14",
+      "load-balancer:1,0@51,14",
+      "nginx:1,0@51,14",
+      "storage:3,1@115,40",
+    ],
+    "size": "166x54",
+  },
+  "model": {
+    "added": [
+      "load-balancer",
+      "autoscaling",
+    ],
+    "after": {
+      "edges": [
+        "browser>load-balancer:flow*",
+        "load-balancer>ec2:flow*",
+        "ec2>database:flow",
+        "ec2>storage:flow",
+        "autoscaling>load-balancer:dep*",
+        "autoscaling>ec2:attach*",
+      ],
+      "frame": null,
+      "nodes": {
+        "ami": "optional",
+        "autoscaling": "new",
+        "browser": "present",
+        "database": "present",
+        "ec2": "present",
+        "iam": "present",
+        "load-balancer": "new",
+        "storage": "present",
+      },
+    },
+    "before": {
+      "edges": [
+        "browser>nginx:flow",
+        "nginx>ec2:flow",
+        "ec2>database:flow",
+        "ec2>storage:flow",
+      ],
+      "frame": null,
+      "nodes": {
+        "ami": "ghost",
+        "autoscaling": "ghost",
+        "browser": "present",
+        "database": "present",
+        "ec2": "present",
+        "iam": "present",
+        "nginx": "present",
+        "storage": "present",
+      },
+    },
+  },
+}
+`;
+
+exports[`buildArchModel > matches the layout snapshots > sc-private-network 1`] = `
+{
+  "full": {
+    "frame": "134,32 240x150",
+    "lanes": [
+      "client@8+120",
+      "entry@132+120",
+      "compute@256+120",
+      "ops@380+120",
+    ],
+    "nodes": [
+      "browser:0,0@68,62",
+      "ec2:2,0@316,62",
+      "iam:3,0@440,62",
+      "load-balancer:1,0@192,62",
+      "shell-access:3,1@440,138",
+    ],
+    "size": "508x184",
+  },
+  "mini": {
+    "frame": "37,1 60x52",
+    "lanes": [
+      "client@4+30",
+      "entry@36+30",
+      "compute@68+30",
+      "ops@100+30",
+    ],
+    "nodes": [
+      "browser:0,0@19,14",
+      "ec2:2,0@83,14",
+      "iam:3,0@115,14",
+      "load-balancer:1,0@51,14",
+      "shell-access:3,1@115,40",
+    ],
+    "size": "134x54",
+  },
+  "model": {
+    "added": [
+      "shell-access",
+    ],
+    "after": {
+      "edges": [
+        "browser>load-balancer:flow",
+        "load-balancer>ec2:flow",
+      ],
+      "frame": "changed",
+      "nodes": {
+        "browser": "present",
+        "ec2": "present",
+        "iam": "present",
+        "load-balancer": "present",
+        "shell-access": "new",
+      },
+    },
+    "before": {
+      "edges": [
+        "browser>load-balancer:flow",
+        "load-balancer>ec2:flow",
+      ],
+      "frame": "present",
+      "nodes": {
+        "browser": "present",
+        "ec2": "present",
+        "iam": "present",
+        "load-balancer": "present",
+        "shell-access": "ghost",
+      },
+    },
+  },
+}
+`;
+
+exports[`buildArchModel > matches the layout snapshots > sc-threat-compliance 1`] = `
+{
+  "full": {
+    "frame": null,
+    "lanes": [
+      "client@8+120",
+      "entry@132+120",
+      "compute@256+120",
+      "ops@380+120",
+    ],
+    "nodes": [
+      "audit:3,1@440,138",
+      "browser:0,0@68,62",
+      "compliance:3,3@440,290",
+      "ec2:2,0@316,62",
+      "iam:3,0@440,62",
+      "nginx:1,0@192,62",
+      "threat-detection:3,2@440,214",
+      "vuln-scan:3,4@440,366",
+    ],
+    "size": "508x412",
+  },
+  "mini": {
+    "frame": null,
+    "lanes": [
+      "client@4+30",
+      "entry@36+30",
+      "compute@68+30",
+      "ops@100+60",
+    ],
+    "nodes": [
+      "audit:3,1@115,40",
+      "browser:0,0@19,14",
+      "compliance:3,3@115,92",
+      "ec2:2,0@83,14",
+      "iam:3,0@115,14",
+      "nginx:1,0@51,14",
+      "threat-detection:3,2@115,66",
+      "vuln-scan:4,0@145,14",
+    ],
+    "size": "164x106",
+  },
+  "model": {
+    "added": [
+      "audit",
+      "threat-detection",
+      "compliance",
+      "vuln-scan",
+    ],
+    "after": {
+      "edges": [
+        "browser>nginx:flow",
+        "nginx>ec2:flow",
+      ],
+      "frame": null,
+      "nodes": {
+        "audit": "new",
+        "browser": "present",
+        "compliance": "new",
+        "ec2": "present",
+        "iam": "present",
+        "nginx": "present",
+        "threat-detection": "new",
+        "vuln-scan": "new",
+      },
+    },
+    "before": {
+      "edges": [
+        "browser>nginx:flow",
+        "nginx>ec2:flow",
+      ],
+      "frame": null,
+      "nodes": {
+        "audit": "ghost",
+        "browser": "present",
+        "compliance": "ghost",
+        "ec2": "present",
+        "iam": "present",
+        "nginx": "present",
+        "threat-detection": "ghost",
+        "vuln-scan": "ghost",
+      },
+    },
+  },
+}
+`;
+
+exports[`buildArchModel > matches the layout snapshots > sc-user-identity 1`] = `
+{
+  "full": {
+    "frame": null,
+    "lanes": [
+      "client@8+120",
+      "edge@132+120",
+      "entry@256+120",
+      "compute@380+120",
+      "data@504+120",
+      "ops@628+120",
+    ],
+    "nodes": [
+      "auth:2,2@316,214",
+      "browser:0,0@68,62",
+      "cdn:1,0@192,62",
+      "ec2:3,0@440,62",
+      "iam:5,0@688,62",
+      "identity-pool:2,3@316,290",
+      "nginx:2,0@316,62",
+      "social-api:2,1@316,138",
+      "storage:4,0@564,62",
+    ],
+    "size": "756x336",
+  },
+  "mini": {
+    "frame": null,
+    "lanes": [
+      "client@4+30",
+      "edge@36+30",
+      "entry@68+30",
+      "compute@100+30",
+      "data@132+30",
+      "ops@164+30",
+    ],
+    "nodes": [
+      "auth:2,2@83,66",
+      "browser:0,0@19,14",
+      "cdn:1,0@51,14",
+      "ec2:3,0@115,14",
+      "iam:5,0@179,14",
+      "identity-pool:2,3@83,92",
+      "nginx:2,0@83,14",
+      "social-api:2,1@83,40",
+      "storage:4,0@147,14",
+    ],
+    "size": "198x106",
+  },
+  "model": {
+    "added": [
+      "social-api",
+      "auth",
+      "identity-pool",
+    ],
+    "after": {
+      "edges": [
+        "browser>cdn:flow",
+        "browser>social-api:flow*",
+        "browser>auth:aux*",
+        "browser>identity-pool:aux*",
+        "cdn>nginx:flow",
+        "nginx>ec2:flow",
+        "social-api>auth:aux*",
+        "identity-pool>storage:flow*",
+        "ec2>storage:flow",
+      ],
+      "frame": null,
+      "nodes": {
+        "auth": "new",
+        "browser": "present",
+        "cdn": "present",
+        "ec2": "present",
+        "iam": "present",
+        "identity-pool": "new",
+        "nginx": "present",
+        "social-api": "new",
+        "storage": "present",
+      },
+    },
+    "before": {
+      "edges": [
+        "browser>cdn:flow",
+        "cdn>nginx:flow",
+        "nginx>ec2:flow",
+        "ec2>storage:flow",
+      ],
+      "frame": null,
+      "nodes": {
+        "auth": "ghost",
+        "browser": "present",
+        "cdn": "present",
+        "ec2": "present",
+        "iam": "present",
+        "nginx": "present",
+        "social-api": "ghost",
+        "storage": "present",
+      },
+    },
+  },
+}
+`;
+
+exports[`buildArchModel > matches the layout snapshots > svc-ec2 1`] = `
+{
+  "full": {
+    "frame": null,
+    "lanes": [
+      "client@8+120",
+      "entry@132+120",
+      "compute@256+120",
+    ],
+    "nodes": [
+      "browser:0,0@68,62",
+      "ec2:2,0@316,62",
+      "nginx:1,0@192,62",
+    ],
+    "size": "384x108",
+  },
+  "mini": {
+    "frame": null,
+    "lanes": [
+      "client@4+30",
+      "entry@36+30",
+      "compute@68+30",
+    ],
+    "nodes": [
+      "browser:0,0@19,14",
+      "ec2:2,0@83,14",
+      "nginx:1,0@51,14",
+    ],
+    "size": "102x28",
+  },
+  "model": {
+    "added": [],
+    "after": {
+      "edges": [
+        "browser>nginx:flow",
+        "nginx>ec2:flow",
+      ],
+      "frame": null,
+      "nodes": {
+        "browser": "present",
+        "ec2": "present",
+        "nginx": "present",
+      },
+    },
+    "before": {
+      "edges": [
+        "browser>nginx:flow",
+        "nginx>ec2:flow",
+      ],
+      "frame": null,
+      "nodes": {
+        "browser": "present",
+        "ec2": "present",
+        "nginx": "present",
+      },
+    },
+  },
+}
+`;

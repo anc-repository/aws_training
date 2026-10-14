@@ -1,0 +1,37 @@
+/*
+ * 服务图标（09「视觉组件」）。只用 tokens.css 已有的 token：组色 --cat-base / --cat-a～f（亮暗两套），线条 --on-ink。
+ * 对比度（逐对计算）：--on-ink 对组色 亮 4.73～8.45 / 暗 7.13～9.63；组色对 --bg / --surface / --surface-2 亮 ≥ 4.07 / 暗 ≥ 6.05。
+ * 颜色只由类决定（不写 style 属性，CSP style-src 'self'）。
+ */
+.sg{display:inline-block; flex:none; vertical-align:middle; --g:var(--cat-base)}
+.sg.g-a{--g:var(--cat-a)} .sg.g-b{--g:var(--cat-b)} .sg.g-c{--g:var(--cat-c)}
+.sg.g-d{--g:var(--cat-d)} .sg.g-e{--g:var(--cat-e)} .sg.g-f{--g:var(--cat-f)}
+.sg-tile{fill:var(--g); stroke:none}
+.sg-motif{fill:none; stroke:var(--on-ink); stroke-width:2; stroke-linecap:round; stroke-linejoin:round}
+.sg-motif .f{fill:var(--on-ink); stroke:none}
+.sg-motif .k{fill:var(--g); stroke:var(--on-ink)}
+.sg-sym{fill:var(--on-ink)}
+.sg-abbr{fill:var(--on-ink); font-family:var(--font-mono); font-weight:700}
+/* ghost：开始时还没有的位置（虚线框、无底色，图案用组色） */
+.sg.ghost .sg-tile{fill:none; stroke:var(--g); stroke-width:1.2; stroke-dasharray:2.4 1.8}
+.sg.ghost .sg-motif,.sg.ghost .sg-motif .k{stroke:var(--g)}
+.sg.ghost .sg-motif .f,.sg.ghost .sg-sym,.sg.ghost .sg-abbr{fill:var(--g)}
+.sg.ghost .sg-motif .k{fill:var(--surface)}
+.sg.muted{opacity:.5}
+/* 非模块节点（浏览器、Nginx）：中性底 */
+.sg.pseudo .sg-tile{fill:var(--surface-2); stroke:var(--border-strong); stroke-width:1}
+.sg.pseudo .sg-motif{stroke:var(--text-2)}
+.sg.pseudo .sg-motif .f{fill:var(--text-2)}
+.sg-group{display:inline-block; flex:none; vertical-align:middle; fill:var(--cat-base)}
+.sg-group.g-a{fill:var(--cat-a)} .sg-group.g-b{fill:var(--cat-b)} .sg-group.g-c{fill:var(--cat-c)}
+.sg-group.g-d{fill:var(--cat-d)} .sg-group.g-e{fill:var(--cat-e)} .sg-group.g-f{fill:var(--cat-f)}
+.sg-chip{display:inline-flex; align-items:center; gap:var(--sp-2); min-width:0}
+.sg-chip-text{display:flex; flex-direction:column; min-width:0; line-height:1.3}
+.sg-chip-name{font-size:13px; font-weight:600; color:var(--text); overflow-wrap:anywhere}
+.sg-chip-fn{font-size:12px; color:var(--text-2); overflow-wrap:anywhere}
+@media (forced-colors: active){
+  .sg-tile{fill:Canvas; stroke:CanvasText; stroke-width:1}
+  .sg-motif,.sg-motif .k{stroke:CanvasText}
+  .sg-motif .f,.sg-sym,.sg-abbr,.sg-group{fill:CanvasText}
+  .sg-motif .k{fill:Canvas}
+}

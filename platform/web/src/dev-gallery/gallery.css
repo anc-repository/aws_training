@@ -1,0 +1,27 @@
+/* 视觉组件展示页（开发专用）。只用已有 token；窄屏（400px）不横向滚动。 */
+.gal{max-width:var(--content-max); margin:0 auto; padding:var(--sp-5) var(--gutter) var(--sp-7); color:var(--text)}
+.gal h1{font-size:20px; margin:0}
+.gal h2{font-size:15px; margin:0 0 var(--sp-3)}
+.gal h3{font-size:13px; margin:0 0 var(--sp-2); display:flex; align-items:center; gap:6px; color:var(--text-2)}
+.gal-head{display:flex; flex-wrap:wrap; align-items:baseline; gap:var(--sp-2) var(--sp-4); margin-bottom:var(--sp-5)}
+.gal-note{margin:0; font-size:12px; color:var(--text-3)}
+.gal-toggles{display:flex; flex-wrap:wrap; gap:var(--sp-2); margin-left:auto}
+.gal-seg{display:inline-flex; gap:2px}
+.gal-seg .btn[aria-pressed="true"]{background:var(--accent-soft); border-color:var(--accent)}
+.gal-sec{border-top:1px solid var(--border); padding:var(--sp-5) 0; min-width:0}
+.gal-group{margin-bottom:var(--sp-4)}
+.gal-glyphs{list-style:none; margin:0; padding:0; display:grid; grid-template-columns:repeat(auto-fill, minmax(240px, 1fr)); gap:var(--sp-2) var(--sp-4)}
+.gal-glyphs li{display:flex; align-items:center; gap:var(--sp-3); min-width:0; padding:var(--sp-2); background:var(--surface); border:1px solid var(--border); border-radius:var(--radius-card)}
+.gal-sizes{display:inline-flex; align-items:center; gap:var(--sp-2); flex:none}
+.gal-name{display:flex; flex-direction:column; min-width:0; font-size:13px; line-height:1.35}
+.gal-name .mono{font-size:11px; color:var(--text-3)}
+.gal-fn{font-size:12px; color:var(--text-2); overflow-wrap:anywhere}
+.gal-id{font-size:11px; color:var(--text-3)}
+.gal-inline{display:flex; flex-wrap:wrap; align-items:center; gap:var(--sp-3) var(--sp-4); margin-bottom:var(--sp-4); min-width:0}
+.gal-pair{display:inline-flex; align-items:center; gap:var(--sp-2); color:var(--text)}
+.gal-bars{max-width:560px}
+.gal-card{background:var(--surface); border:1px solid var(--border); border-radius:var(--radius-card); padding:var(--sp-3) var(--sp-4); margin-bottom:var(--sp-3); min-width:0}
+.gal-card h3{font-size:13px; color:var(--text)}
+.gal-arch-row{display:flex; flex-wrap:wrap; gap:var(--sp-4); align-items:flex-start; min-width:0}
+.gal-mini{width:220px; max-width:100%; padding:var(--sp-2); border:1px dashed var(--border); border-radius:var(--radius-card)}
+.gal-full{flex:1 1 480px; min-width:0}
