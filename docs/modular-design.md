@@ -67,6 +67,7 @@
 | D13 | ACM 的 ACME 端点已在 AWS 官方来源核实（What's New 2026-07 发布公告与 ACM 用户指南“ACME certificate automation”，核实日期 2026-10-13）：tls 保留“只有 L0 时经 ACME 端点签发证书装到 Nginx”的路径，但文档分“考试结论 / 2026 新能力”两栏，并保留回退分支：部署前探测结果由 `scripts/module` 写成 `TLS_ACME=on\|off`，DEP-005 的回退条件据此在启动时求值（3.2 决定 9、DEP-005） | 3.2、4.4、5.2、10.4 |
 | D14 | 不编造精确的性能数字和价格：只写计费维度与数量级，指向官方定价页；新近事实注明核实日期；cost 模块只在学员自行抄录并注明出处的单价存在时显示金额（CFG-010）。文档语言为简体中文，技术名词保留英文 | 全文、5.2、06#cost |
 | D15 | 本轮不修改 `docs/ui-design.md` 与 `docs/ui-prototype/`（由另一个流程处理）、`README.md`（由主设计者负责）；本文涉及它们的调整只记录在附录 B 与修订记录中 | 附录 B |
+| D16 | **平台模式（ATL）**（第 4 轮新增）：CloudAlbum 在实验平台 ATL 中运行时打开平台模式——应用侧 `ATL_PLATFORM_MODE=on`（`/etc/cloudalbum/platform.env`），工具侧 `CLOUDALBUM_PLATFORM_MODE=1` 或 `--platform`。平台模式下 CloudAlbum 侧要实现的全部内容以 [docs/platform/06-cloudalbum-platform-mode.md](platform/06-cloudalbum-platform-mode.md)（以下称“06”）为**唯一清单**（条目编号 PM-xx）；本文各节末尾的“平台模式（ATL）”小节与模块文档的“12. 平台模式（ATL）”小节是它的摘要。**平台模式部分**与 06 不一致时以 06 为准；平台侧的名称（标签、路径、角色、会话名）以 docs/platform/01 §14 为准。独立模式（运维机上直接用 `scripts/module`）的行为不变，平台模式的改动只在开关打开时生效（少数两种模式都生效的改动在 06 中单独注明） | 2.5、2.7、2.9、3.5、4.4、5.4、6.1、7.3、8.2、9.1、9.2、10.4、§11、附录 A |
 
 ---
 
@@ -325,6 +326,12 @@ proxy_read_timeout 60s;
 2. **include 点（全部由 ec2 基础提供）**：`cloudalbum_locations.conf`、`cloudalbum_upstream.conf`（归 load-balancer 本地档改写）、`cloudalbum.d/00-entry.conf`、`cloudalbum.server.d/00-acme-challenge.conf`（`/.well-known/acme-challenge/`，供 Let's Encrypt HTTP-01）、`/var/lib/cloudalbum/security/denylist.conf`；另有 ec2 生成的数据文件 `/etc/nginx/cloudalbum-vpc-cidr.inc`（由 IMDS 的 VPC 网段渲染，network 迁移后自动更新）与 `cloudalbum.d/slot-*.inc` 槽位文件——`00-entry.conf` 里的 `map` 只能定义一次，模块（load-balancer、cdn 等）不能往里“追加”，只能填写 ec2 预留的槽位。8080 监听器与网段文件一律以 `.inc` 为扩展名，避免被 http 级通配符误引入。ec2 用发布包中的 `/etc/nginx/nginx.conf` 覆盖发行版默认文件（默认文件自带的 80 端口 server 块会与 `default_server` 冲突）。
 3. 模块只能通过两个目录影响 Nginx——`/etc/nginx/cloudalbum.d/<id>-*.conf`（http 级片段）和 `/etc/nginx/cloudalbum.server.d/<id>-*.conf`（server 级片段，只作用于 80/443），外加改写上面明确归它所有的 include 文件。模块不得改写主配置与 `cloudalbum_locations.conf`；`scripts/module` 写入片段后执行 `nginx -t && systemctl reload nginx`，失败则回滚片段。
 
+**平台模式（ATL）**（D16；规格以 06 为准）：
+
+- **访问日志**（06 PM-18，两种模式都生效）：`cloudalbum_json` 在现有字段之后追加 `"args":"$ca_log_args","port":"$server_port","run":"$ca_log_run","probe":"$ca_probe"`，不改变 fail2ban 依赖的既有字段顺序。三个变量由 `00-entry.conf` 的 map 计算：查询串含签名、授权码等敏感参数时整段替换为 `[redacted]`；`run` 只记录格式合法的 `X-Experiment-Run`；带 `X-ATL-Probe-Token` 或 `X-ATL-Probe-Nonce` 的平台探测请求 `probe=1`。`cloudalbum_proxy.conf` 另加 `proxy_set_header X-CA-Received-XFF $http_x_forwarded_for;`，只供 `/api/lab/probe/echo` 回显。
+- **本机请求不跳转**（06 PM-19）：`00-entry.conf` 新增 `$ca_https_redirect`，对回环地址与 `/.well-known/acme-challenge/` 为 0；tls 的 `TLS_FORCE_HTTPS` 跳转片段只能使用这个变量（检查与本机 CLI 以 `http://127.0.0.1/` 访问应用）。
+- **CSP `frame-ancestors`**（06 PM-20）：平台模式下所有 HTML 响应带 `Content-Security-Policy: frame-ancestors 'self' <ATL_PLATFORM_ORIGIN>`，任何模式下都不发送 `X-Frame-Options`。值来自 ec2 的新槽位 `cloudalbum.d/slot-atl-frame-ancestors.inc`（由 `cloudalbum platform:apply-env` 渲染），经 `$ca_frame_csp` 在返回 HTML 的各个 location 中 `add_header … always`。
+
 ### 2.6 systemd 单元
 
 ```ini
@@ -537,6 +544,13 @@ esac
 5. **重放契约**：每个模块投放到主机上的产物（Nginx 片段、systemd drop-in、Agent 片段、定时器、软件包）都必须能由“发布包 + `modules.d/<id>.env` + `secrets.env`”重新生成；`postattach` 对所有已启用模块执行一次 `hostSetup apply`。否则实例被替换后，`modules.d` 仍声明模块已启用，而根卷上的片段已经丢失。
 6. 只格式化“确认为空”的数据卷；数据卷未挂载时不得继续任何写数据卷或生成机密的步骤。
 
+**平台模式（ATL）**（D16；规格以 06 为准）：
+
+- **检查包随发布包分发**（06 PM-04，两种模式都安装）：发布包另含 `atl/bin/atl-check` 与 `atl/checks/<bundleDigest>/`；`install` 阶段由 `infra/host/install-atl-bundle.sh` 安装到 `/opt/atl/`（root 所有，只保留最近 3 个摘要目录），凡是装得上 CloudAlbum 的实例（包括 ASG 新实例与 golden AMI）都有检查包。`/opt/atl/`、`/etc/atl/`、`/var/lib/atl/` 与 `labuser` 属于平台，`hostSetup` 不得修改。
+- **基础栈参数**（06 PM-05）：新增首次启动参数 `PlatformMode=off|on`（写入 `params.env` 的 `PLATFORM_MODE`，环境生命周期内不变）；平台模式下 `InstanceProfileName=CloudAlbumAppRole` 从首次部署起就设置（实例配置文件只含 `AmazonSSMManagedInstanceCore`，是平台的管理通道，应用仍是 `IAM_CREDENTIALS=none`），实例带资源级标签 `atl:role=lab-app`。
+- **引导步骤的差异**：`PLATFORM_MODE=on` 时 `install` 阶段检查 SSM Agent 版本并在低于最低版本时升级（06 PM-06）；`postattach` 阶段**跳过**第 12 步的 `admin:ensure`，不写 `/root/cloudalbum-admin.txt`——管理员由运行器经 SSM 以 `cloudalbum admin:ensure --password-hash <argon2id PHC>` 创建，明文只在 SSM 参数 `/cloudalbum/<envName>/atl/app-admin-password` 中（06 PM-07）；平台配置 `platform.env` 与本机探测密钥由运行器随后经 SSM 写入（06 PM-02、PM-09）。
+- 上述差异不改变本节的六条不变量：`platform.env` 不含机密；探测密钥 `etc/atl/probe.token` 与机密一样只在数据卷上，可由 `cloudalbum probe-token --init` 重新生成。
+
 ### 2.8 功能对照表：F1–F14 在 L0 与启用模块后
 
 | # | 功能 | L0 本地实现（降级点） | 主模块 → 主 AWS 服务 | 相关模块（辅助） |
@@ -606,6 +620,8 @@ F 表之外，其余模块对应的是**横切机能**（不属于某个业务�
 5. F14：`POST /api/uploads/session` 申请前缀令牌，以请求头 `Authorization: CA-Upload <令牌>` 分两片上传第二张照片并 `complete` 成功；用该令牌写别人的前缀返回 403。
 6. 点赞、评论、分享链接各一次；`POST /api/lab/runs` 后 `GET /api/lab/metrics?run=` 有数据。
 7. 进程中没有加载任何 `@aws-sdk/*` 模块（`GET /api/lab/self-check` 报告已加载模块清单，仅管理员）。
+
+**平台模式（ATL）**（D16；06 PM-08）：冒烟测试以 capabilities 的 `app.platform.mode` 判断模式，主机检查一律经 SSM 投递。00-ec2-base.md 9.1 的 S02 在平台模式下改为“基础栈中没有 `AWS::IAM::*`；实例配置文件为 `CloudAlbumAppRole`，角色上的托管策略只有 `AmazonSSMManagedInstanceCore`（终端录制开启时另有栈管理的 `atl-terminal-recording`）；`iam.driver=none`”，另增三项：`cloudalbum platform-status` 中平台配置有效、探测密钥存在、检查包摘要与发布包一致（S28）；本机带探测令牌请求 `/api/lab/probe/now` 为 200、不带为 401（S29）；HTML 响应带 `frame-ancestors`、没有 `X-Frame-Options`（S30）。第 1～7 条本身不变。
 
 ---
 
@@ -935,6 +951,11 @@ modules:
 | `lab` | `{ summary, compare, sideBySide?, keyMetrics, hourlyBilled, diagram, experiments, badges }` | `/lab` 卡片与徽章文案（8.1、12.3） |
 | `doc` | `docs/modules/0N-<group>.md#<id>` | 文档锚点（D10） |
 | `version` | 整数 | 写入栈 Outputs，与 env 中的版本比对（CFG-006） |
+| `platform`（第 4 轮新增，D16） | `{ outOfBand: [{ api, purpose, learnerAllowed, resourcePattern? }], billing: { pricingKeys: [...] }, platformActions: [{ id, command, args, title, confirm, interruptsManagementChannel }] }` | 平台模式（06 PM-34）：`outOfBand` 供平台生成 Provisioner 的直接调用白名单，`scripts/module` 在平台模式下只执行这里登记的带外调用；`pricingKeys` 供平台报价；`platformActions` 是平台动作（`module-op`）唯一允许的操作与参数白名单（例如 iam 的 `revokeOlderSessions`、`refreshInstanceCredentials`、`keysModeOn/Off`，cost 的 `activateCostAllocationTags`） |
+| `singleLocalSettings`（第 4 轮新增） | `{ 变量: 本地档取值 }` | 单模块档位与卡片起始状态推导用的本地档调整（10.4 规则 3 的数据化，例如 queue 的 `QUEUE_DRIVER=memory`、`IMAGE_PROCESSOR=worker`）；`plan --start-of` 读取（06 PM-33） |
+| `singleRuntime`（第 4 轮新增） | `{ 运行时热键: 值 }` | 同上，运行时热键（例如 `featureFlags.lab.faults: true`） |
+
+规则表中“启用某模块即可满足”的 error 级规则另带机器可读的 `remedy`（`{ enable: [{ module, set? }] }` 或任选分支 `{ choose: [[…], […]] }`），供 `plan --start-of` 求闭包（06 PM-34）；CI 检查每条这样的规则都有 `remedy`。registry 另新增 `secrets.orderBefore: [database]`。
 
 ---
 
@@ -1627,6 +1648,8 @@ export interface Detector {
 
 多实例（`DEPLOY_MODE=asg`）时，第 1～3 层由 autoscaling 的引导配置包（SSM SecureString `/cloudalbum/<env>/bootstrap/bundle`）在实例启动时写入，`SECRETS_ORIGIN=bundle`。
 
+**平台模式（ATL）**（D16；06 PM-01、PM-22）：在第 1 层之后、第 2 层之前加载第 1b 层 `/etc/cloudalbum/platform.env`（`root:cloudalbum 0640`，只由 `cloudalbum platform:apply-env` 写入，不含机密），同样由 `load-env.ts` 加载、不使用 systemd 的 `EnvironmentFile`。该文件只允许 `ATL_` 前缀的键（`ATL_PLATFORM_MODE`、`ATL_SESSION_ID`、`ATL_ENV_ID`、`ATL_ENV_NAME`、`ATL_LAB_ID`、`ATL_VARIANT`、`ATL_PLATFORM_ORIGIN`、`ATL_PROBE_TOKEN_FILE`、`ATL_RELEASE`），否则 ATL-CFG-001；`ATL_` 键出现在其他层按 CFG-002 处理。zod 新增 `Platform` 分段；`ATL_SESSION_ID`、`ATL_LAB_ID`、`ATL_VARIANT`、`ATL_RELEASE` 可经 `SIGHUP` 热加载，其余变化需要重启。ASG 模式下引导配置包同时携带 `platform.env` 与探测密钥。zod 的 Core 分段另增 `AUTH_COOKIE_SAMESITE=auto|lax|none-partitioned`（缺省 `auto`：平台模式且请求为 HTTPS 时为 `none-partitioned`，否则 `lax`，独立模式下与现状一致；一般不写入任何 env 文件，需要固定取值时写在 `cloudalbum.env`）。
+
 ```ts
 // backend/src/config/schema.ts
 import { z } from 'zod';
@@ -2220,6 +2243,19 @@ export const RULES: Rule[] = [
 3. **显式覆盖（教学用）：** `CLOUDALBUM_ALLOW_UNSAFE=ASG-004,ASG-005` 只对“可覆盖”的规则生效，把它们降为警告并记入 `validation.overridden`；相关模块状态固定为 `degraded`，前端顶部显示红色“不安全实验模式”横幅。对不可覆盖的规则使用该变量本身会触发 CFG-001。典型用途：故意在 ASG 下用 memory 缓存，亲眼看到数据不一致，再启用 cache 模块对比。
 4. **运行时依赖故障不是配置错误：** 不拒绝启动，按第 1.2 节原则 4 处理；`/api/health/live` 始终 200；`/api/health/ready` 在任一权威端口为 `error` 时返回 503；`/api/health/ready?scope=instance` 只检查本实例条件（6.3）。
 
+### 5.4 平台模式附加规则（ATL-*）
+
+第 4 轮新增（D16；06 PM-48）。这些规则只在平台模式下求值，与 5.2 的规则在同一张 `rules.ts` 表中，编号前缀 `ATL-`：
+
+| ID | 级别 | 可覆盖 | 范围 | 违规条件 | 说明 |
+|---|---|---|---|---|---|
+| ATL-CFG-001 | error | 否 | 启动 | `platform.env` 中出现非 `ATL_` 前缀的键；平台模式开启但缺少必填变量或格式不符；`ATL_ENV_NAME ≠ CLOUDALBUM_ENV` | 平台配置损坏，由平台的“环境修复”重新写入 |
+| ATL-CFG-002 | warn | — | 启动 | 平台模式开启，但本机探测密钥不存在或不可读 | 探测主体不可用，平台检测会失败：`cloudalbum probe-token --init` |
+| ATL-NET-001 | error | 否 | 部署、启动 | `NETWORK_PLACEMENT=private`、`NatMode=none`，且 `InterfaceEndpoints` 不含 `ssm`、`ssmmessages`、`ec2messages` | 平台管理通道（SSM）会断：保留 NAT，或 `InterfaceEndpoints=ssm`/`ops`/`all`（平台模式下 `ops` 含 `ec2messages`） |
+| ATL-IAM-001 | error | 否 | 部署 | 操作会把基础栈的 `InstanceProfileName` 改为 `CloudAlbumAppRole` 以外的值（含空），或会删除、替换 `CloudAlbumAppRole`，或 iam 栈未使用 `AppRoleMode=existing` | 平台管理通道依赖这个实例配置文件 |
+
+既有规则在平台模式下的解释（规则本身不变）：DEP-009 的“运维通道”条件，平台管理通道可达（ATL-NET-001 满足）即算满足；DEP-029 要求 `https.trusted=true` 且 `https.hostKind=dns`，直到实测确认 Cognito 接受 IP 主机名的回调地址（06 PM-21）；ASG-014 的修复提示改为“关闭平台预览方案 B：`scripts/module tls-preview off`”。
+
 ---
 
 ## 6. 能力注册与健康探针
@@ -2326,6 +2362,13 @@ export const RULES: Rule[] = [
 ```
 
 （示例为节选，实际响应包含全部 40 个模块；未启用的模块 `driver` 为其开关的本地取值。）
+
+**平台模式（ATL）**（D16；规格以 06 PM-03、PM-09～PM-11 为准）：
+
+- **`app.platform`**：平台模式开启时出现，含 `mode`、`sessionId`、`envId`、`envName`、`labId`、`variant`、`origin`、探测密钥是否存在、已安装的检查包摘要；公开视图只有 `{ mode: "on" }`。
+- **`?fields=` 投影**：逗号分隔的点路径（`modules.*.driver`、`validation.warnings[].rule` 等），另有 `modules=<id,…>` 过滤；不在白名单中的路径返回 400 `FIELDS_INVALID`；超过 12 KB 时截断并给出 `nextModules`。`validation.errors[]`、`warnings[]` 的每一项都带 `{ rule, modules[] }`；所有模块都输出 `localHealth`。
+- **只读主体 `atl-probe`**：请求头 `X-ATL-Probe-Token` 中的令牌有两种——本机令牌（本机密钥文件 `ATL_PROBE_TOKEN_FILE` 的内容，只在请求来自回环地址且入口为直连时有效）与一次性令牌（本机 CLI `probe-token --ttl <≤60>` 签发，HMAC 签名，用后即废，可经 CloudFront、ALB 到达）。探测主体可以读管理员视图（不能 `deep=1`）、总是拿到路径头、访问 `/api/lab/probe/*`，没有任何写权限；它的请求不计入 LabMetricsStore 的汇总与感知器窗口。只在平台模式下存在。
+- **探测端点** `GET /api/lab/probe/{now,echo,media-url,auth,identity-pool,kms}`（取代 `/api/console/probe/*`、`/api/lab/now` 等写法）：`now` 经过 ConfigPort、主库与 CachePort，`media-url` 经过 StoragePort 与 CdnPort，其余见 06 PM-11。
 
 ### 6.2 每个适配器的探针
 
@@ -2484,6 +2527,12 @@ LabMetricsStore（`observability/lab-metrics.ts`）在每个进程中**始终开
 - 保留期：分钟级汇总 14 天；`lab.compact` 定时任务把 2 天前的数据压缩为小时级。
 - 接口（仅管理员）：`GET /api/lab/metrics?from=&to=&route=&groupBy=path|driver|instance&run=`、`GET /api/lab/requests/recent?limit=200`；`GET /metrics` 输出 Prometheus 文本格式，仅允许本机访问。
 - 实验归属：带 `X-Experiment-Run` 与 `X-Experiment-Label` 请求头（且携带管理员令牌）的请求，汇总时按 runId 单独成组，避免与正常流量混在一起。
+
+**平台模式（ATL）**（D16；06 PM-10、PM-14、PM-16、PM-40）：
+
+- **运行归属放宽**：平台模式下，`runId` 已经 `POST /api/lab/runs` 登记、当前时间在登记的时间窗内、`X-Experiment-Label` 与登记一致时，**不要求**管理员令牌即按运行归属（经 CloudFront 的媒体请求与匿名请求带不了管理员令牌）。这些头只影响指标分组，不授予任何权限。
+- **探测流量排除**：带有效探测令牌或 `X-ATL-Probe-Nonce` 头的请求打 `probe` 标记，不计入分钟汇总、路由延迟分布、源站卸载与感知器的观测窗口，只计入单独的计数器。
+- **本机 CLI**：`cloudalbum lab-metrics --run <runId> --json`（按运行汇总：请求数按目标 `direct`/`cdn`/`alb`/`apigw` 拆分、路径签名占比、源站日志按端口计数、主机采样）；`cloudalbum path-seen --segment <段> --pattern <RE2> --window <≤24h>`（真实请求的路径签名中某段的出现次数，供 POST 与异步路径上的模块作“真的接入”证据）；`cloudalbum app-stat --stat <名> [--run <runId>]`（登记的业务统计）。它们是平台检查包读取本地指标的唯一入口，检查包不直接读数据库。
 
 ### 7.4 前端的请求级“路径追踪”
 
@@ -2647,6 +2696,14 @@ npm run exp:report -- <module> [--before latest|<file>] [--after latest|<file>] 
 
 **报告生成**：`exp:report` 取同一实验的 before 与 after（默认各取最新一次；有 `--repeat` 时取中位数并画出最小～最大区间），先检查二者可比（同一场景、参数、目标、实例类型），再输出：环境差异（哪些驱动变了）、关键指标对照表（绝对值、差值、比值）、分布图（内联 SVG）、按 `expect` 逐条给出“符合 / 不符合 / 差异小于噪声带无法判断”。报告只做方向性判断，不预设具体数值。
 
+**平台模式（ATL）**（D16；规格以 06 PM-37～PM-42 为准）：
+
+- **任意变体标签**（两种模式都生效）：`--label` 接受 `^[a-z][a-z0-9-]{0,23}$`，必须是 `experiment.json` 中 `requires` 的键（模块文档中的 `l0`、`unsafe`、`selfhost`、`workers-2` 等都可以）；新增可选字段 `labels`（每个标签的标题与角色 `baseline`/`treatment`/`single`）与 `params`（`--param <键>=<值>` 的允许范围，用于卡片中的短轮次）；结果新增 `variant`；`exp:report` 用 `--pair <A>,<B>`（缺省 `before,after`）。
+- **平台上传**：工作台上存在 `~/.atl/session.json` 时，`--upload` 按“登记 → 执行 → 上传 → 轮询”与平台交互（SigV4，学员身份）；平台返回的 `runId` 同时用于本地 `POST /api/lab/runs`，结果按 `atl.experiment-result/v1` 上传，并照常写 `POST /api/lab/results`。
+- **按目标统计**：客户端统计按目标（`direct`、`cdn`、`alb`、`apigw`）拆分，记录每个经 CloudFront 响应的 `X-Cache`（`hit`/`miss`/`refresh-hit`），供平台按目标核对服务端佐证。
+- **实验机侧实验**：`experiment.json` 可声明 `runsOn: lab`，运行器 `--on lab` 以学员身份经 SSM（`AWS-RunShellScript`）执行随发布包分发的 `/opt/cloudalbum/experiments/<module>/lab/<scenario>.sh`，脚本以 stdout 最后一行 `ATL-EXP-RESULT:<base64(gzip(JSON))>` 返回结果摘要。
+- **第 5 步故障注入**一律经 SSM（不使用 ssh），改动实例状态的故障先获取环境操作锁；**第 1 步管理员凭据**依次取缓存令牌、用 SSM 参数中的管理员密码登录、经 SSM 在实验机上签发的 `lab-token`（请求头 `Authorization: CA-Lab <token>`，等同于应用管理员，只在平台模式下有效），不再需要“实验专用管理员账号”。
+
 **核心对比实验一览**（各模块文档负责细化）：
 
 | 模块 | 对比方式 | 主要场景 | 观察重点（定性） |
@@ -2741,6 +2798,14 @@ logging、monitoring、tracing、load-balancer 等模块的实验都需要“可
 **代码包与运行时**：Lambda 一律 `nodejs22.x`、arm64（D4）。auth 的触发器与 secrets 的轮换函数用 `Code.ZipFile` 内联，不依赖任何 S3 桶；image-processing、social-api 的 lambda 集成与 Lambda 授权器、workflow 的缩略图任务用 `aws cloudformation package` 上传到**工具链栈** `cloudalbum-<env>-toolchain` 的制品桶（`scripts/module bootstrap` 创建，registry `prerequisites: [toolchain]`）。工具链栈不是应用模块，应用进程从不读取它，L0 也不需要它；它的制品桶另有一个 `releases/` 前缀存放固定版本发布包的镜像，只供引导脚本在没有公网出口时下载（network `private` 放置且 `NatMode=none` 的单实例、私有子网中的 ASG 实例；经 S3 Gateway Endpoint，用实例角色读取，DEP-009）。
 
 **托管策略配额**：IAM 对每个角色可附加的托管策略数量有配额（撰写时默认 20、可提额到 25；用户更少，以 Service Quotas 为准）。全部模块启用时策略数会超过角色配额，因此 `scripts/module` 的 `preflight: policy-quota` 在附加前统计数量：未超限时逐个附加模块的 `PolicyArn`；超限时进入**打包模式**——读取各模块策略文档，合并成若干条由 `scripts/module` 自己管理的打包策略 `cloudalbum-<env>-packed-<n>`（单条大小受托管策略字符上限约束），附加打包策略而不是逐个附加，映射关系记入 state.json。模块栈的 `PolicyArn` 照常输出，仍是“这个模块需要哪些权限”的唯一来源与审计对象。
+
+**平台模式（ATL）**（D16；规格以 06 PM-29、PM-31 为准）：
+
+- **权限边界**：所有包含 `AWS::IAM::Role` 或 `AWS::IAM::User` 的模板都声明可选参数 `PermissionsBoundaryArn`（默认空），用 `Condition` 决定是否设置 `PermissionsBoundary`；`scripts/module` 在平台模式下传入工作负载边界 `ATLWorkloadBoundary` 的 ARN，独立模式传空。显式的 `RoleName` 以 `cloudalbum-` 或 `CloudAlbum` 开头。CI 检查每个角色与用户都使用了该条件。
+- **标签**：平台模式下栈级标签在上面的集合之外另加 `atl:component=env`、`atl:session-id`、`atl:lab-id`、`atl:env-id`；更新已有栈时保留它创建时的 `atl:session-id`、`atl:lab-id`（`deploy --tags` 会把栈标签重新传播到资源）。`DeletionPolicy: Retain` 的数据资源同样经传播带上这些标签，由平台回收器删除。`atl:role` 只由基础栈与 autoscaling 的启动模板设置。
+- **命名**：平台模式下 `Env` 取环境名 `envName`（`e` 加 7 位小写字母数字，例如栈 `cloudalbum-e7k2m9qx-cdn`）；CI 用 8 个字符的 `Env` 与最长的区域名渲染全部全局唯一名称，检查长度上限。模块自己的 SSM 参数不得使用 `/cloudalbum/<env>/atl/` 子路径（平台的会话机密路径，工作负载身份读不到）。
+- **托管策略配额与打包**：`CloudAlbumAppRole` 上名为 `atl-*` 的平台策略（例如终端录制的 `atl-terminal-recording`）与 `AmazonSSMManagedInstanceCore` 不计入配额统计，打包时不得合并、分离或删除它们。
+- **iam 栈**：新增参数 `AppRoleMode=create|existing`；平台模式传 `existing`——`CloudAlbumAppRole` 与实例配置文件由平台栈常驻创建，iam 栈只创建并附加自己的只读基础策略。
 
 ```yaml
 # infra/modules/cache.yaml（骨架）
@@ -2860,6 +2925,23 @@ sequenceDiagram
 - `--repair`：修复半启用（CFG-004）——以栈 Outputs 为准重写 env，或删除没有对应栈的孤儿 env。
 
 退出码：0 成功；2 依赖 / 规则不满足；3 栈部署失败；4 迁移失败（已回滚）；5 健康探针失败（已回滚）。（实例上的应用进程配置错误一律 78，与 `scripts/module` 的退出码是两套体系。）
+
+**平台模式（ATL）**（D16；规格以 06 PM-26～PM-36 为准）
+
+`scripts/module` 在平台模式下由两种身份运行：运行器 `atl-runner`（`ATLProvisionerRole`，会话名 `atl-<sid>-prov-<op>`）与平台工作台上的学员（`ATLLearnerRole`，会话名 `atl-<sid>-ws`；CloudShell 省钱模式下为 `-console`）。**“运维机”的定义因此增加“平台工作台”**：学员身份经工作台 `~/.aws/config` 的角色链取得，平台模式的变量来自工作台的 `/etc/atl/session.env`。
+
+| 方面 | 独立模式（上文） | 平台模式 |
+|---|---|---|
+| 开启 | — | `CLOUDALBUM_PLATFORM_MODE=1` 或 `--platform`；必需的环境变量见 06 PM-26（`CLOUDALBUM_ENV`、`CLOUDALBUM_STATE_URI`、`CLOUDALBUM_LOCK_TABLE`、`CLOUDALBUM_PLATFORM_TAGS`、`CLOUDALBUM_PERMISSIONS_BOUNDARY_ARN`、`CLOUDALBUM_ADMIN_PASSWORD_PARAM` 等）；调用者必须是本会话的学员或运行器会话名，否则拒绝 |
+| 状态文件 | 本地 `.cloudalbum/state.json` | 状态桶 `s3://cloudalbum-lab-state-<acct>-<region>/<envName>/state.json`；更新用 `If-Match`、创建用 `If-None-Match`，冲突时退出 8；每个改变环境的阶段结束后立即写入；修改账号级单例前的原值备份到 `<envName>/backups/`。`state.json` 升级为 v2（平台模式多出 `platform` 段：环境级标签、会话链、预览状态、待执行钩子、种子） |
+| 环境操作锁 | 本地锁文件 | DynamoDB 表 `cloudalbum-lab-locks`，键 `env#<envName>`；租约 300 秒，每 60 秒续租，连续 2 次续租失败即在下一个安全点中止；拿不到锁时打印持锁者并退出 7（工作台缺省不等待，运行器 `--lock-wait 900`） |
+| 投递通道 | L0 用 ssh，启用 shell-access 后用 SSM | 一律 SSM Run Command（`AWS-RunShellScript`，按实例 ID 投递；实例按 `atl:env-id` + `atl:role=lab-app` + 栈名现查，不缓存实例 ID） |
+| 发布包 | 部署参数中的 URL | 工具链桶中的副本，`base deploy` 现场预签名；之后的栈更新保留原值 |
+| iam | 创建 `CloudAlbumAppRole` | `AppRoleMode=existing`；实例配置文件恒为 `CloudAlbumAppRole`；keys 模式（创建或删除演示用户与访问密钥）只能经平台动作执行，学员身份执行时提示对应的平台动作 |
+| 带外调用 | 部署者身份直接调用 | 只执行 registry `platform.outOfBand` 登记的调用；学员边界不允许的步骤跳过并提示平台动作 |
+| 新增子命令 | — | `plan --start-of <card>`（起始状态推导，见 10.4）、`plan --profile … --then …`、`profile apply --mode fresh\|additive [--repair]`、`profile gen-atl`、`wait-stable`、`env destroy --fast --ledger-out`、`env suspend\|resume`、`status --json`、`seed <id>`、`tls-preview on\|off`、`iam revoke-older-sessions\|refresh-instance-credentials\|keys-on\|keys-off`、`hooks run --pending`；`scripts/teardown` 是 `env destroy` 的别名 |
+| 上报 | — | `--progress-jsonl`、`--result-json`；每次启停的开始与结束尽力调用平台的 `module-ops` 路由（失败不影响操作） |
+| 退出码 | 0、2～5 | 另增 6（`env destroy` 有栈未删除，已记账）、7（环境操作锁被占用或丢失）、8（状态冲突） |
 
 ### 9.3 数据迁移脚本约定 `scripts/migrate/<module>/`
 
@@ -3052,6 +3134,21 @@ OpenSearch（照片全文检索）与 Macie（S3 敏感数据发现）只在 saa
 
 **单模块冒烟矩阵**（建议在独立的沙箱账号中手动触发，避免持续计费）：对每个 `profiles/single/<id>.env` 依次执行“从 L0 启用 → 跑 `experiments/<id>` 中标记为 `smoke` 的场景 → 禁用 → 运行 L0 冒烟测试（2.9），确认回到 L0 且数据完整”；“需人工”的模块在人工前置完成后单独执行。结果汇总为一张表放进 `/lab/results`。
 
+**平台模式（ATL）：卡片的起始档位**（D16；规格以 06 PM-33 为准）
+
+ATL 以“卡片”为单位组织实验（单服务卡 `svc-<模块 id>`，场景卡 `sc-<slug>`）。卡片的起始状态**不能**直接用 `single/<id>`——它包含目标模块本身。起始状态 = `l0-ec2` + iam(role) + 目标模块（按目标取值）硬依赖的闭包；`svc-ec2` 与 `svc-iam` 不预置 iam。它由新命令推导：
+
+```text
+scripts/module plan --start-of <card-id> [--variant <v>] --json      # 只读 labs/<card-id>/lab.yaml、registry 与规则表，CI 无需凭证
+```
+
+- 闭包 = registry `requires` 中的硬依赖（任选分支按卡片的 `branches`，否则取第一个可自动满足的分支）∪ 以“在起始状态上启用目标”为前提运行规则引擎时，带 `remedy` 的 error 级规则要求加入的模块（3.5），迭代到不动点；目标模块以前驱取值或本地档出现在起始状态时记为 `precursor`；单服务卡另加 registry 的 `singleLocalSettings` / `singleRuntime`（本节规则 3 的数据化）；场景卡另加写明理由的背景模块。
+- 输出 `cloudalbum.plan/v1`：起始模块清单（每项带成因 `basis` 与规则 ID）、预期警告、平台段（预览方案 B 是否开启：起始或目标含 autoscaling、目标含 tls、80 端口不对公网开放或私有放置时为 `off`）、拓扑序与摘要 `digest`（对规范化的模块清单与取值计算，说明文字的修改不改变摘要）。
+- 构建期（平台的 `labs:build`）由 `profile gen-atl` 生成 `profiles/atl/<card-id>/<variant>.env`（生成物，不提交）。在 10.1 的格式上增加 `PROFILE_KIND=atl-start`、`PROFILE_CARD`、`PROFILE_VARIANT`、`PROFILE_LOCAL_SETTINGS`、`PROFILE_RUNTIME`、`PROFILE_BASE_PARAMS`、`PROFILE_SEEDS`、`PROFILE_EXTRA_STACKS`（卡片自带栈 `<stackId>@<region>` 列表，由平台运行器部署，`scripts/module` 只校验格式）、`PROFILE_PLATFORM`、`PROFILE_PLAN_DIGEST`、`PROFILE_REGISTRY_VERSION`。档位名规范写法为 `atl/<card-id>/<variant>`（默认变体写全 `default`），`atl/<card-id>` 只作为手工调试的别名。
+- 运行期（平台运行器的 `profile-apply`）不读 `lab.yaml`，改用 `scripts/module plan --profile atl/<card-id>/<variant> --json` 复核：它从档位文件重建规范化对象，用与 `--start-of` 相同的算法计算 `digest`，与档位中的 `PROFILE_PLAN_DIGEST` 比较（06 PM-32、PM-33）。
+- `profile apply` 拒绝含未替换平台占位符 `${atl:…}` 的档位（平台在应用前替换）；`--mode additive` 只启用缺少的模块与更新参数、从不禁用（复用保留环境时使用）。
+- 单模块冒烟矩阵本身不变；它与卡片起始档位的关系是：单服务卡的“起始状态 + 目标”等于 `single/<id>`，只是平台模式下一律预置 iam(role)（`single/<id>` 中 `credentials: optional` 的模块不并入 iam，本节规则 2）。
+
 ---
 
 ## 11. 代码仓库目录结构
@@ -3083,10 +3180,14 @@ cloudalbum/
 │   ├── x-efs-asg.env
 │   ├── x-workflow.env
 │   ├── overlay-public-demo.env
-│   └── single/<id>.env               # 自动生成：L0 + 单模块 + 最小依赖 + 凭证前置（10.4）
+│   ├── single/<id>.env               # 自动生成：L0 + 单模块 + 最小依赖 + 凭证前置（10.4）
+│   └── atl/<card-id>/<variant>.env   # 平台模式：卡片起始档位，由 profile gen-atl 生成，不提交（10.4、D16）
+├── labs/                             # 平台模式：ATL 的卡片内容（lab.yaml v2、手册、检查、小测），格式见 docs/platform/04
+├── platform/                         # 平台模式：ATL 平台代码（web、api、workflows、infra；含 infra/checks-bundle/），见 docs/platform/01 §13
 ├── docs/
 │   ├── architecture.md               # l9-full 档位的目标形态
 │   ├── modular-design.md             # 本文（唯一的权威契约）
+│   ├── platform/                     # ATL 平台设计 01～07；06 是平台模式下 CloudAlbum 侧要求的唯一清单（D16）
 │   ├── labs.md                       # Lab 0～25 的操作手册（顺序以本文 10.3 为准）
 │   ├── saa-coverage.md               # 含 OpenSearch、Macie 的“可选扩展”说明
 │   └── modules/
@@ -3265,6 +3366,23 @@ cloudalbum/
     └── _reports/
 ```
 
+**平台模式（ATL）新增的代码位置**（D16；每个文件对应的条目见 06）：
+
+| 位置 | 内容 | 06 |
+|---|---|---|
+| `backend/src/platform/` | `mode.ts`（平台模式判定的唯一实现）、`probe-token.ts`、`lab-token.ts` | PM-01、09、17 |
+| `backend/src/cli/platform/` | `apply-env`、`status`、`capabilities`、`module-state`、`probe-token`、`lab-metrics`、`path-seen`、`app-stat`、`lab-token`、`install-keys` 子命令 | PM-02、12～17、31 |
+| `backend/src/cli/admin.ts`、`cli/seed.ts`、`cli/lab-seed.ts` | `admin:ensure --password-hash`、种子、学员自助数据生成 | PM-07、43、47 |
+| `backend/src/http/middleware/atl-probe.ts`、`frame-ancestors.ts`；`http/routes/lab-probe.ts` | 探测主体、CSP、`/api/lab/probe/*` | PM-10、11、20 |
+| `backend/src/lab/app-stats.ts`、`lab/seeds/` | 统计名登记表、种子实现 | PM-16、43～45 |
+| `backend/src/repositories/atl-probe-nonces.ts`、`jobs/atl-probe-nonce-gc.ts` | 一次性令牌的 nonce 与清理 | PM-09 |
+| `infra/host/cloudalbum` | 本机 CLI 入口 `/opt/cloudalbum/bin/cloudalbum` | PM-12 |
+| `infra/host/install-atl-bundle.sh`、`infra/host/platform/` | 检查包安装；`apply-env.sh`、`probe-secret.sh`（根子命令） | PM-02、04、09 |
+| `scripts/module-cli/src/platform/`、`state/`、`lock/`、`report/`、`deliver/ssm.ts`、`discover.ts`、`tags.ts`、`outofband.ts`、`env.ts`、`wait-stable.ts`、`seed.ts`、`tls-preview.ts`、`iam.ts`、`hooks.ts` | `scripts/module` 的平台模式 | PM-26～36 |
+| `scripts/ci/check-templates.ts` | 权限边界参数、角色名前缀、名称长度、参数路径的 CI 检查 | PM-29 |
+| `scripts/release/seed-assets/` | 合成的带 GPS 示例照片 | PM-45 |
+| `experiments/_lib/platform.ts`、`on-lab.ts`、`deliver.ts`、`admin-auth.ts`；`experiments/<module>/lab/` | 平台上传、实验机侧实验、经 SSM 的故障注入、管理员凭据 | PM-37～42 |
+
 ---
 
 ## 12. 前端适配
@@ -3380,6 +3498,7 @@ export function ModuleBadge({ module, outcome }: { module: ModuleId; outcome?: s
 9. **常见坑**：含需要以官方文档或实测为准的事实，注明核实日期。
 10. **探针**（标题固定为 `### 10. 探针`，内容包括感知器）：常规 / 深度探针、`degraded` 与 `error` 判据、所需权限（必须在 `PolicyArn` 中）、无凭证时的行为；纯基础设施型写感知器的被动 / IMDS / 控制面三路信号。
 11. **前端徽章**（标题固定为 `### 11. 前端徽章`，内容包括 `/lab` 卡片）：`lab.badges` 文案（本地 / AWS 两列）、受影响的功能开关、卡片上的“本地实现 / AWS 实现”摘要与数据来源。
+12. **平台模式（ATL）**（第 4 轮新增，**可选**；标题固定为 `### 12. 平台模式（ATL）`）：只在该模块有平台模式差异时出现，内容是 docs/platform/06 中对应条目（PM-xx、PM-Mxx）的摘要，规格以 06 为准（D16）。CI 的固定小节比对仍是 `### 0.`～`### 11.`，第 12 节存在时必须是最后一个三级标题。00-ec2-base.md 的对应内容在它的第 14 节。
 
 ## 附录 B：对 architecture.md、labs.md、saa-coverage.md 与 README 的调整汇总
 
@@ -3460,3 +3579,28 @@ export function ModuleBadge({ module, outcome }: { module: ModuleId; outcome?: s
 - 仍未在本文登记、但不影响依赖校验的细化：04 的 `EMAIL_SANDBOX_POLICY`、`EMAIL_FOR_COGNITO`、`ImageFailure`、`/api/me/outbox` 等端点；06 的 Workflow / `VULN_SCAN_*` / `COST_*` / `AMI_*` 子配置、4.5 的 `dbDirect`、`job_runs` 新列；05 的 `Dims` ASG 例外与 `ssm-session-preferences`；03 约定 8 的 CLI 子命令。
 - DEP-012（Post Confirmation 触发器需要 database）还没有对应的开关变量与 registry 引用，CI 的“每条 DEP 都被引用”检查会报出它，需要 02 组为触发器子选项定名。
 - 待实测：`aws s3 cp` 经 S3 Gateway Endpoint 与 `cfn-signal` 经 `cloudformation` Interface Endpoint 的引导流程；RDS `EnableIAMDatabaseAuthentication` 的原地修改行为。
+
+### 2026-10-13 · 第 4 轮（平台模式回写，D16）
+
+依据：主设计者裁决 C1～C8（C5：平台模式下 CloudAlbum 侧的要求以新建的 [docs/platform/06-cloudalbum-platform-mode.md](platform/06-cloudalbum-platform-mode.md) 为唯一清单，并回写到本文与模块文档）；平台评审回写清单中针对本文的第 0～4、13～16 条；docs/platform/01～04 第二轮与 cards/ 各附录中针对总纲的条目。本轮**只做增补**，不改变独立模式的任何行为。
+
+**改了什么**
+
+- 1.4 新增 D16“平台模式（ATL）”：开关、06 为唯一清单、平台模式部分以 06 为准、名称以 docs/platform/01 §14 为准。
+- 各节末尾新增“平台模式（ATL）”小节：2.5（Nginx 日志追加 `args`、`port`、`run`、`probe`；回环请求不做 HTTPS 跳转；HTML 响应的 CSP `frame-ancestors`）、2.7（检查包随发布包安装到 `/opt/atl`；基础栈参数 `PlatformMode`；平台模式下管理员由运行器以哈希初始化）、2.9（冒烟测试 S02 的平台分支与 S28～S30）、4.4（第 1b 层 `platform.env`；`AUTH_COOKIE_SAMESITE`）、6.1（`app.platform`、`?fields=` 投影、只读主体 `atl-probe` 与 `/api/lab/probe/*`）、7.3（运行归属放宽、探测流量排除、`lab-metrics`/`path-seen`/`app-stat`）、8.2（任意变体标签、平台上传、按目标统计、实验机侧实验、故障注入经 SSM、`lab-token`）、9.1（权限边界参数、平台标签、`Env=<envName>`、平台策略不计入配额、iam 的 `AppRoleMode`）、9.2（平台模式对照表：身份、状态桶与条件写、锁表与租约、SSM 投递、新增子命令与退出码 6～8；“运维机”增加平台工作台）、10.4（卡片起始档位与 `plan --start-of`、`profiles/atl/` 档位格式）。
+- 3.5 registry 新增字段 `platform`（`outOfBand`、`billing.pricingKeys`、`platformActions`）、`singleLocalSettings`、`singleRuntime`；规则增加机器可读的 `remedy`；`secrets.orderBefore: [database]`。
+- 新增 5.4 平台模式附加规则 ATL-CFG-001、ATL-CFG-002、ATL-NET-001、ATL-IAM-001，以及 DEP-009、DEP-029、ASG-014 在平台模式下的解释。
+- §11 目录树加入 `labs/`、`platform/`、`docs/platform/`、`profiles/atl/`，并新增“平台模式新增的代码位置”表。
+- 附录 A 增加可选的第 12 节“平台模式（ATL）”（模块文档）。
+
+**没有采纳或做了调整的意见**
+
+1. 平台评审建议 `platform.env` 由 systemd `EnvironmentFile=-` 加载：改为 `load-env.ts` 的第 1b 层，理由是 4.4 规定启动配置不依赖 systemd 的 `EnvironmentFile`，CLI 也必须读到同一组值。
+2. 平台评审建议 state.json 与锁放在工具链栈制品桶、栈不加 `atl:component`：已被主设计者裁决 C4(c)、C4(d) 取代（状态桶 + 锁表；栈加 `atl:component=env`）。
+3. Nginx 日志直接写 `$args`：改为经 map 对含签名、授权码的查询串整段打码（详见 06 §16）。
+
+**仍需其他文件配合的事项**：见 06 §15（01 名称表登记、02 的退出码分类与种子执行、03 的变量名与钩子执行、04 的统计名与档位名、cards/ 中三处检查的写法）。
+
+### 2026-10-13 · 第 5 轮（平台模式补充）
+
+- 10.4“平台模式（ATL）：卡片的起始档位”：档位格式增加 `PROFILE_EXTRA_STACKS`（卡片自带栈，由平台运行器部署）；写明运行期用 `plan --profile atl/<card-id>/<variant>` 复核摘要（与 `--start-of` 同一算法），不读 `lab.yaml`；短档位名只作调试别名。依据 docs/platform/06 PM-32、PM-33 的第 3 轮修订（跨文档审计）。

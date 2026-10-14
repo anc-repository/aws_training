@@ -403,6 +403,14 @@ CloudFormation 参数：`Env`、`ModuleVersion`、`CreateRecorder`（由 preflig
 
 registry `lab.badges`：`{ local: "本地自检（只看得到本机）", aws: "AWS Config 规则", degraded: "合规评估不完整", error: "合规评估不可用" }`。卡片的“本地实现 / AWS 实现”两行取自 `lab.summary`。
 
+### 12. 平台模式（ATL）
+
+> 第 4 轮新增（总纲 1.4 D16）。规格以 [docs/platform/06](../platform/06-cloudalbum-platform-mode.md) 为准（PM-08、PM-M33）。
+
+- **权限边界**：配置记录器的服务角色（若由本模块创建）支持 `PermissionsBoundaryArn`。
+- **谁创建谁清理**：本环境创建的配置记录器与投递通道在 `disable` 与平台回收时停止并删除；`preflight: existing-config-recorder` 发现账号中已有记录器时只读接入，不删除。
+- **本地自检的平台例外**：平台模式下实验机上有不属于应用的对象——OS 用户 `labuser` 及其免密 sudo、`/opt/atl/`、`/etc/atl/`、`/var/lib/atl/`（平台管理通道与检查包）。本地自检器遇到它们时标注 `"owner":"platform"`，不计入应用的合规分数，也不显示为应用的不合规项。
+- **最小权限对比的前提**：实验机从 L0 起就是 SSM 托管节点（平台管理通道），`config(ssm)` 相关规则在“启用前”就已满足，手册说明这一点。
 
 <a id="vuln-scan"></a>
 ## vuln-scan：漏洞扫描 ↔ Amazon Inspector
@@ -653,6 +661,14 @@ CloudFormation 参数：`Env`、`ModuleVersion`、`NotifyEmail`（空 = 不建�
 
 registry `lab.badges`：`{ local: "本机扫描（dnf + npm audit）", aws: "Amazon Inspector 持续扫描", degraded: "扫描覆盖不完整", error: "漏洞扫描不可用" }`。
 
+### 12. 平台模式（ATL）
+
+> 第 4 轮新增（总纲 1.4 D16）。规格以 [docs/platform/06](../platform/06-cloudalbum-platform-mode.md) 为准（PM-08、PM-M34）。
+
+- **扫描类型参数**：新增参数 `ScanTypes`（缺省全部；平台模式缺省只启用 EC2）。Inspector 的激活是账号级的，激活 Lambda 扫描会扫描并计费平台自己的 Lambda 函数，激活 EC2 扫描也会覆盖平台工作台；平台的开始确认页说明这一点。
+- **谁创建谁清理**：本环境激活的扫描类型在 `disable` 与平台回收时停用；平台安装之前已激活的保持不变（只读接入）。
+- **本地扫描的平台例外**：本地扫描（`dnf updateinfo` 与 `npm audit`）的结果中，`/opt/atl/` 下的检查包标注 `"owner":"platform"`，不计入应用的发现数。
+- **SSM 托管节点前提**：DEP-035 要求的 SSM 托管节点在平台模式下由平台管理通道满足，但规则本身不变（仍要求 `IAM_CREDENTIALS=role`，卡片起始状态已预置 iam）。
 
 <a id="cost"></a>
 ## cost：费用护栏与告警 ↔ AWS Budgets
@@ -901,6 +917,14 @@ CloudFormation 参数：`Env`、`ModuleVersion`、`ProjectBudgetLimit`（必填�
 
 registry `lab.badges`：`{ local: "本地估算（不是账单）", aws: "AWS Budgets 预算", degraded: "预算数据不完整", error: "预算不可用" }`。
 
+### 12. 平台模式（ATL）
+
+> 第 4 轮新增（总纲 1.4 D16）。规格以 [docs/platform/06](../platform/06-cloudalbum-platform-mode.md) 为准（PM-30、PM-34、PM-M35）。
+
+- **两类费用分开**：平台资源带 `Project=ATL`，实验资源带 `Project=CloudAlbum`（另有 `atl:lab-id`、`atl:env-id`）。本模块的预算与本地估算只针对 `Project=CloudAlbum`；平台安装时可选的月度预算 `atl-platform-guard` 覆盖整个账号，与学员在本模块中创建的预算是两回事，手册说明两者的关系。
+- **成本分配标签的激活只能经平台动作**：激活需要 `ce:UpdateCostAllocationTagsStatus`，学员边界不允许。registry `platform.platformActions` 登记操作 `activateCostAllocationTags`（`scripts/module cost activate-allocation-tags --keys Project,atl:lab-id`，由运行器执行）；学员在工作台上执行 `enable cost` 时跳过这一步并提示对应的平台动作。手册说明：新的标签键要过一段时间才能被激活，激活后还要一段时间才生效（时长以官方文档为准）；Organizations 成员账号只能由管理账号激活；账单访问开关会影响 Budgets 控制台，手册给出等价的 CLI 路径。
+- **本地估算**：平台模式下加入平台工作台的计费维度（EC2 实例小时、EBS、公网 IPv4），只写维度，不写金额。
+- 在单次会话内看不到本次产生的账单数据（账单数据有延迟，预测需要较长的历史），卡片只检查配置。
 
 <a id="db-proxy"></a>
 ## db-proxy：数据库连接池 ↔ Amazon RDS Proxy
@@ -1183,6 +1207,13 @@ CloudFormation 参数：`Env`、`ModuleVersion`、`VpcId`、`SubnetIds`、`Insta
 
 registry `lab.badges`：`{ local: "应用内连接池", aws: "经 RDS Proxy", degraded: "代理目标不健康", error: "代理不可达" }`。
 
+### 12. 平台模式（ATL）
+
+> 第 4 轮新增（总纲 1.4 D16）。规格以 [docs/platform/06](../platform/06-cloudalbum-platform-mode.md) 为准（PM-M36）。
+
+- **权限边界**：RDS Proxy 读取 Secrets Manager 的服务角色支持 `PermissionsBoundaryArn`。
+- **路径证据**：平台检查请求 `/api/lab/probe/now`，路径段 `database=postgres@rds-proxy`（本地档为 `postgres@pgbouncer`）；卡片中残留的 `/api/console/probe/now` 一律改为 `/api/lab/probe/now`。
+- 代理与目标组带平台标签；代理按小时计费，保留环境期间无法停止。
 
 <a id="workflow"></a>
 ## workflow：照片处理流程编排 ↔ AWS Step Functions
@@ -1493,6 +1524,14 @@ workflow 是权威端口：结果队列或状态机不可用时，`complete` 返
 
 registry `lab.badges`：`{ local: "处理流程由 EC2 进程内编排", aws: "处理流程由 AWS Step Functions 编排", degraded: "编排有失败执行", error: "编排不可用" }`。
 
+### 12. 平台模式（ATL）
+
+> 第 4 轮新增（总纲 1.4 D16）。规格以 [docs/platform/06](../platform/06-cloudalbum-platform-mode.md) 为准（PM-M36）。
+
+- **权限边界**：状态机角色与缩略图任务函数的执行角色支持 `PermissionsBoundaryArn`。
+- **故障演练**：`worker-down` 场景增加 `--fault stop-app`（只停应用进程、不停实例），避免让平台管理通道离线；故障脚本经 SSM 投递并先获取环境操作锁（06 PM-42）。
+- **故意失败的影响**：演练产生的失败执行会让模块在一段时间内保持 `degraded`；卡片把这一段声明为预期的失败窗口，或检查用 `expectedWarnings` 与 `healthy` 判定（docs/platform/04）。
+- 状态机、规则与结果队列带平台标签。
 
 <a id="ami"></a>
 ## ami：启动镜像构建 ↔ EC2 Image Builder
@@ -1718,6 +1757,15 @@ CloudFormation 参数：`Env`、`ModuleVersion`、`Architectures=arm64`（可加
 
 registry `lab.badges`：`{ local: "AL2023 公共 AMI + 现场安装", aws: "黄金 AMI（EC2 Image Builder）", degraded: "黄金 AMI 未生效或已过期", error: "镜像管道不可用" }`。
 
+### 12. 平台模式（ATL）
+
+> 第 4 轮新增（总纲 1.4 D16）。规格以 [docs/platform/06](../platform/06-cloudalbum-platform-mode.md) 为准（PM-04、PM-06、PM-M36）。
+
+- **权限边界**：Image Builder 构建实例的角色支持 `PermissionsBoundaryArn`。
+- **构建实例不带 `atl:role`**：Image Builder 的构建与测试实例不得带 `atl:role=lab-app` 或 `workstation`，否则平台按 `atl:env-id` + `atl:role` 发现实验机时会命中多台，平台的 State Manager 关联也会在构建实例上运行。
+- **黄金 AMI 的内容**：构建管道执行与引导脚本相同的检查包安装（`install-atl-bundle.sh`）与 SSM Agent 版本检查，黄金 AMI 中已包含 `/opt/atl/checks/<bundleDigest>/` 与 `/opt/atl/bin/atl-check`；实例启动时引导脚本仍复核摘要。
+- **实验**：`dependency-failure` 增加 `--egress none`；平台模式下 `boot-time` 实验缺省走单实例的 `rebuild-instance` 路径（不必先启用 autoscaling）。
+- 镜像、组件、管道与 AMI 固定参数带平台标签，由平台回收器清理（AMI 先注销，再删除快照）。
 
 ## 修订记录
 
@@ -1806,3 +1854,8 @@ registry `lab.badges`：`{ local: "AL2023 公共 AMI + 现场安装", aws: "黄�
 - **机密**：PgBouncer 的 tmpfs 副本按总纲 1.4 D5 新增的“派生副本”例外说明。
 
 仍需其他文件配合：第 1、2 版列出的总纲 4.4 Workflow 分段（`WORKFLOW_TYPE`、`WORKFLOW_RESULT_WAIT_SEC`、`WORKFLOW_LOCAL_*`）与 `VULN_SCAN_*`、`COST_*`、`AMI_*` 子配置、4.5 的 `dbDirect`、6.2 的 workflow 探针权限、3.5 `preflight` 名称清单、`job_runs` 新列与 `compliance_evaluations` 表，以及 00 的 `compliance` 快照段、`install --bake`、`modules.state.json` 的 `history[]`，本轮仍未落地。
+
+### 2026-10-13 · 第 4 版（平台模式回写，总纲 D16）
+
+- 六个模块各新增“### 12. 平台模式（ATL）”（总纲附录 A 的可选第 12 节），规格以 [docs/platform/06](../platform/06-cloudalbum-platform-mode.md) 为准：compliance（谁创建谁清理、本地自检把 `labuser` 与 `/opt/atl` 标为平台管理通道）；vuln-scan（新增参数 `ScanTypes`，平台模式缺省只启用 EC2；本地扫描的平台例外）；cost（`Project=ATL` 与 `Project=CloudAlbum` 分开、成本分配标签的激活只能经平台动作 `activateCostAllocationTags`、本地估算加入工作台的计费维度）；db-proxy（权限边界、探测端点）；workflow（权限边界、`--fault stop-app`、预期失败窗口）；ami（构建实例不带 `atl:role`、黄金 AMI 内含检查包、`--egress none`、`boot-time` 走 `rebuild-instance`）。
+- 只做增补，独立模式的行为不变。

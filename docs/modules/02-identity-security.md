@@ -413,6 +413,18 @@ export interface AwsCredentialsPort {
 - 业务页面上没有 iam 徽章：凭证不改变任何业务行为，差异只在 /lab 上展示。
 - registry 的 `lab.badges` 写法：`{ local: "应用未使用 AWS 凭证", aws: "IAM 角色 · 临时凭证", degraded: "凭证异常", error: "无法获得 AWS 凭证" }`；keys 模式的红色文案由 CRED-002 的警告驱动。
 
+### 12. 平台模式（ATL）
+
+> 第 4 轮新增（总纲 1.4 D16）。规格以 [docs/platform/06](../platform/06-cloudalbum-platform-mode.md) 为准（PM-31、PM-M08、PM-48）。
+
+- **角色已存在（P0）**：平台栈常驻创建 `CloudAlbumAppRole` 与同名实例配置文件，实验机从 L0 起就挂着它，角色上只有 `AmazonSSMManagedInstanceCore`——这是平台的管理通道，不是应用权限。iam 栈新增参数 `AppRoleMode=create|existing`，平台模式传 `existing`：模板不创建角色与实例配置文件，只创建本模块的只读基础策略并由 `scripts/module` 附加到已有角色。否则 `enable iam` 会因角色重名而失败，而几乎每张卡片的起始状态都含 iam(role)。
+- **实例配置文件不动**：平台模式下本模块的 `baseParams.InstanceProfileName` 恒为 `CloudAlbumAppRole`，与 `IAM_CREDENTIALS` 的取值无关；`disable iam` 只分离策略、写回 `IAM_CREDENTIALS=none`（规则 ATL-IAM-001）。不得分离 `AmazonSSMManagedInstanceCore`，不得修改或删除角色上名为 `atl-*` 的平台策略；托管策略配额统计与打包模式忽略它们。
+- **感知器与教学重点**：平台模式下 IMDS 里总有 `CloudAlbumAppRole`，感知器不再以“IMDS 中有没有角色”判断本模块是否启用，改看 `IAM_CREDENTIALS` 与应用实际使用的凭证来源；`IAM_CREDENTIALS=none` 时 detail 注明“实例角色属于平台管理通道，应用未使用”。卡片 svc-iam 的教学重点因此改为“应用使用实例角色 vs 使用访问密钥”，对比实验中“IMDS 中没有角色”一项改为“应用没有使用角色凭证”；实验机终端里的 AWS CLI 身份是 `CloudAlbumAppRole`，工作台终端里是 `ATLLearnerRole`。
+- **keys 模式只能经平台动作**：学员边界禁止创建 IAM 用户与访问密钥。学员身份执行 `enable iam --mode keys` 或切回 role 时退出 2（`PLATFORM_ACTION_REQUIRED`）。平台动作（registry 操作 `keysModeOn` / `keysModeOff`）由运行器执行：创建演示用户 `cloudalbum-<envName>-demo-keys`（路径 `/cloudalbum/`，带 `ATLWorkloadBoundary` 与会话标签）与访问密钥，写入 `/cloudalbum/<envName>/iam/demo-keys`，经 SSM 在实验机上执行 `cloudalbum iam:install-keys`（以实例角色读取参数、写入 `secrets.env`），成功后删除参数；反向操作删除访问密钥与用户。keys 模式生效期间，学员启用其他模块时把模块策略附加到演示用户，学员身份允许这一步。
+- **平台动作**（registry `platform.platformActions`）：`revokeOlderSessions`（`scripts/module iam revoke-older-sessions`：在 `CloudAlbumAppRole` 上写入“拒绝早于当前时间签发的会话”的内联策略，与控制台“撤销活动会话”相同；它同时切断管理通道，声明 `interruptsManagementChannel: true`）与 `refreshInstanceCredentials`（`scripts/module iam refresh-instance-credentials`：以同一个实例配置文件执行 `ReplaceIamInstanceProfileAssociation`，不行则重启实例，等待 `PingStatus=Online`）。学员也能在控制台直接“撤销活动会话”（学员边界允许对该角色写内联策略），平台回收时全量复位该角色。
+- 由指南生成的只读策略 `CloudAlbumLabVerifier` 在平台模式下不附加到应用角色（平台的只读检查由 `ATLVerifierRole` 承担）。
+- 实验机侧实验（`leak-scan`、`imds-ssrf`）从工作台经 SSM 投递执行，结果从工作台上传（06 PM-41）。
+
 <a id="auth"></a>
 ## auth：用户注册登录 ↔ Amazon Cognito User Pool
 
@@ -795,6 +807,19 @@ sequenceDiagram
 - registry 的 `lab.badges` 写法：`{ local: "本地账号（EC2）", aws: "登录由 Amazon Cognito 提供", degraded: "认证服务降级", error: "认证服务不可用" }`。
 - 状态为 `degraded` / `error` 时徽章变黄 / 红，并附“降级”或“故障”字样，与 capabilities 一致。
 
+### 12. 平台模式（ATL）
+
+> 第 4 轮新增（总纲 1.4 D16）。规格以 [docs/platform/06](../platform/06-cloudalbum-platform-mode.md) 为准（PM-22、PM-36、PM-44、PM-M09）。
+
+- **登录 Cookie**：新增启动配置 `AUTH_COOKIE_SAMESITE=auto|lax|none-partitioned`（缺省 `auto`）。平台模式下请求经 HTTPS 到达时，`ca_at`、`ca_rt`、`ca_it` 与 CSRF 双提交 Cookie 设为 `Secure; SameSite=None; Partitioned; Path=/`（登录 Cookie 保持 `HttpOnly`），使平台工作台的 iframe 预览中能保持登录；PKCE `state` Cookie 保持 `SameSite=Lax`；登出时同时删除分区与不分区两种 Cookie。独立模式下 `auto` 等于 `lax`，与现状一致。
+- **CSRF**：`SameSite=None` 后不能再依赖 Lax。平台模式下所有使用 Cookie 认证的状态改变请求，除双提交令牌外还要求 `Origin`（没有时取 `Referer` 的来源）属于应用自身的来源集合（即本模块 `AppOrigins` 的并集）；两者都没有时返回 403 `CSRF_ORIGIN_REQUIRED`。平台自身的来源不在集合中。请求头令牌认证（`CA-Upload`、`CA-Lab`、探测令牌）与 HMAC 内部端点不需要 CSRF。
+- **iframe 中的托管登录**：Cognito 托管登录页按“不能被嵌入”设计。前端检测到自己在 iframe 中时，“登录”改为在新标签页打开，并如实提示“托管登录后的登录状态只在新标签页中有效，预览框内仍是未登录状态”（新标签页写的是不分区的第一方 Cookie）。本地账号表单在 iframe 内可以正常登录。浏览器不支持或关闭了分区 Cookie 时，登录后 `GET /api/me` 仍为 401，前端提示改用新标签页。“弹窗回传授权码”方案为 P2，先做 PoC。
+- **回调地址**：平台预览方案 B 让直连入口变成 `https://<EIP>`。Cognito 是否接受 IP 主机名的回调地址需实测；确认前，平台模式下本模块的回调地址列表排除 IP 主机名，DEP-029 要求 `https.hostKind=dns`（托管登录仍需 CloudFront 默认域名或自定义域名）。
+- **测试用户与管理员的密码**：平台模式下 `enable auth`（cognito）成功后登记平台钩子 `cognito-passwords`：以学员身份对本 User Pool 中的管理员与种子测试用户（`atl-test-1`～`atl-test-3`）执行 `AdminSetUserPassword(Permanent=true)`，密码来自 `/cloudalbum/<envName>/atl/app-admin-password` 与 `/cloudalbum/<envName>/atl/test-users`。调用者是学员时立即执行；是运行器时（起始状态已含 auth=cognito）登记为待执行，由工作台接线以学员身份执行。这样 bulk 迁移后“首次登录必须重置密码”不会挡住实验；需要演示迁移账号首次登录的卡片另用非种子账号。
+- **权限边界**：Pre Sign-up、Pre Token Generation 等触发器的执行角色支持 `PermissionsBoundaryArn`。
+- **探测端点**：`/api/lab/probe/auth`（`local` 驱动用当前私钥签发并验证一个只在本次请求中使用的令牌，路径段 `auth=local:verify`；`cognito` 驱动检查 JWKS 并调用 `DescribeUserPool`，路径段 `auth=cognito:<COGNITO_LOGIN_MODE>`）。
+- 管理员与种子用户的邮箱使用保留域名（`example.com`），EmailPort 不会真正发信（06 PM-46）。
+
 <a id="identity-pool"></a>
 ## identity-pool：终端用户直接访问 AWS 资源 ↔ Amazon Cognito Identity Pool
 
@@ -1074,6 +1099,15 @@ export interface DirectUploadPort {
 - registry 的 `lab.badges` 写法：`{ local: "应用自签令牌（EC2）", aws: "直传 S3（Identity Pool 临时凭证）", degraded: "已退回逐文件上传", error: "临时凭证不可用" }`。
 - 总纲 §12.3 “上传按钮”一行中 F14 的文案以本表为准。
 
+### 12. 平台模式（ATL）
+
+> 第 4 轮新增（总纲 1.4 D16）。规格以 [docs/platform/06](../platform/06-cloudalbum-platform-mode.md) 为准（PM-11、PM-21、PM-M10）。
+
+- **权限边界**：已认证角色 `CloudAlbumUploaderRole` 支持 `PermissionsBoundaryArn`（学员在工作台上启用本模块时，学员边界要求新角色带工作负载边界）。
+- **探测端点**：`/api/lab/probe/identity-pool`。`none` 驱动为保留前缀 `_probe/` 签发一个前缀令牌后丢弃（路径段 `identity-pool=none:token`）；`cognito` 驱动调用 `DescribeIdentityPool` 并 `HeadBucket` 暂存桶，路径段为**新增结果词** `identity-pool=cognito:probe`。真正签发 STS 凭证需要终端用户的 ID 令牌，探测主体没有，所以“确实走了 STS”的证据由平台的 `path-seen` 读取真实上传请求的 `identity-pool=cognito:sts` 段。
+- **方案 B 与 DEP-030**：平台预览方案 B 让有效入口变成 `https://<EIP>`，本模块在 L0 上启用时 DEP-030 不再触发；方案 B 关闭或签发失败时 DEP-030 照常提示。
+- 种子 `cognito-test-users` 提供已确认、密码已知的用户，越权测试可以直接使用（06 PM-44）。
+
 <a id="secrets"></a>
 ## secrets：密码与密钥管理 ↔ AWS Secrets Manager
 
@@ -1347,6 +1381,15 @@ export interface SecretsPort {
 
 - registry 的 `lab.badges` 写法：`{ local: "机密在本机数据卷", aws: "机密在 AWS Secrets Manager", degraded: "机密刷新异常", error: "无法读取机密" }`。业务页面上没有 secrets 徽章。
 
+### 12. 平台模式（ATL）
+
+> 第 4 轮新增（总纲 1.4 D16）。规格以 [docs/platform/06](../platform/06-cloudalbum-platform-mode.md) 为准（PM-29、PM-M11）。
+
+- **权限边界**：轮换函数的执行角色支持 `PermissionsBoundaryArn`。
+- **参数与机密路径**：本模块的参数与机密名不得使用 `/cloudalbum/<env>/atl/` 子路径——那是平台的会话机密路径，工作负载边界拒绝工作负载身份读取 `parameter/cloudalbum/*/atl/*`。平台模式下 `<env>` 为环境名 `envName`。
+- **同名 secret 正在删除**：每个环境有独立的 `envName`，正常情况下不会与上一个环境的 secret 同名；但同一环境中先禁用再启用时，Secrets Manager 的强制删除在后台异步完成，`enable secrets` 遇到“同名 secret 正在删除”时按退避重试，超过等待上限给出明确错误（以官方文档的删除语义为准）。
+- 平台模式下 secret 带平台标签；回收由平台回收器完成（立即删除，不留恢复窗口），本模块的 `disable --purge` 不在平台模式下使用。
+
 <a id="config"></a>
 ## config：运行时配置与远程开关 ↔ AWS Systems Manager Parameter Store
 
@@ -1595,6 +1638,15 @@ export interface ConfigPort {
 | /lab 的 config 卡片 | “运行时配置：本机文件 · 无版本” | “运行时配置：Parameter Store · v<N> · 上次修改者 …” | capabilities + `describeSource()` |
 
 - registry 的 `lab.badges` 写法：`{ local: "运行时配置：本机文件", aws: "运行时配置：Parameter Store", degraded: "配置刷新异常（沿用快照）", error: "配置不可用（使用默认值）" }`。
+
+### 12. 平台模式（ATL）
+
+> 第 4 轮新增（总纲 1.4 D16）。规格以 [docs/platform/06](../platform/06-cloudalbum-platform-mode.md) 为准（PM-29、PM-M12）。
+
+- **参数路径**：运行时热键在 `/cloudalbum/<envName>/runtime/<key>`；本模块不得使用 `/cloudalbum/<env>/atl/` 子路径（平台的会话机密路径）。
+- **空值**：`banner` 默认空串、`allowedEmailDomains` 默认空列表，Parameter Store 不接受空值（以官方 API 校验为准）。迁移脚本跳过空值（读取时缺省即默认值），diff 页面标注“未写入（空值）”。卡片中只能断言 7 个非空键存在。
+- **`reject-invalid` 演练**：实验后只删除非法键 `CACHE_DRIVER`，`maxUploadMb` 用参数历史写回原值，不删除正式热键。
+- **路径证据**：`config=ssm:v<N>` 段出现在经过 ConfigPort 的请求上；平台检查请求 `/api/lab/probe/now`（它读取运行时热键 `featureFlags`），而不是 `/api/capabilities`（后者不保证调用 ConfigPort）。
 
 <a id="kms"></a>
 ## kms：数据加密密钥 ↔ AWS KMS
@@ -1877,6 +1929,16 @@ CloudTrail 中 KMS 调用的次数（Bucket Key 开和关、数据密钥缓存�
 
 - registry 的 `lab.badges` 写法：`{ local: "本地主密钥加密（同盘）", aws: "KMS 客户托管密钥加密", degraded: "加密降级", error: "密钥不可用" }`；`CRYPTO_LOCAL_PLAINTEXT=on` 时文案改为红色“明文（对照实验）”。
 
+### 12. 平台模式（ATL）
+
+> 第 4 轮新增（总纲 1.4 D16）。规格以 [docs/platform/06](../platform/06-cloudalbum-platform-mode.md) 为准（PM-11、PM-45、PM-M13）。
+
+- **别名解析**：`DisableKey`、`EnableKey`、`GetKeyRotationStatus` 只接受密钥 ID 或密钥 ARN，不接受别名（已按 KMS API 参考核实）。`disable-demo.sh` 等演示脚本先执行 `describe-key --key-id alias/cloudalbum` 解析出密钥 ARN 再调用；平台检查同样使用栈输出 `InfoKeyArn` 或上一条检查返回的 `KeyMetadata.Arn`。
+- **探测端点**：`/api/lab/probe/kms` 对 32 个随机字节做一次信封加密与解密（加密上下文 `{app: "cloudalbum", purpose: "atl-probe"}`），路径段为 `kms=local:encrypt`、`kms=kms:cache-hit` 或 `kms=kms:call`。
+- **示例数据**：卡片 svc-kms 使用种子 `gps-sample-photos`（3 张带 GPS EXIF 的合成照片，经正常的照片导入流程写入，需要时位置字段经 CryptoPort 加密，06 PM-45）。
+- **别名按环境区分**：别名在账号内唯一，而上一个环境回收失败时它可能残留。模板新增参数 `AliasName`（缺省 `alias/cloudalbum`，独立模式不变）；平台模式下 `scripts/module` 传入 `alias/cloudalbum-<envName>`，`KMS_KEY_ID` 取栈输出的别名。卡片与检查中的 `alias/cloudalbum` 在平台模式下读作 `alias/cloudalbum-{{ session.env }}`。
+- **密钥回收**：平台回收器删除本环境的别名，并对本环境创建的密钥执行计划删除（等待期以官方文档为准）。学员边界目前对 `kms:*` 放行；若以后收紧，需保留对带本会话标签密钥的 `DisableKey`/`EnableKey`。
+
 ## 修订记录
 
 ### 2026-10-13 第 2 轮：收敛修订（落实完整性评审与主设计者统一决策 D1～D15）
@@ -1925,3 +1987,8 @@ CloudTrail 中 KMS 调用的次数（Bucket Key 开和关、数据密钥缓存�
 
 **仍需其他文件配合**
 - 无新增。DEP-012（Post Confirmation 触发器需要 database）目前没有对应的开关变量，registry 中也无引用；若保留该可选增强，需要总纲为触发器子选项定名后再补 registry 条目。
+
+### 2026-10-13 第 4 轮：平台模式回写（总纲 D16）
+
+- 六个模块各新增“### 12. 平台模式（ATL）”（总纲附录 A 的可选第 12 节），规格以 [docs/platform/06](../platform/06-cloudalbum-platform-mode.md) 为准：iam（`AppRoleMode=existing`、实例配置文件恒为 `CloudAlbumAppRole`、平台策略不动、感知器与教学重点、keys 模式经平台动作、`revokeOlderSessions` / `refreshInstanceCredentials`）；auth（`AUTH_COOKIE_SAMESITE` 与分区 Cookie、CSRF 的 `Origin` 校验、iframe 中的托管登录、IP 回调地址、平台钩子 `cognito-passwords`、`/api/lab/probe/auth`）；identity-pool（权限边界、`/api/lab/probe/identity-pool` 与新增结果词 `cognito:probe`、方案 B 与 DEP-030）；secrets（权限边界、路径限制、同名 secret 正在删除时重试）；config（路径、空值、`reject-invalid`、路径证据改用 `/api/lab/probe/now`）；kms（别名解析为 ARN、平台模式下别名 `alias/cloudalbum-<envName>`（新增参数 `AliasName`）、`/api/lab/probe/kms`、种子照片）。
+- 只做增补，独立模式的行为不变。

@@ -526,6 +526,15 @@ badges:
   error:  "存储故障 · {detail}"
 ```
 
+### 12. 平台模式（ATL）
+
+> 第 4 轮新增（总纲 1.4 D16）。规格以 [docs/platform/06](../platform/06-cloudalbum-platform-mode.md) 为准（PM-11、PM-29、PM-45、PM-M14）。
+
+- **探测端点**：`/api/lab/probe/media-url` 为保留键 `_probe/<instanceId>/probe.jpg`（及其 `variants/` 键）生成媒体 URL，不要求对象存在，路径段 `storage=local:sign` 或 `storage=s3:presign`（cdn 启用时另有 `cdn=cloudfront`）。平台以此作为“读路径已切到 S3”的证据；上传路径的证据由 `path-seen` 读取真实上传请求的 `storage=s3:presign`。
+- **桶名长度**：平台模式下 `Env` 为 8 个字符的环境名（例如 `cloudalbum-e7k2m9qx-storage-raw-<acct>-<region>`）；CI 用最长的区域名检查桶名不超过 S3 的长度上限。
+- **种子照片**：种子 `gps-sample-photos` 经 StoragePort 导入（与上传完成相同的流程），所以 local 与 s3 两种驱动下都可用。
+- 桶带平台标签；平台模式下不使用 `disable --purge`，桶（含全部对象版本）由平台回收器清空并删除。
+
 <a id="shared-fs"></a>
 
 ## shared-fs：多实例共享文件系统 ↔ Amazon EFS
@@ -767,6 +776,13 @@ badges:
   photo: { local: "存储于 EC2 本地磁盘（EBS）", aws: "存储于 Amazon EFS" }
   error: "共享文件系统未挂载 · {detail}"
 ```
+
+### 12. 平台模式（ATL）
+
+> 第 4 轮新增（总纲 1.4 D16）。规格以 [docs/platform/06](../platform/06-cloudalbum-platform-mode.md) 为准（PM-M15）。
+
+- **临时第二台实例**：实验模板 `experiments/shared-fs/second-instance.yaml` 支持“临时第二台实例”模式：接受 `SubnetId` 与空的文件系统参数，使用 `CloudAlbumAppRole`、带平台的会话标签，但**不得**带 `atl:role`（否则平台按 `atl:role=lab-app` 发现实验机时会命中多台）；挂载经 SSM 或替换实例完成。`enable shared-fs --dry-run` 打印计划使用的两个子网。
+- 文件系统、挂载目标与访问点带平台标签，由平台回收器清理；`/api/lab/probe/media-url` 在 shared-fs 启用时的路径段为 `shared-fs=efs:sign`（新增结果词，与 `local:sign` 对称）。
 
 <a id="database"></a>
 
@@ -1050,6 +1066,14 @@ badges:
   error: "数据库不可用"
 ```
 
+### 12. 平台模式（ATL）
+
+> 第 4 轮新增（总纲 1.4 D16）。规格以 [docs/platform/06](../platform/06-cloudalbum-platform-mode.md) 为准（PM-11、PM-M16）。
+
+- **探测端点**：`/api/lab/probe/now` 每次都在主库 `db` 上执行一次 `select now()`（不放进缓存 loader），所以路径段总是带 `database=sqlite`、`postgres@local`、`postgres@pgbouncer`、`postgres@rds` 或 `postgres@rds-proxy`；平台的 wire 检查以它为证据。只读副本的证据（`database=postgres@rds:replica`）由 `path-seen` 读取真实的时间线请求。
+- 增强监控等服务角色（若启用）支持 `PermissionsBoundaryArn`；RDS 实例与参数组带平台标签。平台模式下不使用 `disable --purge`，最终快照与实例由平台回收器按回收规则处理。
+- 保留环境的节省模式会尽量停止 RDS 实例（`scripts/module env suspend`），停止后 AWS 会在一段时间后自动启动它（以官方文档为准），平台的保留上限远小于这一时长。
+
 <a id="cache"></a>
 
 ## cache：缓存 ↔ Amazon ElastiCache
@@ -1312,6 +1336,14 @@ badges:
   degraded: "缓存降级，直接查库"
   bypass: "缓存已旁路（A/B）"
 ```
+
+### 12. 平台模式（ATL）
+
+> 第 4 轮新增（总纲 1.4 D16）。规格以 [docs/platform/06](../platform/06-cloudalbum-platform-mode.md) 为准（PM-11、PM-M17）。
+
+- **探测端点**：`/api/lab/probe/now` 以键 `probe:now:<instanceId>`、TTL 30 秒经 CachePort 做一次 cache-aside，所以同一实例上第二次请求的路径段为 `cache=redis@elasticache:hit`（或 `memory:hit`、`redis@local:hit`）；数据库调用不放进 loader，`database` 段照常出现。探测请求不计入命中率统计。
+- `LB_LOCAL_WORKERS=2` 与 ASG-004 的关系以总纲 5.2 为准（本组约定与总纲已对齐）。
+- 复制组带平台标签；它无法停止，保留环境期间持续计费（平台的保留确认对话框会逐项列出）。
 
 <a id="social-store"></a>
 
@@ -1816,6 +1848,16 @@ badges:
   degraded: "备份降级 · {detail}"
 ```
 
+### 12. 平台模式（ATL）
+
+> 第 4 轮新增（总纲 1.4 D16）。规格以 [docs/platform/06](../platform/06-cloudalbum-platform-mode.md) 为准（PM-27、PM-M19）。
+
+- **权限边界**：AWS Backup 的服务角色支持 `PermissionsBoundaryArn`。
+- **灾备区域**：跨区域副本的目标区域必须等于平台安装参数 `DrRegion`（卡片中以 `${atl:drRegion}` 引用，`scripts/module` 从 `CLOUDALBUM_DR_REGION` 读取）；为空时拒绝启用跨区域复制。灾备区域的栈 `cloudalbum-<envName>-backup-dr` 同样带平台标签。
+- **只允许治理模式**：Vault Lock 在平台模式下只允许治理模式；合规模式一旦锁定就无法撤销，会产生回收器删不掉、又持续计费的存储（平台的学员护栏也拒绝合规模式）。
+- **区域级设置**：`preflight: backup-region-settings` 修改区域级的服务启用设置之前，把原值备份到状态桶 `<envName>/backups/`，回收时据此还原。
+- 恢复演练产生的卷与快照带平台标签，由平台回收器清理。
+
 <a id="analytics"></a>
 
 ## analytics：点击流采集与投递 ↔ Amazon Data Firehose
@@ -2057,6 +2099,15 @@ badges:
   degraded: "采集降级 · 已丢弃 {dropped} 条"
 ```
 
+### 12. 平台模式（ATL）
+
+> 第 4 轮新增（总纲 1.4 D16）。规格以 [docs/platform/06](../platform/06-cloudalbum-platform-mode.md) 为准（PM-16、PM-47、PM-M20）。
+
+- **权限边界**：Firehose 的投递角色（以及 Glue 爬网程序角色，若使用）支持 `PermissionsBoundaryArn`。
+- **路径证据**：点击流采集在异步路径上，平台用 `path-seen` 读取真实请求的 `analytics=firehose:…` 段，而不是探测端点。
+- **数据生成**：卡片使用的 `cloudalbum lab:seed-events --target db|s3 --count <n>` 在总纲中登记（06 PM-47），有上限。
+- 落地桶、投递流与 Glue 资源带平台标签，由平台回收器清理；Athena 查询结果前缀在同一个落地桶中。
+
 ## 修订记录
 
 ### 2026-10-13：按完整性评审与统一决策 D1～D15 收敛
@@ -2089,3 +2140,8 @@ badges:
 - **DEP-032 / 036**：约定 4 的 db-proxy 规则按 06 的修订条件书写（`DB_PROXY_AUTH=secrets` 时才要求 secrets；IAM 变体由 DEP-036 约束）。
 - **过时说明**：约定 6 的 `lab/` 目录已由总纲 2.4 收录；第 2 轮修订记录中“仍待其他文件配合”的各项已核对完成，改为指向本记录。
 - **registry 引用**：storage 的 `conflicts` 补上 `{ rule: MUTEX-004, need: [] }`（部署范围，由 `deployCheck()` 检查桶通知配置），满足总纲 3.5 的“每条 MUTEX 规则都被 registry 引用”。
+
+### 2026-10-13：第 4 轮（平台模式回写，总纲 D16）
+
+- storage、shared-fs、database、cache、backup、analytics 各新增“### 12. 平台模式（ATL）”（总纲附录 A 的可选第 12 节），规格以 [docs/platform/06](../platform/06-cloudalbum-platform-mode.md) 为准：探测端点 `/api/lab/probe/media-url`、`/api/lab/probe/now` 经过的端口与路径段（新增结果词 `shared-fs=efs:sign`）；桶名长度预算；临时第二台实例不得带 `atl:role`；Backup 的灾备区域等于平台参数 `DrRegion`、只允许治理模式、区域级设置备份到状态桶；各服务角色的 `PermissionsBoundaryArn`。social-store 没有平台模式差异。
+- 只做增补，独立模式的行为不变。

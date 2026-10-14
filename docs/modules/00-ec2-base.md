@@ -1147,9 +1147,68 @@ ec2 没有“有/无”对比；它的实验是**验证 L0 的性质**（Lab 0�
 - **在 CloudFront/ALB 后面用 nftables 封禁 HTTP 攻击**：封掉的是代理地址，等于封掉所有用户；`render-fail2ban.sh` 会自动改用 denylist（05#threat-detection）。
 - **T 系列 standard 模式积分耗尽**：CPU 被限制在基线，容易被误认为“代码变慢了”；看本地 steal 与 monitoring 的积分余额。
 
+### 14. 平台模式（ATL）
+
+> 第 4 轮新增（总纲 1.4 D16）。本节是 [docs/platform/06-cloudalbum-platform-mode.md](../platform/06-cloudalbum-platform-mode.md)（以下称“06”）中属于 ec2 基础契约部分的摘要，规格以 06 为准。独立模式的行为不变；标“两种模式”的除外。
+
+**14.1 基础栈参数**（06 PM-05）
+
+| 参数 | 平台模式 | 说明 |
+|---|---|---|
+| `PlatformMode`（新增，`off`\|`on`，默认 `off`） | `on` | 首次启动参数，写入 `params.env` 的 `PLATFORM_MODE`；环境生命周期内不变（不违反总纲 2.7 不变量 4） |
+| `Env` | `<envName>`（`e` + 7 位） | 栈名 `cloudalbum-<envName>-ec2` |
+| `InstanceProfileName` | `CloudAlbumAppRole`（从首次部署起） | 平台栈创建的角色，只含 `AmazonSSMManagedInstanceCore`（平台管理通道，不属于应用权限）；应用仍是 `IAM_CREDENTIALS=none`。任何模块都不能把它改为其他值或空（规则 ATL-IAM-001） |
+| `KeyName` | `cloudalbum-<envName>-key` | 运行器以 `ec2:CreateKeyPair` 创建，私钥只在 `/cloudalbum/<envName>/atl/ssh-key` |
+| `SshIngressCidr` | 空；卡片要求 SSH 接线时为工作台地址 /32 | 由平台的 `profile-apply` 设置 |
+| `AppArchiveUrl` | 工具链桶中发布包的预签名 HTTPS URL | 之后的栈更新一律保留原值；替换实例时生成新的 |
+
+- `PlatformMode=on` 时模板给两个实例槽位加资源级标签 `atl:role=lab-app`；`atl:component=env`、`atl:session-id`、`atl:lab-id`、`atl:env-id` 来自栈级标签。
+- 平台模式的首次部署使用 `--disable-rollback`；容量不足时换另一个 AZ 的默认子网重试一次。
+
+**14.2 引导脚本的差异**（06 PM-04、PM-06、PM-07）
+
+| 阶段 | 差异 |
+|---|---|
+| `install`（两种模式） | 安装应用之后执行 `infra/host/install-atl-bundle.sh`：把发布包中的 `atl/checks/<bundleDigest>/` 与 `atl/bin/atl-check` 安装到 `/opt/atl/`（root 所有，目录 0755，文件 0644，入口 0755），复算 `manifest.json` 摘要必须等于目录名，只保留最近 3 个摘要目录；安装 `/opt/cloudalbum/bin/cloudalbum`（本机 CLI 入口）与符号链接 `/usr/local/bin/cloudalbum` |
+| `install`（`PLATFORM_MODE=on`） | 检查 SSM Agent 版本，低于 `.release-manifest.json` 的 `ssmAgentMinVersion`（取值以官方文档为准）时升级并重启 Agent，结果写 `/opt/cloudalbum/.ssm-agent-check.json` |
+| `postattach`（`PLATFORM_MODE=on`） | 跳过 `admin:ensure`，不写 `/root/cloudalbum-admin.txt`；管理员由运行器经 SSM 执行 `cloudalbum admin:ensure --email atl-admin@example.com --password-hash <argon2id PHC>` 创建 |
+| 运行器的后续步骤（经 SSM） | `cloudalbum platform:apply-env --b64 …`（写 `/etc/cloudalbum/platform.env`，即数据卷 `etc/platform.env`，`root:cloudalbum 0640`，并渲染 Nginx 槽位）→ `cloudalbum probe-token --init`（生成本机探测密钥 `etc/atl/probe.token`，目录 0750、文件 `root:cloudalbum 0640`）→ `admin:ensure` |
+
+- golden AMI 的构建执行同样的检查包安装与 Agent 检查；ASG 实例经同一个 `l0-bootstrap.sh` 安装检查包，`platform.env` 与探测密钥随引导配置包分发（01#autoscaling 第 12 节）。
+- 平台配置与探测密钥都在数据卷上，换实例、迁移 VPC、换 AMI 时随数据卷保留；不违反 2.7 的六条不变量（`platform.env` 不含机密；探测密钥可由 `probe-token --init` 重新生成）。
+
+**14.3 Nginx 扩展点的新增项**（06 PM-18～PM-20；6.7 的归属规则不变，以下全部归 ec2 所有）
+
+| 文件 | 新增内容 |
+|---|---|
+| `conf.d/cloudalbum.conf`（两种模式） | `log_format cloudalbum_json` 在 `path` 之后追加 `"args":"$ca_log_args","port":"$server_port","run":"$ca_log_run","probe":"$ca_probe"`（不改变既有字段顺序；fail2ban 过滤器不得以最后一个字段锚定，CI 用 `fail2ban-regex` 回归） |
+| `cloudalbum.d/00-entry.conf`（两种模式） | map `$ca_log_args`（查询串含 `sig`、`signature`、`token`、`code`、`state`、`x-amz-*` 参数时整段替换为 `[redacted]`）、`$ca_log_run`（只保留格式合法的 `X-Experiment-Run`）、`$ca_probe`（带 `X-ATL-Probe-Token` 或 `X-ATL-Probe-Nonce` 时为 1）、`$ca_https_redirect`（直连明文请求为 1，回环地址与 `/.well-known/acme-challenge/` 为 0；tls 的 `TLS_FORCE_HTTPS` 片段只能用它）、`$ca_frame_csp`（`map "" $ca_frame_csp { default ""; include …/slot-atl-frame-ancestors.inc; }`） |
+| `cloudalbum.d/slot-atl-frame-ancestors.inc`（新槽位） | 由 `cloudalbum platform:apply-env` 渲染：平台模式开启时为 `"" "frame-ancestors 'self' <ATL_PLATFORM_ORIGIN>";`，否则为空文件；文件始终存在（`00-entry.conf` 引用它） |
+| `cloudalbum_locations.conf` | `location = /index.html` 与 `/_ca_errors/upstream.html` 加 `add_header Content-Security-Policy $ca_frame_csp always;`（SPA 回退经内部跳转到 `/index.html`）；任何模式下都不发送 `X-Frame-Options` |
+| `cloudalbum_proxy.conf`（两种模式） | `proxy_set_header X-CA-Received-XFF $http_x_forwarded_for;`（只供 `/api/lab/probe/echo` 回显，应用不得用它做任何信任判断） |
+
+**14.4 平台所有的对象与本地自检**（06 PM-08）
+
+- `/opt/atl/`、`/etc/atl/`、`/var/lib/atl/` 与 OS 用户 `labuser`（uid 2100，免密 sudo）属于平台：`hostSetup`、`install-host-files.sh` 不得修改（唯一例外是 14.2 的检查包安装）；实例替换后其余部分由平台的 State Manager 关联重建。
+- 本地安全快照、合规自检、漏洞扫描与 leak-scan 遇到这些对象时标注 `"owner":"platform"`，不计入应用的合规分数与发现计数。
+- 3.2 “实例配置文件”一行、3.5 进程表的平台模式差异：实例从 L0 起挂着 `CloudAlbumAppRole`，`amazon-ssm-agent` 从 L0 起就已注册（平台管理通道）。
+
+**14.5 L0 冒烟测试的平台分支**（06 PM-08；以 capabilities 的 `app.platform.mode` 判断，主机检查一律经 SSM 投递）
+
+| # | 平台模式下 |
+|---|---|
+| S02 | 基础栈中没有 `AWS::IAM::*`、没有 `Export`；实例配置文件为 `CloudAlbumAppRole`，角色上的托管策略只有 `AmazonSSMManagedInstanceCore`（终端录制开启时另有栈管理的 `atl-terminal-recording`）；capabilities 中 `iam.driver=none` |
+| S09 | 同独立模式；`SshIngressCidr` 为空时 22 不对外 |
+| S28（新增） | `cloudalbum platform-status`：`platformEnv.valid=true`、`probeToken.present=true`、`checkBundle.installed` 含发布包的 `atlBundleDigest` |
+| S29（新增） | 本机带本机探测令牌请求 `/api/lab/probe/now` 返回 200，不带令牌返回 401 |
+| S30（新增，P1） | `GET /` 与 `GET /index.html` 带 `Content-Security-Policy: frame-ancestors 'self' <ATL_PLATFORM_ORIGIN>`，没有 `X-Frame-Options` |
+
+**14.6 本机 CLI**（06 PM-12）：`/opt/cloudalbum/bin/cloudalbum` 是 Bash 包装——根子命令（`platform:apply-env`、`probe-token --init|--rotate`、`atl-bundle:install`、`iam:install-keys`）由 root 执行的脚本实现，其余子命令以 `cloudalbum` 用户运行 `node dist/cli.js`；stdout 只输出一个 JSON 对象，退出码 0/2/3/4/5。平台检查包与运行器只通过它读取应用的本地数据。
+
 ## 修订记录
 
 | 日期 | 修订 | 摘要 |
 |---|---|---|
 | 2026-10-13 | 新建（本轮） | 按 D10 新建 ec2 基础契约。收拢总纲 §2 与 01、03、05 组文档中的全部基础栈参数（`SshIngressCidr`、`KeyName`、`PublicHttpIngress`、`AdminIngressCidr`、`ExtraSecurityGroupIds`、`AlbSecurityGroupId`、`DataVolumeAttach`、`DataVolumeId`、`AssociateEip`、`VpcId`、`SubnetId`、`DetailedMonitoring`、`InstanceProfileName`、Backup 标签等）与 User Data 新增项（fail2ban、sshd 加固、root 安全快照、healthcheck、denylist path 单元、ACME 挑战目录、`cloudalbum_locations.conf`、`cloudalbum_upstream.conf`、`00-entry.conf`、只安装不启动与 `cloudalbum-postattach`、定时器时区）。给出完整参数表（默认值、用途、`baseParams` 写入方、更新影响）、模板骨架、合并后的 `l0-bootstrap.sh`（落实 D4、D5、D6 与总纲 2.7 的四条不变量）、Nginx 与 systemd 的扩展点与 drop-in 约定、registry 条目、capabilities 本地健康项、`/lab` 卡片、27 条 L0 冒烟测试、L0 vs 传统单机部署对比。对总纲的 14 项细化列在第 2 节（E1～E14），待主设计者确认后回写；需要 01、02、03 配合的事项列在 6.9 末尾。 |
 | 2026-10-13 | 第 3 轮（审计修复） | 第 5 行改为“2.7 的六条不变量”；第 2 节标题改为“已回写总纲 2.2～2.7（E13 无变更）”。6.4 `ec2-public-ipv4-at-boot` 改为引用 01#network 已开启的 public 子网自动分配公网 IPv4。6.5 引导段与 `l0-bootstrap.sh` 支持 `s3://` 形式的 `AppArchiveUrl`（network `private` + `NatMode=none` 时从工具链栈的发布包镜像下载，随替换实例一起修改，`cfn-signal` 经 `cloudformation` Interface Endpoint），6.2 的 `AppArchiveUrl` 行同步说明这一例外。6.8 模块单元名定为 `cloudalbum-cdn-cf-ranges.timer`、`cloudalbum-tls-renew.timer`。6.9 补充“派生副本”说明（槽位文件留在根卷而非 `/run` 的理由），“仍需其他文件配合”五项改为第 3 轮的处理结果并增加 kms 换卷一项。S16 改为 `POST /api/uploads/session` + 请求头 `Authorization: CA-Upload <令牌>`，并断言访问日志中不出现令牌。 |
+| 2026-10-13 | 第 4 轮（平台模式回写，总纲 D16） | 新增第 14 节“平台模式（ATL）”，是 docs/platform/06 的 PM-04～PM-08、PM-12、PM-18～PM-20 中属于 ec2 基础契约部分的摘要：基础栈参数 `PlatformMode` 与平台模式下 `InstanceProfileName`、`KeyName`、`AppArchiveUrl`、实例标签 `atl:role` 的取值；引导脚本安装检查包与本机 CLI、检查 SSM Agent 版本、跳过启动时创建管理员；Nginx 日志追加四个字段、`00-entry.conf` 的五个新 map、新槽位 `slot-atl-frame-ancestors.inc`、HTML 响应的 CSP、`X-CA-Received-XFF`；平台所有的目录与 `labuser`；冒烟测试 S02 的平台分支与 S28～S30。只做增补，独立模式不变。 |

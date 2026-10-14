@@ -674,6 +674,15 @@ ctx.path.mark('image-processing', forceInline ? 'inline:bypass'          // 总�
 - registry 的 `lab.badges` 写法见第 0 节；`degraded` / `error` 时徽章变黄 / 红，并在文案后附“降级”或“故障”（总纲 12.3）。
 - workflow 启用后，照片详情的徽章由 workflow 的 `lab.badges` 提供（“由 Step Functions 编排”），文案定义在 06。
 
+### 12. 平台模式（ATL）
+
+> 第 4 轮新增（总纲 1.4 D16）。规格以 [docs/platform/06](../platform/06-cloudalbum-platform-mode.md) 为准（PM-16、PM-29、PM-M21）。
+
+- **权限边界（P0）**：缩略图函数的执行角色（以及结果、失败队列相关的角色）支持 `PermissionsBoundaryArn`。学员在平台工作台上执行 `scripts/module enable image-processing` 时，学员边界要求新建的角色带工作负载边界，否则 `CreateRole` 被拒。
+- **路径证据**：`lambda:async` 只出现在上传完成后的异步路径上，平台用 `path-seen` 读取真实请求中 `image-processing` 段匹配 `^lambda:` 的次数，并用 `app-stat --stat biz.photo_time_to_ready_p95 --run <runId>` 按运行判定就绪时间。
+- **代码包**：Lambda 代码包放在本环境的工具链栈制品桶（`cloudalbum-<envName>-toolchain-…`）中，随环境回收。
+- 函数、规则与队列带平台标签。
+
 <a id="queue"></a>
 ## queue：异步任务队列 ↔ Amazon SQS
 
@@ -1327,6 +1336,13 @@ await sns.send(new PublishCommand({
 
 - registry 的 `lab.badges` 写法见第 0 节（与总纲 12.3 “通知设置”一行一致）。
 
+### 12. 平台模式（ATL）
+
+> 第 4 轮新增（总纲 1.4 D16）。规格以 [docs/platform/06](../platform/06-cloudalbum-platform-mode.md) 为准（PM-46、PM-M23）。
+
+- **测试用户的收件人**：`experiments/notification/seed-users.ts` 的收件人取学员在开始前填写的邮箱（卡片的前置输入，例如 `+u1`～`+u3` 子地址）；种子测试用户与管理员的邮箱是保留域名（`example.com`），不为它们创建 SNS 邮件订阅。
+- 主题、订阅与收件队列带平台标签；需要学员确认的订阅邮件属于人工前置，平台不代为确认。
+
 <a id="email"></a>
 ## email：邮件发送 ↔ Amazon SES
 
@@ -1649,6 +1665,14 @@ export async function sendTemplate(c: Container, t: Template, to: string, vars: 
 | `/lab` 卡片 | 灰色“outbox · 本机” | 橙色“SES · 沙盒 / 生产 · 今日已发 n” | capabilities：email |
 
 - registry 的 `lab.badges` 写法见第 0 节（与总纲 12.3 “管理后台 · 邮件”一行一致）。
+
+### 12. 平台模式（ATL）
+
+> 第 4 轮新增（总纲 1.4 D16）。规格以 [docs/platform/06](../platform/06-cloudalbum-platform-mode.md) 为准（PM-46、PM-M24）。
+
+- **已有的发件身份只读使用**：SES 发件身份是账号级资源，可能在平台安装之前就已验证。模板新增参数 `AdoptExistingIdentity`（缺省 `false`）；平台模式下 `scripts/module` 发现身份已存在时传 `true`：栈不创建 `AWS::SES::EmailIdentity`，`disable` 与平台回收都不删除它。平台的账号预检把“缺少身份”视为卡片内创建，而不是失败。
+- **保留域名不发信（两种模式都生效）**：EmailPort 的所有驱动在发送前检查收件人，域名属于 `example.com`、`example.net`、`example.org` 或顶级域 `.example`、`.invalid`、`.test`、`.localhost` 时不调用 SES，只写 outbox 并标注“保留域名，未发送”，路径段 `email=outbox:reserved`（新增结果词）。平台模式的管理员与种子测试用户都使用这些域名，避免产生 SES 退信。
+- 配置集与反馈队列带平台标签；SES 沙箱状态是账号级的，平台不代为申请生产访问。
 
 <a id="scheduler"></a>
 ## scheduler：定时任务 ↔ Amazon EventBridge Scheduler
@@ -1986,6 +2010,15 @@ AuditRetentionExpression=cron(45 3 * * ? *)
 | `lab.heartbeat` 时间线 | 只有 cron 点 | cron 与 eventbridge 两列点，横向偏移即触发延迟差 | `job_runs` |
 
 - registry 的 `lab.badges` 写法见第 0 节；漂移时徽章变黄并附“降级”。
+
+### 12. 平台模式（ATL）
+
+> 第 4 轮新增（总纲 1.4 D16）。规格以 [docs/platform/06](../platform/06-cloudalbum-platform-mode.md) 为准（PM-37、PM-M25）。
+
+- **权限边界**：EventBridge Scheduler 的执行角色支持 `PermissionsBoundaryArn`。
+- **实验时长**：平台模式下 `heartbeat` 实验缺省 `--duration 30m`（卡片有时间上限）；更长的对比留作选做。`--duration` 的允许范围写在 `experiment.json` 的 `params` 中。
+- **第二个 worker 的演示**：模块文档需写明 cron 驱动如何设置 `scheduledAt`，以及 `(name, scheduled_at)` 唯一索引下“两个 worker 同时触发”应计为几次执行（cards 第 2 批 C-13）。
+- 调度组与 tick 队列带平台标签；调度名带环境名，不会与平台自己的调度组 `atl-sessions`、`atl-system` 混淆。
 
 <a id="tagging"></a>
 ## tagging：图片识别与审核 ↔ Amazon Rekognition
@@ -2630,6 +2663,15 @@ export const requireGateway = (secrets: SecretsPort): RequestHandler => async (r
 
 - registry 的 `lab.badges` 写法见第 0 节（与总纲 12.3 “评论区”一行一致）。
 
+### 12. 平台模式（ATL）
+
+> 第 4 轮新增（总纲 1.4 D16）。规格以 [docs/platform/06](../platform/06-cloudalbum-platform-mode.md) 为准（PM-M27）。
+
+- **权限边界**：Lambda 集成函数与 Lambda 授权器的执行角色支持 `PermissionsBoundaryArn`。
+- **授权器缺省值**：平台模式下 `auth=local` 时缺省使用 Lambda 授权器（`Authorizer=lambda`）——本地令牌是 ES256，HTTP API 的 JWT 授权器只支持 RSA 系列算法（第 0 节已核实）；`auth=cognito` 时仍可用 `jwt`。
+- **路径证据**：`entry=apigw>nginx` / `apigw>lambda` 段由平台从外部经 API Gateway 端点请求得到（`http-header` 的 `apigw` 目标），社交写操作的证据用 `path-seen`。
+- HTTP API、阶段与函数带平台标签。
+
 ## 修订记录
 
 ### 2026-10-13 第 2 轮：收敛修订（落实完整性评审与主设计者统一决策 D1～D15）
@@ -2669,3 +2711,8 @@ export const requireGateway = (secrets: SecretsPort): RequestHandler => async (r
 - 公共约定 2 的注入表：storage、load-balancer、auth、social-store 对本组的注入已由 03、01、02、03 声明，删除“待 0N 声明”；image-processing 与 social-api 第 0 节补“本栈接收的注入”注释（`OriginBaseUrl`、`UserPoolId` / `UserPoolClientId`、`SocialTableName` 等）。
 - 路径头 `entry=apigw>lambda`、image 分段的 `IMAGE_WORKER_CONCURRENCY` / `IMAGE_FAILURE_QUEUE_URL` 已由总纲 7.2、4.4 收录，相应的“需总纲登记”字样改为已收录；总纲 3.4 的 image-processing 摘录补上 DEP-020、DEP-021。
 - 第 2 轮修订记录中“仍需其他文件配合”的过时事项（总纲 10.2 / 10.3 的旧档位名、`AWS_CREDENTIALS_SOURCE`、DEP-008 等）已删除，只保留仍未登记的 `EMAIL_SANDBOX_POLICY`、`EMAIL_FOR_COGNITO`、`ImageFailure` 与几个端点。
+
+### 2026-10-13 第 4 轮：平台模式回写（总纲 D16）
+
+- image-processing、notification、email、scheduler、social-api 各新增“### 12. 平台模式（ATL）”（总纲附录 A 的可选第 12 节），规格以 [docs/platform/06](../platform/06-cloudalbum-platform-mode.md) 为准：各执行角色的 `PermissionsBoundaryArn`（image-processing 为 P0）；路径证据改用平台的 `path-seen` 与 `app-stat --run`；email 的 `AdoptExistingIdentity` 与保留域名不发信（新增结果词 `email=outbox:reserved`，两种模式都生效）；scheduler 的 `heartbeat` 缺省 30 分钟；social-api 在 `auth=local` 时缺省 Lambda 授权器。queue、tagging 没有平台模式差异。
+- 只做增补，独立模式的行为不变（保留域名不发信除外）。

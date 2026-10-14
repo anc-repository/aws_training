@@ -533,6 +533,17 @@ badges:
   degraded: "运维登录：Session Manager · 22 仍开放"
 ```
 
+### 12. 平台模式（ATL）
+
+> 第 4 轮新增（总纲 1.4 D16）。规格以 [docs/platform/06](../platform/06-cloudalbum-platform-mode.md) 为准（PM-27、PM-M28）。
+
+- **“启用前”的含义改变**：平台模式下实验机从 L0 起就挂着只含 `AmazonSSMManagedInstanceCore` 的 `CloudAlbumAppRole`，SSM Agent 已在线（平台管理通道）。本模块只负责关闭 22 端口（基础栈 `SshIngressCidr` 置空）与修改会话首选项；对比的是“运维者走 SSH 22 端口”与“运维者走 Session Manager”。SSH 从平台工作台发起（`ssh lab`），`SshIngressCidr` 由平台设为工作台私网 IP/32（实验机在默认 VPC）或公网 IPv4/32（实验机已在自定义 VPC）。
+- **平台终端与本模块互不影响**：平台终端使用独立的 Session 文档 `ATL-SessionShell`（录制时为 `ATL-SessionShell-Logged`），本模块不得修改它们；本模块修改的是账号 × 区域级的单例 `SSM-SessionManagerRunShell`，平台终端也不读写它。
+- **统计会话时排除平台会话**：感知器与平台检查用 `DescribeSessions` 统计会话时，排除文档为 `ATL-SessionShell*`、或会话 ID 以 `atl-<sid>-term-` 开头的平台终端会话，只统计学员自己发起的会话（例如以 `atl-<sid>-ws-` 开头的工作台会话）；否则“已使用 Session Manager”会因平台终端而直接成立。
+- **单例备份**：修改 `SSM-SessionManagerRunShell` 前，把原来的默认版本与内容（或“原本不存在”）写入状态桶 `<envName>/backups/ssm-document-SSM-SessionManagerRunShell-<时间>.json` 并登记到 `state.json`，平台回收器复位时据此还原；不再只写在运维机或工作台本地。
+- **端口探测**：`probe-port` 增加 `--target private-ip`（从工作台探测实验机私网地址）。平台模式下 22 端口只对工作台开放，从外部探测在 before 时就是 `filtered`，这是预期结果。
+- **SSM 投递**：平台模式下 `scripts/module` 的投递通道从 L0 起就是 SSM（不随 `SHELL_ACCESS_MODE` 切换），所以“投递方式本身体现本模块的差异”这一观察点在平台模式下不成立，手册中说明。
+
 <a id="logging"></a>
 
 ## logging：日志 ↔ Amazon CloudWatch Logs
@@ -902,6 +913,14 @@ badges:
   aws: "日志：CloudWatch Logs · {instances} 个实例"
 ```
 
+### 12. 平台模式（ATL）
+
+> 第 4 轮新增（总纲 1.4 D16）。规格以 [docs/platform/06](../platform/06-cloudalbum-platform-mode.md) 为准（PM-M29）。
+
+- **日志组的归属**：CloudWatch Agent 在运行时创建的日志组由 `CloudAlbumAppRole` 的会话创建，不在任何栈中；平台回收器按“派生资源”规则处理（docs/platform/02）。Agent 配置中的日志组名一律以 `cloudalbum-<env>-` 开头（平台模式下 `<env>` 为环境名），便于识别与回收。
+- **平台日志组不受影响**：本模块不读写平台的日志组（`/atl-recordings/*`、`/aws/codebuild/atl-runner` 等）。
+- Nginx 访问日志新增的 `args`、`port`、`run`、`probe` 字段随日志一起投递；其中查询串已对签名与授权码打码（06 PM-18）。
+
 <a id="monitoring"></a>
 
 ## monitoring：指标、告警与仪表板 ↔ Amazon CloudWatch
@@ -1150,7 +1169,7 @@ async flush() {                                            // 每 METRICS_CW_FLU
 
 **操作步骤**（`experiments/monitoring/`）
 1. 告警时延：`npm run exp -- monitoring --label after --scenario time-to-alert`。`time-to-alert.ts` 调用 `POST /api/lab/faults {"type":"error5xx","rate":0.5,"durationSec":600}`，同时用 `load.k6.js` 施加恒定负载；记录注入时刻，轮询 `GET /api/lab/monitoring/alarms`（本地）与 `aws cloudwatch describe-alarm-history --alarm-name cloudalbum-lab-app-5xx-rate`（CloudWatch），以及管理员站内信、outbox 的到达时间。可选 `--sqs-probe`：脚本给 ops-alarms 主题临时加一个 SQS 订阅，自动记录 SNS 送达时间，结束后删除。切换前（`--label before`）只测本地一侧。
-2. 宕机实验：`npm run exp -- monitoring --label after --scenario kill-test`。第一阶段执行故障脚本 `faults/stop-app.sh`（经投递通道执行 `systemctl stop cloudalbum-api cloudalbum-worker`）；第二阶段执行 `faults/stop-instance.sh`（`aws ec2 stop-instances`）。分别观察：本地评估器是否发出通知（不会）、`app-heartbeat` 多久进入 ALARM、邮件何时到达。实验结束后脚本自动启动实例和服务。
+2. 宕机实验：`npm run exp -- monitoring --label after --scenario kill-test [--phase service|instance|all]`（缺省 `all`；平台模式见第 12 节）。第一阶段执行故障脚本 `faults/stop-app.sh`（经投递通道执行 `systemctl stop cloudalbum-api cloudalbum-worker`）；第二阶段执行 `faults/stop-instance.sh`（`aws ec2 stop-instances`）。分别观察：本地评估器是否发出通知（不会）、`app-heartbeat` 多久进入 ALARM、邮件何时到达。实验结束后脚本自动启动实例和服务。
 3. 内存可见性：`POST /api/lab/faults {"type":"mem","durationSec":300}`，然后 `npm run exp -- monitoring --label after --scenario mem-visibility`：对比 `AWS/EC2` 命名空间（没有内存指标）、`CWAgent mem_used_percent` 和本地 `host.memUsedRatio` 三条曲线。
 4. 粒度：`npm run exp -- monitoring --label after --scenario resolution`：施加一段 3 分钟的 CPU 尖峰（`{"type":"cpu","durationSec":180}`），并排画出本地 10 秒样本、`AWS/EC2 CPUUtilization` 在基础监控和详细监控（`--param DetailedMonitoring=true` 后重做一次）下的曲线。
 5. 通知链路：`aws cloudwatch set-alarm-state --alarm-name cloudalbum-lab-app-5xx-rate --state-value ALARM --state-reason "lab test"`，确认邮件送达；随后告警会在下一个评估周期按真实数据回到 OK。
@@ -1245,6 +1264,14 @@ badges:
   local: "监控：本地评估器（实例宕机即失效）"
   aws: "监控：CloudWatch 告警 · SNS 送达"
 ```
+
+### 12. 平台模式（ATL）
+
+> 第 5 轮新增（总纲 1.4 D16）。规格以 [docs/platform/06](../platform/06-cloudalbum-platform-mode.md) 为准（PM-M30）。
+
+- **`kill-test` 分阶段运行**：`experiments/monitoring/kill-test` 增加参数 `--phase service|instance|all`。`service` 只做第一阶段（停 api 与 worker，等待后恢复）；`instance` 只做第二阶段（停止实验机、等待、启动并等管理通道恢复，`finally` 中保证实例被启动）；`all` 即本节第 5 部分的两阶段连跑。平台模式缺省 `service`，独立模式缺省 `all`（行为不变）。
+- **变体**：`experiment.json` 的 `labels` 登记一次性变体 `stop-instance`（`role: single`），平台模式下它只接受 `--phase instance`，`before`、`after` 只接受 `--phase service`。这样卡片的 before / after 成对比较两侧场景一致（docs/platform/04 §7.4），停实例作为单独的附加观察。
+- **预期中断**：停实例会让平台管理通道暂时离线，卡片在对应步骤声明 `expectedOutage`（docs/platform/04），平台在窗口内不把它当作故障。
 
 <a id="tracing"></a>
 
@@ -1923,6 +1950,15 @@ badges:
   aws: "审计：CloudTrail trail · 多区域"
 ```
 
+### 12. 平台模式（ATL）
+
+> 第 4 轮新增（总纲 1.4 D16）。规格以 [docs/platform/06](../platform/06-cloudalbum-platform-mode.md) 为准（PM-M31）。
+
+- **平台缺省不建 trail**：平台以 CloudTrail 事件历史确认归属与回收（不需要 trail），安装参数 `PlatformTrail` 缺省关闭，所以本模块的“创建 trail”照常有意义。若安装时开启了平台 trail（`atl-trail`，记录管理事件），`preflight: existing-trail` 会发现它：本模块只创建记录数据事件的 trail（不重复记录管理事件），并以“只读接入”展示管理事件。
+- **对象锁**：平台模式下 `ObjectLockDays` 缺省 0；需要演示时只允许治理模式（合规模式的对象锁会产生回收器删不掉、又持续计费的存储，平台的学员护栏也拒绝它）。
+- **“谁删了这张照片”实验**：实验机侧的场景从平台工作台经 SSM 投递执行（06 PM-41）；平台的身份在事件中显示为 `atl-<sid>-*` 会话名，学员与运行器的操作因此可以区分。
+- trail、桶与日志组带平台标签；本环境创建的 trail 在回收时删除，“只读接入”的 trail 不删除。
+
 <a id="threat-detection"></a>
 
 ## threat-detection：威胁检测 ↔ Amazon GuardDuty
@@ -2274,6 +2310,14 @@ badges:
   aws: "威胁检测：GuardDuty + fail2ban"
 ```
 
+### 12. 平台模式（ATL）
+
+> 第 4 轮新增（总纲 1.4 D16）。规格以 [docs/platform/06](../platform/06-cloudalbum-platform-mode.md) 为准（PM-M32）。
+
+- **谁创建谁清理**：本环境创建的 GuardDuty 检测器在 `disable` 与平台回收时**删除**（不是暂停），因为检测器是账号级单例、按量计费，暂停后留在账号里会让下一个环境误以为“已存在则只读接入”。`preflight: existing-detector` 发现检测器在平台安装之前就已存在时只读接入，不删除也不暂停。
+- **攻击模拟的来源**：攻击脚本从平台工作台发起时，注意 fail2ban 的 `ignoreip` 与工作台出口地址的关系；平台工作台的出口地址以平台占位符 `${atl:workstationPublicCidr}` 引用。从 CloudShell 发起的结果无法上传到平台，只能人工确认。
+- 检测器的计费是账号级的，平台的开始确认页会说明这一点。
+
 ## 修订记录
 
 ### 2026-10-13 · 第 2 轮（收敛修订：落实完整性评审与统一决策 D1～D15）
@@ -2310,3 +2354,12 @@ badges:
 - **补齐注入**：monitoring 作为提供方增加 `{ target: backup, params: { AlarmTopicArn } }`（03 backup 原来标为“待 05 声明”）；作为接收方补上 workflow 注入的 `StateMachineArn`（第 0 节注释、模板参数清单、告警清单中的 Step Functions 失败执行数告警）。约定 11 的注入表同步：storage → audit 的 `DataEventBuckets` 与各提供方 → monitoring 的告警维度已由 01、03、04、06 声明，删除“待补”。
 - **模板结构**：总纲附录 A 第 3 轮按本组与 01～04 组的实际结构定稿（“10. 探针”“11. 前端徽章”独立成节），本文上一轮“没有采纳的评审意见”第 1 条因此不再是偏差。
 - 上一轮“仍需其他文件配合”中的第 2 条（01、03、04 补 `injects`、storage → audit）已完成；`Tracing` 段的 4 个键与 Core 的 `AUDIT_RETENTION_DAYS`、`AUDIT_HASH_CHAIN` 已由总纲 4.4 收录。仍未完成：总纲 4.2 `Dims` 的 ASG 例外，3.5 `preflight` 的 `ssm-session-preferences`，以及“Agent 类子选项要求 role”的部署规则建议；02#kms 密钥策略的服务主体语句；00 的若干细节。
+
+### 2026-10-13 第 4 轮：平台模式回写（总纲 D16）
+
+- shell-access、logging、audit、threat-detection 各新增“### 12. 平台模式（ATL）”（总纲附录 A 的可选第 12 节），规格以 [docs/platform/06](../platform/06-cloudalbum-platform-mode.md) 为准：shell-access 的“启用前”在平台模式下已有 SSM 管理通道、平台终端使用 `ATL-SessionShell` 且统计时排除、`SSM-SessionManagerRunShell` 的原值备份到状态桶、`probe-port --target private-ip`；logging 的运行时日志组命名与回收；audit 在已有平台 trail 时只建数据事件 trail、`ObjectLockDays` 缺省 0；threat-detection 本环境创建的检测器删除而不是暂停。monitoring、tracing 没有模块侧改动（停止实例的演练由卡片声明预期中断窗口）。
+- 只做增补，独立模式的行为不变。
+
+### 2026-10-13 第 5 轮：平台模式补充（kill-test 分阶段）
+
+- monitoring 新增“### 12. 平台模式（ATL）”：`kill-test` 增加 `--phase service|instance|all`（平台模式缺省 `service`，独立模式缺省 `all`），登记一次性变体 `stop-instance`；第 5 部分第 2 步注明该参数。依据 docs/platform/06 PM-M30（跨文档审计：卡片 svc-monitoring、sc-observability 的成对比较只用第一阶段）。上一轮“monitoring、tracing 没有模块侧改动”的说法对 monitoring 不再成立。

@@ -538,6 +538,17 @@ badges:
     private: "网络：自定义 VPC · 私有子网 · 出网经 {egress}"   # egress = NAT / Endpoint
 ```
 
+### 12. 平台模式（ATL）
+
+> 第 4 轮新增（总纲 1.4 D16）。规格以 [docs/platform/06](../platform/06-cloudalbum-platform-mode.md) 为准（PM-M01、PM-30、PM-48）；独立模式不变。
+
+- **平台管理通道必须保持可达**（规则 ATL-NET-001）：实验机的 SSM Agent 是平台的管理通道（终端、本地检查、投递都靠它）。平台模式下切换到 `private` 放置时，必须保留 NAT，或接口终端节点包含 `ssm`、`ssmmessages`、`ec2messages`。参数 `InterfaceEndpoints` 新增取值 **`ssm`**（只建这三个）；平台模式下 `ops` 额外包含 `ec2messages`。开启平台终端录制时还需要 `logs` 终端节点（`ops`、`all` 已含），没有时平台自动改用不录制的会话文档。
+- **切换后复核**：替换实例或切换放置之后，`scripts/module` 先等实例在 Systems Manager 中 `PingStatus=Online`（最长 10 分钟）再继续后续步骤；不恢复则退出 5，提示检查 NAT 或终端节点。
+- **DEP-009 的“运维通道”**：平台模式下平台管理通道可达（ATL-NET-001 满足）即视为满足，不需要另开 shell-access 或 EC2 Instance Connect Endpoint。
+- **`endpoint-only` 实验**：先 `--param InterfaceEndpoints=ssm`，再删除 NAT 路由；卡片把这一步声明为预期中断窗口（docs/platform/04 的 `expectedOutage`），避免平台把计划内的失联显示为故障。
+- **预览方案 B**：切到 `private` 后实例没有公网 IPv4，Let's Encrypt IP 证书无法续期；把 network 切到 private 的卡片关闭平台预览方案 B（06 PM-21），预览改用 ALB 或 CloudFront 入口。
+- 栈与带外资源带平台标签（`atl:component=env` 与会话类标签，06 PM-29）；Flow Logs 的 IAM 角色支持 `PermissionsBoundaryArn`。
+
 <a id="cdn"></a>
 
 ## cdn：内容分发与边缘缓存 ↔ Amazon CloudFront
@@ -915,6 +926,18 @@ badges:
   degraded: "CDN 降级 · {reason}"
 ```
 
+### 12. 平台模式（ATL）
+
+> 第 4 轮新增（总纲 1.4 D16）。规格以 [docs/platform/06](../platform/06-cloudalbum-platform-mode.md) 为准（PM-24、PM-25、PM-M02）。
+
+- **源请求策略转发实验头（两种模式都生效，P0）**：栈新增客户托管的源请求策略 `cloudalbum-<env>-cdn-experiment`（各行为原有设置不同时按行为复制为 `cloudalbum-<env>-cdn-exp-<行为名>`），请求头白名单为 `X-Experiment-Run`、`X-Experiment-Label`、`X-ATL-Probe-Nonce`，查询串与 Cookie 的设置复制该行为原先的源请求策略。以 EC2（8080）或 ALB 为源的**可缓存行为**（`/media/*`、`/assets/*`、`/api/public/*` 等）改用它；源请求策略中的头不进入缓存键，缓存策略不变，命中率不受影响。`/api/*` 行为保持转发全部查看器请求头（已包含实验头与 `X-ATL-Probe-Token`）。以 S3 为源的行为不转发（平台改用 CloudFront 指标佐证）。`X-Compare-Bypass` 仍然只在 `/api/*` 行为中转发（总纲 8.3 第 5 条不变）。原因：源站只能从 `X-Experiment-Run` 认出实验流量，不转发时对比实验经 CloudFront 的请求无法按运行归属。
+- **响应头策略** `cloudalbum-<env>-lab`：不设置 `FrameOptions`，不设置 `ContentSecurityPolicy`（源站在平台模式下输出 `frame-ancestors`，原样透传，否则平台的应用预览无法嵌入）。
+- **`X-Origin-Verify` 打码**：`GetDistribution` / `GetDistributionConfig` 的响应中 `CustomHeaders.Items[*].HeaderValue` 是密钥原文；`scripts/module status cdn`、`/lab` 管理员视图与 capabilities 的 `data` 一律打码。
+- **`/api/public/*` 微缓存**：平台模式下缺省开启（参数 `PublicMicroCache=on`）；svc-cdn 的“边缘命中”服务端佐证依赖它。
+- **管理 IP**：`CDN_DIRECT_ACCESS=admin-ip` 时 `AdminCidr` 接受平台占位符 `${atl:workstationPublicCidr}`（运行器在应用档位前替换）。收紧直连后平台 Lambda 与 Let's Encrypt 都访问不到 EIP：平台的直连类检查改为从实验机发起，预览方案 B 无法续期，预览改用 CloudFront 入口。
+- **测量说明**：对比实验从平台工作台（与实验机同区域）运行，首字节时间的差异可能很小；cdn 卡片以 `media-load`、源站请求数与 EC2 出站字节为主要观察点。
+- **探测端点**：`/api/lab/probe/now`（`Cache-Control: private, no-store`，经 CloudFront 两次都不命中）、`/api/lab/probe/media-url`（路径段 `cdn=cloudfront`），见 06 PM-11。
+
 <a id="dns"></a>
 
 ## dns：域名解析 ↔ Amazon Route 53
@@ -1155,6 +1178,14 @@ badges:
   local: "入口：{host}（{provider}）"            # provider = IP / 外部 DNS
   aws: "入口：{host}（Route 53 · {policy}）"    # policy = simple / failover / weighted
 ```
+
+### 12. 平台模式（ATL）
+
+> 第 4 轮新增（总纲 1.4 D16）。规格以 [docs/platform/06](../platform/06-cloudalbum-platform-mode.md) 为准（PM-M03）。
+
+- **悬空委派**：禁用 dns 或删除托管区域前，`scripts/module` 提示先删除上级区域或注册商处的 NS 委派，否则留下悬空委派（可被他人接管子域）；平台模式下这一项登记为安全类的待人工处理项，进入会话的回收清单。
+- **换 IP 演练**（`ip-change-drill`）：演练期间 EIP 改变，平台记录的 `target.publicIp` 与预览方案 B 的 IP 证书都暂时失效，平台从外部发起的检查会失败；手册提示演练期间不要点“检测”。脚本在 `finally` 中关联回原 EIP 并释放临时 EIP（第 5 节已要求）。
+- 托管区域与记录带平台标签；手工在控制台创建的记录由平台的定向扫描确认归属（docs/platform/02），学员不需要手工打标签。
 
 <a id="tls"></a>
 
@@ -1483,6 +1514,25 @@ badges:
   note: "考试结论：ACM 证书只能挂在集成服务上；ACME 端点是 2026 年的新能力"
 ```
 
+### 12. 平台模式（ATL）
+
+> 第 4 轮新增（总纲 1.4 D16）。规格以 [docs/platform/06](../platform/06-cloudalbum-platform-mode.md) 为准（PM-19、PM-21、PM-M04）。
+
+**平台预览方案 B**：平台的应用预览要求受信 HTTPS。平台模式下缺省由本模块的本地档为实验机 EIP 申请 Let's Encrypt IP 短期证书（`shortlived` 配置档，有效期约 160 小时，以 Let's Encrypt 公告为准），使 L0 的直连入口也能嵌入预览。
+
+- **开关**：卡片 `lab.yaml` 的 `startProfile.platform.preview.directHttps`；`scripts/module plan --start-of` 在起始状态或目标含 autoscaling（ASG-014）、目标含 tls（本模块的卡片要从自签名讲起）、80 端口不对公网开放或私有放置时给出 `off`。档位写作 `PROFILE_PLATFORM=preview.directHttps=on|off`。
+- **执行**：`profile apply --platform` 在全部模块应用完成后执行 `scripts/module tls-preview on`：经 SSM 运行 `scripts/tls/letsencrypt.sh --ip <EIP> --profile shortlived --preview`（webroot、HTTP-01）；成功后写 `modules.d/tls.env`（本地档，不写 `MODULE_TLS`）：`TLS_MODE=letsencrypt`、`TLS_LE_PROFILE=shortlived`、`TLS_DOMAIN=`、`TLS_PUBLIC_IP=<EIP>`、`TLS_PREVIEW=letsencrypt-ip`、`TLS_FORCE_HTTPS=false`，切换证书符号链接并启用 `cloudalbum-tls-renew.timer`。签发失败不报错，保持自签名，预览退化为新标签页。
+- **续期**：定时器每 12 小时运行，剩余有效期不足一半时续期（certbot 配置以官方文档为准）；保留与复用环境会让同一台实验机运行超过一次会话，所以必须自动续期。
+- **有效入口**：`APP_BASE_URL` 不变；`base-url.ts` 在 `TLS_MODE ∈ {letsencrypt, acm}`、`TLS_DOMAIN` 为空且 `TLS_PUBLIC_IP` 等于 `APP_BASE_URL` 的主机时把基础值的协议改为 `https`，于是 `https.trusted=true`、`via=letsencrypt@nginx`，路径段 `tls=letsencrypt@nginx`。capabilities 的 `https` 增加 `hostKind: ip|dns`；在实测确认 Cognito 接受 IP 主机名的回调地址之前，平台模式下 DEP-029 要求 `hostKind=dns`，auth 的回调地址排除 IP 主机名。
+- **与 ASG-014 的冲突**：autoscaling、tls 卡片关闭方案 B（lint 强制）；运行时兜底——平台模式下 `enable autoscaling` 与本模块的 `enable tls`（ACM 路径）发现 `TLS_PREVIEW=letsencrypt-ip` 时先自动执行 `tls-preview off`；ASG-014 的修复提示改为“关闭平台预览方案 B”。
+- **`tls-preview off`**：只在 `tls.env` 带 `TLS_PREVIEW=letsencrypt-ip` 时执行（否则拒绝，避免误删学员自己配置的 letsencrypt 档）：删除 `tls.env`、切回自签名、停用续期定时器、删除本地证书。不涉及 AWS 资源。
+- **`ownsEnv`** 增加 `TLS_PUBLIC_IP`、`TLS_PREVIEW`（已在 `TLS_` 前缀内）。
+
+**其他**：
+
+- `TLS_FORCE_HTTPS=true` 的跳转片段只能使用 ec2 提供的 `$ca_https_redirect`：来自回环地址的请求与 `/.well-known/acme-challenge/` 不跳转，HSTS 同样不对回环请求输出（平台的本地检查以 `http://127.0.0.1/` 访问应用）。
+- ACME 证书由签发角色（`cloudalbum-<env>-acme-issuer`）的会话创建，平台按“本环境栈成员角色”认定归属（docs/platform/04），本模块无需改动；该角色支持 `PermissionsBoundaryArn`。
+
 <a id="waf"></a>
 
 ## waf：Web 应用防护 ↔ AWS WAF
@@ -1751,6 +1801,14 @@ badges:
   degraded: "WAF 降级 · {reason}"              # 例如“源站未锁定，可被绕过”
 ```
 
+### 12. 平台模式（ATL）
+
+> 第 4 轮新增（总纲 1.4 D16）。规格以 [docs/platform/06](../platform/06-cloudalbum-platform-mode.md) 为准（PM-M05）。
+
+- **`flood` 实验的轮次**：请求量只需略高于速率规则的阈值；实验增加短轮次参数（`--param duration=…`、`--param rate=…`，范围在 `experiment.json` 的 `params` 中声明，06 PM-37），卡片用短轮次控制总时长；手册注明 AWS 关于渗透测试与模拟流量的政策（以官方文档为准）。
+- **白名单地址**：平台模式下 `WAF_LAB_ALLOW_CIDR` 接受平台占位符 `${atl:workstationPublicCidr}`（工作台的出口地址）；ASG 启用之后修改它会触发实例刷新，卡片应在启用 autoscaling 之前设置。
+- WAF 日志的日志组在 `us-east-1`（CLOUDFRONT 范围），带平台标签，由平台回收器按区域清理；本模块的 IAM 资源（若有）支持 `PermissionsBoundaryArn`。
+
 <a id="load-balancer"></a>
 
 ## load-balancer：负载均衡 ↔ Elastic Load Balancing（Application Load Balancer）
@@ -2011,6 +2069,14 @@ badges:
   aws: "入口：ALB → Nginx"
   degraded: "ALB 降级 · {reason}"              # 例如“用户绕过了 ALB”
 ```
+
+### 12. 平台模式（ATL）
+
+> 第 4 轮新增（总纲 1.4 D16）。规格以 [docs/platform/06](../platform/06-cloudalbum-platform-mode.md) 为准（PM-11、PM-M06）。
+
+- **请求头回显**：平台检查使用 `/api/lab/probe/echo`（带探测令牌），它回显应用看到的 `X-Amzn-Trace-Id`、`X-Forwarded-Proto`、客户端 IP，以及 Nginx 收到的原始 `X-Forwarded-For`（经 `X-CA-Received-XFF` 传给应用，只用于回显）；第 11 节中的 `/api/lab/echo` 是管理员在 `/lab` 页面上用的，平台检查不使用。
+- **锁定入口与预览**：`LB_LOCK_ORIGIN` 或收紧 `PublicHttpIngress` 之后，EIP 的 80 端口不再对公网开放，预览方案 B 的 Let's Encrypt IP 证书无法续期；平台的预览改用 ALB 入口（通常是 `http://`，在新标签页打开）或 CloudFront 入口。平台从外部访问 `public-ip` 的检查同样失效，改为从实验机发起（docs/platform/04）。
+- ALB、目标组与安全组带平台标签；本模块没有 IAM 角色。
 
 <a id="autoscaling"></a>
 
@@ -2335,6 +2401,16 @@ badges:
   degraded: "ASG 降级 · {reason}"              # 例如“配置漂移”“正在排空”
 ```
 
+### 12. 平台模式（ATL）
+
+> 第 4 轮新增（总纲 1.4 D16）。规格以 [docs/platform/06](../platform/06-cloudalbum-platform-mode.md) 为准（PM-M07、PM-21）。
+
+- **标签传播**：启动模板与 ASG 的标签 `atl:session-id`、`atl:lab-id`、`atl:env-id`、`atl:component=env`、`atl:role=lab-app`、`Project=CloudAlbum` 一律 `PropagateAtLaunch: true`。新实例只有带这些标签，才会被平台的 State Manager 关联 `atl-prepare-instance` 选中（终端用户与集成）、被平台终端与本地检查发现、被回收器清理。平台按 `atl:env-id` + `atl:role` 发现实例，再核对 `aws:autoscaling:groupName` 属于本环境的 ASG，并只取 `InService` 的实例——启用 ASG 后停机保留的 L0 实例即使仍带 `atl:role=lab-app` 也不会被选中。
+- **规模上限**：`MaxSize` 不得超过平台安装参数 `AsgMaxSizeLimit`（`scripts/module` 从 `CLOUDALBUM_ASG_MAX_SIZE_LIMIT` 读取，超出时拒绝启用）。ASG 必须由 `scripts/module` 部署的栈创建，学员在控制台手工创建的 ASG 得不到平台准备。
+- **引导配置包**：平台模式下 `/cloudalbum/<envName>/bootstrap/bundle` 在第 1～3 层之外同时携带 `platform.env` 与本机探测密钥 `atl/probe.token`，所有实例共用同一把密钥（一次性探测令牌在任一实例上都能验证，nonce 记在共享数据库中）；更新平台配置时 `scripts/module` 同时更新引导配置包并对全部 `InService` 实例执行 `cloudalbum platform:apply-env`。新实例经同一个 `l0-bootstrap.sh` 安装检查包到 `/opt/atl/`。
+- **与预览方案 B 的冲突**：方案 B 写入的 `TLS_MODE=letsencrypt` 与 `DEPLOY_MODE=asg` 冲突（ASG-014，不可覆盖）。起始状态或目标含 autoscaling 的卡片必须关闭方案 B（lint 强制）；平台模式下 `enable autoscaling` 发现 `tls.env` 中 `TLS_PREVIEW=letsencrypt-ip` 时先自动执行 `scripts/module tls-preview off` 再继续。预览改用 ALB 或 CloudFront 入口。
+- 启动模板的实例配置文件在平台模式下恒为 `CloudAlbumAppRole`（iam 注入的 `InstanceProfileName`，规则 ATL-IAM-001）。
+
 ## 修订记录
 
 ### 2026-10-13：按完整性评审与统一决策 D1～D15 收敛
@@ -2364,3 +2440,8 @@ badges:
 - **其他**：约定 12 的端口数改为 24（23 个模块端口 + LockPort）；l8-ha / Lab 19 注明没有域名时不设 `LB_ADMIN_AUTH`；cdn 的 origin-verify 槽位文件按总纲 D5 的“派生副本”例外说明。
 
 未采纳：审计第 19 条建议把 origin-verify 槽位文件渲染到 `/run/cloudalbum-nginx/`。理由：`00-entry.conf` 在 Nginx 启动时就要 include 该文件，`/run` 在重启后为空，Nginx 会先于 hostSetup 启动失败；改为按 D5 派生副本例外处理（根卷、root 0600、可重放、leak-scan 列出）。
+
+### 2026-10-13：第 4 轮（平台模式回写，总纲 D16）
+
+- 七个模块各新增“### 12. 平台模式（ATL）”（总纲附录 A 的可选第 12 节），内容是 [docs/platform/06](../platform/06-cloudalbum-platform-mode.md) 对应条目的摘要，规格以 06 为准：network（规则 ATL-NET-001、`InterfaceEndpoints=ssm`、平台模式下 `ops` 含 `ec2messages`、切换后复核 `PingStatus`、DEP-009 的运维通道）；cdn（源请求策略转发 `X-Experiment-Run`、`X-Experiment-Label`、`X-ATL-Probe-Nonce`，两种模式都生效；响应头策略不加 `X-Frame-Options`；`X-Origin-Verify` 打码；`/api/public/*` 微缓存；`AdminCidr` 占位符）；dns（悬空委派提示、换 IP 演练）；tls（平台预览方案 B：`tls-preview on|off`、`TLS_PREVIEW`、`TLS_PUBLIC_IP`、自动续期、`APP_BASE_URL` 与 `https.hostKind`、与 ASG-014 的冲突处理；跳转片段只用 `$ca_https_redirect`）；waf（短轮次参数、白名单占位符）；load-balancer（`/api/lab/probe/echo`、锁定入口对预览的影响）；autoscaling（标签传播、`AsgMaxSizeLimit`、引导配置包携带平台配置与探测密钥、启用前关闭方案 B）。
+- 只做增补，独立模式的行为不变。

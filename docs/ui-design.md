@@ -1,5 +1,15 @@
 # 学习控制台（Learning Console）UI 设计
 
+> **已被取代（2026-10-13，主设计者裁决 C6）**：本文设计的“CloudAlbum 内置学习控制台”（`/console/*`）已被实验平台 ATL（AWS Training Lab）取代，**不再作为实现依据**。学习入口、进度、检测、手动确认、对比实验记录、报告与证书都由平台提供，设计见 [docs/platform/](platform/)：[01 总体架构](platform/01-architecture.md)、[02 会话生命周期](platform/02-lab-lifecycle.md)、[03 分屏工作台](platform/03-workspace-terminal.md)、[04 卡片格式、检测与报告](platform/04-lab-format-checks-reports.md)、[05 卡片目录](platform/05-lab-catalog.md)、[cards/](platform/cards/)（56 张卡片与学习路径）、[06 平台模式下 CloudAlbum 侧要求](platform/06-cloudalbum-platform-mode.md)、[07 AWS 验证计划](platform/07-aws-verification-plan.md)。本文与 [docs/ui-prototype/](ui-prototype/) 保留作参考，正文不再修订；与平台文档不一致时一律以平台文档为准。
+>
+> **被取代、不再实现的部分**：`/console/*` 的全部画面与 `/api/console/*` 接口；`course.yaml` 与按 Lab 0～25 编排的课程（改为卡片 `labs/<card-id>/lab.yaml` 与学习路径，04 §3、cards/tracks-and-catalog）；应用内的检测引擎与 `CloudAlbumLabVerifier` 附加到应用角色（改为平台的 `atl-checks` 与 `ATLVerifierRole`，04 §5～§6）；探测令牌 `X-CloudAlbum-Probe` 与 `/api/console/probe/*`（改为 `X-ATL-Probe-Token` 与 `/api/lab/probe/*`，06 PM-09～PM-11）；实验上传令牌与 `npm run exp:login`（改为平台的 SigV4 上传与 `lab-token`，06 PM-17、PM-38）；控制台自己的数据表（第 10 节）。CloudAlbum 的 `/lab` 对比实验室（总纲 §8）不受影响，仍然保留。
+>
+> **平台界面复用的部分**（平台前端按需移植，不在两处维护）：
+> - **组件**（第 8 节）：`StatusBadge`、`SourceTag`、`ProgressRing`、`SegmentedProgress`、`StatTile`；指南类的 `StepCard`（在工作台中压成左侧单栏手册，03 §2.4）、`MethodTabs`、`RunsOnTag`（“运维机”改称“工作台”）、`CommandBlock`（增加“粘贴到终端”与确认矩阵，03 §7.1）、`ConsolePath`（打开动作改走联合登录，03 §5）、`VariableStrip`/`VariableChip`、`CostNotice`、`PitfallItem`、`SaaTip`；检测类的 `CheckResultRow`、`WaitTimer`、`CheckDrawer`、`ExpectedActualTable`、`EvidenceViewer`、`ManualConfirmDialog`、`EvidencePaste`；对比类的 `CompareTable`、`DeltaCell`、`DistributionChart`、`ServerTimingBar`、`PathSignature`、`ValidityChecklist`；架构图 `ArchMap` 一族；通用的 `DataTable`、`FilterBar`、`Drawer`/`Dialog`、`EmptyState`、`Skeleton`、`LiveRegion`。
+> - **视觉 token**（第 11 节）：色彩 token、状态语义色、数据可视化色、字体、间距与圆角、图标、动效与主题切换的实现原样沿用；平台另增工作台用的 `--host-lab`、`--host-ws`、`--term-*`、`--split-handle-active`（03 §2.9）与卡片目录的类别色。
+> - **进度模型**（第 4 节）：三个互相独立的维度、判定来源、检查结果的取值与有效结果顺序、步骤状态、对比实验的有效性、手动确认与复核、来源优先级与冲突裁决、新鲜度与失效，由平台沿用（04 §5、§8）；进度改为挂在每次尝试（`LabAttempt`）上，完成单张卡片获得徽章，学习路径颁发证书。以 Lab 为单位的状态、课程编排与推荐（4.6、4.10～4.12）由卡片目录与学习路径取代。
+> - **内容与检查格式**（第 5、6 节）：`guides/<module>.yaml` 由 04 §2.3 接管为规范格式，其中的步骤 id、检查 id 与考点题 id 是对外契约；断言格式、Redactor 打码规则、只读 API 白名单分别并入 04 §5.3、§5.5、§5.7。
+
 > 版本：v1.1（评审修订）· 2026-10-13。修订内容见文末“修订记录”。
 > 范围：CloudAlbum Web 应用中 `/console/*` 下的全部画面（仅管理员可访问）。原 `/lab` 对比实验室整体并入。
 > 读者与用法：

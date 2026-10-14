@@ -50,3 +50,6 @@ dist/release/
 dist/release-work/
 dist/release-cache/
 build/release/
+
+# Claude Code worktrees
+.claude/worktrees/
