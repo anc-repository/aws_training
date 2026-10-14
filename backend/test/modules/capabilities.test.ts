@@ -1,14 +1,20 @@
 // modules/capabilities.ts：状态机（总纲 6.3）、规则对状态的约束、视图与 readiness
 import { describe, expect, it } from 'vitest';
 import type { CapabilityTransitionEvent } from '@cloudalbum/contracts';
-import { CapabilityRegistry } from '../../src/modules/capabilities.js';
+import { CapabilityRegistry, STARTUP_GRACE_MS } from '../../src/modules/capabilities.js';
 import type { ProbeResult } from '../../src/ports/common.js';
 import { ENABLE, evaluate, type Env } from '../helpers/config.js';
 
-function registryFor(env: Env) {
+function registryFor(env: Env, now?: () => Date) {
   const { parsed, verdict } = evaluate(env);
   if (!parsed.config || !verdict) throw new Error(JSON.stringify(parsed.errors));
-  return new CapabilityRegistry({ cfg: parsed.config, env: parsed.effective, verdict, role: 'api', version: 'test' });
+  return new CapabilityRegistry({ cfg: parsed.config, env: parsed.effective, verdict, role: 'api', version: 'test', ...(now ? { now } : {}) });
+}
+
+/** 可推进的时钟：registry 创建后推进到启动宽限期之外 */
+function clock(start = Date.parse('2026-10-14T00:00:00Z')) {
+  let t = start;
+  return { now: () => new Date(t), advance: (ms: number) => { t += ms; } };
 }
 
 describe('CapabilityRegistry 状态机', () => {
@@ -41,7 +47,9 @@ describe('CapabilityRegistry 状态机', () => {
   });
 
   it('启动宽限（wave1-prep）：首次探针超时或瞬时失败记为 degraded，连续 3 次才 error；确定性失败仍直接 error', async () => {
-    const caps = registryFor({ ...ENABLE.iamRole, ...ENABLE.notification });
+    const c = clock();
+    const caps = registryFor({ ...ENABLE.iamRole, ...ENABLE.notification }, c.now);
+    c.advance(STARTUP_GRACE_MS + 1);
     let next: () => Promise<ProbeResult> = () => new Promise<ProbeResult>(() => undefined);   // 永不返回 → 探针超时
     caps.registerProbe('notification', () => next());
     await caps.probeModule('notification', { timeoutMs: 5 });
@@ -59,6 +67,49 @@ describe('CapabilityRegistry 状态机', () => {
     other.registerProbe('email', async () => ({ status: 'error', detail: 'AccessDenied' }));
     await other.probeModule('email');
     expect(other.status('email').status).toBe('error');
+  });
+
+  it('连续 3 次 degraded + transient → error（wave1-fix：适配器把连不上 AWS 报成降级时也会升级）；管理员视图带 data.transient', async () => {
+    const c = clock();
+    const caps = registryFor({ ...ENABLE.iamRole, ...ENABLE.email }, c.now);
+    c.advance(STARTUP_GRACE_MS + 1);
+    const events: CapabilityTransitionEvent[] = [];
+    caps.onTransition((e) => events.push(e));
+    let next: ProbeResult = { status: 'degraded', transient: true, detail: 'SES 控制面暂时不可达：ENOTFOUND email.ap-northeast-1.amazonaws.com', data: { identity: 'a@example.com' } };
+    caps.registerProbe('email', async () => next);
+    await caps.probeModule('email');
+    expect(caps.status('email').status).toBe('degraded');
+    expect(caps.snapshot('admin').modules.email.data).toMatchObject({ identity: 'a@example.com', transient: true });
+    await caps.probeModule('email');
+    expect(caps.status('email').status).toBe('degraded');
+    await caps.probeModule('email');
+    expect(caps.status('email').status).toBe('error');
+    // 非瞬时的 degraded（例如沙盒）不累计：恢复后先回到 degraded，data.transient 被清除
+    next = { status: 'degraded', detail: '沙盒：只能发给已验证地址', data: { identity: 'a@example.com' } };
+    await caps.probeModule('email');
+    expect(caps.status('email').status).toBe('degraded');
+    expect(caps.snapshot('admin').modules.email.data).not.toHaveProperty('transient');
+    for (let i = 0; i < 5; i += 1) await caps.probeModule('email');
+    expect(caps.status('email').status).toBe('degraded');
+    expect(events.map((e) => `${e.from}->${e.to}`)).toEqual(['ok->degraded', 'degraded->error', 'error->degraded']);
+  });
+
+  it(`启动后的前 ${STARTUP_GRACE_MS / 1000} 秒：瞬时失败不累计（重启后 IMDS / SDK 首个请求慢不会把模块判为 error）；宽限期过后照常累计`, async () => {
+    const c = clock();
+    const caps = registryFor({ ...ENABLE.iamRole, ...ENABLE.notification }, c.now);
+    caps.registerProbe('notification', async () => ({ status: 'error', transient: true, detail: 'AWS 调用超时（3000 ms）' }));
+    for (let i = 0; i < 5; i += 1) {
+      await caps.probeModule('notification');
+      c.advance(20_000);
+    }
+    expect(caps.status('notification').status).toBe('degraded');
+    expect(caps.snapshot('admin').modules.notification.data).toMatchObject({ transient: true });
+    c.advance(STARTUP_GRACE_MS);
+    await caps.probeModule('notification');
+    await caps.probeModule('notification');
+    expect(caps.status('notification').status).toBe('degraded');
+    await caps.probeModule('notification');
+    expect(caps.status('notification').status).toBe('error');
   });
 
   it('权威端口 30 秒内连续 5 次真实调用失败 → error（被动信号）', () => {

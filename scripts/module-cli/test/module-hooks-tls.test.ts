@@ -11,6 +11,7 @@ import { enableCommand } from '../src/enable.js';
 import { CapturePrinter } from '../src/printer.js';
 import { probeAcmeEndpoint, tlsHook } from '../src/module-hooks/tls.js';
 import type { ModuleRecord } from '../src/state.js';
+import { loadTemplate, mainTemplatePath } from '../src/template.js';
 import { REPO_ROOT, RecordingDeliverer, deployedState, dryContext } from './helpers.js';
 
 const stackCalls = (calls: AwsCall[]) => calls.filter((c) => c.service === 'cloudformation' && /Stack$/.test(c.op) && String(c.input.StackName).includes('-tls'));
@@ -95,6 +96,45 @@ describe('tls hook: ACME branch (TLS_ACME=on)', () => {
     expect(put.input).toMatchObject({ Type: 'SecureString' });
     expect(JSON.stringify(put.display)).not.toContain('mac-secret-456');
     expect(gw.calls.find((c) => c.op === 'DeleteParameter')?.input.Name).toBe(put.input.Name);
+  });
+
+  it('standalone + shell-access (SSM channel): the EAB hand-off parameter is readable through the shell-access instance policy (HandoffRead)', async () => {
+    const answers = {
+      CreateAcmeExternalAccountBinding: () => ({ ExternalAccountBinding: { AcmeExternalAccountBindingArn: 'arn:aws:acm:ap-northeast-1:1:eab/e1' } }),
+      GetAcmeExternalAccountBindingCredentials: () => ({ KeyId: 'kid-123', MacKey: 'mac-secret-456' }),
+      ListAcmeEndpoints: () => ({ AcmeEndpoints: [] }),
+    };
+    const state = deployedState();
+    state.modules['shell-access'] = {
+      tier: 'aws', value: 'ssm', version: 1, enabledAt: '2026-10-14T00:00:00Z', updatedAt: '2026-10-14T00:00:00Z', secretKeys: [],
+      params: { ManagedCore: 'false' }, outputs: {}, env: { SHELL_ACCESS_MODE: 'ssm' },
+      stacks: [{ name: 'main', stackName: 'cloudalbum-lab-shell-access', region: 'ap-northeast-1' }],
+    } as unknown as ModuleRecord;
+    const out = new CapturePrinter();
+    const gw = new ScriptedGateway(answers, out);
+    // no injected deliverer: the context picks the channel itself (shell-access enabled → SSM, standalone hand-off)
+    const ctx = createContext({ dryRun: true, yes: true, skipLocalCheck: true, state: path.join(REPO_ROOT, '.cloudalbum', 'never-written.json') },
+      { aws: gw, out, repoRoot: REPO_ROOT, state });
+    expect(ctx.platform).toBeUndefined();
+    expect(ctx.deliverer().channel).toBe('ssm');
+    expect(await enableCommand(ctx, 'tls', { domain: 'album.example.com' })).toBe(0);
+    const put = gw.calls.find((c) => c.op === 'PutParameter' && String(c.input.Name).includes('/handoff/tls-eab-'))!;
+    const name = String(put.input.Name);
+    const sent = gw.calls.filter((c) => c.op === 'SendCommand').map((c) => JSON.stringify(c.input));
+    expect(sent.some((x) => x.includes(`--eab-param ${name}`))).toBe(true);
+    expect(sent.join(' ')).not.toContain('mac-secret-456');
+
+    // the instance policy of shell-access (least-privilege AgentCore, ManagedCore=false) lets the instance read that parameter
+    const t = loadTemplate(REPO_ROOT, mainTemplatePath('shell-access'));
+    const statements = ((t.Resources.AppPolicy?.Properties?.PolicyDocument as { Statement: unknown[] }).Statement)
+      .filter((x): x is { Sid?: string; Action: string | string[]; Resource: { 'Fn::Sub': string } } => typeof x === 'object' && x !== null && 'Sid' in x);
+    const read = statements.find((x) => x.Sid === 'HandoffRead');
+    expect(read, 'HandoffRead must be unconditional (not inside Fn::If)').toBeDefined();
+    expect([read!.Action].flat()).toContain('ssm:GetParameter');
+    const arn = read!.Resource['Fn::Sub']
+      .replace('${AWS::Partition}', 'aws').replace('${AWS::Region}', 'ap-northeast-1').replace('${AWS::AccountId}', '123456789012').replace('${Env}', 'lab');
+    expect(arn).toBe('arn:aws:ssm:ap-northeast-1:123456789012:parameter/cloudalbum/lab/handoff/*');
+    expect(`arn:aws:ssm:ap-northeast-1:123456789012:parameter${name}`.startsWith(arn.slice(0, -1))).toBe(true);
   });
 
   it('preflight acme-endpoint: an unavailable endpoint falls back to TLS_ACME=off (and then needs DEP-005 3)', async () => {

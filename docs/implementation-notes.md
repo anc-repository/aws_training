@@ -3335,3 +3335,58 @@ logging / monitoring 的集成冒烟。全程没有调用真实 AWS API、没有
    有了域名再补 Route 53 委派、ACME 签发与 `tls-edge`。
 9. **平台模式**：目录显示 22 张可开始卡片；部署前按发布流程生成 `verifier-readonly.json`（第 3 节最后一条），核对学员边界与护栏是否放行第 1 波卡片
    用到的服务（wafv2、sns、sesv2、logs、cloudwatch、budgets、ssm、route53、acm、cognito-identity）；至少走查 svc-waf 与一张不需要域名的第 1 波卡片。
+
+## wave1-fix
+
+第 1 波评审意见的修复（5 项 medium、9 项 low）。全程没有调用真实 AWS API、没有部署任何东西：只用单元测试、aws-sdk-client-mock、
+cfn-lint 1.57.2（`D:/workspace/.tools/cfnlint-venv`）与 `scripts/module --dry-run`。
+
+### 1. 修复一览
+
+| 严重度 | 问题 | 修复 | 位置 |
+|---|---|---|---|
+| medium | 独立模式下 shell-access 之后启用 tls：EAB 的 SecureString 交接参数实例读不到（AgentCore 没有 Parameter Store 读取） | 采用评审方案 (b)：shell-access 的 AppPolicy 增加无条件语句 `HandoffRead`（`ssm:GetParameter`，只限 `parameter/cloudalbum/${Env}/handoff/*`）；tls 的 `host-setup.sh issue-acme` 读不到参数时输出明确的 JSON 原因，不再被 `set -e` 直接打断；07 V3-5 增加“先 shell-access 再 tls”的组合步骤 | `infra/modules/shell-access.yaml`、`infra/modules/tls/host-setup.sh`、`module-hooks-tls.test.ts`（独立模式 + SSM 通道 + 实例策略）、07 V3-5 第 4 步 |
+| medium | sudoers 参数位置的 `*` 可以匹配包括空格在内的任意字符（`journalctl -u cloudalbum-*` 等于放行 `--vacuum-time`、`-u sshd`） | 逐条列出完整命令（单元只有 `cloudalbum-api`、`cloudalbum-worker`；`--no-pager` 必带，root 身份的 pager 可以打开其他文件）；渲染时拒绝任何通配符；新增 `host-setup.sh render` 供审阅与测试 | `infra/modules/shell-access/host-setup.sh`、`module-hooks-shell-access.test.ts`、实验 README、05 第 433 行与第 226 行、卡片 40-session |
+| medium | waf 应用策略可以改写 allow-lab IP 集合（优先级 0 的 Allow） | `SyncIpSets` 只授予 `BlockIpSet`；allow-lab 只由栈参数 `LabAllowCidr` 维护；测试断言应用策略不引用 `LabAllowIpSet` | `infra/modules/waf.yaml`、`module-hooks-waf.test.ts` |
+| medium | degraded + transient 永远不会升级为 error；`enable` 第 10 步把它当作通过 | 评审方案 (a)：状态机对 `transient` 结果（无论适配器报 error 还是 degraded）累计连续失败，连续 3 次进入 error；管理员视图的 `data.transient=true` 标出最近一次是瞬时失败；`parseProbe` 把 degraded + transient 当作未通过，继续轮询到超时（失败信息提示 NAT / 端点 / 出站 / `AWS_ENDPOINT_URL` / IMDS hop limit） | `backend/src/modules/capabilities.ts`、`scripts/module-cli/src/health.ts`、`enable.ts`、`capabilities.test.ts`、`scripts/module-cli/test/health.test.ts` |
+| medium | SES、SNS、identity-pool、waf、cost、dns 的探针在 2 秒预算里直接 await `withAwsRetry`（单次 3 秒），内部重试跑不到 | 新增 `adapters/aws/background-probe.ts`（`BackgroundProbe`，与 shell-access / logging 相同的 stale-while-revalidate）：慢探针函数放进后台 Promise，常规探针最多等 1.5 秒、深度 4 秒；没等到时返回上一次结果（不超过 2 分钟，detail 注明“显示 n 秒前的结果”，`data.staleMs`）或 degraded + transient 占位；超过 60 秒仍未结束的调用视为挂起。SES、SNS、identity-pool、dns 包住整个探针；cost 只包 budgets 档的控制面部分（本地清单每次重算并覆盖）；waf 在感知器的 `controlPlane()` 内做后台刷新（完整重试 3 × 3 秒，失败的视图不缓存），深度事实与控制面等待并行。另外启动后的前 120 秒是宽限期：瞬时失败不累计连续失败次数 | `backend/src/adapters/aws/background-probe.ts` 与 6 个适配器 / 感知器、`background-probe.test.ts`、`detector-waf.test.ts` |
+| low | regional ACL 用 X-Forwarded-For 的第一个地址（客户端可控） | IP 集合引用改为 `Position: LAST`（CloudFront 追加的是真实查看者地址）；`RateKey=FORWARDED_IP` 时去掉两条限速规则（WAF 的 FORWARDED_IP 聚合取第一个地址），限速留在 CLOUDFRONT ACL；hook 与输出 `InfoRateKey` 说明 | `infra/modules/waf.yaml`、`module-hooks/waf.ts` |
+| low | `x-amzn-waf-cloudalbum: inspected` 可以由客户端伪造 | 部分修复（见第 2 节）：svc-waf 增加控制面检查 `distribution-webacl`（`GetDistributionConfig` 的 `WebACLId` 等于本会话 ACL）；感知器的被动信号改为比例（经入口的请求中带头的比例 < 0.5 才判“未关联？”），一个伪造的请求不再抵消它 | `labs/svc-waf`、`backend/src/modules/detectors/waf.ts` |
+| low | `openSession` 就标记 `cognito:sts`，`sts-path-seen` 只开会话也能通过 | `openSession` 改标 `cognito:session`；`cognito:sts` 只在 `credentials()` 成功与 `complete()` 导入时出现；卡片 70-ab、`bypass-paths` 选项与 `sts-path-seen` 的说明同步 | `adapters/identity-pool/cognito.ts`、`labs/svc-identity-pool` |
+| low | 重新启用后 `users.identity_id` 属于已删除的旧池 | 存成 `<IdentityPoolId>|<identityId>`，池 ID 不一致（或旧格式）视为没有；开发者认证身份收到 `ResourceNotFoundException` / `InvalidParameterException` 时去掉 IdentityId 重试一次并覆盖存储值；whoami 只显示当前池的 identityId；hook 与卡片 95-cleanup 的提示改正 | `cognito.ts`、`lab-routes.ts`、`module-hooks/identity-pool.ts` |
+| low | SNS 应用策略的 Subscribe / SetSubscriptionAttributes 不限协议 | `Subscribe` 单独成句并加 `StringEquals sns:Protocol = email`；`SetSubscriptionAttributes` 没有这个条件键，只授予订阅 ARN（`${EventsTopic}:*`），适配器 `setFilterPolicy()` 先确认订阅协议为 email | `infra/modules/notification.yaml`、`adapters/notification/sns.ts` |
+| low | 运维策略缺少会话数据密钥的 `kms:GenerateDataKey`；复用未加密的日志组时 `cloudWatchEncryptionEnabled=true` 会让会话日志写入失败 | `operator-policy.json` 增加可选语句 `SessionDataKms`（启用 kms 时替换 `${KmsKeyArn}`，否则删除），plan notes 与 afterDeploy 提示；复用日志组时用 `logs:DescribeLogGroups` 看 `kmsKeyId`，未加密就不打开 `cloudWatchEncryptionEnabled`（`kmsKeyId` 仍用于会话数据）并提示 `associate-kms-key` | `infra/modules/shell-access/operator-policy.json`、`module-hooks/shell-access.ts` |
+| low | dns 的 beforeDisable 没有防护 email 的 DKIM / MAIL FROM 记录 | 比照 tls：email 为 aws 档、Domain 非空且 `HostedZoneId` 等于本区域时拒绝（`DNS_IN_USE`）；`--param Force=true` 时打印需要在外部 DNS 补回的 DKIM 记录（`InfoDkimRecords`）与 MAIL FROM 提示 | `module-hooks/dns.ts` |
+| low | SES 进程内限速，api + worker 合计可能超过账号速率，被节流的邮件不重试 | 对 `Throttling` / `ThrottlingException` / `TooManyRequestsException` / HTTP 429（“Maximum sending rate exceeded”）退避重试最多 3 次（1、1.5、2 秒；SES 没有接受这封邮件，重试是安全的），其他错误不重试；探针 data 增加 `throttledRetries` | `adapters/email/ses.ts` |
+| low | 独立模式下 shell-access 之后，需要机密的模块一律以 “carries secret values” 失败 | 三种做法都做了一部分：(1) 独立模式的 SSM 通道也启用 SecureString 交接（`SsmDeliverer` 第 5 个参数，前缀 `/cloudalbum/<env>/handoff/<随机>`，实例靠 `HandoffRead` 读取），只写 `secrets.env` 的步骤可以经 SSM 完成；(2) shell-access 的 plan notes 与卡片 30-wire 写明“只写不读”的限制与替代做法（`KeepSsh=true` + `--delivery ssh`，或 `disable --reopen-ssh`）；(3) `readRemoteSecrets()` 在独立模式 + SSM 通道时提前给出 `SECRETS_READBACK_OVER_SSM` 与指引 | `context.ts`、`deliver.ts`、`hooks.ts`、`module-hooks/shell-access.ts`、`cli.test.ts` |
+
+### 2. 决定与遗留
+
+1. **后台刷新的放置位置**：没有放进能力注册表统一包装所有探针源（会改变 L0 模块与现有测试的时序语义，永不返回的探针也需要另外的放弃策略），
+   而是做成 `BackgroundProbe` 辅助类，由评审列出的 6 个模块各自使用。monitoring 的告警主题读取本来就带 15 分钟缓存且只影响 notes，未改；
+   tls 的常规探针只做 TLS 握手（不经 `withAwsRetry`），未改。
+2. **宽限期与 cli probe**：`node dist/cli.js probe` 每次是新进程，始终处于启动宽限期，所以瞬时失败在 cli 中只会是 degraded + transient；
+   `enable` 第 10 步据 `data.transient` 继续轮询（最多 120 秒），不再误判成功。
+3. **`x-amzn-waf-cloudalbum` 的伪造只做了部分修复**。彻底的做法是让 WAF 插入一个带机密的令牌（栈参数 NoEcho），Nginx 只认这个精确值——但
+   `$ca_entry` 的 map 在 ec2 所有的 `00-entry.conf` 中，模块只能填写 ec2 预留的槽位（00 的 6.7、E9），需要 ec2 新增槽位
+   `slot-waf-inspected.inc`（map 数据，root 0600，由 waf hostSetup 从 `secrets.env` 渲染）并改写 `$ca_entry` 的判断，`install-host-files.sh`
+   预建空槽位。这是 ec2 基础契约的修改，**交集成阶段处理**；在那之前，入口链里的 waf 段只是“源站收到了这个头”，关联由控制面检查证明。
+4. **identity-pool 的路径段新增 `cognito:session`**：总纲 §7 的路径值表与 02 第 85 行、第 1016 行仍写着会话请求为 `cognito:sts`，**需要集成阶段同步设计文档**
+   （值表增加 `cognito:session`；A/B 对照的“不带旁路头”改为 `cognito:session`）。02 第 1023 行“`users.identity_id` 列保留，重新启用时可以继续使用”
+   也应改为“保留但绑定池 ID，重新启用后自动视为没有”。
+5. **共享文件的改动**（本轮为修复评审意见直接修改，提请集成阶段复核）：`scripts/module-cli` 公共部分的 `context.ts`、`deliver.ts`、`hooks.ts`、
+   `health.ts`、`enable.ts`；`backend/src/modules/capabilities.ts`。没有修改 `modules/registry.yaml`、`backend/src/config/schema.ts`、
+   `implemented.ts`、`container.ts`、`packages/contracts`、根目录 `package.json`。
+6. **sudoers 未在真实 sudo 上校验**：本机的 Docker 镜像都没有 sudo / visudo（安装需要下载，未做）；`host-setup.sh apply` 仍先 `visudo -cf` 再安装。
+   第 7 节第 1 条的实机验证应补一条 `sudo -l -U cloudalbum-ops` 与 `sudo journalctl -u cloudalbum-api --vacuum-time=1s` 被拒绝。
+
+### 3. 验证
+
+| 命令 | 结果 |
+|---|---|
+| `npm run build`、`npm run lint` | 通过 |
+| `npm test` | 本节改动涉及的 backend、module-cli、experiments 三个项目 100 个文件 1361 项全部通过；全量运行时 ssm-client 的 `mock.test.ts`“survives a dropped connection”在并行负载下等待超时（前文已记录的偶发项，单独运行通过），另有一次 atl-web 的 `App.test.tsx` 超时（同一工作区里另一个会话正在修改 `platform/web` 的 i18n，单独运行通过）；两者都不在本节的改动范围内 |
+| `npm run smoke:l0`、`npm run smoke:selfhost`、`npm run smoke:platform` | 通过（smoke:platform 120 / 120） |
+| `npm run labs:lint`、`npm run labs:derive` | 56 张卡 0 错误 0 警告；22 张卡推导 0 错误 |
+| `cfn-lint --regions ap-northeast-1 us-east-1 -- infra/modules/*.yaml` | 0 发现 |
+| `scripts/module plan shell-access|waf|tls --single --dry-run`、`plan --start-of svc-shell-access|svc-waf --dry-run` | 退出码 0；tls 没有域名时给出提示并跳过 |

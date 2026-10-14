@@ -70,6 +70,7 @@ variables:
   ipSetName: { label: IP 集合名称, from: derived, fillFrom: stack.waf.EnvWafIpSetName, example: cloudalbum-blocklist }
   logGroup: { label: WAF 日志组, from: derived, fillFrom: stack.waf.EnvWafLogGroup, example: aws-waf-logs-cloudalbum-e7k2m9qx }
   cdnDomain: { label: 分配域名, from: derived, fillFrom: stack.cdn.InfoDistributionDomainName, pattern: '^[a-z0-9]+\.cloudfront\.net$' }
+  distributionId: { label: 分配 ID, from: derived, fillFrom: stack.cdn.EnvCdnDistributionId, pattern: '^E[A-Z0-9]{8,20}$' }
 
 cost:
   currency: USD
@@ -134,7 +135,7 @@ steps:
     estMinutes: 12
     startsBilling: { class: usage, pricingKeys: [waf.web-acl, waf.requests], note: Web ACL 按月、请求按量 }
     wait: { typicalMinutes: 6, maxMinutes: 20, text: 部署 us-east-1 的 Web ACL，再把 WebAclArn 注入 cdn 栈，分配重新部署 }
-    checks: [cap-waf-wired, entry-waf, webacl-count]
+    checks: [cap-waf-wired, entry-waf, webacl-count, distribution-webacl]
 
   - id: lock-origin
     type: script

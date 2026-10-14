@@ -290,7 +290,12 @@ case "$action" in
     [[ $domain =~ $HOST_RE ]] || { json_out '{"issued":false,"reason":"--domain must be a lower-case host name"}'; exit 64; }
     kid=${CA_EAB_KID:-}; hmac=${CA_EAB_HMAC:-}
     if [ -n "$eab_param" ]; then
-      eab=$(aws ssm get-parameter --region "$region" --name "$eab_param" --with-decryption --query Parameter.Value --output text)
+      # SSM channel: the instance role reads the hand-off parameter (standalone: shell-access policy HandoffRead on
+      # /cloudalbum/<env>/handoff/*; platform: AmazonSSMManagedInstanceCore). A clear reason instead of a bare set -e exit.
+      if ! eab=$(aws ssm get-parameter --region "$region" --name "$eab_param" --with-decryption --query Parameter.Value --output text 2>/dev/null); then
+        json_out '{"issued":false,"reason":"cannot read the EAB hand-off parameter: the instance role needs ssm:GetParameter on /cloudalbum/<env>/handoff/* (shell-access policy statement HandoffRead)"}'
+        exit 1
+      fi
       kid=$(jq -r '.KeyId' <<< "$eab"); hmac=$(jq -r '.MacKey' <<< "$eab"); unset eab
     fi
     ensure_dirs

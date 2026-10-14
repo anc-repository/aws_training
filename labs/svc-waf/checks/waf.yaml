@@ -24,8 +24,35 @@ checks:
       - { path: $.status, op: eq, value: 200, label: 状态码 }
       - { path: $.pathSegments.entry, op: startsWith, value: cloudfront, label: 入口以 cloudfront 开头 }
       - { path: $.pathSegments.entry, op: contains, value: waf, label: 入口链含 waf }
-    explain: Web ACL 默认动作给放行的请求插入 x-amzn-waf-cloudalbum，Nginx 据此在入口链里写上 waf（cloudfront>waf>nginx）。
+    explain: >-
+      Web ACL 默认动作给放行的请求插入 x-amzn-waf-cloudalbum，Nginx 据此在入口链里写上 waf（cloudfront>waf>nginx）。
+      这个头经 /api 的源请求策略（AllViewer）也可以由客户端自己带上，所以它只说明“源站收到了这个头”；Web ACL 确实关联在本会话的分配上，
+      由控制面检查 distribution-webacl（GetDistributionConfig 的 WebACLId）证明。
     reproduce: { run: 'curl -sI "https://{{ var.cdnDomain }}/api/health/live" | grep -i "^x-cloudalbum-path:"', runsOn: workstation }
+
+  - id: distribution-webacl
+    title: 本会话的分配已关联这个 Web ACL（控制面证据：WebACLId）
+    type: aws-readonly
+    service: cloudfront
+    action: GetDistributionConfig
+    region: global
+    params: { Id: '{{ var.distributionId }}' }
+    dependsOn: [webacl-count]
+    wait: { typicalMinutes: 5, maxMinutes: 20 }
+    drift: { policy: must-hold }
+    assert:
+      - { path: $.DistributionConfig.WebACLId, op: eq, value: '{{ var.webAclArn }}', label: WebACLId 等于本会话 Web ACL 的 ARN }
+    explain: >-
+      入口链里的 waf 段来自请求头，客户端可以伪造；这一项从控制面确认分配的 WebACLId 就是本会话的 Web ACL（waf 栈的 EnvWafWebAclArn
+      经 registry 的 injects 注入 cdn 栈的 WebAclArn）。CloudFront 的 WebACLId 字段对 WAFv2 写的是完整 ARN。
+    reproduce: { run: 'aws cloudfront get-distribution-config --id {{ var.distributionId }} --query DistributionConfig.WebACLId --output text', runsOn: workstation }
+    manualFallback:
+      where: { breadcrumb: [CloudFront, 分配, '{{ var.distributionId }}', 安全性], region: global }
+      observed:
+        question: 分配的“Web 应用程序防火墙（WAF）”关联的是哪个 Web ACL？
+        options:
+          - { value: mine, label: '{{ var.webAclName }}', expected: true }
+          - { value: none, label: 未关联, fixHint: 等分配部署完成；仍未关联时重新执行 scripts/module enable waf（注入会更新 cdn 栈） }
 
   - id: webacl-count
     title: 本会话的 Web ACL 已创建（us-east-1），托管规则组为 Count

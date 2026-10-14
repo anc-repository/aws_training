@@ -11,8 +11,11 @@
 // 深度（管理员 ?deep=1 与 enable 的健康检查阶段）：route53:GetHostedZone（不存在 → error；委派 NS 与托管区域不一致 → degraded）、
 //   ListResourceRecordSets（记录缺失 → degraded）、GetHealthCheckStatus（有检查器报告 Failure → degraded）；全部经 withAwsRetry，
 //   Route 53 控制面在 us-east-1。无凭证时跳过并降为 degraded（CRED-004）。
+// 预算（wave1-fix）：解析、IMDS 与 Route 53 读取整体放在后台（adapters/aws/background-probe.ts），探针最多等 1.5 秒（深度 4 秒），
+//   不占用能力注册表 2 秒的探针预算；没等到时返回上一次的结果或 degraded + transient。
 import { Resolver } from 'node:dns/promises';
 import type { IncomingHttpHeaders } from 'node:http';
+import { BackgroundProbe } from '../../adapters/aws/background-probe.js';
 import { describeAwsError, isAwsNotFound, isAwsTransient, loadAwsPackage, withAwsRetry } from '../../adapters/aws/clients.js';
 import type { ProbeResult } from '../../ports/common.js';
 import { ImdsClient } from './ec2.js';
@@ -101,9 +104,11 @@ export class DnsDetector implements Detector {
   private readonly publicIpFn: () => Promise<string | undefined>;
   private nxSince: number | undefined;
   private cachedIp?: { value: string | undefined; at: number };
+  private readonly bg: BackgroundProbe;
 
   constructor(protected readonly ctx: DetectorContext, opts: DnsDetectorOptions = {}) {
     this.now = opts.now ?? (() => Date.now());
+    this.bg = new BackgroundProbe({ label: 'DNS 解析与 Route 53 控制面', now: this.now });
     this.timeoutMs = opts.timeoutMs ?? 1500;
     this.resolver = opts.resolver ?? (new Resolver({ timeout: 1000, tries: 2 }) as unknown as DnsResolverLike);
     if (opts.publicIp) {
@@ -197,6 +202,10 @@ export class DnsDetector implements Detector {
   }
 
   async detect(opts: { deep?: boolean } = {}): Promise<ProbeResult> {
+    return this.bg.run(() => this.detectNow(opts), opts.deep ? { deep: true } : {});
+  }
+
+  private async detectNow(opts: { deep?: boolean } = {}): Promise<ProbeResult> {
     const cfg = this.ctx.cfg;
     const record = this.recordName();
     const type = cfg.infra.DNS_TARGET_TYPE;
@@ -297,7 +306,7 @@ export class DnsDetector implements Detector {
       out.degraded.push('DNS_HOSTED_ZONE_ID 为空：无法核对托管区域');
       return out;
     }
-    const retry = { attempts: 2, timeoutMs: 1800 } as const;
+    const retry = { attempts: 3, timeoutMs: 3000 } as const;     // 在后台进行，可以用完整的重试
     try {
       const sdk = await loadAwsPackage('@aws-sdk/client-route-53', () => import('@aws-sdk/client-route-53'));
       const r53 = await this.ctx.aws.route53({ region: 'us-east-1' });

@@ -8,7 +8,8 @@ import type { PlanStep } from '../src/deps.js';
 import type { HookArgs } from '../src/module-hooks/index.js';
 import { notificationHook } from '../src/module-hooks/notification.js';
 import type { ModuleRecord } from '../src/state.js';
-import { dryContext } from './helpers.js';
+import { loadTemplate, mainTemplatePath } from '../src/template.js';
+import { REPO_ROOT, dryContext } from './helpers.js';
 
 const step: PlanStep = { module: 'notification', value: 'sns', tier: 'aws', settings: {}, reason: 'requested', isTarget: true };
 const args = (params: Record<string, string> = {}): HookArgs => ({ params, planOnly: false, isTarget: true });
@@ -64,5 +65,21 @@ describe('notification hook', () => {
   it('planHints name the manual prerequisite confirm-email', () => {
     expect(notificationHook.planHints!(step).join(' ')).toContain('manual prerequisite "confirm-email"');
     expect(notificationHook.planHints!({ ...step, tier: 'local', value: 'db' })).toEqual([]);
+  });
+});
+
+describe('notification template: least privilege (wave1-fix)', () => {
+  it('sns:Subscribe only for the email protocol; SetSubscriptionAttributes only on subscriptions of the topic', () => {
+    const t = loadTemplate(REPO_ROOT, mainTemplatePath('notification'));
+    const stmts = (t.Resources.AppPolicy!.Properties!.PolicyDocument as { Statement: Array<Record<string, unknown>> }).Statement
+      .filter((s) => typeof s.Sid === 'string');
+    const withAction = (a: string) => stmts.filter((s) => [s.Action].flat().includes(a));
+    expect(withAction('sns:Subscribe')).toEqual([{
+      Sid: 'SubscribeEmailOnly', Effect: 'Allow', Action: 'sns:Subscribe', Resource: { Ref: 'EventsTopic' },
+      Condition: { StringEquals: { 'sns:Protocol': 'email' } },
+    }]);
+    const set = withAction('sns:SetSubscriptionAttributes');
+    expect(set).toHaveLength(1);
+    expect(set[0]!.Resource).toEqual({ 'Fn::Sub': '${EventsTopic}:*' });
   });
 });

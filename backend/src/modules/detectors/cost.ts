@@ -12,6 +12,9 @@
 //   degraded 标签尚未生效（项目预算会一直显示 0）；订阅未确认；按小时计费的资源已运行超过 48 小时而项目预算实际仍为 0（inferred）；无凭证（CRED-004）
 //   error    控制面确认预算不存在，或 AccessDenied
 // 超支本身不改变状态：写在 detail 里，由 Budgets 自己发通知。瞬时失败（超时、限流）返回 { degraded, transient: true }。
+// budgets 档的控制面读取在后台进行（adapters/aws/background-probe.ts，wave1-fix）：探针最多等 1.5 秒（深度 4 秒），不占用能力注册表
+// 2 秒的探针预算；本地清单每次都重新计算并覆盖到结果里。
+import { BackgroundProbe } from '../../adapters/aws/background-probe.js';
 import { describeAwsError, isAwsAccessDenied, isAwsTransient } from '../../adapters/aws/clients.js';
 import { BudgetsReader, type BudgetView, type TagStatus } from '../../adapters/cost/budgets.js';
 import { estimateCost, type CostEstimate } from '../../adapters/cost/estimate.js';
@@ -42,6 +45,7 @@ export class CostDetector implements Detector {
   readonly module = 'cost' as const;
   readonly reader?: BudgetsReader;
   private lastEstimate?: CostEstimate;
+  private readonly bg = new BackgroundProbe({ label: 'AWS Budgets 控制面' });
 
   constructor(protected readonly ctx: DetectorContext, private readonly opts: CostDetectorOptions = {}) {
     const c = ctx.cfg.cost;
@@ -89,22 +93,36 @@ export class CostDetector implements Detector {
     }
 
     // ---- budgets：本地清单 + 控制面
-    const problems: string[] = [];
-    let status: ProbeResult['status'] = 'ok';
+    const problems: string[] = est.inputsOk ? [] : [est.problems.join('；')];
+    const status: ProbeResult['status'] = est.inputsOk ? 'ok' : 'degraded';
+    if (!this.ctx.aws.enabled || !this.reader) {
+      return { status: 'degraded', confidence: 'inferred', data, detail: `${est.detail} · 无凭证：读不到 AWS Budgets（CRED-004）` };
+    }
+    const reader = this.reader;
+    const r = await this.bg.run(() => this.detectBudgets(reader, est, data, status, problems, opts), opts.deep ? { deep: true } : {});
+    // 后台结果可能是上一轮的：本地清单总是用这一轮的
+    return {
+      ...r,
+      data: { ...(r.data ?? {}), mode: data.mode, local: data.local },
+      detail: r.detail.includes('本地：') ? r.detail : `${r.detail} · 本地：${est.detail}`,
+    };
+  }
+
+  private async detectBudgets(
+    reader: BudgetsReader, est: CostEstimate, data: Record<string, unknown>, initial: ProbeResult['status'], problems: string[],
+    opts: { deep?: boolean },
+  ): Promise<ProbeResult> {
+    let status: ProbeResult['status'] = initial;
     let confidence: ProbeResult['confidence'] = 'confirmed';
     let transient = false;
     const degrade = (why: string) => {
       if (status === 'ok') status = 'degraded';
       problems.push(why);
     };
-    if (!est.inputsOk) degrade(est.problems.join('；'));
-    if (!this.ctx.aws.enabled || !this.reader) {
-      return { status: 'degraded', confidence: 'inferred', data, detail: `${est.detail} · 无凭证：读不到 AWS Budgets（CRED-004）` };
-    }
 
     let budgets: BudgetView[];
     try {
-      budgets = await this.reader.budgets();
+      budgets = await reader.budgets();
     } catch (e) {
       if (isAwsAccessDenied(e)) {
         return { status: 'error', confidence: 'confirmed', data, detail: `budgets:ViewBudget 被拒绝：${describeAwsError(e)}（cost 的 PolicyArn 未附加？）` };
@@ -121,7 +139,7 @@ export class CostDetector implements Detector {
     }
 
     // 订阅
-    const subs = await this.reader.subscriptions();
+    const subs = await reader.subscriptions();
     if (subs) {
       data.subscriptions = subs;
       if (subs.error) problems.push(`cost 主题不可读：${subs.error}`);
@@ -129,10 +147,10 @@ export class CostDetector implements Detector {
     }
 
     // 成本分配标签（深度探针刷新；常规探针沿用缓存）
-    let tag: TagStatus | undefined = this.reader.cachedTagStatus();
+    let tag: TagStatus | undefined = reader.cachedTagStatus();
     if (opts.deep) {
       try {
-        tag = await this.reader.tagStatus();
+        tag = await reader.tagStatus();
       } catch (e) {
         problems.push(`ce:ListCostAllocationTags 失败：${describeAwsError(e)}`);
         if (isAwsTransient(e)) transient = true;

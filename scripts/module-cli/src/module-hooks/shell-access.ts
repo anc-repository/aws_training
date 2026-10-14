@@ -49,6 +49,9 @@ export const SESSION_DOCUMENT = 'SSM-SessionManagerRunShell';
 export const MANAGED_CORE_ARN = 'arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore';
 const OOB_PREFS = 'ssm-session-preferences';
 const OOB_CORE = 'managed-core-attachment';
+const OPERATOR_POLICY = 'infra/modules/shell-access/operator-policy.json';
+/** prepare() -> afterDeploy(): CreateLogGroup of this run ('false' = a retained group is reused) */
+const logGroupDecision = new WeakMap<Ctx, string>();
 export const ONLINE_TIMEOUT_SEC = 300;
 const CIDR_RE = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})\/(\d{1,2})$/;
 
@@ -76,16 +79,33 @@ export function keepSshOf(step: Pick<PlanStep, 'settings'>, args: Pick<HookArgs,
 }
 
 /** Session preferences content (infra/modules/shell-access/session-preferences.json with the module's values). */
-export function renderSessionPreferences(repoRoot: string, v: { logGroup: string; runAs: string; kmsKeyArn?: string }): string {
+export function renderSessionPreferences(repoRoot: string, v: { logGroup: string; runAs: string; kmsKeyArn?: string; logGroupEncrypted?: boolean }): string {
   const doc = JSON.parse(readFileSync(path.join(repoRoot, 'infra/modules/shell-access/session-preferences.json'), 'utf8')) as { inputs: Record<string, unknown> };
   doc.inputs.cloudWatchLogGroupName = v.logGroup;
   doc.inputs.runAsDefaultUser = v.runAs;
   if (v.kmsKeyArn) {
-    // the log group is KMS-encrypted by the stack when kms injects KmsKeyArn: only then may cloudWatchEncryptionEnabled be true
-    doc.inputs.cloudWatchEncryptionEnabled = true;
+    // kmsKeyId encrypts the session data stream (the operator who starts a session needs kms:GenerateDataKey on it:
+    // optional statement SessionDataKms of operator-policy.json). cloudWatchEncryptionEnabled additionally requires the log
+    // group itself to be KMS-encrypted — true for a group created by the stack with KmsKeyArn, not necessarily for a
+    // retained group that is reused (CreateLogGroup=false): session log writes would fail (wave1-fix).
     doc.inputs.kmsKeyId = v.kmsKeyArn;
+    doc.inputs.cloudWatchEncryptionEnabled = v.logGroupEncrypted ?? true;
   }
   return JSON.stringify(doc, null, 2);
+}
+
+/**
+ * Is the session log group KMS-encrypted? A group created by this stack is encrypted exactly when KmsKeyArn is injected;
+ * a reused group (CreateLogGroup=false) is checked with logs:DescribeLogGroups (kmsKeyId). Dry-run: undefined.
+ */
+export async function sessionLogGroupEncrypted(ctx: Ctx, logGroup: string, createdByStack: boolean, kmsKeyArn: string): Promise<boolean | undefined> {
+  if (!kmsKeyArn) return false;
+  if (createdByStack) return true;
+  const r = await ctx.aws.send<{ logGroups?: Array<{ logGroupName?: string; kmsKeyId?: string }> }>({
+    service: 'logs', op: 'DescribeLogGroups', input: { logGroupNamePrefix: logGroup, limit: 5 },
+  });
+  if (r === undefined) return undefined;
+  return Boolean((r.logGroups ?? []).find((g) => g.logGroupName === logGroup)?.kmsKeyId);
 }
 
 function instanceOf(ctx: Ctx): string {
@@ -237,6 +257,12 @@ export const shellAccessHook: ModuleHook = {
         + `and writes the region-level session preferences ${SESSION_DOCUMENT} (backed up to the state bucket, restored on disable)`);
     } else {
       notes.push('the delivery channel of scripts/module switches from ssh to SSM Run Command; port 22 closes only after the agent is Online and a Run Command smoke test passed');
+      notes.push('over SSM, secrets.env is only written (SecureString hand-off under /cloudalbum/<env>/handoff/, readable by the instance through this '
+        + 'module policy) and never read back: later steps that must reuse an existing secret (cdn ORIGIN_VERIFY, database DB_PASSWORD, '
+        + 'image-processing CALLBACK_HMAC_KEY) stop with SECRETS_READBACK_OVER_SSM — enable those modules first, or keep port 22 '
+        + '(--param KeepSsh=true) and run them with `--delivery ssh`');
+      notes.push(`operators attach ${OPERATOR_POLICY} to their own identity (replace \${Region} / \${AccountId}); its statement SessionDataKms `
+        + 'is needed only when kms is enabled (replace ${KmsKeyArn}: session data is encrypted with that key), otherwise delete that statement');
     }
     notes.push(keep === 'true'
       ? 'KeepSsh=true: port 22 stays open for a side-by-side period (status degraded, SEC-003 is an expected warning)'
@@ -277,6 +303,7 @@ export const shellAccessHook: ModuleHook = {
         p.notes.push(`shell-access: reusing the session log group ${name} retained by an earlier disable`);
       }
     }
+    logGroupDecision.set(ctx, p.params.CreateLogGroup ?? 'true');
   },
 
   async afterDeploy(ctx, step, args, deployed: DeployedStacks) {
@@ -326,11 +353,23 @@ export const shellAccessHook: ModuleHook = {
     if (res.code !== 0) await rollback(`the Run Command smoke test failed (exit ${res.code}: ${(res.stderr || res.stdout).trim().slice(0, 300)})`);
     // 4. session preferences (region singleton): backup, write, new default version
     const env = mergedEnv(ctx.state, ctx.state.modules);
-    const kms = injectedParams(ctx, 'shell-access', ctx.state.modules, env).KmsKeyArn ?? '';
+    const kmsRaw = injectedParams(ctx, 'shell-access', ctx.state.modules, env).KmsKeyArn ?? '';
+    const kms = kmsRaw && !kmsRaw.startsWith('<') ? kmsRaw : '';
+    const logGroup = ctx.ph(deployed.outputs.EnvSsmSessionLogGroup, 'shell-access:EnvSsmSessionLogGroup');
+    const created = (logGroupDecision.get(ctx) ?? ctx.state.modules['shell-access']?.params.CreateLogGroup ?? 'true') !== 'false';
+    const encrypted = await sessionLogGroupEncrypted(ctx, logGroup, created, kms);
+    if (kms && encrypted === false) {
+      ctx.out.warn(`      shell-access: the reused session log group ${logGroup} is not KMS-encrypted — cloudWatchEncryptionEnabled stays false `
+        + `(session logs would fail to write). Encrypt it (aws logs associate-kms-key --log-group-name ${logGroup} --kms-key-id ${kms}) and run enable again`);
+    }
     const content = renderSessionPreferences(ctx.repoRoot, {
-      logGroup: ctx.ph(deployed.outputs.EnvSsmSessionLogGroup, 'shell-access:EnvSsmSessionLogGroup'),
-      runAs: deployed.outputs.EnvSsmSessionRunAs || 'cloudalbum-ops', ...(kms && !kms.startsWith('<') ? { kmsKeyArn: kms } : {}),
+      logGroup, runAs: deployed.outputs.EnvSsmSessionRunAs || 'cloudalbum-ops',
+      ...(kms ? { kmsKeyArn: kms, logGroupEncrypted: encrypted !== false } : {}),
     });
+    if (kms) {
+      ctx.out.warn(`      shell-access: session data is encrypted with ${kms}: operators need kms:GenerateDataKey on it — add the optional statement `
+        + `SessionDataKms of ${OPERATOR_POLICY} (replace \${KmsKeyArn}) to the identity that runs aws ssm start-session, otherwise StartSession is denied`);
+    }
     const hadRecord = ctx.state.outOfBand.some((o) => o.module === 'shell-access' && o.kind === OOB_PREFS);
     const detail = await writeSessionPreferences(ctx, content);
     // keep the first record (the state before this module ever touched the document); later enables only refresh the content

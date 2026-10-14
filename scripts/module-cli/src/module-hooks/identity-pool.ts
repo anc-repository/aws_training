@@ -147,7 +147,7 @@ export const identityPoolHook: ModuleHook = {
     return {
       notes: [
         'F14 falls back to the prefix token (identity-pool=none:token) after the restart; photos already imported into the storage bucket stay readable (no data migration)',
-        'users.identity_id is kept (re-enabling reuses it); clear it manually only if you want fresh identities',
+        'users.identity_id is kept but bound to this identity pool (stored as <IdentityPoolId>|<identityId>): the pool is deleted with the stack, so a later enable creates a new pool and every user gets a new identity on the first credentials exchange (old values are ignored, no manual cleanup needed)',
         'if an upload lands in the staging bucket between this step and the stack deletion, the deletion fails: run `scripts/module disable identity-pool` again',
       ],
     };

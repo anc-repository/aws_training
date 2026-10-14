@@ -132,17 +132,31 @@ Resources:
             Effect: Allow
             Action:
               - sns:Publish
-              - sns:Subscribe
               - sns:GetTopicAttributes
               - sns:ListSubscriptionsByTopic
             Resource: !Ref EventsTopic
+          # The application only creates e-mail subscriptions: a leaked instance credential must not be able to subscribe
+          # an https / sqs / lambda endpoint and receive every notification (wave1-fix)
+          - Sid: SubscribeEmailOnly
+            Effect: Allow
+            Action: sns:Subscribe
+            Resource: !Ref EventsTopic
+            Condition:
+              StringEquals:
+                sns:Protocol: email
           - Sid: Subscriptions                 # subscription ARNs are <topic ARN>:<id>
             Effect: Allow
             Action:
               - sns:Unsubscribe
               - sns:GetSubscriptionAttributes
-              - sns:SetSubscriptionAttributes
             Resource: [!Ref EventsTopic, !Sub '${EventsTopic}:*']
+          # SetSubscriptionAttributes has no sns:Protocol condition key: the adapter (sns.ts setFilterPolicy) checks the
+          # protocol of the subscription first and only rewrites e-mail filter policies; the inbox queue subscription is
+          # owned by this stack
+          - Sid: SubscriptionFilterPolicy
+            Effect: Allow
+            Action: sns:SetSubscriptionAttributes
+            Resource: !Sub '${EventsTopic}:*'
           - Sid: InboxAndDlq
             Effect: Allow
             Action: [sqs:ReceiveMessage, sqs:DeleteMessage, sqs:GetQueueAttributes]

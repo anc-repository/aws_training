@@ -276,6 +276,23 @@ export const dnsHook: ModuleHook = {
         + '域验证与证书。先执行 scripts/module disable tls；确实要先禁用 dns 时加 --param Force=true（之后的续期需要你在外部 DNS 中手工添加验证 CNAME）',
       EXIT.rules, 'DNS_IN_USE');
     }
+    // the same for email (wave1-fix): a Domain identity keeps its 3 DKIM CNAMEs and the MAIL FROM records in this zone; the
+    // generic step 5 would update the email stack with an empty HostedZoneId, silently deleting them (DKIM / verification
+    // of the SES domain identity fail afterwards)
+    const email = ctx.state.modules.email;
+    if (rec.tier === 'aws' && email?.tier === 'aws' && zone && (email.params.Domain ?? '') !== '' && (email.params.HostedZoneId ?? '') === zone) {
+      const dkim = email.outputs.InfoDkimRecords ?? '';
+      if ((args.params.Force ?? '') !== 'true') {
+        throw new CliError(`dns: email 的域名身份 ${email.params.Domain} 的 DKIM CNAME 与 MAIL FROM 记录在托管区域 ${zone} 中，禁用 dns 会让 email 栈以空的 `
+          + 'HostedZoneId 更新并删除这些记录（之后 SES 的 DKIM 与域验证失效、发信失败）。先执行 scripts/module disable email；确实要先禁用 dns 时加 '
+          + '--param Force=true，并在外部 DNS 中手工补回这些记录', EXIT.rules, 'DNS_IN_USE');
+      }
+      ctx.out.warn(`      dns: Force=true——email 的 DKIM / MAIL FROM 记录将随 HostedZoneId 置空而删除；请在外部 DNS 中手工补回：`);
+      for (const r of dkim.split(' | ').filter((x) => x && !x.startsWith('n/a'))) ctx.out.warn(`        ${r}`);
+      if (!dkim) ctx.out.warn('        （DKIM 记录见 email 栈的输出 InfoDkimRecords，或 aws sesv2 get-email-identity 的 DkimAttributes.Tokens）');
+      if (email.params.MailFromDomain) ctx.out.warn(`        MAIL FROM ${email.params.MailFromDomain}：MX 与 SPF TXT（见 SES 控制台的“自定义 MAIL FROM 域”）`);
+      notes.push(`email 的 DKIM / MAIL FROM 记录不再由 Route 53 托管：在外部 DNS 补回之前，${email.params.Domain} 的 DKIM 与 MAIL FROM 验证会失效`);
+    }
     const bucket = rec.outputs.InfoMaintenanceBucket;
     if (bucket) {
       await ctx.aws.send({ service: 's3', op: 'DeleteObject', input: { Bucket: bucket, Key: 'maintenance.html' } }).catch(() => undefined);

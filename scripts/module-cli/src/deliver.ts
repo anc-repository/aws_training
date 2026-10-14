@@ -2,7 +2,10 @@
  * Delivery channel to the instance (modular-design.md 9.2): L0 uses ssh; once shell-access is enabled
  * (SHELL_ACCESS_MODE=ssm) scripts/module switches to SSM Run Command. The channel itself is part of the comparison.
  * Scripts run as root (`sudo bash -s` / AWS-RunShellScript). Secret values are only ever sent over ssh stdin
- * (never on a command line); SSM keeps command parameters in its history, so secret-bearing scripts are refused there.
+ * (never on a command line); SSM keeps command parameters in its history, so secret-bearing scripts are refused there —
+ * except the secrets.env upsert, which goes through a SecureString hand-off parameter (platform mode, and standalone mode
+ * once shell-access switched the channel to SSM: the shell-access policy lets the instance read
+ * parameter/cloudalbum/<env>/handoff/*; wave1-fix). Reading secrets.env back over SSM stays impossible (hooks.ts).
  */
 import { randomBytes } from 'node:crypto';
 import { spawn } from 'node:child_process';
@@ -87,9 +90,10 @@ export class RemoteScript {
 
   /**
    * inline (default): the secrets.env values are part of the script (ssh stdin only).
-   * hand-off: platform mode over SSM (06 §1.5 rule 3: secrets never travel in Run Command parameters) — the values were written to
-   *   a SecureString parameter beforehand; the instance reads it with its instance profile (AmazonSSMManagedInstanceCore allows
-   *   ssm:GetParameter) and scripts/module deletes the parameter afterwards (the same hand-off as the PM-31 keys mode).
+   * hand-off: SSM channel (06 §1.5 rule 3: secrets never travel in Run Command parameters) — the values were written to
+   *   a SecureString parameter beforehand; the instance reads it with its instance profile (platform mode: AmazonSSMManagedInstanceCore
+   *   allows ssm:GetParameter; standalone mode: the shell-access policy's HandoffRead statement on parameter/cloudalbum/<env>/handoff/*)
+   *   and scripts/module deletes the parameter afterwards (the same hand-off as the PM-31 keys mode).
    */
   render(handoff: { param: string; region: string } | null = null): string {
     const out: string[] = [];
@@ -162,6 +166,13 @@ export class SshDeliverer implements Deliverer {
   }
 }
 
+/** standalone mode over SSM (shell-access enabled): SecureString hand-off of the secrets.env upsert (wave1-fix) */
+export interface SsmHandoffOptions {
+  /** /cloudalbum/<env>/handoff/<random>: the shell-access policy grants ssm:GetParameter on /cloudalbum/<env>/handoff/* */
+  prefix: string;
+  region: string;
+}
+
 /** platform mode (06 PM-30): target discovery by tags, comment, secret hand-off parameter */
 export interface SsmPlatformOptions {
   envName: string;
@@ -207,8 +218,14 @@ export class SsmDeliverer implements Deliverer {
   readonly dryRun: boolean;
   private counter = 0;
   constructor(private readonly aws: AwsGateway, private readonly instanceId: string | undefined, private readonly out: Printer,
-    private readonly platform?: SsmPlatformOptions) {
+    private readonly platform?: SsmPlatformOptions, private readonly standaloneHandoff?: SsmHandoffOptions) {
     this.dryRun = aws.dryRun;
+  }
+
+  /** where the secrets.env upsert is handed off (null = secret-bearing scripts are refused) */
+  private get handoffTarget(): SsmHandoffOptions | null {
+    if (this.platform) return { prefix: this.platform.handoffPrefix, region: this.platform.region };
+    return this.standaloneHandoff ?? null;
   }
 
   private async targets(): Promise<string[]> {
@@ -236,16 +253,17 @@ export class SsmDeliverer implements Deliverer {
   }
 
   async run(script: RemoteScript, opts: { capture?: boolean; timeoutSec?: number } = {}): Promise<RemoteResult> {
-    if (this.platform ? script.containsInlineSecrets : script.containsSecrets) {
-      throw new CliError(`"${script.title}" carries secret values: SSM Run Command keeps command parameters in its history, `
-        + 'so scripts/module only delivers secrets over ssh (or, in platform mode, the secrets.env upsert through a SecureString hand-off parameter)', EXIT.rules);
+    const target = this.handoffTarget;
+    if (target ? script.containsInlineSecrets : script.containsSecrets) {
+      throw new CliError(`"${script.title}" carries secret values: SSM Run Command keeps command parameters (and output) in its history, `
+        + 'so scripts/module only delivers secrets over ssh, or the secrets.env upsert through a SecureString hand-off parameter', EXIT.rules);
     }
     const ids = await this.targets();
     if (this.platform && !this.dryRun) await this.waitOnline(ids);
     let handoff: { param: string; region: string } | null = null;
-    if (this.platform && script.hasHandoff) {
+    if (target && script.hasHandoff) {
       this.counter += 1;
-      handoff = { param: `${this.platform.handoffPrefix}-${this.counter}`, region: this.platform.region };
+      handoff = { param: `${target.prefix}-${this.counter}`, region: target.region };
       await this.aws.send({ service: 'ssm', op: 'PutParameter',
         input: { Name: handoff.param, Type: 'SecureString', Value: JSON.stringify(script.handoff), Overwrite: true,
           Description: `scripts/module secret hand-off (${script.title.slice(0, 60)}); deleted after delivery` },

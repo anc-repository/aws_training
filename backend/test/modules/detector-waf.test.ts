@@ -5,7 +5,7 @@ import { CloudFrontClient, ListDistributionsByWebACLIdCommand } from '@aws-sdk/c
 import { CloudWatchClient, GetMetricDataCommand } from '@aws-sdk/client-cloudwatch';
 import { GetIPSetCommand, GetWebACLCommand, ListResourcesForWebACLCommand, WAFV2Client } from '@aws-sdk/client-wafv2';
 import { mockClient } from 'aws-sdk-client-mock';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { lazyAwsClients } from '../../src/adapters/aws/clients.js';
 import { MIN_EDGE_SAMPLES, summarizeRules, WafDetector } from '../../src/modules/detectors/waf.js';
 import { ENABLE } from '../helpers/config.js';
@@ -82,6 +82,19 @@ describe('WafDetector：被动比例', () => {
     expect(r.status).toBe('degraded');
     expect(r.detail).toContain('Web ACL 未关联');
   });
+
+  it('一个客户端伪造 x-amzn-waf-cloudalbum 的请求不能抵消“未关联”信号（按比例判定，wave1-fix）', async () => {
+    const d = detector();
+    for (let i = 0; i < MIN_EDGE_SAMPLES; i += 1) d.observe(edge(false));
+    d.observe(edge(true));                                   // 伪造：经分配带上了这个头
+    const r = await d.detect({});
+    expect(r.status).toBe('degraded');
+    expect(r.detail).toContain('Web ACL 未关联');
+    const ok = detector();
+    for (let i = 0; i < MIN_EDGE_SAMPLES; i += 1) ok.observe(edge(true));
+    ok.observe(edge(false));
+    expect((await ok.detect({})).status).toBe('ok');
+  });
 });
 
 describe('WafDetector：控制面', () => {
@@ -119,7 +132,31 @@ describe('WafDetector：控制面', () => {
     waf.on(GetWebACLCommand).rejects(awsError('ServiceUnavailable', 503));
     const r = await detector().detect({});
     expect(r).toMatchObject({ status: 'degraded', transient: true });
-    expect(waf.commandCalls(GetWebACLCommand)).toHaveLength(2);   // withAwsRetry：2 次
+    // 后台读取经完整的 withAwsRetry：3 次
+    await vi.waitFor(() => expect(waf.commandCalls(GetWebACLCommand)).toHaveLength(3), { timeout: 5000 });
+  });
+
+  it('后台刷新（wave1-fix）：控制面读取慢于预算时不占用探针预算——首次返回 transient 占位，之后用上一次的视图（标注仍在查询）', async () => {
+    const d = detector();
+    let release: (() => void) | undefined;
+    waf.on(GetWebACLCommand).callsFake(() => new Promise((resolve) => { release = () => resolve(acl()); }));
+    const t0 = Date.now();
+    const first = await d.controlPlane(false, 50);
+    expect(Date.now() - t0).toBeLessThan(1000);
+    expect(first.error).toMatchObject({ kind: 'transient' });
+    const r1 = await d.detect({});
+    expect(r1).toMatchObject({ status: 'degraded', transient: true });
+    await vi.waitFor(() => expect(release).toBeDefined());
+    release!();
+    await vi.waitFor(async () => expect((await d.controlPlane(false, 50)).webAcl?.managedAction).toBe('count'));
+    // 视图过期后再次读取仍然很慢：返回上一次的视图（stale），状态不因为慢而改变
+    now += 56_000;
+    release = undefined;
+    const r2 = await d.detect({});
+    expect(r2.status).toBe('ok');
+    expect(r2.detail).toContain('控制面本轮查询仍在进行');
+    await vi.waitFor(() => expect(release).toBeDefined());
+    release!();
   });
 
   it('REGIONAL：关联用 wafv2:ListResourcesForWebACL（ALB），区域取 ARN', async () => {

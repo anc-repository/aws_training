@@ -18,7 +18,6 @@ import { HttpError } from '../../errors.js';
 import { requireAdmin } from '../../http/middleware/admin.js';
 import { ID_TOKEN_COOKIE, requireAuth } from '../../http/middleware/auth.js';
 import { currentContext } from '../../observability/request-context.js';
-import { findUserById } from '../../repositories/users.js';
 import type { IssuedCredentialsInfo } from './cognito.js';
 
 export const PATHS = ['/api/lab/identity-pool/whoami', '/api/lab/identity-pool/staging-object'] as const;
@@ -30,6 +29,7 @@ interface CognitoLabSide {
   labProbe(): Promise<Record<string, unknown>>;
   stagingObject(key: string): Promise<{ key: string; exists: boolean; size?: number; contentType?: string }>;
   lastIssued(userId: string): IssuedCredentialsInfo | null;
+  storedIdentityId(userId: string): Promise<string | null>;
   fallbackReason(): string | null;
   readonly poolId: string;
   readonly bucket: string;
@@ -76,8 +76,8 @@ export function register(app: Express, c: Container): void {
       });
       return;
     }
-    const row = uid ? await findUserById(c.db, uid) : undefined;
-    const identityId = row?.identity_id ?? null;
+    // users.identity_id 存的是 `<池 ID>|<identityId>`：只显示属于当前池的 identityId（wave1-fix）
+    const identityId = uid ? await side.storedIdentityId(uid) : null;
     const issued = uid ? side.lastIssued(uid) : null;
     const remainingSec = issued ? Math.max(0, Math.round((Date.parse(issued.expiration) - Date.now()) / 1000)) : null;
     res.json({

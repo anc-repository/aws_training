@@ -1373,6 +1373,12 @@ V1-1～V1-6 和 V1-9 共用这个夹具：它是 `ap-northeast-1` 中的一个 C
   1. 创建域验证（托管区域自动创建 CNAME）；
   2. 签发 45 天的证书，装到 Nginx 上，确认路径头为 `acm@nginx:acme`；
   3. 按 modules/01 tls 的 disable 清单删除。
+  4. （组合，独立模式）**先启用 shell-access、再启用 tls**：`scripts/module enable shell-access`（默认 `ManagedCore=false`，22 端口关闭，
+     投递通道变为 SSM）之后执行 `scripts/module enable tls --domain <域名>`（`TLS_ACME=on`）。EAB 经 SecureString 交接参数
+     `/cloudalbum/<env>/handoff/tls-eab-*` 传给实例，实例角色靠 shell-access 策略的 `HandoffRead` 语句读取。确认签发成功、
+     交接参数已删除（`aws ssm get-parameters-by-path --path /cloudalbum/<env>/handoff/` 为空）；同一组合下再启用一个只写机密的模块
+     （例如 `cache --param AuthToken=generate`），确认 `secrets.env` 的写入同样经 SSM 交接成功，而需要读回已有机密的模块
+     （cdn、database）以 `SECRETS_READBACK_OVER_SSM` 给出指引后中止。
 - **会创建的资源**：ACME 端点、EAB、ACME 账户；有域名时，另有域验证记录与 ACME 证书。
 - **费用档位**：零到低。ACME 证书按域名在签发与续期时计费；端点本身的计费以官方定价为准；没有域名的路径不签发证书。
 - **预计时长**：30～60 分钟。

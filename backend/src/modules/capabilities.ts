@@ -4,7 +4,10 @@
 //   ec2 是 base，不会出现 off，也不输出 localHealth。
 // - 状态机（6.3）：off 只由配置决定；ok → degraded（探针超阈值 / 命中 warn 规则）；连续 3 次探针失败或权威端口
 //   30 秒内连续 5 次真实调用失败 → error；error → degraded 需要 1 次探针成功；degraded → ok 需要连续 2 次健康。
-//   首次探针的确定性失败直接 error；瞬时失败（探针超时、ProbeResult.transient）先记 degraded，同样连续 3 次才 error（wave1-prep）。
+//   首次探针的确定性失败直接 error；瞬时失败（探针超时、ProbeResult.transient，无论适配器报的是 error 还是 degraded）先记 degraded，
+//   同样连续 3 次才 error（wave1-prep；wave1-fix：degraded + transient 也累计连续失败，否则连不上 AWS 的模块会永久停在“降级”）。
+//   启动后的前 120 秒是宽限期：瞬时失败不累计（2026-10-14 实机验证：api 重启后的最初一两分钟 IMDS 与 SDK 首个请求可能很慢）。
+//   最近一次探针是瞬时失败时，管理员视图的 data.transient=true（scripts/module enable 第 10 步据此继续轮询，不把它当作通过）。
 // - CLOUDALBUM_ALLOW_UNSAFE 覆盖的规则使相关模块最好也只能是 degraded；warn 规则使相关模块至少为 degraded。
 // - 每次状态变化：通知订阅者（SSE GET /api/capabilities/stream、capability_events 表、结构化日志）。
 import { createHash } from 'node:crypto';
@@ -63,6 +66,10 @@ export interface CapabilityRegistryOptions {
 }
 
 const HISTORY_LIMIT = 20;
+/** 启动宽限：这段时间内的瞬时失败不累计连续失败次数 */
+export const STARTUP_GRACE_MS = 120_000;
+/** 连续这么多次探针失败（含瞬时）进入 error */
+const FAILURES_TO_ERROR = 3;
 const PASSIVE_WINDOW_MS = 30_000;
 const PASSIVE_ERROR_THRESHOLD = 5;
 
@@ -124,6 +131,10 @@ export class CapabilityRegistry implements CallObserver {
 
   private now(): Date {
     return this.opts.now?.() ?? new Date();
+  }
+
+  private inStartupGrace(): boolean {
+    return this.now().getTime() - Date.parse(this.startedAt) < STARTUP_GRACE_MS;
   }
 
   private localDetail(id: ModuleId): string {
@@ -298,6 +309,11 @@ export class CapabilityRegistry implements CallObserver {
       const checks = (r.data as { checks?: unknown }).checks;
       if (Array.isArray(checks)) s.checks = checks as CapabilityCheck[];
     }
+    // 管理员视图标出“最近一次探针是瞬时失败”（scripts/module 的 waitModule 不把 degraded + transient 当作通过）
+    if (ctx.fromProbe && (r.transient || s.data?.transient !== undefined)) {
+      const { transient: _drop, ...rest } = s.data ?? {};
+      s.data = r.transient ? { ...rest, transient: true } : rest;
+    }
 
     const enabled = module === 'ec2' || this.isEnabled(module);
     const rules = this.ruleFloor(module);
@@ -319,12 +335,19 @@ export class CapabilityRegistry implements CallObserver {
     let next: ModuleStatus;
     if (!ctx.fromProbe) {
       next = severityRank(r.status) > severityRank(prev) ? r.status : prev;
+    } else if (r.transient) {
+      // 瞬时失败（超时、限流、网络、凭证暂时取不到）：适配器报 error 或 degraded 都按“失败”累计；启动宽限期内不累计
+      if (!this.inStartupGrace()) s.consecutiveFailures += 1;
+      s.consecutiveHealthy = 0;
+      if (s.consecutiveFailures >= FAILURES_TO_ERROR || prev === 'error') next = 'error';
+      else if (!s.probed || r.status === 'degraded') next = 'degraded';
+      else next = prev;
     } else if (r.status === 'error') {
       s.consecutiveFailures += 1;
       s.consecutiveHealthy = 0;
-      // 首次探针：确定性的失败直接 error；瞬时失败（超时、限流、网络）先记 degraded，连续 3 次失败才进入 error
-      if (s.consecutiveFailures >= 3 || prev === 'error') next = 'error';
-      else if (!s.probed) next = r.transient ? 'degraded' : 'error';
+      // 首次探针：确定性的失败直接 error；之后连续 3 次失败才进入 error
+      if (s.consecutiveFailures >= FAILURES_TO_ERROR || prev === 'error') next = 'error';
+      else if (!s.probed) next = 'error';
       else next = prev;
     } else {
       s.consecutiveFailures = 0;

@@ -33,12 +33,21 @@ export function newToken(bytes = 32): string {
   return randomBytes(bytes).toString('base64url');
 }
 
-/** Read keys of /etc/cloudalbum/secrets.env from the instance (ssh). Dry-run: placeholders. */
+/** Read keys of /etc/cloudalbum/secrets.env from the instance (ssh only). Dry-run: placeholders. */
 export async function readRemoteSecrets(ctx: Ctx, keys: readonly string[]): Promise<Record<string, string | undefined>> {
   if (!keys.length) return {};
   // platform mode: the delivery channel is SSM and Run Command output stays in the command history, so secrets are never
   // read back (06 §1.5 rule 3): callers generate a new value and hand it off (SecureString parameter, deliver.ts)
   if (ctx.platform) return {};
+  // standalone mode after shell-access (port 22 closed, channel = SSM): the same reason, but the existing value must be kept
+  // (database password, callback key): stop early with the way out instead of the generic "carries secret values" (wave1-fix)
+  if (ctx.deliverer().channel === 'ssm') {
+    throw new CliError(`this step needs ${keys.join(', ')} read back from /etc/cloudalbum/secrets.env, which never happens over SSM `
+      + '(Run Command keeps the output in its history). The delivery channel is SSM because shell-access closed port 22: either run this '
+      + 'command with `--delivery ssh` while port 22 is still open (shell-access enabled with `--param KeepSsh=true`), or run '
+      + '`scripts/module disable shell-access --reopen-ssh` first and enable shell-access again afterwards. Writing secrets.env alone '
+      + 'works over SSM (SecureString hand-off)', EXIT.rules, 'SECRETS_READBACK_OVER_SSM');
+  }
   if (ctx.dryRun) return Object.fromEntries(keys.map((k) => [k, `<secrets.env:${k}>`]));
   const s = new RemoteScript(`read ${keys.join(', ')} from secrets.env`);
   s.secret('__marker__');   // the output carries secret values: never over SSM (SsmDeliverer refuses)

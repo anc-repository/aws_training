@@ -25,8 +25,11 @@
 ```bash
 aws ssm start-session --target <实例 ID>                         # 以 cloudalbum-ops 打开 shell（会话首选项 runAsDefaultUser）
 id                                                               # uid=…(cloudalbum-ops)
-sudo systemctl status cloudalbum-api                             # 允许（受限 sudoers）
+sudo systemctl status cloudalbum-api --no-pager                  # 允许（受限 sudoers：逐条列出的完整命令）
+sudo journalctl -u cloudalbum-api -n 50 --no-pager               # 允许
 sudo -n cat /etc/cloudalbum/secrets.env; echo rc=$?              # 拒绝：rc=1
+sudo -n journalctl -u cloudalbum-api --vacuum-time=1s; echo rc=$? # 拒绝：rc=1（参数不在白名单，不能以 root 删改系统日志）
+sudo -n journalctl -u cloudalbum-api -u sshd --no-pager; echo rc=$? # 拒绝：rc=1（不能借 -u 读其他单元）
 exit
 
 aws ssm start-session --target <实例 ID> \

@@ -14,6 +14,7 @@ import type { HookArgs, StackPlan } from '../src/module-hooks/index.js';
 import { denylistToIpSet, normalizeAllowList, toIpv4Cidr, wafHook } from '../src/module-hooks/waf.js';
 import { CapturePrinter, CliError } from '../src/printer.js';
 import type { CloudAlbumState, ModuleRecord } from '../src/state.js';
+import { loadTemplate, mainTemplatePath } from '../src/template.js';
 import { REPO_ROOT, RecordingDeliverer, deployedState, dryContext } from './helpers.js';
 
 const ACL = 'arn:aws:wafv2:us-east-1:123456789012:global/webacl/cloudalbum-lab-acl/0000';
@@ -233,5 +234,30 @@ describe('waf hook: disable, hints, pure functions', () => {
     expect(normalizeAllowList(' 203.0.113.10 ,203.0.113.10/32, 198.51.100.0/24')).toBe('203.0.113.10/32,198.51.100.0/24');
     expect(normalizeAllowList('')).toBe('');
     expect(denylistToIpSet('192.0.2.1 1;\n2001:db8::1 1;\nnot a line\n203.0.113.1 1;  # until=2000-01-01T00:00:00Z')).toEqual({ addresses: ['192.0.2.1/32'], skippedIpv6: 1 });
+  });
+});
+
+describe('waf template: least privilege and X-Forwarded-For (wave1-fix)', () => {
+  const t = loadTemplate(REPO_ROOT, mainTemplatePath('waf'));
+  const policy = JSON.stringify(t.Resources.AppPolicy!.Properties);
+
+  it('the application policy may update the blocklist only, never the allow-lab IP set (priority 0 Allow skips every rule)', () => {
+    expect(policy).not.toContain('LabAllowIpSet');
+    const sync = (t.Resources.AppPolicy!.Properties!.PolicyDocument as { Statement: Array<Record<string, unknown>> }).Statement
+      .find((s) => s.Sid === 'SyncIpSets')!;
+    expect(sync.Resource).toEqual({ 'Fn::GetAtt': ['BlockIpSet', 'Arn'] });
+  });
+
+  it('FORWARDED_IP (regional ACL behind CloudFront): IP sets match the LAST X-Forwarded-For address; rate rules only without FORWARDED_IP', () => {
+    const rules = (t.Resources.WebAcl!.Properties!.Rules as unknown[]);
+    const text = JSON.stringify(rules);
+    expect(text).not.toContain('"Position":"FIRST"');
+    expect(text.match(/"Position":"LAST"/g)).toHaveLength(2);
+    expect(text).not.toContain('FORWARDED_IP');
+    const conditional = rules.filter((r): r is { 'Fn::If': [string, unknown, { Name: string }] } => typeof r === 'object' && r !== null && 'Fn::If' in r);
+    expect(conditional.map((r) => [r['Fn::If'][0], r['Fn::If'][1], r['Fn::If'][2].Name])).toEqual([
+      ['UseForwardedIp', { Ref: 'AWS::NoValue' }, 'rate-login'],
+      ['UseForwardedIp', { Ref: 'AWS::NoValue' }, 'rate-global'],
+    ]);
   });
 });

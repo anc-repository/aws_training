@@ -62,7 +62,7 @@ checks:
     drift: { policy: once }
     assert:
       - { path: $.count, op: gte, value: 1, label: 出现 identity-pool=cognito:sts 的请求数 }
-    explain: 在应用预览里一次选两张照片上传（多文件走 F14）即可满足：/api/uploads/session、/api/uploads/credentials 与 complete 都带这个路径段。
+    explain: 在应用预览里一次选两张照片上传（多文件走 F14）即可满足。只有换取凭证成功的 /api/uploads/credentials 与导入成功的 complete 带这个路径段；/api/uploads/session 只是开会话，路径段为 cognito:session，不计入。
 
   - id: identity-pool-no-guests
     title: 身份池由本会话创建，不允许未认证（访客）身份，身份提供方是本会话的 User Pool
@@ -190,7 +190,7 @@ checks:
         question: '管理员带 X-Compare-Bypass: identity-pool 开会话时，响应头 X-CloudAlbum-Path 的 identity-pool 段是什么？'
         options:
           - { value: bypass, label: 'cognito:bypass（本次改由前缀令牌上传）', expected: true }
-          - { value: sts, label: 'cognito:sts', fixHint: 旁路头只对管理员有效，且只在 POST /api/uploads/session 上生效 }
+          - { value: session, label: 'cognito:session', fixHint: 旁路头只对管理员有效，且只在 POST /api/uploads/session 上生效 }
 
   # ---- 清理核对
   - id: identity-pool-gone

@@ -240,13 +240,19 @@ export const wafHook: ModuleHook = {
         continue;
       }
       const regional = s.name === 'regional';
+      const forwarded = regional && isEnabled(env, 'cdn');
+      if (forwarded) {
+        ctx.out.info('      waf: regional web ACL behind CloudFront: IP sets match the LAST X-Forwarded-For address (appended by CloudFront; '
+          + 'the first one is client controlled) and it has no rate-based rules — rate limiting stays on the CLOUDFRONT web ACL');
+      }
       out.push({
         ...s,
         params: {
           ...(s.params ?? {}),
           StackRole: s.name, Scope: regional ? 'REGIONAL' : 'CLOUDFRONT',
-          // an ALB behind CloudFront sees CloudFront addresses: rate keys and IP sets use X-Forwarded-For
-          RateKey: regional && isEnabled(env, 'cdn') ? 'FORWARDED_IP' : 'IP',
+          // an ALB behind CloudFront sees CloudFront addresses: the IP sets read X-Forwarded-For (Position LAST) and the
+          // template leaves the rate-based rules out (WAF aggregates FORWARDED_IP on the spoofable first address; wave1-fix)
+          RateKey: forwarded ? 'FORWARDED_IP' : 'IP',
           CreateLogGroup: decisions[s.region] ?? 'true',
         },
       });

@@ -10,7 +10,7 @@ import { compareEmailDrivers } from '../../../src/adapters/email/compare.js';
 import { applySesFeedback, deliveryStatusOf, parseSesFeedback, userStatusOf } from '../../../src/adapters/email/feedback.js';
 import { buildMime, OutboxEmail } from '../../../src/adapters/email/outbox.js';
 import { isReservedAddress } from '../../../src/adapters/email/reserved.js';
-import { emailTagsOf, SesEmail, SIMULATOR_SUCCESS } from '../../../src/adapters/email/ses.js';
+import { emailTagsOf, isSesThrottle, SesEmail, SIMULATOR_SUCCESS } from '../../../src/adapters/email/ses.js';
 import type { AdapterDeps } from '../../../src/adapters/types.js';
 import { createRequestContext, runWithContext } from '../../../src/observability/request-context.js';
 import { createUserWithDefaults } from '../../../src/services/user-directory.js';
@@ -146,6 +146,20 @@ describe('SesEmail.send', () => {
     expect(await l.db('outbox_emails').where({ message_id: r.messageId }).first()).toMatchObject({ status: 'failed', error: expect.stringContaining('ses:suppressed') });
     expect((await port.send({ to: ['bad@mail.test-only.dev'], subject: 's', text: 't', category: 'password-reset' })).delivered).toBe(true);
   });
+
+  it('节流（TooManyRequestsException / Throttling，api 与 worker 合计超过 MaxSendRate）：SES 未接受这封邮件，退避后重试成功（wave1-fix）', async () => {
+    const { port } = await setup();
+    ses.on(SendEmailCommand)
+      .rejectsOnce(awsError('TooManyRequestsException', 429, 'Maximum sending rate exceeded.'))
+      .resolves({ MessageId: 'ses-after-throttle' });
+    const ctx = createRequestContext();
+    const r = await runWithContext(ctx, () => port.send({ to: ['v@mail.test-only.dev'], subject: '验证', text: 'code', category: 'verification' }));
+    expect(r).toMatchObject({ transport: 'ses', delivered: true });
+    expect(ctx.path.get('email')).toBe('ses:sent');
+    expect(ses.commandCalls(SendEmailCommand)).toHaveLength(2);
+    expect(isSesThrottle(awsError('Throttling', 400, 'Maximum sending rate exceeded.'))).toBe(true);
+    expect(isSesThrottle(awsError('MessageRejected', 400))).toBe(false);
+  }, 10_000);
 
   it('其他错误（5xx）：记 failed、ses:error，不抛出（非权威端口）', async () => {
     const { port } = await setup();

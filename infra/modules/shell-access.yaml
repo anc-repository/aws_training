@@ -73,7 +73,7 @@ Resources:
         Statement:
           - !If
             - LeastPrivilegeCore
-            - Sid: AgentCore                 # what AmazonSSMManagedInstanceCore grants for sessions and Run Command (no Parameter Store reads)
+            - Sid: AgentCore                 # what AmazonSSMManagedInstanceCore grants for sessions and Run Command (Parameter Store: only HandoffRead below)
               Effect: Allow
               Action:
                 - ssm:UpdateInstanceInformation
@@ -111,6 +111,15 @@ Resources:
             Effect: Allow
             Action: ssm:GetDocument
             Resource: !Sub 'arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:document/SSM-SessionManagerRunShell'
+          # Once this module is enabled the delivery channel of scripts/module is SSM: secret values (the secrets.env upsert,
+          # the one-day ACME EAB of tls) are handed over through SecureString parameters under /cloudalbum/<env>/handoff/,
+          # read here with `aws ssm get-parameter` and deleted by scripts/module right after the delivery. Without this
+          # statement the least-privilege AgentCore has no Parameter Store read at all (wave1-fix). The AWS managed key
+          # aws/ssm needs no kms:Decrypt in the identity policy (its key policy allows use through SSM in the account).
+          - Sid: HandoffRead
+            Effect: Allow
+            Action: ssm:GetParameter
+            Resource: !Sub 'arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/cloudalbum/${Env}/handoff/*'
           - !If
             - HasKms
             - Sid: SessionKms

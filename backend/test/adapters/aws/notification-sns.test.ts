@@ -1,7 +1,7 @@
 // notification=sns：端口契约（内存 SNS + 内存 SQS）+ 驱动细节（发布格式、过滤策略、订阅生命周期、收件队列、状态同步、探针、
 // 功能对照与迁移）。所有 AWS 调用都由 aws-sdk-client-mock 拦截（fake-sns / fake-sqs），不发出任何网络请求。
 import { GetMetricDataCommand, CloudWatchClient } from '@aws-sdk/client-cloudwatch';
-import { GetTopicAttributesCommand, PublishCommand, SubscribeCommand } from '@aws-sdk/client-sns';
+import { GetTopicAttributesCommand, PublishCommand, SetSubscriptionAttributesCommand, SubscribeCommand } from '@aws-sdk/client-sns';
 import { mockClient } from 'aws-sdk-client-mock';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { lazyAwsClients } from '../../../src/adapters/aws/clients.js';
@@ -278,6 +278,19 @@ describe('收件队列与订阅状态同步（worker）', () => {
     expect(sns.subscriptions.find((s) => s.endpoint === a.email)!.filterPolicy).toEqual(filterPolicyFor(a.id, true));
     // 幂等：再同步一次没有变化
     expect(await port.syncSubscriptions()).toMatchObject({ confirmed: 0, removed: 0, filterUpdated: 0 });
+  });
+
+  it('只改 email 订阅的过滤策略：指向非 email 订阅（例如收件队列）的记录不会被改写（SetSubscriptionAttributes 没有 sns:Protocol 条件键，wave1-fix）', async () => {
+    const { port, l } = await setup();
+    const u = await createUserWithDefaults(l.db, { email: 'q@mail.test-only.dev', displayName: 'q', passwordHash: null, emailVerified: true });
+    const queueSub = sns.addSubscription({ topicArn: TOPIC, protocol: 'sqs', endpoint: 'arn:aws:sqs:ap-northeast-1:123456789012:other', pending: false, filterPolicy: { probe: ['true'] } });
+    await setNotificationPrefs(l.db, u.id, { emailEnabled: true, snsSubscriptionArn: queueSub.arn, snsStatus: 'confirmed' });
+    const before = sns.mock.commandCalls(SetSubscriptionAttributesCommand).length;
+    const r = await port.syncSubscriptions();
+    expect(r.filterUpdated).toBe(0);
+    expect(r.errors).toBeGreaterThanOrEqual(1);
+    expect(sns.mock.commandCalls(SetSubscriptionAttributesCommand)).toHaveLength(before);
+    expect(queueSub.filterPolicy).toEqual({ probe: ['true'] });
   });
 });
 

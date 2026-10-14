@@ -33,7 +33,16 @@ shell-access 的驱动为 `ssm`、状态正常，detail 写着“Agent Online（
 
 :::saa{domain=secure confusable="AmazonSSMManagedInstanceCore vs 最小权限"}
 `AmazonSSMManagedInstanceCore` 省事，但它还授予了读取**所有** Parameter Store 参数的权限。本模块的策略只含会话与 Run Command
-需要的部分、写会话日志与感知器的只读调用；`--param ManagedCore=true` 保留托管策略作为对照。
+需要的部分、写会话日志、感知器的只读调用，以及只读 `/cloudalbum/{{ session.env }}/handoff/*` 下的一次性交接参数（`scripts/module`
+经 SSM 投递机密时用 SecureString 交接，用完即删）；`--param ManagedCore=true` 保留托管策略作为对照。
+:::
+
+:::tip
+独立模式（自己的账号、不经平台）下，启用本模块后 `scripts/module` 的投递通道变为 SSM：机密只经 SecureString 交接参数**写入**
+`secrets.env`，从不读回（Run Command 的输出会留在命令历史里）。之后再启用需要沿用已有机密的模块（cdn 的 `ORIGIN_VERIFY`、
+database 的 `DB_PASSWORD`、image-processing 的 `CALLBACK_HMAC_KEY`）会以 `SECRETS_READBACK_OVER_SSM` 中止并给出办法：
+先启用那些模块再启用 shell-access；或启用时加 `--param KeepSsh=true` 保留 22 端口，对那些命令加 `--delivery ssh`；
+或先 `scripts/module disable shell-access --reopen-ssh`。
 :::
 
 ::checks

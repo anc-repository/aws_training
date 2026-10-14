@@ -14,7 +14,7 @@ import { ensureBase } from './context.js';
 import { planEnable, resolveTarget, type PlanStep } from './deps.js';
 import { RemoteScript, shq } from './deliver.js';
 import { parseAssignments, renderEnvFile, type EnvMap } from './env-file.js';
-import { waitModule, waitReady } from './health.js';
+import { waitModule, waitReady, type ProbeOutcome } from './health.js';
 import { createDemoAccessKey, prepareModule, type Prepared } from './hooks.js';
 import {
   hookFor, mergeStackOutputs, selectStacks, stackDrift, type HookArgs, type MissingPrerequisite, type StackPlan,
@@ -326,11 +326,12 @@ export async function enableStep(ctx: Ctx, step: PlanStep, opts: EnableOptions):
 
   // 10. health
   if (!opts.skipHealth) {
-    ctx.out.step(10, 'health: /api/health/ready, then probe --deep until ok|degraded');
+    ctx.out.step(10, 'health: /api/health/ready, then probe --deep until ok|degraded (a transient degraded keeps polling)');
     const ready = await waitReady(ctx, 60);
-    const probe = ready ? await waitModule(ctx, id, { timeoutSec: 120 }) : { ok: false, status: 'not-ready', detail: '' };
+    const probe: ProbeOutcome = ready ? await waitModule(ctx, id, { timeoutSec: 120 }) : { ok: false, status: 'not-ready', detail: '' };
     if (!ready || !probe.ok) {
-      ctx.out.error(`health probe failed (${probe.status}: ${probe.detail}); restoring the previous configuration (stack kept)`);
+      const why = probe.transient ? `${probe.status}, transient — the AWS control plane was never reachable within 120 s (NAT / VPC endpoints, security group egress, AWS_ENDPOINT_URL, IMDS hop limit)` : probe.status;
+      ctx.out.error(`health probe failed (${why}: ${probe.detail}); restoring the previous configuration (stack kept)`);
       await ctx.deliverer().run(rollbackScript(id), { timeoutSec: 300 });
       recordHistory(ctx.state, { op: 'enable', module: id, result: 'rolled-back', exitCode: EXIT.health, detail: probe.status });
       ctx.save();

@@ -2,6 +2,7 @@
  * Execution context of one scripts/module invocation: repository root, state.json, AWS gateway (real or dry-run),
  * printer and the delivery channel. --dry-run never writes state.json and never executes an AWS call or a remote script.
  */
+import { randomBytes } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -112,8 +113,11 @@ export function createContext(opts: GlobalOptions, deps: ContextDeps = {}): Ctx 
         return deliverer;
       }
       const channel = opts.delivery ?? (state.modules['shell-access' as ModuleId]?.tier === 'aws' ? 'ssm' : state.delivery.channel);
+      // standalone over SSM (shell-access enabled, port 22 closed): the secrets.env upsert goes through a SecureString hand-off
+      // parameter that the instance reads with the shell-access policy (HandoffRead on /cloudalbum/<env>/handoff/*; wave1-fix)
       deliverer = channel === 'ssm'
-        ? new SsmDeliverer(aws, state.base?.instanceId, out)
+        ? new SsmDeliverer(aws, state.base?.instanceId, out, undefined,
+          { prefix: `/cloudalbum/${env}/handoff/${randomBytes(4).toString('hex')}`, region: state.region || region })
         : new SshDeliverer(
           (opts.host ?? state.delivery.host ?? state.base?.publicIp)
             ? { host: (opts.host ?? state.delivery.host ?? state.base?.publicIp)!, user: opts.sshUser ?? state.delivery.sshUser,

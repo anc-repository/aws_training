@@ -32,6 +32,12 @@
       "Effect": "Allow",
       "Action": ["ssm:DescribeSessions", "ssm:GetConnectionStatus", "ssm:DescribeInstanceInformation", "ec2:DescribeInstances"],
       "Resource": "*"
+    },
+    {
+      "Sid": "SessionDataKms",
+      "Effect": "Allow",
+      "Action": "kms:GenerateDataKey",
+      "Resource": "${KmsKeyArn}"
     }
   ]
 }

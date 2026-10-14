@@ -174,6 +174,34 @@ describe('release metadata, nginx internal endpoints, secrets parity, zip, deliv
     await expect(ssm.run(s)).rejects.toThrow(/SSM Run Command keeps command parameters/);
   });
 
+  it('standalone over SSM (shell-access enabled): the secrets.env upsert goes through a SecureString hand-off; read-back is refused with a way out', async () => {
+    const gw = new DryRunGateway(new CapturePrinter());
+    const ssm = new SsmDeliverer(gw, 'i-1', new CapturePrinter(), undefined, { prefix: '/cloudalbum/lab/handoff/abcd1234', region: 'ap-northeast-1' });
+    const s = new RemoteScript('t').upsertSecrets({ ORIGIN_VERIFY: 'very-secret-value' });
+    expect((await ssm.run(s)).code).toBe(0);
+    const put = gw.calls.find((c) => c.op === 'PutParameter')!;
+    expect(put.input).toMatchObject({ Name: '/cloudalbum/lab/handoff/abcd1234-1', Type: 'SecureString' });
+    const send = gw.calls.find((c) => c.op === 'SendCommand')!;
+    expect(JSON.stringify(send.input)).not.toContain('very-secret-value');
+    expect(JSON.stringify(send.input)).toContain('aws ssm get-parameter --region ap-northeast-1 --name /cloudalbum/lab/handoff/abcd1234-1');
+    expect(gw.calls.find((c) => c.op === 'DeleteParameter')?.input.Name).toBe('/cloudalbum/lab/handoff/abcd1234-1');
+    // any other secret (e.g. the read-back marker) is still refused
+    const inline = new RemoteScript('read');
+    inline.secret('__marker__');
+    await expect(ssm.run(inline)).rejects.toThrow(/carries secret values/);
+
+    const state = deployedState();
+    state.modules['shell-access'] = { tier: 'aws', value: 'ssm', version: 1, enabledAt: 'x', updatedAt: 'x', secretKeys: [], params: {}, outputs: {}, env: {}, stacks: [] } as never;
+    const { createContext } = await import('../src/context.js');
+    const { readRemoteSecrets } = await import('../src/hooks.js');
+    const out = new CapturePrinter();
+    const ctx = createContext({ dryRun: true, yes: true, skipLocalCheck: true, state: path.join(REPO_ROOT, '.cloudalbum', 'never-written.json') },
+      { aws: new DryRunGateway(out), out, repoRoot: REPO_ROOT, state });
+    expect(ctx.deliverer().channel).toBe('ssm');
+    await expect(readRemoteSecrets(ctx, ['DB_PASSWORD'])).rejects.toMatchObject({ code: 'SECRETS_READBACK_OVER_SSM' });
+    await expect(readRemoteSecrets(ctx, ['DB_PASSWORD'])).rejects.toThrow(/--delivery ssh/);
+  });
+
   it('env files round-trip', () => {
     const env = { A: 'x', B: 'has space', C: '', D: 'https://h/p?q=1', E: 'a#b' };
     expect(parseEnvFile(renderEnvFile(env))).toEqual(env);

@@ -129,6 +129,26 @@ describe('dns hook: disable', () => {
     expect(await disableCommand(ctx, 'dns', { param: ['Force=true'] })).toBe(0);
   });
 
+  it('refuses while email (Domain identity) keeps DKIM / MAIL FROM records in the zone; Force=true prints the records to re-add (wave1-fix)', async () => {
+    const { ctx, aws, out } = dryContext();
+    ctx.state.modules.dns = enabled(true);
+    ctx.state.modules.email = { ...enabled(false), value: 'ses', env: { EMAIL_DRIVER: 'ses' },
+      params: { Domain: 'album.example.com', Email: '', HostedZoneId: 'Z0123456789ABCDEFGHIJ', MailFromDomain: 'mail.album.example.com' },
+      outputs: { InfoDkimRecords: 'a1._domainkey.album.example.com CNAME a1.dkim.amazonses.com | a2._domainkey.album.example.com CNAME a2.dkim.amazonses.com' },
+      stacks: [{ name: 'main', stackName: 'cloudalbum-lab-email', region: 'ap-northeast-1' }] } as unknown as ModuleRecord;
+    await expect(disableCommand(ctx, 'dns', {})).rejects.toMatchObject({ code: 'DNS_IN_USE' });
+    await expect(disableCommand(ctx, 'dns', {})).rejects.toThrow(/先执行 scripts\/module disable email/);
+    expect(aws.calls.filter((c) => c.op === 'DeleteStack')).toEqual([]);
+    expect(await disableCommand(ctx, 'dns', { param: ['Force=true'] })).toBe(0);
+    expect(out.text()).toContain('a1._domainkey.album.example.com CNAME a1.dkim.amazonses.com');
+    expect(out.text()).toContain('MAIL FROM mail.album.example.com');
+    // an e-mail address identity has no records in the zone: no guard
+    const b = dryContext();
+    b.ctx.state.modules.dns = enabled(true);
+    b.ctx.state.modules.email = { ...ctx.state.modules.email!, params: { Email: 'me@mail.test-only.dev', Domain: '', HostedZoneId: 'Z0123456789ABCDEFGHIJ' } } as ModuleRecord;
+    expect(await disableCommand(b.ctx, 'dns', {})).toBe(0);
+  });
+
   it('--param PurgeHostedZone=true deletes the zone; an existing zone of the learner is never recorded', async () => {
     const a = dryContext();
     a.ctx.state.modules.dns = enabled(true);

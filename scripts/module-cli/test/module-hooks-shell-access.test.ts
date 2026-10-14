@@ -1,6 +1,7 @@
 // wave1-logs-ssm: scripts/module hook of shell-access — KEEP_SSH setting, the anti lock-out order of enable (PolicyArn attached,
 // agent Online and a Run Command smoke test before SshIngressCidr is cleared), session preferences backup / restore, the
 // rollback when SSM does not come up, and disable with / without --reopen-ssh.
+import { spawnSync } from 'node:child_process';
 import { mkdtempSync, readFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -12,7 +13,7 @@ import type { PlanStep } from '../src/deps.js';
 import { disableCommand } from '../src/disable.js';
 import { enableCommand } from '../src/enable.js';
 import {
-  MANAGED_CORE_ARN, SESSION_DOCUMENT, keepSshOf, renderSessionPreferences, shellAccessDeps, shellAccessHook,
+  MANAGED_CORE_ARN, SESSION_DOCUMENT, keepSshOf, renderSessionPreferences, sessionLogGroupEncrypted, shellAccessDeps, shellAccessHook,
 } from '../src/module-hooks/shell-access.js';
 import { CapturePrinter } from '../src/printer.js';
 import type { CloudAlbumState } from '../src/state.js';
@@ -192,6 +193,26 @@ describe('shell-access hook · afterDeploy (stubbed AWS)', () => {
     const doc = JSON.parse(renderSessionPreferences(REPO_ROOT, { logGroup: '/cloudalbum/lab/ssm-sessions', runAs: 'cloudalbum-ops', kmsKeyArn: 'arn:aws:kms:ap-northeast-1:1:key/x' }));
     expect(doc.inputs).toMatchObject({ cloudWatchEncryptionEnabled: true, kmsKeyId: 'arn:aws:kms:ap-northeast-1:1:key/x', idleSessionTimeout: '20', maxSessionDuration: '120' });
   });
+
+  it('a reused log group without KMS: session data still uses kmsKeyId, but cloudWatchEncryptionEnabled stays false (wave1-fix)', async () => {
+    const doc = JSON.parse(renderSessionPreferences(REPO_ROOT, { logGroup: '/cloudalbum/lab/ssm-sessions', runAs: 'cloudalbum-ops', kmsKeyArn: 'arn:aws:kms:ap-northeast-1:1:key/x', logGroupEncrypted: false }));
+    expect(doc.inputs).toMatchObject({ cloudWatchEncryptionEnabled: false, kmsKeyId: 'arn:aws:kms:ap-northeast-1:1:key/x' });
+    const gw = (groups: Array<{ logGroupName: string; kmsKeyId?: string }>): AwsGateway => ({
+      dryRun: false, calls: [] as AwsCall[],
+      async send<T>() { return { logGroups: groups } as T; },
+    }) as unknown as AwsGateway;
+    const { ctx } = dryContext();
+    const name = '/cloudalbum/lab/ssm-sessions';
+    expect(await sessionLogGroupEncrypted(ctx, name, true, '')).toBe(false);
+    expect(await sessionLogGroupEncrypted(ctx, name, true, 'arn:k')).toBe(true);
+    expect(await sessionLogGroupEncrypted({ ...ctx, aws: gw([{ logGroupName: name }]) } as Ctx, name, false, 'arn:k')).toBe(false);
+    expect(await sessionLogGroupEncrypted({ ...ctx, aws: gw([{ logGroupName: name, kmsKeyId: 'arn:k' }]) } as Ctx, name, false, 'arn:k')).toBe(true);
+  });
+
+  it('the operator policy document carries the optional SessionDataKms statement (kms:GenerateDataKey on the session key)', () => {
+    const doc = JSON.parse(readFileSync(path.join(REPO_ROOT, 'infra/modules/shell-access/operator-policy.json'), 'utf8')) as { Statement: Array<Record<string, unknown>> };
+    expect(doc.Statement.find((s) => s.Sid === 'SessionDataKms')).toEqual({ Sid: 'SessionDataKms', Effect: 'Allow', Action: 'kms:GenerateDataKey', Resource: '${KmsKeyArn}' });
+  });
 });
 
 describe('shell-access hook · disable', () => {
@@ -260,6 +281,39 @@ describe('shell-access template', () => {
     expect(Object.values(t.Resources).filter((r) => r.Type === 'AWS::IAM::ManagedPolicy')).toHaveLength(1);
     const doc = JSON.stringify(t.Resources.AppPolicy!.Properties);
     for (const a of ['ssm:UpdateInstanceInformation', 'ssmmessages:OpenDataChannel', 'ssm:DescribeInstanceInformation', 'ec2:DescribeSecurityGroups', 'ssm:DescribeSessions']) expect(doc).toContain(a);
-    expect(doc).not.toContain('ssm:GetParameter');
+    // Parameter Store: only the one-time hand-off parameters (secrets.env upsert / tls EAB over SSM, wave1-fix), never the whole store
+    expect(doc).not.toMatch(/ssm:GetParameters|ssm:GetParametersByPath|ssm:\*/);
+    const stmts = (t.Resources.AppPolicy!.Properties!.PolicyDocument as { Statement: Array<Record<string, unknown>> }).Statement;
+    const withGet = stmts.filter((x) => JSON.stringify(x).includes('ssm:GetParameter'));
+    expect(withGet).toEqual([{
+      Sid: 'HandoffRead', Effect: 'Allow', Action: 'ssm:GetParameter',
+      Resource: { 'Fn::Sub': 'arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/cloudalbum/${Env}/handoff/*' },
+    }]);
+  });
+});
+
+describe('shell-access hostSetup: sudoers fragment', () => {
+  const hasBash = spawnSync('bash', ['--version']).status === 0;
+  it.skipIf(!hasBash)('lists exact commands only: no wildcard in any argument list, --no-pager always present (wave1-fix)', () => {
+    const r = spawnSync('bash', [path.join(REPO_ROOT, 'infra/modules/shell-access/host-setup.sh'), 'render'],
+      { encoding: 'utf8', env: { ...process.env, CLOUDALBUM_MODULE_ENV: path.join(os.tmpdir(), 'no-such-shell-access.env') } });
+    expect(r.status, r.stderr).toBe(0);
+    const rules = r.stdout.split(/\r?\n/).filter((l) => l && !l.startsWith('#'));
+    const read = rules.find((l) => l.startsWith('Cmnd_Alias CA_OPS_READ = '))!;
+    const commands = read.slice('Cmnd_Alias CA_OPS_READ = '.length).split(', ');
+    for (const c of commands) {
+      expect(c).not.toMatch(/[*?[\]]/);
+      expect(c).toContain('--no-pager');
+      expect(c).toMatch(/^\/usr\/bin\/(systemctl|journalctl) .*cloudalbum-(api|worker)/);
+    }
+    expect(commands).toContain('/usr/bin/journalctl -u cloudalbum-api --no-pager');
+    expect(commands).toContain('/usr/bin/systemctl status cloudalbum-api --no-pager');   // the command of the card (40-session)
+    // what the review showed: other units, journal rewriting, pager-less forms are not in the list (sudo needs an exact match)
+    for (const bad of ['/usr/bin/journalctl -u cloudalbum-api --vacuum-time=1s', '/usr/bin/journalctl -u cloudalbum-api -u sshd --no-pager',
+      '/usr/bin/journalctl --rotate', '/usr/bin/journalctl -u cloudalbum-api', '/usr/bin/systemctl status cloudalbum-api']) {
+      expect(commands).not.toContain(bad);
+    }
+    expect(rules.join(' ')).not.toMatch(/cloudalbum-\*/);
+    expect(rules).toContain('cloudalbum-ops ALL=(root) NOPASSWD: NOEXEC: CA_OPS_READ');
   });
 });

@@ -23,7 +23,9 @@ exit
 
 :::why
 默认的 `ssm-user` 与 AL2023 的 `ec2-user` 都有免密 sudo，把 runAs 换成 ec2-user 并不能降权。本模块的 hostSetup 创建专用用户
-`cloudalbum-ops`，sudoers 只允许 `systemctl status|restart cloudalbum-*`、`journalctl -u cloudalbum-*`、`nginx -t` 与 `systemctl reload nginx`。
+`cloudalbum-ops`，sudoers 只允许逐条列出的完整命令：`systemctl status cloudalbum-api|cloudalbum-worker --no-pager`、
+`journalctl -u cloudalbum-api|cloudalbum-worker --no-pager`、`systemctl restart …`、`nginx -t` 与 `systemctl reload nginx`。参数位置不用 `*`：
+sudoers 里 `journalctl -u cloudalbum-*` 的 `*` 能匹配包括空格在内的任意字符，等于放行 `--vacuum-time=1s`（以 root 删除系统日志）。
 注意：Run Command（`scripts/module` 的投递通道）总是以 root 执行，不受 runAs 影响。
 :::
 

@@ -10,7 +10,7 @@ import { mockClient } from 'aws-sdk-client-mock';
 import type { Knex } from 'knex';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
-  CognitoDirectUpload, decodeJwtPayload, EXCHANGE_FAILURE_RATIO, isIdentityId,
+  CognitoDirectUpload, decodeIdentityRef, decodeJwtPayload, encodeIdentityRef, EXCHANGE_FAILURE_RATIO, isIdentityId,
 } from '../../../src/adapters/identity-pool/cognito.js';
 import { idTokenOf, identityPoolLabProbe } from '../../../src/adapters/identity-pool/lab-routes.js';
 import { PrefixTokenUpload } from '../../../src/adapters/identity-pool/none.js';
@@ -124,13 +124,13 @@ describe('辅助函数', () => {
 });
 
 describe('CognitoDirectUpload：会话与换取凭证', () => {
-  it('openSession → sts（区域、暂存桶、分片大小、凭证接口；路径段 cognito:sts）；换取凭证后前缀带 identityId', async () => {
+  it('openSession → sts（区域、暂存桶、分片大小、凭证接口；路径段 cognito:session，换取凭证成功才是 cognito:sts）；换取凭证后前缀带 identityId', async () => {
     const { drv, owner } = await setup();
     const a = await inCtx(owner, () => drv.openSession(cognitoPrincipal('sub-a')));
     expect(a.result).toEqual({
       mode: 'sts', region: 'ap-northeast-1', bucket: STAGING, prefix: 'private/', partSize: 8 * 1024 * 1024, credentialsUrl: '/api/uploads/credentials',
     });
-    expect(a.ctx.path.get('identity-pool')).toBe('cognito:sts');
+    expect(a.ctx.path.get('identity-pool')).toBe('cognito:session');
 
     mockExchange();
     const token = idToken('sub-a');
@@ -143,7 +143,7 @@ describe('CognitoDirectUpload：会话与换取凭证', () => {
     // GetId 的 Logins 键是 User Pool 的提供方名；GetCredentialsForIdentity 带同一组 Logins
     expect(ci.commandCalls(GetIdCommand)[0]!.args[0].input).toEqual({ IdentityPoolId: POOL, Logins: { [PROVIDER]: token } });
     expect(Object.keys(ci.commandCalls(GetCredentialsForIdentityCommand)[0]!.args[0].input.Logins ?? {})).toEqual([PROVIDER]);
-    expect((await findUserById((drv as unknown as { deps: AdapterDeps }).deps.db!, owner))?.identity_id).toBe(IDENTITY_A);
+    expect((await findUserById((drv as unknown as { deps: AdapterDeps }).deps.db!, owner))?.identity_id).toBe(`${POOL}|${IDENTITY_A}`);
     expect(drv.lastIssued(owner)).toMatchObject({ identityId: IDENTITY_A, accessKeyPrefix: 'ASIA…', via: 'user-pool' });
 
     const b = await inCtx(owner, () => drv.openSession(cognitoPrincipal('sub-a')));
@@ -220,11 +220,49 @@ describe('CognitoDirectUpload：会话与换取凭证', () => {
     expect(ci.commandCalls(GetOpenIdTokenForDeveloperIdentityCommand)[1]!.args[0].input.IdentityId).toBe(IDENTITY_A);
     expect(drv.lastIssued(owner)?.via).toBe('developer');
   });
+
+  it('users.identity_id 绑定池 ID：重新启用得到新池后旧值视为没有；开发者认证身份收到 ResourceNotFound 时去掉 IdentityId 重试并覆盖存储值', async () => {
+    const OLD_POOL = 'ap-northeast-1:99999999-9999-4999-8999-999999999999';
+    const IDENTITY_OLD = 'ap-northeast-1:bbbbbbbb-2222-4222-8222-bbbbbbbbbbbb';
+    expect(decodeIdentityRef(`${POOL}|${IDENTITY_A}`, POOL)).toBe(IDENTITY_A);
+    expect(decodeIdentityRef(`${OLD_POOL}|${IDENTITY_A}`, POOL)).toBeNull();
+    expect(decodeIdentityRef(IDENTITY_A, POOL)).toBeNull();               // 旧格式（不带池 ID）视为没有
+    expect(decodeIdentityRef(`${POOL}|../../x`, POOL)).toBeNull();
+
+    // 旧池的值：不传 IdentityId，会话前缀不带旧 identityId
+    const { drv, owner, db } = await setup({ AUTH_DRIVER: 'local', IDENTITY_DEV_PROVIDER: 'login.cloudalbum' });
+    await db('users').where({ id: owner }).update({ identity_id: encodeIdentityRef(OLD_POOL, IDENTITY_OLD) });
+    expect((await inCtx(owner, () => drv.openSession(localPrincipal(owner)))).result).toMatchObject({ mode: 'sts', prefix: 'private/' });
+    ci.on(GetOpenIdTokenForDeveloperIdentityCommand).resolves({ IdentityId: IDENTITY_A, Token: 'openid-token' });
+    ci.on(GetCredentialsForIdentityCommand).resolves({
+      IdentityId: IDENTITY_A, Credentials: { AccessKeyId: 'ASIADEV', SecretKey: 'sk', SessionToken: 'st', Expiration: new Date(Date.now() + 900_000) },
+    });
+    await inCtx(owner, () => drv.credentials(localPrincipal(owner), ''));
+    expect(ci.commandCalls(GetOpenIdTokenForDeveloperIdentityCommand)[0]!.args[0].input.IdentityId).toBeUndefined();
+    expect((await findUserById(db, owner))?.identity_id).toBe(`${POOL}|${IDENTITY_A}`);
+
+    // 存储值属于当前池但身份已不存在：ResourceNotFound → 去掉 IdentityId 重试一次，覆盖存储值，不计入失败
+    ci.reset();
+    await db('users').where({ id: owner }).update({ identity_id: encodeIdentityRef(POOL, IDENTITY_OLD) });
+    ci.on(GetOpenIdTokenForDeveloperIdentityCommand)
+      .rejectsOnce(awsError('ResourceNotFoundException', 400, 'Identity not found'))
+      .resolves({ IdentityId: IDENTITY_A, Token: 'openid-token' });
+    ci.on(GetCredentialsForIdentityCommand).resolves({
+      IdentityId: IDENTITY_A, Credentials: { AccessKeyId: 'ASIADEV', SecretKey: 'sk', SessionToken: 'st', Expiration: new Date(Date.now() + 900_000) },
+    });
+    const before = drv.exchangeStats().failed;
+    const r = await inCtx(owner, () => drv.credentials(localPrincipal(owner), ''));
+    expect(r.result).toMatchObject({ identityId: IDENTITY_A });
+    const calls = ci.commandCalls(GetOpenIdTokenForDeveloperIdentityCommand).map((c) => c.args[0].input.IdentityId);
+    expect(calls).toEqual([IDENTITY_OLD, undefined]);
+    expect((await findUserById(db, owner))?.identity_id).toBe(`${POOL}|${IDENTITY_A}`);
+    expect(drv.exchangeStats().failed).toBe(before);
+  });
 });
 
 describe('CognitoDirectUpload：complete（暂存 → 校验 → 服务端复制）', () => {
   async function withIdentity(s: Setup): Promise<string> {
-    await s.db('users').where({ id: s.owner }).update({ identity_id: IDENTITY_A });
+    await s.db('users').where({ id: s.owner }).update({ identity_id: encodeIdentityRef(POOL, IDENTITY_A) });
     return `private/${IDENTITY_A}/${s.photoId}.jpg`;
   }
 

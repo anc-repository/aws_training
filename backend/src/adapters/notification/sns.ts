@@ -12,7 +12,8 @@
 //   一次订阅状态（syncSubscriptions：pending → confirmed；订阅消失 = 用户点了退订链接或确认过期 → email_enabled=false + 站内信；
 //   角色变化后改写过滤策略）。多实例时同步任务经 LockPort 只在一台上执行。
 // 探针：GetTopicAttributes + ListSubscriptionsByTopic + 收件队列 / 订阅级 DLQ 的 GetQueueAttributes，统一经 withAwsRetry；
-//   瞬时失败报 degraded（transient），连续失败由能力注册表升级为 error。深度探针另外比对 notification_prefs、读 CloudWatch 的
+//   瞬时失败报 degraded（transient），连续失败由能力注册表升级为 error；控制面读取在后台进行（adapters/aws/background-probe.ts），
+//   探针最多等 1.5 秒（深度 4 秒）。深度探针另外比对 notification_prefs、读 CloudWatch 的
 //   NumberOfNotificationsFilteredOut / Failed，并发布一条 probe=true 的探针消息（只进收件队列，过滤策略挡住所有邮件订阅）。
 // 非权威端口：Publish 失败抛 503（fanout() 只记日志，站内信不受影响），路径段 notification=sns:error；不回退到 db 驱动逐个发信。
 import { createHash } from 'node:crypto';
@@ -29,6 +30,7 @@ import { findUserById } from '../../repositories/users.js';
 import {
   AwsCredentialsUnavailableError, awsErrorName, describeAwsError, isAwsAccessDenied, isAwsNotFound, isAwsTransient, loadAwsPackage, withAwsRetry,
 } from '../aws/clients.js';
+import { BackgroundProbe } from '../aws/background-probe.js';
 import { isReservedAddress } from '../email/reserved.js';
 import type { AdapterDeps } from '../types.js';
 import { need } from '../types.js';
@@ -131,6 +133,8 @@ export class SnsNotifier implements NotifierPort {
   private lastSync?: SyncReport;
   private lastProbePublish?: { eventId: string; at: number };
   private filteredLastHour?: { filtered: number; failed: number; delivered: number; at: string };
+  /** 控制面读取放在后台（wave1-fix）：探针最多等 1.5 秒（深度 4 秒），不占用能力注册表 2 秒的探针预算 */
+  private readonly bg = new BackgroundProbe({ label: 'SNS / SQS 控制面' });
 
   constructor(protected readonly deps: AdapterDeps) {
     const n = deps.cfg.notification;
@@ -215,7 +219,12 @@ export class SnsNotifier implements NotifierPort {
     }
   }
 
-  private async setFilterPolicy(arn: string, policy: FilterPolicy): Promise<void> {
+  /**
+   * 只改 email 订阅的过滤策略（wave1-fix）：sns:SetSubscriptionAttributes 不支持 sns:Protocol 条件键，应用策略无法按协议收窄，
+   * 所以在这里先确认协议——收件队列（sqs）等其他订阅的过滤策略只由 CloudFormation 维护。
+   */
+  private async setFilterPolicy(arn: string, policy: FilterPolicy, protocol: string | undefined): Promise<void> {
+    if (protocol !== 'email') throw new Error(`拒绝修改非 email 订阅的过滤策略（${protocol ?? '协议未知'}）：${arn}`);
     const { SetSubscriptionAttributesCommand } = await this.sdk();
     const sns = await this.sns();
     await sns.send(new SetSubscriptionAttributesCommand({ SubscriptionArn: arn, AttributeName: 'FilterPolicy', AttributeValue: JSON.stringify(policy) }));
@@ -258,7 +267,7 @@ export class SnsNotifier implements NotifierPort {
       if (prefs.snsSubscriptionArn?.startsWith('arn:')) {
         const attrs = await this.subscriptionAttributes(prefs.snsSubscriptionArn);
         if (attrs && (attrs.Endpoint ?? '').toLowerCase() === addr) {
-          if (!samePolicy(safeJson(attrs.FilterPolicy), policy)) await this.setFilterPolicy(prefs.snsSubscriptionArn, policy);
+          if (!samePolicy(safeJson(attrs.FilterPolicy), policy)) await this.setFilterPolicy(prefs.snsSubscriptionArn, policy, attrs.Protocol);
           const pending = attrs.PendingConfirmation === 'true';
           await setNotificationPrefs(db, userId, { emailEnabled: true, snsStatus: pending ? 'pending' : 'confirmed' });
           markPath('notification', pending ? 'sns:subscribe-pending' : 'sns:subscribed');
@@ -278,7 +287,7 @@ export class SnsNotifier implements NotifierPort {
         if (!/InvalidParameter/.test(awsErrorName(e)) || !/already exists/i.test((e as Error).message)) throw e;
         const existing = (await this.listSubscriptions()).find((s) => s.Protocol === 'email' && (s.Endpoint ?? '').toLowerCase() === addr);
         if (!existing?.SubscriptionArn?.startsWith('arn:')) throw e;
-        await this.setFilterPolicy(existing.SubscriptionArn, policy);
+        await this.setFilterPolicy(existing.SubscriptionArn, policy, existing.Protocol);
         arn = existing.SubscriptionArn;
       }
       let pending = true;
@@ -368,7 +377,7 @@ export class SnsNotifier implements NotifierPort {
       const want = filterPolicyFor(row.user_id, user?.role === 'admin');
       if (!samePolicy(safeJson(attrs.FilterPolicy), want)) {
         try {
-          await this.setFilterPolicy(row.sns_subscription_arn, want);
+          await this.setFilterPolicy(row.sns_subscription_arn, want, attrs.Protocol);
           report.filterUpdated += 1;
         } catch {
           report.errors += 1;
@@ -479,6 +488,10 @@ export class SnsNotifier implements NotifierPort {
   }
 
   async probe(opts?: { deep?: boolean }): Promise<ProbeResult> {
+    return this.bg.run(() => this.probeNow(opts), opts?.deep ? { deep: true } : {});
+  }
+
+  private async probeNow(opts?: { deep?: boolean }): Promise<ProbeResult> {
     const t0 = performance.now();
     let topic: Record<string, string>;
     let subs: Subscription[];

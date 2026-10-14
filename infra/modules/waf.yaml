@@ -67,7 +67,9 @@ Parameters:
     Type: String
     Default: IP
     AllowedValues: [IP, FORWARDED_IP]
-    Description: FORWARDED_IP (X-Forwarded-For) for a REGIONAL web ACL on an ALB behind CloudFront
+    Description: >-
+      FORWARDED_IP for a REGIONAL web ACL on an ALB behind CloudFront: the IP set rules read the LAST X-Forwarded-For
+      address (appended by CloudFront) and the rate-based rules are omitted (they stay on the CLOUDFRONT web ACL)
   LabAllowCidr:
     Type: String
     Default: ''
@@ -165,6 +167,11 @@ Resources:
         forbidden:
           ContentType: APPLICATION_JSON
           Content: '{"error":"FORBIDDEN","blockedBy":"aws-waf"}'
+      # RateKey=FORWARDED_IP (REGIONAL web ACL on an ALB behind CloudFront, --param AlsoRegional=true): CloudFront APPENDS
+      # the viewer address to whatever X-Forwarded-For the client sent, so only the LAST value is trustworthy (the first one
+      # is client controlled). The IP set rules match Position LAST; the rate-based rules are left out of this web ACL
+      # because WAF aggregates FORWARDED_IP on the first address (a random X-Forwarded-For per request would escape them):
+      # rate limiting stays on the CLOUDFRONT web ACL, which sees the real viewer address (wave1-fix).
       Rules:
         - Name: allow-lab
           Priority: 0
@@ -173,7 +180,7 @@ Resources:
               Arn: !GetAtt LabAllowIpSet.Arn
               IPSetForwardedIPConfig: !If
                 - UseForwardedIp
-                - { HeaderName: X-Forwarded-For, FallbackBehavior: NO_MATCH, Position: FIRST }
+                - { HeaderName: X-Forwarded-For, FallbackBehavior: NO_MATCH, Position: LAST }
                 - !Ref AWS::NoValue
           Action:
             Allow:
@@ -188,7 +195,7 @@ Resources:
               Arn: !GetAtt BlockIpSet.Arn
               IPSetForwardedIPConfig: !If
                 - UseForwardedIp
-                - { HeaderName: X-Forwarded-For, FallbackBehavior: NO_MATCH, Position: FIRST }
+                - { HeaderName: X-Forwarded-For, FallbackBehavior: NO_MATCH, Position: LAST }
                 - !Ref AWS::NoValue
           Action:
             Block:
@@ -198,57 +205,55 @@ Resources:
                 ResponseHeaders:
                   - { Name: X-CloudAlbum-Path, Value: 'waf=aws:block-ip-set' }
           VisibilityConfig: { SampledRequestsEnabled: true, CloudWatchMetricsEnabled: true, MetricName: block-ip-set }
-        - Name: rate-login
-          Priority: 2
-          Statement:
-            RateBasedStatement:
-              Limit: !Ref LoginRateLimit
-              EvaluationWindowSec: !Ref RateWindowSec
-              AggregateKeyType: !If [UseForwardedIp, FORWARDED_IP, IP]
-              ForwardedIPConfig: !If
-                - UseForwardedIp
-                - { HeaderName: X-Forwarded-For, FallbackBehavior: MATCH }
-                - !Ref AWS::NoValue
-              ScopeDownStatement:
-                AndStatement:
-                  Statements:
-                    - ByteMatchStatement:
-                        FieldToMatch: { UriPath: {} }
-                        PositionalConstraint: STARTS_WITH
-                        SearchString: /api/auth/
-                        TextTransformations: [{ Priority: 0, Type: NONE }]
-                    - ByteMatchStatement:
-                        FieldToMatch: { Method: {} }
-                        PositionalConstraint: EXACTLY
-                        SearchString: POST
-                        TextTransformations: [{ Priority: 0, Type: NONE }]
-          Action:
-            Block:
-              CustomResponse:
-                ResponseCode: 429
-                CustomResponseBodyKey: rate-limited
-                ResponseHeaders:
-                  - { Name: X-CloudAlbum-Path, Value: 'waf=aws:block-rate-login' }
-          VisibilityConfig: { SampledRequestsEnabled: true, CloudWatchMetricsEnabled: true, MetricName: rate-login }
-        - Name: rate-global
-          Priority: 3
-          Statement:
-            RateBasedStatement:
-              Limit: !Ref RateLimit
-              EvaluationWindowSec: !Ref RateWindowSec
-              AggregateKeyType: !If [UseForwardedIp, FORWARDED_IP, IP]
-              ForwardedIPConfig: !If
-                - UseForwardedIp
-                - { HeaderName: X-Forwarded-For, FallbackBehavior: MATCH }
-                - !Ref AWS::NoValue
-          Action:
-            Block:
-              CustomResponse:
-                ResponseCode: 429
-                CustomResponseBodyKey: rate-limited
-                ResponseHeaders:
-                  - { Name: X-CloudAlbum-Path, Value: 'waf=aws:block-rate-global' }
-          VisibilityConfig: { SampledRequestsEnabled: true, CloudWatchMetricsEnabled: true, MetricName: rate-global }
+        - !If
+          - UseForwardedIp
+          - !Ref AWS::NoValue
+          - Name: rate-login
+            Priority: 2
+            Statement:
+              RateBasedStatement:
+                Limit: !Ref LoginRateLimit
+                EvaluationWindowSec: !Ref RateWindowSec
+                AggregateKeyType: IP
+                ScopeDownStatement:
+                  AndStatement:
+                    Statements:
+                      - ByteMatchStatement:
+                          FieldToMatch: { UriPath: {} }
+                          PositionalConstraint: STARTS_WITH
+                          SearchString: /api/auth/
+                          TextTransformations: [{ Priority: 0, Type: NONE }]
+                      - ByteMatchStatement:
+                          FieldToMatch: { Method: {} }
+                          PositionalConstraint: EXACTLY
+                          SearchString: POST
+                          TextTransformations: [{ Priority: 0, Type: NONE }]
+            Action:
+              Block:
+                CustomResponse:
+                  ResponseCode: 429
+                  CustomResponseBodyKey: rate-limited
+                  ResponseHeaders:
+                    - { Name: X-CloudAlbum-Path, Value: 'waf=aws:block-rate-login' }
+            VisibilityConfig: { SampledRequestsEnabled: true, CloudWatchMetricsEnabled: true, MetricName: rate-login }
+        - !If
+          - UseForwardedIp
+          - !Ref AWS::NoValue
+          - Name: rate-global
+            Priority: 3
+            Statement:
+              RateBasedStatement:
+                Limit: !Ref RateLimit
+                EvaluationWindowSec: !Ref RateWindowSec
+                AggregateKeyType: IP
+            Action:
+              Block:
+                CustomResponse:
+                  ResponseCode: 429
+                  CustomResponseBodyKey: rate-limited
+                  ResponseHeaders:
+                    - { Name: X-CloudAlbum-Path, Value: 'waf=aws:block-rate-global' }
+            VisibilityConfig: { SampledRequestsEnabled: true, CloudWatchMetricsEnabled: true, MetricName: rate-global }
         # AWS managed rule groups: OverrideAction Count while observing (RuleAction=count), None = the group's own actions
         # (Block with the default 403 page: no X-CloudAlbum-Path header; checks use origin-side evidence instead).
         - Name: aws-ip-reputation
@@ -339,10 +344,12 @@ Resources:
             Effect: Allow
             Action: [wafv2:GetWebACL, wafv2:GetSampledRequests, wafv2:ListResourcesForWebACL]
             Resource: !GetAtt WebAcl.Arn
+          # Only the blocklist: the application never writes cloudalbum-lab-allow (priority 0 Allow, skips every rule). It is
+          # maintained by the stack parameter LabAllowCidr alone, so a leaked instance credential cannot open the web ACL.
           - Sid: SyncIpSets
             Effect: Allow
             Action: [wafv2:GetIPSet, wafv2:UpdateIPSet]
-            Resource: [!GetAtt BlockIpSet.Arn, !GetAtt LabAllowIpSet.Arn]
+            Resource: !GetAtt BlockIpSet.Arn
           - Sid: ReadAssociationAndMetrics
             Effect: Allow
             Action: [cloudfront:ListDistributionsByWebACLId, cloudwatch:GetMetricData]
@@ -396,4 +403,7 @@ Outputs:
       - !If [HasAlb, !Sub 'WebACLAssociation -> ${AlbArn}', 'none (inject AlbArn from load-balancer)']
       - 'CloudFront distribution WebACLId (registry inject WebAclArn -> cdn)'
   InfoRateKey:
-    Value: !Ref RateKey
+    Value: !If
+      - UseForwardedIp
+      - 'FORWARDED_IP: IP sets match the last X-Forwarded-For address; no rate-based rules here (rate limiting on the CLOUDFRONT web ACL)'
+      - IP

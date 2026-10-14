@@ -7,7 +7,8 @@
 // 发送前：
 //   1. 保留域名（06 PM-46）：example.com / .test 等不调用 SES，交给本机 outbox 并标注“保留域名，未发送”，路径段 email=outbox:reserved；
 //   2. 抑制：users.email_status 为 bounced / complained 的地址只发 verification、password-reset，其他类别跳过（ses:suppressed）；
-//   3. 限速：进程内按 EMAIL_SEND_RATE_PER_SEC 排队（不超过账号的最大发送速率）。
+//   3. 限速：进程内按 EMAIL_SEND_RATE_PER_SEC 排队（不超过账号的最大发送速率）；api 与 worker 各自限速，合计仍可能超过账号速率，
+//      所以 SendEmail 被节流（Throttling / TooManyRequestsException / 429，SES 未接受这封邮件）时退避重试最多 3 次（1–2 秒）。
 // 失败（非权威端口）：不抛出，记一行 status=failed（/admin/outbox 标红），路径段 ses:rejected（MessageRejected，沙盒期发给未验证地址）
 //   或 ses:error；EMAIL_SANDBOX_POLICY=outbox 时被拒的邮件改写进本机 outbox（同样标注“未真正发出”）。从不悄悄改写成“已发送”。
 // 反馈（worker，consume()）：长轮询 SES_FEEDBACK_QUEUE_URL，feedback.ts 更新 delivery_status 与 users.email_status。
@@ -15,7 +16,7 @@
 //   经 withAwsRetry；沙盒 → degraded，detail 以“沙盒：只能发给已验证地址 · 今日已发 n / 上限 m”开头（上限取自 GetAccount）。
 //   深度探针另外向 SES 邮箱模拟器 success@simulator.amazonses.com 发一封探针邮件（每 10 分钟最多一次），报告上一封是否已回流为“已投递”。
 import { performance } from 'node:perf_hooks';
-import type { GetAccountCommandOutput, GetEmailIdentityCommandOutput, SESv2Client } from '@aws-sdk/client-sesv2';
+import type { GetAccountCommandOutput, GetEmailIdentityCommandOutput, SendEmailCommandOutput, SESv2Client } from '@aws-sdk/client-sesv2';
 import type { QueueAttributeName } from '@aws-sdk/client-sqs';
 import { ulid } from 'ulid';
 import { markPath } from '../../observability/request-context.js';
@@ -24,8 +25,9 @@ import type { EmailMessage, EmailPort } from '../../ports/email.js';
 import { insertOutboxEmail, listOutbox, type OutboxEmailRow } from '../../repositories/outbox.js';
 import { findUserByEmail } from '../../repositories/users.js';
 import {
-  AwsCredentialsUnavailableError, awsErrorName, describeAwsError, isAwsAccessDenied, isAwsNotFound, isAwsTransient, loadAwsPackage, withAwsRetry,
+  AwsCredentialsUnavailableError, awsErrorName, awsHttpStatus, describeAwsError, isAwsAccessDenied, isAwsNotFound, isAwsTransient, loadAwsPackage, withAwsRetry,
 } from '../aws/clients.js';
+import { BackgroundProbe } from '../aws/background-probe.js';
 import { newPollStats, pollQueue, queueUrlFromArn, sleep, type PollStats } from '../notification/sqs-poll.js';
 import type { AdapterDeps } from '../types.js';
 import { need } from '../types.js';
@@ -42,6 +44,16 @@ export const ESSENTIAL_CATEGORIES: ReadonlySet<EmailMessage['category']> = new S
 export const SIMULATOR_SUCCESS = 'success@simulator.amazonses.com';
 
 const WINDOW_MS = 5 * 60_000;
+/** SendEmail 被节流时的重试次数与退避（wave1-fix：api 与 worker 各自限速，合计可能超过沙盒账号 MaxSendRate=1/s） */
+const SEND_THROTTLE_RETRIES = 3;
+const SEND_THROTTLE_BACKOFF_MS = [1000, 1500, 2000] as const;
+
+/** SES 的节流错误：Throttling / TooManyRequestsException / HTTP 429（“Maximum sending rate exceeded”） */
+export function isSesThrottle(e: unknown): boolean {
+  const name = awsErrorName(e);
+  return name === 'Throttling' || name === 'ThrottlingException' || name === 'TooManyRequestsException' || awsHttpStatus(e) === 429
+    || /Maximum sending rate exceeded/i.test((e as Error | null)?.message ?? '');
+}
 const PROBE_MAIL_MIN_INTERVAL_MS = 10 * 60_000;
 
 /** SES 标签的名称与值只允许 ASCII 字母、数字、下划线、连字符（最长 256） */
@@ -63,10 +75,12 @@ export class SesEmail implements EmailPort {
   private sdkPromise?: Promise<SesSdk>;
   private nextSendAt = 0;
   private readonly stats = {
-    sent: 0, rejected: [] as number[], errors: [] as number[], suppressed: 0, reserved: 0, rewritten: 0, lastError: undefined as string | undefined,
+    sent: 0, rejected: [] as number[], errors: [] as number[], suppressed: 0, reserved: 0, rewritten: 0, throttled: 0, lastError: undefined as string | undefined,
   };
   readonly feedbackStats: PollStats = newPollStats();
   private lastProbeMail?: { messageId: string; at: number };
+  /** 控制面读取放在后台（wave1-fix）：探针最多等 1.5 秒（深度 4 秒），不占用能力注册表 2 秒的探针预算 */
+  private readonly bg = new BackgroundProbe({ label: 'SES 控制面' });
 
   constructor(protected readonly deps: AdapterDeps) {
     const e = deps.cfg.email;
@@ -152,13 +166,25 @@ export class SesEmail implements EmailPort {
     const { SendEmailCommand } = await this.sdk();
     try {
       const ses = await this.client();
-      const r = await ses.send(new SendEmailCommand({
+      const command = new SendEmailCommand({
         FromEmailAddress: from,
         Destination: { ToAddresses: real },
         Content: { Raw: { Data: Buffer.from(raw, 'utf8') } },
         ...(this.ecfg.SES_CONFIGURATION_SET ? { ConfigurationSetName: this.ecfg.SES_CONFIGURATION_SET } : {}),
         EmailTags: emailTagsOf(msg),
-      }));
+      });
+      // 节流（账号 MaxSendRate 被 api 与 worker 合计超过）时 SES 没有接受这封邮件，有限次退避重试是安全的；其他错误不重试
+      let r: SendEmailCommandOutput;
+      for (let attempt = 0; ; attempt += 1) {
+        try {
+          r = await ses.send(command);
+          break;
+        } catch (e) {
+          if (!isSesThrottle(e) || attempt >= SEND_THROTTLE_RETRIES) throw e;
+          this.stats.throttled += 1;
+          await sleep(SEND_THROTTLE_BACKOFF_MS[Math.min(attempt, SEND_THROTTLE_BACKOFF_MS.length - 1)]!);
+        }
+      }
       this.stats.sent += 1;
       await insertOutboxEmail(db, {
         messageId, to: real, subject: msg.subject, category: msg.category, transport: 'ses', status: 'sent', userId,
@@ -272,6 +298,10 @@ export class SesEmail implements EmailPort {
   }
 
   async probe(opts?: { deep?: boolean }): Promise<ProbeResult> {
+    return this.bg.run(() => this.probeNow(opts), opts?.deep ? { deep: true } : {});
+  }
+
+  private async probeNow(opts?: { deep?: boolean }): Promise<ProbeResult> {
     const t0 = performance.now();
     const { GetAccountCommand, GetEmailIdentityCommand } = await this.sdk();
     let account: GetAccountCommandOutput;
@@ -314,7 +344,7 @@ export class SesEmail implements EmailPort {
       feedback: feedback ?? null,
       stats: {
         sent: this.stats.sent, rejectedLast5m: this.recent(this.stats.rejected), errorsLast5m: this.recent(this.stats.errors),
-        suppressed: this.stats.suppressed, reserved: this.stats.reserved, rewrittenToOutbox: this.stats.rewritten,
+        suppressed: this.stats.suppressed, reserved: this.stats.reserved, rewrittenToOutbox: this.stats.rewritten, throttledRetries: this.stats.throttled,
         ...(this.stats.lastError ? { lastError: this.stats.lastError } : {}),
       },
       consumer: { ...this.feedbackStats },

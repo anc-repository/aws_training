@@ -146,7 +146,7 @@ function handle(req: http.IncomingMessage, body: Buffer, res: http.ServerRespons
   if (p === '/api/uploads/session' && m === 'POST') {
     const user = userOf(req);
     if (!user) return send(res, 401, { error: 'UNAUTHENTICATED' });
-    if (cognito) return send(res, 201, { mode: 'sts', region: 'ap-northeast-1', bucket: STAGING, prefix: 'private/', partSize: PART, credentialsUrl: '/api/uploads/credentials' }, 'identity-pool=cognito:sts');
+    if (cognito) return send(res, 201, { mode: 'sts', region: 'ap-northeast-1', bucket: STAGING, prefix: 'private/', partSize: PART, credentialsUrl: '/api/uploads/credentials' }, 'identity-pool=cognito:session');
     return send(res, 201, { mode: 'token', token: `tok:${user}`, expiresAt: new Date(Date.now() + 900_000).toISOString(), prefix: `raw/${user}/`, partSize: PART,
       partUrl: storageDriver === 'local' ? '/api/storage/upload' : '/api/uploads/parts:sign' }, 'identity-pool=none:token');
   }

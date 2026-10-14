@@ -3,14 +3,16 @@
 // F14 的 AWS 实现：已登录用户换取一组只能写暂存桶 private/<identityId>/ 的 STS 临时凭证，浏览器自己签名分片直传；
 // complete 时服务端校验后用 CopyObject 导入原图键（字节不经过 EC2），授权由 IAM 策略变量 ${cognito-identity.amazonaws.com:sub} 完成。
 //
-// - openSession：{mode:'sts', region, bucket, prefix, partSize, credentialsUrl}（路径段 identity-pool=cognito:sts）；
+// - openSession：{mode:'sts', region, bucket, prefix, partSize, credentialsUrl}（路径段 identity-pool=cognito:session：只是开了会话，
+//   还没有换取凭证；cognito:sts 只在 credentials() 成功与 complete() 导入成功时出现，wave1-fix）；
 //   管理员带 X-Compare-Bypass: identity-pool → none 驱动的前缀令牌（cognito:bypass）；
 //   Cognito Identity 或暂存桶不可用（最近一次探针 error、连续 3 次瞬时失败、或最近 60 秒内换取凭证失败）→ 退回 none 驱动的
 //   前缀令牌 {mode:'token', fallback:true}（cognito:error-fallback）。不是退回 F6 的逐文件上传。
 // - credentials：User Pool 的 ID 令牌（Cookie ca_it）→ GetId(Logins) → GetCredentialsForIdentity；两者都是不签名的公开 API。
 //   先在本地核对 ID 令牌的声明（token_use=id、iss、aud、sub 与当前登录者一致；签名由 Cognito 校验），防止把别人的身份写进
 //   users.identity_id。auth=local + IDENTITY_DEV_PROVIDER（开发者认证身份）时改用 GetOpenIdTokenForDeveloperIdentity（需要凭证），
-//   再以 Logins['cognito-identity.amazonaws.com'] 调用 GetCredentialsForIdentity。identityId 写入 users.identity_id。
+//   再以 Logins['cognito-identity.amazonaws.com'] 调用 GetCredentialsForIdentity。identityId 以 `<池 ID>|<identityId>` 写入
+//   users.identity_id（身份 ID 只在所属的池内有效；重新启用得到新池时旧值视为没有）。
 // - complete：暂存对象 private/<identityId>/<photoId>.<ext> → HeadObject（大小 ≤ maxUploadMb、Content-Type 在 F6 白名单内）
 //   → Range GetObject 读文件头（魔数，防扩展名伪装）→ 不合规：删除暂存对象、照片标记 FAILED、抛 413 / 415；
 //   合规：StoragePort.importObject（服务端 CopyObject，storage=s3:import）→ 删除暂存对象。之后与其他上传方式相同
@@ -33,6 +35,7 @@ import type { StoragePort } from '../../ports/storage.js';
 import { getPhoto, markFailed } from '../../repositories/photos.js';
 import { findUserById, updateUser } from '../../repositories/users.js';
 import { awsErrorName, describeAwsError, isAwsAccessDenied, isAwsNotFound, isAwsTransient, loadAwsPackage, withAwsRetry } from '../aws/clients.js';
+import { BackgroundProbe } from '../aws/background-probe.js';
 import type { AdapterDeps } from '../types.js';
 import { PrefixTokenUpload } from './none.js';
 
@@ -83,6 +86,23 @@ export function isIdentityId(v: unknown): v is string {
   return typeof v === 'string' && /^[a-z]{2}(-[a-z]+)+-\d:[0-9a-f-]{36}$/.test(v);
 }
 
+/**
+ * users.identity_id 的存储形式：`<IdentityPoolId>|<identityId>`（wave1-fix）。身份 ID 只在所属的池内有效；disable 会删除身份池，
+ * 重新启用得到新的池 ID，旧值必须视为“没有”，否则开发者认证身份会把旧池的 IdentityId 传给 GetOpenIdTokenForDeveloperIdentity。
+ */
+export function encodeIdentityRef(poolId: string, identityId: string): string {
+  return `${poolId}|${identityId}`;
+}
+
+/** 解析 users.identity_id：池 ID 与当前池一致才返回 identityId；旧格式（不带池 ID）与其他池的值一律视为没有 */
+export function decodeIdentityRef(stored: unknown, poolId: string): string | null {
+  if (typeof stored !== 'string') return null;
+  const i = stored.lastIndexOf('|');
+  if (i <= 0) return null;
+  const id = stored.slice(i + 1);
+  return stored.slice(0, i) === poolId && isIdentityId(id) ? id : null;
+}
+
 function normalizePrefix(p: string): string {
   const s = p.replace(/^\/+/, '');
   return s.endsWith('/') ? s : `${s}/`;
@@ -120,6 +140,8 @@ export class CognitoDirectUpload implements DirectUploadPort {
   private lastFailure: { at: number; detail: string } | null = null;
   private lastProbe: { status: ProbeResult['status']; at: number; detail: string } | null = null;
   private probeFailures = 0;
+  /** 控制面读取放在后台（wave1-fix）：探针最多等 1.5 秒（深度 4 秒），不占用能力注册表 2 秒的探针预算 */
+  private readonly bg = new BackgroundProbe({ label: 'Cognito Identity / 暂存桶' });
   private readonly issued = new Map<string, IssuedCredentialsInfo>();
   private ciSdkPromise?: Promise<CiSdk>;
   private s3SdkPromise?: Promise<S3Sdk>;
@@ -231,11 +253,11 @@ export class CognitoDirectUpload implements DirectUploadPort {
     return this.issued.get(userId) ?? null;
   }
 
-  private async storedIdentityId(userId: string): Promise<string | null> {
+  /** 当前池中该用户的 identityId（users.identity_id 的池 ID 与当前池不一致时为 null） */
+  async storedIdentityId(userId: string): Promise<string | null> {
     if (!this.deps.db) return null;
     const row = await findUserById(this.deps.db, userId);
-    const v = row?.identity_id ?? null;
-    return isIdentityId(v) ? v : null;
+    return decodeIdentityRef(row?.identity_id ?? null, this.poolId);
   }
 
   /** 暂存键：private/<identityId>/<photoId>.<ext>（扩展名与原图键一致） */
@@ -262,7 +284,8 @@ export class CognitoDirectUpload implements DirectUploadPort {
     }
     const uid = currentContext()?.userId ?? who.subject;
     const identityId = await this.storedIdentityId(uid).catch(() => null);
-    markPath('identity-pool', 'cognito:sts');
+    // 只是开了一个 STS 会话，还没有换取凭证：cognito:sts 留给 credentials() 成功与 complete() 导入成功（wave1-fix）
+    markPath('identity-pool', 'cognito:session');
     return {
       mode: 'sts', region: this.region, bucket: this.bucket,
       prefix: identityId ? `${this.uploadPrefix}${identityId}/` : this.uploadPrefix,
@@ -312,8 +335,18 @@ export class CognitoDirectUpload implements DirectUploadPort {
       } else {
         // 开发者认证身份（auth=local）：后端以 IAM 凭证为本站用户 ID 取得 Cognito 签发的 OpenID 令牌
         const stored = await this.storedIdentityId(uid);
-        const input = { IdentityPoolId: this.poolId, Logins: { [this.devProvider]: uid }, ...(stored ? { IdentityId: stored } : {}) };
-        const r = await withAwsRetry(() => ci.send(new GetOpenIdTokenForDeveloperIdentityCommand(input)), EXCHANGE_RETRY);
+        const input = { IdentityPoolId: this.poolId, Logins: { [this.devProvider]: uid } };
+        const devToken = (withId: boolean) => withAwsRetry(
+          () => ci.send(new GetOpenIdTokenForDeveloperIdentityCommand({ ...input, ...(withId && stored ? { IdentityId: stored } : {}) })), EXCHANGE_RETRY);
+        let r: Awaited<ReturnType<typeof devToken>>;
+        try {
+          r = await devToken(true);
+        } catch (e) {
+          // 存储的 IdentityId 不属于这个池（或已被删除）：去掉 IdentityId 重试一次，成功后下面会覆盖存储值
+          if (!stored || !['ResourceNotFoundException', 'InvalidParameterException'].includes(awsErrorName(e))) throw e;
+          this.deps.logger?.warn('identity-pool.stale_identity_id', { error: describeAwsError(e) });
+          r = await devToken(false);
+        }
         identityId = r.IdentityId;
         logins = { [COGNITO_IDENTITY_LOGIN]: r.Token ?? '' };
       }
@@ -326,7 +359,7 @@ export class CognitoDirectUpload implements DirectUploadPort {
       this.record(true);
       if (this.deps.db) {
         const stored = await this.storedIdentityId(uid).catch(() => null);
-        if (stored !== identityId) await updateUser(this.deps.db, uid, { identity_id: identityId });
+        if (stored !== identityId) await updateUser(this.deps.db, uid, { identity_id: encodeIdentityRef(this.poolId, identityId) });
       }
       this.issued.set(uid, {
         identityId, accessKeyPrefix: `${c.AccessKeyId.slice(0, 4)}…`, expiration, issuedAt: new Date().toISOString(),
@@ -439,6 +472,10 @@ export class CognitoDirectUpload implements DirectUploadPort {
   }
 
   async probe(opts: { deep?: boolean } = {}): Promise<ProbeResult> {
+    return this.bg.run(() => this.probeNow(opts), opts.deep ? { deep: true } : {});
+  }
+
+  private async probeNow(opts: { deep?: boolean } = {}): Promise<ProbeResult> {
     const t0 = Date.now();
     const stats = this.exchangeStats();
     const data: Record<string, unknown> = {
