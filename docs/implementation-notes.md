@@ -2263,3 +2263,136 @@ npm run platform:dev:api      # dev-server 启动时打印 “SSM mock http://12
 ### 7. 依赖
 
 没有运行 npm install。缺少 `@aws-sdk/client-pricing`：生产经 `import()` 加载 Lambda 运行时自带的包，单元测试用结构相同的假 SDK；`aws-sdk-client-mock` 用例在包安装后才运行（目前跳过 1 个）。缺少 `@aws-sdk/client-cost-explorer`（08 §9.2 #14 未实现）。
+
+## platform-release
+
+为明天的真实部署准备制品：CloudAlbum 两种架构的发行包、完整的平台 Release 布局与 SHA-256 清单、工作台引导包的改造、部署前的
+只读预检，以及 L0 User Data 的离线安装演练。全程没有调用任何 AWS API（本机没有凭证；演练容器里的 `aws` 与 `cfn-signal` 换成了
+记录器），没有部署、没有上传任何东西。用到网络的只有：构建镜像与演练准备阶段从 AL2023 官方软件源下载 RPM，`npm ci` / `npm install`
+访问 npm 源，better-sqlite3 的 prebuild-install 从 GitHub 下载预编译二进制。session-manager-plugin 没有下载（见 4.6）。
+
+### 1. 交付内容
+
+| 部分 | 位置 | 内容 |
+|---|---|---|
+| CloudAlbum 发行包 | `scripts/release` | 新增两步用法：`--prepare-only` 生成与架构无关的 stage（构建产物、host 文件、registry 元数据、检查包），`--from-prepared <dir> --arch <a>` 在目标架构的 Linux 中装生产依赖并打包；不带这两个选项时与原来一样一步完成。`node_modules` 中每个 `*.node` 按 ELF e_machine 分类，better-sqlite3、`@img/sharp-linux-<cpu>`、`@node-rs/argon2-linux-<cpu>-gnu` 缺失或架构不符即失败；宿主就是目标架构时再实际加载（内存 SQLite 查询、sharp 编码 PNG、argon2id 散列与校验）。交叉安装（宿主 ≠ 目标）传 `npm_config_arch` 让 prebuild-install 取目标二进制，只做 ELF 检查。`.release-manifest.json` 增加 `build{node, platform, sourceCommit, sourceDirty}` 与 `nativeModules[]`；设置 `SOURCE_DATE_EPOCH` 时 `createdAt`、检查包 `createdAt` 与归档内全部 mtime 固定（GNU tar `--sort=name --owner=0 --group=0 --mtime`，`gzip -n`） |
+| Docker 构建 | `scripts/release-docker/Dockerfile.builder`、`build.sh`、`in-container.sh` | 构建环境 = amazonlinux:2023 + `dnf nodejs22`（与 L0、工作台同一 Node 包，原生模块按实际运行时取得）；amd64 原生、arm64 经 QEMU。`build.sh`：`git bundle` 指定提交（默认 HEAD；只用已提交的源码，`--overlay` 可叠加发布工具路径的未提交改动做测试）→ amd64 容器 `npm ci`、`build`、`build:frontend`、`build:web`、`labs:build`、检查包（`SOURCE_DATE_EPOCH` = 提交时间）→ `scripts/release --prepare-only` + x86_64 包 → arm64 容器 `--from-prepared` 出 arm64 包、预构建 node_modules → amd64 容器 `npm run platform:package -- --app-archive …` → `preflight.mjs --artifacts-only`。输出 `dist/release/app/`、`dist/release/v<平台版本>/`、`dist/release/build-report.json`；中间文件 `dist/release-work/`，npm 缓存 `dist/release-cache/`（都在 D 盘、都被忽略） |
+| 平台打包 | `platform/infra/build/package.ts`、`archive.ts`、`workstation-tools.json`、`publish-s3.ts` | ① app 包的 `atlBundleDigest` 与检查包摘要不同即拒绝打包（实验机上的 ATL-RunCheck 按平台的摘要找检查包；`--allow-checks-mismatch` 仅供调试），架构字段不符也拒绝。② `--runner-node-modules <tar.gz>`：把 linux-arm64 的 node_modules（工作区链接已解引用、去掉 `.bin`、`*.d.ts`、`*.map`）放进 `cloudalbum-infra.zip`，并计入其内部 `SHA256SUMS`；超过 65,535 个条目（ZIP 无 ZIP64）时报错。③ 工作台引导包：新增 `atl-ws-install.sh`、`atl-install-node-modules.sh`；`manifest.json` 增加 `tools.sessionManagerPlugin`（官方下载地址按机器类型 + 固定的 SHA-256）、`tools.k6`（`optional: true`）、`nodeModulesInfo`；`--workstation-node-modules` 现在也接受 tar.gz（原样放入包中，旁边的 `<file>.json` 记录架构、Node 版本、lock 摘要）。④ 版本与固定值：`workstation-tools.json` 的 `pin`，`--ssm-plugin-version` / `--ssm-plugin-sha256 <arch>=<hex>` 覆盖；未固定时版本取 `platform/ssm-client` 的 `PROTOCOL_COMPAT_VERSION`。⑤ `package-report.json`（输入、各包摘要、警告；不是发布资产，`publish-s3` 跳过它）。⑥ `--emit-source <file>` 只写出工作台 / 运行器的源码子集（node_modules 预构建的输入）。`readTarGz` 支持 GNU 长文件名（`L`）与 pax `path` |
+| 工作台引导 | `platform/workstation/bootstrap/user-data.sh`、`install.sh`、`install-node-modules.sh`；`templates/atl-workstation.yaml`（重新生成） | User Data 只做 dnf 安装、下载并校验引导包（`BundleSha256` + 包内逐文件），然后执行包里的 `atl-ws-install.sh`。安装脚本：session-manager-plugin 优先用包内 rpm，否则从官方地址下载，SHA-256 与固定值一致才 `dnf install`，未固定或不一致都不安装并在 `installed.json` 写明原因；k6 只在包内有时安装；node_modules 优先用预构建包（机器类型不符时改为现装），否则 `atl-install-node-modules.sh` 从 npm 源安装；`installed.json` 增加 `tools`、`nodeModules`、`machine`。`install-node-modules.sh` 把根 package.json 的工作区收窄为实际存在的（包、module-cli、labs、experiments、shared），只保留 `tsx` 一个开发依赖（`npm run exp` 用），按原 lockfile 安装后恢复原 package.json / package-lock.json；预构建与启动时现装用的是同一个脚本 |
+| 部署前预检 | `scripts/verify/preflight.mjs` | 见第 2 节；`--json` 输出，退出码 0 / 1 / 2 |
+| 离线安装演练 | `scripts/release-docker/drill.sh`、`drill/`（`Dockerfile`、`Dockerfile.helper`、`run-drill.sh`、`imds.py`、`render-user-data.mjs`、`stubs/`） | 见第 3 节 |
+| 工作台演练 | `scripts/release-docker/ws-drill.sh`、`drill/run-ws-drill.sh` | 无网络容器里运行渲染后的工作台 User Data（`aws s3 cp` 由记录器从发布目录取包），再用本地服务器验证插件下载路径：错误摘要 → 不安装，正确摘要 → 下载、校验、安装 |
+| 固定插件摘要 | `scripts/release-docker/pin-ssm-plugin.sh` | 维护者在部署前运行：下载指定版本两种架构的官方 rpm（HTTPS），把版本、摘要、日期写入 `workstation-tools.json`；`--dry-run` 只打印地址 |
+| 测试 | `scripts/verify/preflight.test.mjs`、`scripts/release-docker/test/release-tools.test.mjs` | node:test，21 个：预检对合成发布目录的全部检查与篡改、摘要不一致、未固定插件；凭证来源判断；只读白名单；User Data 渲染；插件固定规则；GNU 长文件名；运行器 node_modules 过滤；工作台包清单；全部 shell 脚本 `bash -n` 与 LF |
+
+### 2. 预检 `scripts/verify/preflight.mjs`
+
+```bash
+node scripts/verify/preflight.mjs [--release-dir dist/release/v0.1.0-dev] [--profile <name>] [--region <r>] [--cfn-lint] [--online] [--strict] [--json]
+node scripts/verify/preflight.mjs --artifacts-only --release-dir <dir>     # 只查制品（构建容器里就是这么跑的）
+```
+
+- 本机环境：Node ≥ 22.12；`aws --version`（v2 才通过）；`~/.aws/config`、`~/.aws/credentials`（或 `AWS_CONFIG_FILE` / `AWS_SHARED_CREDENTIALS_FILE`）是否存在、有哪些 profile；
+  凭证来源只在本地判断（环境变量、IAM Identity Center、assume-role、credential_process、长期密钥），从不打印密钥；没有凭证时 FAIL 并给出
+  `aws configure sso --profile …` / `aws sso login` 的中英文提示；默认区域（`--region` > `AWS_REGION` > `AWS_DEFAULT_REGION` > profile）是否在
+  `release.config.json` 的已验证区域里；cfn-lint 是否可用（Windows 下只认 .exe，不经 shell）；发布包是否由当前提交构建。
+- 制品：`SHA256SUMS` 逐个核对、目录中没有清单外的资产；模板内嵌清单（`CopyArtifacts.Manifest`）与文件的摘要和大小一致、`ChecksBundleDigest` 一致；
+  两个 CloudAlbum 包的架构、`atlBundleDigest`、三个原生模块的 ELF 机器类型；`cloudalbum-infra.zip` 内部 `SHA256SUMS` 全部条目、运行器需要的文件、
+  `scripts/module` 可执行、两个 `.tgz`、检查包、linux-arm64 的 node_modules；工作台包逐文件摘要、插件是否已固定（未固定为 WARN）、k6（可选）、
+  预构建 node_modules 的架构；网页包与内容包是否是占位。`--cfn-lint` 对发布模板跑一次 cfn-lint（本地）。
+- AWS：默认不调用。`--online` 只运行 `sts get-caller-identity`、`ec2 describe-vpcs`（默认 VPC，01 §4.1）、`cloudformation describe-stacks --stack-name atl`
+  （是否已安装），三个都经白名单 `assertReadOnly`，其他任何操作在启动进程前就被拒绝（有测试）。
+
+### 3. L0 离线安装演练 `scripts/release-docker/drill.sh`
+
+```bash
+bash scripts/release-docker/drill.sh [--archive dist/release/app/cloudalbum-<ver>-x86_64.tgz] [--arch x86_64|arm64] [--platform-mode off|on]
+```
+
+- “实例”= `drill/Dockerfile`：amazonlinux:2023 + AMI 上有而容器镜像没有的（systemd 作为 PID 1、systemd-udev、tar、gzip、util-linux、iproute、procps、
+  openssh-server、aws-cfn-bootstrap）+ 演练工具（python3、nftables、createrepo_c）。`cfn-signal` 换成记录器，`aws` 换成“记录后失败”的桩，`swapon` 换成空操作。
+- 准备（唯一联网的一步，结果缓存）：从发行包自己的 `l0-bootstrap.sh` 取出所有 `dnf -y install` 的包名，`dnf --downloadonly` + `createrepo_c` 做成离线源（已签名的
+  AL2023 包，演练中 `gpgcheck=1`）。User Data 由 `drill/render-user-data.mjs` 从发行包自己的 `infra/modules/ec2.yaml`（InstanceA）渲染，`${…}` 全部代入，漏一个就失败。
+- 演练容器：`--privileged --network none`。IMDSv2 模拟（`drill/imds.py`，令牌必需，未知路径 404，逐条记录请求），169.254.169.254 地址与 nft DNAT（:80 → 本机 8169）由宿主架构的旁路容器（`drill/Dockerfile.helper`）加入演练容器的网络命名空间后设置（QEMU 用户态模拟不支持 netfilter netlink）；
+  发行包由本机 HTTP 提供（`AppArchiveUrl=http://127.0.0.1:8080/…`，与 GitHub 下载同一路径）；数据卷 = 4 GiB 稀疏文件 + loop 设备，链接为 `/dev/sdf`（AL2023 的
+  udev 规则在真实实例上做同样的事），`/dev/disk/by-label/cadata` 也由演练建立。然后像 cloud-init 一样以 root 运行 User Data，并检查 36 项（见第 5 节），
+  最后再运行一次 `l0-bootstrap.sh all`，要求成功、`KEY_FINGERPRINT` 不变、健康检查仍为 200。结束时卸载并释放 loop 设备（容器已不在时用特权容器按 backing file 释放）。
+
+### 4. 设计有歧义时的取舍
+
+1. **构建只用已提交的源码**：`build.sh` 从 `git bundle` 克隆指定提交，不读工作区（并行任务的未提交改动不会混进发布包），`sourceCommit` 与 `repoCommit` 都是真实提交。
+   `--overlay` 只为测试发布工具本身。
+2. **arm64 用 QEMU 而不是交叉安装**：better-sqlite3 的预编译包按宿主架构选择，交叉安装容易混入 x64 二进制；arm64 的 stage 在 arm64 容器（QEMU）中装依赖并实际加载。
+   与架构无关的部分只构建一次（`--prepare-only`），两种架构的 JS、检查包完全相同。
+3. **检查包摘要的一致性**：同一 `SOURCE_DATE_EPOCH`（提交时间）构建 CloudAlbum 包里的检查包与平台的检查包，摘要相同；`package.ts` 不一致就拒绝打包（而不是只告警）。
+4. **运行器的 node_modules**（本任务新发现的缺口）：CodeBuild（`ARM_CONTAINER`，`amazonlinux-aarch64-standard:3.0`）从 `cloudalbum-infra.zip` 直接运行 `scripts/module`，
+   buildspec 没有安装步骤，原来的包里没有 node_modules，`scripts/module` 第一条 `import` 就会失败。改为由打包把 linux-arm64 的 node_modules 放进 zip（ZIP 不支持链接，
+   工作区链接解引用为普通文件；`.bin` 不需要，`scripts/module` 按路径启动）。工作台的同一套 node_modules 保留链接，作为单独的 tar.gz 放进引导包。
+5. **工作台安装逻辑随引导包发布**：03 §4.5 把全部安装写在 User Data 里；改为 User Data 只校验并调用包内的 `atl-ws-install.sh`。安装脚本因此受 `BundleSha256` 保护，
+   以后改安装逻辑不必重新生成工作台模板（这次重新生成了一次 `templates/atl-workstation.yaml`，它是 `bootstrap/user-data.sh` 的生成物）。
+6. **session-manager-plugin 在启动时下载**（任务要求，偏离 03 §4.5“启动时不访问第三方源”；AWS 官方下载地址不是第三方）：地址是安装指南中 `latest` 地址的带版本形式
+   `https://s3.amazonaws.com/session-manager-downloads/plugin/<ver>/{linux_arm64|linux_64bit}/session-manager-plugin.rpm`（以官方文档为准，07 复核）。校验依据是维护者用
+   `pin-ssm-plugin.sh` 固定的 SHA-256（首次经 HTTPS 下载时记录；摘要写进引导包清单，受 `BundleSha256` 保护）；没有固定就不安装，绝不安装未经校验的二进制。
+   本任务没有下载插件（规则是不调用 AWS），所以当前 `pin` 为空、预检对此告警。官方是否提供 rpm 的签名校验方式没有核实，未采用。版本默认跟随 `PROTOCOL_COMPAT_VERSION`
+   （浏览器协议层对齐的版本），固定值与它不同时打包告警。
+7. **k6 可选**：实验运行器是 Node 实现（`experiments/_lib/load.ts`，`tool: k6` 的场景本来就会被拒绝），卡片的 `workstation.tools` 也没有 k6；没有 k6 时安装照常完成，
+   `installed.json` 记 `absent`，`ws.ready` 与 `tool-versions` 原本就允许为空。仍可用 `--k6-tarball` 放进包里。
+8. **node_modules 的两种来源**：默认预构建（arm64，`build.sh` 生成），启动时不访问 npm；没有预构建包或机器类型不符时现装（需要 npm 源，ws.ready 会晚几分钟）。
+   现装不用 `npm ci`：工作台源码子集不含 backend、frontend 等工作区，原 lockfile 与收窄后的 package.json 不一致，`npm ci` 会拒绝；改为按原 lockfile `npm install`
+   （版本仍被锁定），装完恢复原文件。只保留 `tsx` 一个开发依赖，因为 `npm run exp` 经 tsx 运行实验场景。
+9. **演练中的退化**（容器做不到、与实例无关的部分）：`swapon` 为空操作（overlayfs 不能做交换，交换属于 Docker VM 的内核）——交换文件、mkswap、fstab 照常检查；
+   `systemd-networkd-wait-online`、`systemd-remount-fs`、udevd 被屏蔽（无网络 / 根文件系统是 overlay / 容器没有 udev）；只在 QEMU 模拟（arm64）时：
+   chronyd 换成替身单元、`xfs_growfs` 换成空操作、数据卷由宿主架构的旁路容器 `mkfs.xfs -L cadata`、nginx 补一行 `map_hash_bucket_size 64`（QEMU 用户态模拟跑不了
+   chronyd 的时钟系统调用，不转发块设备 / XFS 的 ioctl，模拟的缓存行是 32 字节；前三次 arm64 演练依次停在 `systemctl enable --now chronyd`、
+   `mkfs.xfs: cannot set blocksize`、`nginx: could not build map_hash`），所以 arm64 走的是“已有文件系统的数据卷”分支；`/dev/sdf` 与 by-label 链接由演练建立；
+   `cfn-signal` 只记录（检查记录到 `-e 0 --resource InstanceA`）；`systemd` 检查只看 User Data 开始之后失败的单元。其余（dnf、Node 22、nginx、用户、systemd 单元与定时器、
+   XFS 数据卷、机密、迁移、服务、经 nginx 的健康检查、HTTPS 自签名证书、fail2ban、sshd -t、检查包安装、原生模块）都是真实执行的。
+10. **版本号**：CloudAlbum 发行包版本为 `<package.json version>-g<短提交号>`（如 `0.1.0-g7171e20`），可用 `--version` 覆盖；平台标签仍为 `v<platform/VERSION>`。
+
+### 5. 自测结果（2026-10-14，Windows 11 / Node 22.14.0 / Docker 28.3.2，WSL2 内核 + QEMU）
+
+| 自测 | 命令 | 结果 |
+|---|---|---|
+| 构建 / 检查 | `npm run build`、`npm run lint` | 通过；0 个问题（`platform/infra/build` 被 eslint 配置忽略，由 `tsc -p platform/infra/tsconfig.json` 类型检查） |
+| 单元测试 | `npm test` | 173 个文件通过（1 个跳过）：2077 个测试通过、19 个跳过；其中 `atl-infra` 与 `atl-workstation` 共 165 个（含“工作台模板与 user-data.sh 一致”） |
+| 新增测试 | `node --test "scripts/verify/*.test.mjs"`；`node --import tsx --test "scripts/release-docker/test/*.test.mjs"` | 10 + 11 个，全部通过 |
+| 全流程构建 | `bash scripts/release-docker/build.sh`（提交 ef0726e = 本任务第一个提交，无 overlay；之后的提交只改演练脚本与本节，制品未重建，预检会提示提交不同） | 879 秒：x86_64 包 3 分钟内完成，arm64 包（QEMU）4 分 23 秒，arm64 node_modules 7 分钟；两个包里 better-sqlite3 / sharp 0.34.5（libvips 8.17.3）/ argon2 都在各自架构上加载成功（Node 22.23.2，与 AL2023 的 nodejs22 相同）；检查包摘要 `70882506…b83b4` 在两个包与平台发布中一致 |
+| 发布布局 | `dist/release/v0.1.0-dev/` | `atl-lambdas.zip`、`atl-web.zip`（真实 SPA 构建）、`atl-content.zip`（目录 0.1.0-dev）、`cloudalbum-app-{arm64,x86_64}.tar.gz`（各约 30 MB）、`cloudalbum-infra.zip`（6,492 个条目，约 87 MB，含 linux-arm64 node_modules）、`atl-workstation.tar.gz`（约 29 MB，含预构建 node_modules）、模板（382 KiB）、`SHA256SUMS`（含 `# checks-bundle-digest`）、`release-manifest.json`、`launch-stack.md`、`package-report.json`；CloudAlbum 包另在 `dist/release/app/`（带 `.sha256`） |
+| 预检（制品） | `preflight.mjs --artifacts-only`（构建容器内与本机各一次） | 11 通过、1 警告（插件未固定）、0 失败 |
+| 预检（本机） | `node scripts/verify/preflight.mjs` | aws-cli 2.34.45 通过；没有 `~/.aws/config`、没有凭证、没有默认区域 → 2 个 FAIL，均给出配置命令；cfn-lint 未安装 → 警告；没有发起任何 AWS 调用 |
+| 运行器包 | arm64 容器（QEMU，`--network none`）解开 `cloudalbum-infra.zip` | `sha256sum --check --strict` 通过（6,491 行，与 buildspec 相同）；`scripts/module --help` 启动；argon2 散列；module-cli 能解析 `@aws-sdk/client-cloudformation` |
+| L0 离线演练 x86_64 | `bash scripts/release-docker/drill.sh` | 36 通过、0 失败、1 退化（swap）：User Data 30 秒退出 0；Node v22.23.2（alternatives 指向 node-22）、nginx 1.30.5；nginx、api、worker、5 个定时器 / path 单元 active + enabled；经 nginx 的 `/api/health/ready?scope=instance` 200，HTTPS 自签名 200；XFS `LABEL=cadata` 数据卷挂载、`/etc/cloudalbum` 链接、机密 0640 root:cloudalbum、ES256 密钥、SQLite、`.initialized`、`KEY_FINGERPRINT`、管理员密码文件 0600；检查包装到 `/opt/atl`；以 cloudalbum 用户加载三个原生模块；fail2ban 1.1.0 active（AL2023 现在有这个包）；`sshd -t` 接受加固配置；cfn-signal 记录为 `-e 0 --resource InstanceA`；AWS CLI 从未被调用；IMDS 只被读了 mac、vpc-ipv4-cidr-blocks、两个实例标签与 services/partition；第二次运行 7 秒退出 0、指纹不变 |
+| L0 离线演练（平台模式） | `drill.sh --platform-mode on` | 36 通过、0 失败、1 退化、1 信息：不创建管理员（PM-07）；`.ssm-agent-check.json` 写出（见第 7 节 infra 一条） |
+| L0 离线演练 arm64 | `drill.sh --arch arm64`（QEMU） | 35 通过、0 失败、3 退化（chronyd 替身、swap、数据卷由旁路容器格式化），约 15 分钟：User Data 590 秒退出 0；arm64 的 nginx、Node 22、三个原生模块（以 cloudalbum 用户加载）、服务与定时器、经 nginx 的健康检查 200、fail2ban、cfn-signal `-e 0`、第二次运行 227 秒退出 0 且指纹不变。前三次尝试暴露的都是 QEMU 的限制（见 4.9），其中缓存行一条对 infra 有参考价值（第 7 节） |
+| 工作台演练 x86_64 | `bash scripts/release-docker/ws-drill.sh` | 12 通过：`BundleSha256` 与逐文件校验、`atl-ws-install.sh`、5 个工具、检查包、labuser 与仓库、插件未固定 → 跳过并写明原因、k6 缺省、机器类型不符 → 选择现装（无网络所以失败，符合预期）、错误摘要 → 不安装、正确摘要 → 下载校验安装；唯一的 `aws` 调用是 mock 的 `s3 cp` |
+| 磁盘 | `dist/release` / `dist/release-work` / `dist/release-cache` | 约 268 MB / 70 MB / 257 MB，都在 D 盘；Docker 镜像 `atl-release-builder:{amd64,arm64}`（各约 1.1–1.2 GB）、`atl-l0-drill:{amd64,arm64}`（444 / 574 MB）、`atl-l0-drill-helper:amd64`（290 MB）在 Docker Desktop 的虚拟磁盘（C 盘），不再需要时 `docker image rm` |
+
+### 6. 必须在真实 AWS 上验证（07）
+
+- 插件下载地址（带版本的路径）与 `pin-ssm-plugin.sh` 记录的摘要；工作台实例上 `atl-ws-install.sh` 的完整运行（含 `dnf install` 官方 rpm、`session-manager-plugin --version`）。
+- CodeBuild `amazonlinux-aarch64-standard:3.0` 中 `scripts/module` 用 zip 里的 node_modules 启动（Node 22 运行时与 AL2023 的 glibc 一致，本地只在 AL2023 arm64 容器中验证过）。
+- L0 实例上演练做不到的部分：真实的 EBS / NVMe 设备与 udev 链接、交换、cfn-signal 到 CreationPolicy、IMDS 标签读取（`InstanceMetadataTags=enabled`）、经 EIP 的访问、
+  平台模式（`--platform-mode on` 只覆盖 ssm-agent 检查与不建管理员）。
+- 发布包大小与 `CopyArtifacts`（Lambda 15 分钟内下载并校验约 190 MB 的全部资产）。
+
+### 7. 需要其他部分配合
+
+- **根 package.json（不在本节路径内）**：建议增加 `"release:docker": "bash scripts/release-docker/build.sh"`、`"preflight": "node scripts/verify/preflight.mjs"`、
+  `"test:release": "node --import tsx --test \"scripts/verify/*.test.mjs\" \"scripts/release-docker/test/*.test.mjs\""`，并把后者加入 CI；`platform:build` 打包前加 `npm run build:web`（web 脚手架已提）。
+- **维护者（部署前）**：`bash scripts/release-docker/pin-ssm-plugin.sh` → 提交 `workstation-tools.json` → 重新 `build.sh`；07 PM-06 确认最低 SSM Agent 版本后以
+  `SSM_AGENT_MIN_VERSION=<v>` 重新构建；`release.config.json` 的 `templateBucket` 仍是占位。
+- **infra（`infra/userdata/l0-bootstrap.sh`，演练发现）**：`ssm_agent_check` 用 `ver=$(rpm -q --qf '%{VERSION}' amazon-ssm-agent 2>/dev/null || true)`，
+  rpm 把 “package amazon-ssm-agent is not installed” 写到 stdout，于是被当成版本号写进 `.ssm-agent-check.json`（`meetsMinimum` 也因此不是 false）。应改为
+  `ver=$(rpm -q --qf '%{VERSION}' amazon-ssm-agent 2>/dev/null) || ver=''`。AMI 上预装了 Agent，正常路径不受影响。
+- **infra（`infra/nginx/nginx.conf`，演练发现）**：nginx 的 `map_hash_bucket_size` 默认取 CPU 缓存行长度；`cloudalbum.conf` 的 `$ca_block` map 在 32 字节时
+  建不起来（`could not build map_hash`）。Graviton 与 x86_64 是 64 字节，所以真实实例不受影响；QEMU 下的 arm64 报 32（`getconf LEVEL1_DCACHE_LINESIZE`）。
+  建议在 `http {}` 中显式写 `map_hash_bucket_size 128;`，不依赖硬件。演练只在 QEMU 下用 `conf.d/00-drill-qemu.conf` 补上这一行。
+- **workflows / 02**：buildspec 可在 install 阶段校验 `node_modules` 存在（现在缺失时 `scripts/module` 的报错不直观）；运行器默认架构 arm64，与默认实验机一致。
+- **01 / 03**：登记 `atl-workstation.tar.gz` 的新文件（`atl-ws-install.sh`、`atl-install-node-modules.sh`、`cloudalbum-node_modules.tar.gz`）与清单字段 `tools`、`nodeModulesInfo`；
+  03 §4.5 的“启动时不访问第三方源”改为“插件从 AWS 官方地址下载并按固定摘要校验”；01 §4.5 的 `cloudalbum-infra.zip` 内容加上 linux-arm64 node_modules。
+- **web**：`verify/` 由谁发布仍未定（占位包里有 `verify/`，真实 web 构建没有）。
+
+### 8. 依赖
+
+没有在仓库中运行 npm install，lockfile 未变；新脚本只用 Node 内置模块（测试用已有的 tsx 加载 TypeScript）。Docker 镜像：`amazonlinux:2023`（本机已有，arm64 变体为本次拉取）。
+可选：cfn-lint（本机没有，预检对此告警）。

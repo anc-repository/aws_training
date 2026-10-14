@@ -44,7 +44,8 @@ if [ ! -f "$cache/ws-drill-repo-$arch/repodata/repomd.xml" ] || [ "$(cat "$cache
   rm -rf "${cache:?}/ws-drill-repo-$arch"; mkdir -p "$cache/ws-drill-repo-$arch/fake"
   dk run --rm --platform "$plat" --mount "type=bind,source=$(hostpath "$cache/ws-drill-repo-$arch"),target=/repo" "atl-l0-drill:$tag" bash -c "
     set -e
-    for p in $pkgs; do dnf -q -y install --downloadonly --downloaddir=/repo \$p >/dev/null 2>&1 || echo \"not available: \$p\"; done
+    dnf -q -y install --downloadonly --setopt=strict=0 --downloaddir=/repo $pkgs >/dev/null 2>&1 || true
+    for p in $pkgs; do ls /repo/\$p-[0-9]*.rpm >/dev/null 2>&1 || rpm -q \$p >/dev/null 2>&1 || echo \"not available: \$p\"; done
     dnf -q -y install --downloadonly --downloaddir=/repo/fake tree >/dev/null && mv /repo/fake/tree-*.rpm /repo/fake/fake.rpm
     createrepo_c -q --excludes 'fake/*' /repo && ls /repo/*.rpm | wc -l" > "$out/repo.log" 2>&1 || { cat "$out/repo.log" >&2; exit 1; }
   printf '%s' "$pkgs" > "$cache/ws-drill-repo-$arch/.packages"

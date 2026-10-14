@@ -50,8 +50,17 @@ name=$(basename "$archive")
 sha=$(sha256sum "$archive" | cut -c1-64)
 version_dir=$( (tar -tzf "$archive" 2>/dev/null || true) | head -1 | cut -d/ -f1)
 
-step "drill image atl-l0-drill:$tag"
+# a native sidecar (drill/Dockerfile.helper, the Docker host's architecture) joins the drill container to install the IMDS
+# address and redirect; under QEMU user-mode emulation (arm64 on x86_64: no netfilter netlink, no block-device / XFS ioctls)
+# it also formats the data volume
+case "$(dk info --format '{{.Architecture}}' 2>/dev/null)" in
+  x86_64|amd64) ntag=amd64; nplat=linux/amd64 ;; aarch64|arm64) ntag=arm64; nplat=linux/arm64 ;; *) ntag=$tag; nplat=$plat ;;
+esac
+emulated=0; [ "$ntag" = "$tag" ] || emulated=1
+step "drill images atl-l0-drill:$tag, atl-l0-drill-helper:$ntag"
 dk build --platform "$plat" -t "atl-l0-drill:$tag" "$(hostpath "$HERE/drill")" > "$out/image.log" 2>&1 || { tail -20 "$out/image.log" >&2; exit 1; }
+dk build --platform "$nplat" -f "$(hostpath "$HERE/drill")/Dockerfile.helper" -t "atl-l0-drill-helper:$ntag" "$(hostpath "$HERE/drill")" >> "$out/image.log" 2>&1   || { tail -20 "$out/image.log" >&2; exit 1; }
+helper() { dk run --rm --privileged --network "container:$cname" --platform "$nplat" "atl-l0-drill-helper:$ntag" bash -c "$1"; }
 
 # the package list comes from the archive's own l0-bootstrap.sh (every `dnf -y install` line)
 tar -xzf "$archive" -O "$version_dir/infra/userdata/l0-bootstrap.sh" > "$in/l0-bootstrap.sh"
@@ -62,7 +71,8 @@ if [ "$refresh" = yes ] || [ ! -f "$cache/drill-repo-$arch/repodata/repomd.xml" 
   rm -rf "${cache:?}/drill-repo-$arch"; mkdir -p "$cache/drill-repo-$arch"
   dk run --rm --platform "$plat" --mount "type=bind,source=$(hostpath "$cache/drill-repo-$arch"),target=/repo" "atl-l0-drill:$tag" bash -c "
     set -e
-    for p in $pkgs; do dnf -q -y install --downloadonly --downloaddir=/repo \$p >/dev/null 2>&1 || echo \"not in the AL2023 repositories: \$p\"; done
+    dnf -q -y install --downloadonly --setopt=strict=0 --downloaddir=/repo $pkgs >/dev/null 2>&1 || true
+    for p in $pkgs; do ls /repo/\$p-[0-9]*.rpm >/dev/null 2>&1 || rpm -q \$p >/dev/null 2>&1 || echo \"not in the AL2023 repositories: \$p\"; done
     createrepo_c -q /repo && ls /repo/*.rpm | wc -l" > "$out/repo.log" 2>&1 || { cat "$out/repo.log" >&2; exit 1; }
   printf '%s' "$pkgs" > "$cache/drill-repo-$arch/.packages"
   cat "$out/repo.log"
@@ -95,7 +105,7 @@ cat > "$in/imds-values.json" <<EOF
   "dynamic/instance-identity/document": "{\"accountId\":\"111122223333\",\"region\":\"$region\",\"instanceId\":\"i-0d1a11000000000a1\",\"architecture\":\"$([ "$arch" = arm64 ] && echo arm64 || echo x86_64)\"}"
 }
 EOF
-printf 'ARCHIVE=%s\nARCHIVE_SHA256=%s\nPLATFORM_MODE=%s\nREGION=%s\nCFN_STACK=%s\n' "$name" "$sha" "$pmode" "$region" "$stack" > "$in/drill.env"
+printf 'ARCHIVE=%s\nARCHIVE_SHA256=%s\nPLATFORM_MODE=%s\nREGION=%s\nCFN_STACK=%s\nEMULATED=%s\n' "$name" "$sha" "$pmode" "$region" "$stack" "$emulated" > "$in/drill.env"
 
 step "drill container (--network none, systemd as PID 1)"
 cname="atl-l0-drill-$$"
@@ -106,7 +116,7 @@ cleanup() {   # the loop device belongs to the Docker VM's kernel: always detach
   dk rm -f "$cname" >/dev/null 2>&1 || true
   l=$(cat "$out/loopdev" 2>/dev/null || true)
   if [ -n "$l" ]; then
-    dk run --rm --privileged "atl-l0-drill:$tag" bash -c "[ \"\$(cat /sys/block/${l#/dev/}/loop/backing_file 2>/dev/null)\" = /var/tmp/drill-data.img ] && losetup -d $l; true" >/dev/null 2>&1 || true
+    dk run --rm --privileged --platform "$nplat" "atl-l0-drill-helper:$ntag" bash -c "[ \"\$(cat /sys/block/${l#/dev/}/loop/backing_file 2>/dev/null)\" = /var/tmp/drill-data.img ] && losetup -d $l; true" >/dev/null 2>&1 || true
   fi
 }
 trap cleanup EXIT
@@ -123,8 +133,15 @@ for _ in $(seq 1 60); do
   case "$s" in running|degraded) break ;; esac; sleep 1
 done
 echo "systemd: $s"
+# IMDS address and redirect (169.254.169.254:80 → the mock on 127.0.0.1:8169), set up natively in the drill's namespace
+helper 'ip addr add 169.254.169.254/32 dev lo 2>/dev/null || true
+  nft list table ip drill >/dev/null 2>&1 || { nft add table ip drill && nft "add chain ip drill out { type nat hook output priority -100; }"     && nft add rule ip drill out ip daddr 169.254.169.254 tcp dport 80 dnat to 127.0.0.1:8169; }' || { echo "IMDS redirect setup failed" >&2; exit 1; }
 rc=0
-dk exec "$cname" bash /drill/bin/run-drill.sh || rc=$?
+dk exec "$cname" bash /drill/bin/run-drill.sh prepare || rc=$?
+if [ "$rc" = 0 ] && [ "$emulated" = 1 ]; then
+  l=$(cat "$out/loopdev"); helper "mkfs.xfs -q -L cadata $l" || { echo "native mkfs.xfs of $l failed" >&2; rc=1; }
+fi
+[ "$rc" = 0 ] && { dk exec "$cname" bash /drill/bin/run-drill.sh run || rc=$?; }
 rm -rf "$in" "$rel"
 step "report: $out/report.json (exit $rc)"
 exit "$rc"

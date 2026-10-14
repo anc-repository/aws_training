@@ -1,0 +1,7 @@
+# scripts/release-docker/drill/Dockerfile.helper — native sidecar of the L0 drill (scripts/release-docker/drill.sh), built for
+# the Docker host's own architecture. It joins the drill container's network namespace to install the IMDS address and the
+# nft redirect, and — only when the drill runs under QEMU user-mode emulation (arm64 on x86_64), which emulates neither
+# netfilter netlink nor block-device ioctls — formats the drill's loop device (mkfs.xfs -L cadata) before the User Data runs.
+ARG BASE_IMAGE=amazonlinux:2023
+FROM ${BASE_IMAGE}
+RUN dnf -y install nftables iproute util-linux xfsprogs && dnf clean all && rm -rf /var/cache/dnf

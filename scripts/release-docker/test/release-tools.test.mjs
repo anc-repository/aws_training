@@ -139,7 +139,9 @@ describe('workstation bundle', () => {
 describe('shell scripts', () => {
   const bash = spawnSync('bash', ['--version'], { encoding: 'utf8' });
   const scripts = ['scripts/release', 'scripts/release-docker/build.sh', 'scripts/release-docker/in-container.sh', 'scripts/release-docker/drill.sh',
-    'scripts/release-docker/drill/run-drill.sh', 'scripts/release-docker/pin-ssm-plugin.sh', 'platform/workstation/bootstrap/user-data.sh',
+    'scripts/release-docker/ws-drill.sh', 'scripts/release-docker/drill/run-drill.sh', 'scripts/release-docker/drill/run-ws-drill.sh',
+    'scripts/release-docker/drill/stubs/aws', 'scripts/release-docker/drill/stubs/aws-s3-mock', 'scripts/release-docker/drill/stubs/cfn-signal',
+    'scripts/release-docker/drill/stubs/swapon', 'scripts/release-docker/pin-ssm-plugin.sh', 'platform/workstation/bootstrap/user-data.sh',
     'platform/workstation/bootstrap/install.sh', 'platform/workstation/bootstrap/install-node-modules.sh'];
   it('parse with bash -n and use LF line endings', { skip: bash.status !== 0 && 'bash is not available' }, () => {
     for (const s of scripts) {
