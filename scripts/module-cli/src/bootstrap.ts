@@ -112,7 +112,8 @@ export async function baseDeploy(ctx: Ctx, opts: BaseDeployOptions): Promise<num
     AppArchiveUrl: opts.appArchiveUrl, AppArchiveSha256: opts.appArchiveSha256, AdminEmail: opts.adminEmail ?? '',
   };
   for (const kv of opts.param ?? []) { const i = kv.indexOf('='); if (i > 0) params[kv.slice(0, i)] = kv.slice(i + 1); }
-  const res = await deployStack(ctx.aws, ctx.out, ctx.repoRoot, { stackName: stackName(ctx.env, 'ec2'), template: 'infra/modules/ec2.yaml', params, tags: stackTags(ctx.env, 'ec2', registryVersion('ec2')) });
+  const res = await deployStack(ctx.aws, ctx.out, ctx.repoRoot, { stackName: stackName(ctx.env, 'ec2'), template: 'infra/modules/ec2.yaml', params,
+    secretParams: ['AppArchiveUrl'], tags: stackTags(ctx.env, 'ec2', registryVersion('ec2')), disableRollback: Boolean(opts.disableRollback) });
   const o = res.outputs;
   {
     if (who?.Account) ctx.state.accountId = who.Account;

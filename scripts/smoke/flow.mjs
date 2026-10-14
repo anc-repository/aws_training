@@ -120,7 +120,8 @@ export async function runFlow(t, env, profile) {
   await t.step('管理员（cli admin:create）登录', async () => {
     const email = `admin-${randomUUID().slice(0, 6)}@smoke.test`;
     const adminPw = `Admin-${randomUUID().slice(0, 8)}!`;
-    const r = cli(env.etc, ['admin:create', '--email', email, '--password', adminPw]);
+    const args = ['admin:create', '--email', email, '--password', adminPw];
+    const r = env.adminCli ? env.adminCli(args) : cli(env.etc, args);
     check(r.status === 0, `admin:create 失败（${r.status}）：${r.stderr || r.stdout}`);
     const l = await login(base, 'admin', email, adminPw);
     s.admin = l.client;
@@ -264,7 +265,8 @@ export async function runFlow(t, env, profile) {
     const ph = pathHeader(r);
     const st = r.headers.get('server-timing') ?? '';
     const seg = segments(r);
-    check(seg.entry === 'direct', `entry 应为 direct（开发机直连）：${ph}`);
+    const wantEntry = profile.entry ?? 'direct';  // 开发机直连为 direct；部署在 EC2 上经 Nginx 为 nginx
+    check(seg.entry === wantEntry, `entry 应为 ${wantEntry}：${ph}`);
     check(seg.database?.startsWith(profile.dbDriver), `路径头应有 database=${profile.dbDriver}…：${ph}`);
     check(/(^|,\s*)total;dur=/.test(st) && /database;dur=/.test(st), `Server-Timing 应含 total 与 database：${st}`);
     check(r.headers.get('x-cloudalbum-request-id'), '缺少 X-CloudAlbum-Request-Id');

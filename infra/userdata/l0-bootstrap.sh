@@ -123,8 +123,10 @@ attach_data_volume() {   # single mode only
   local dev=/dev/sdf u g
   for _ in $(seq 1 60); do [ -e "$dev" ] && break; sleep 2; done      # AL2023 udev rules create /dev/sdf for the NVMe volume
   [ -e "$dev" ] || { echo "FATAL: data volume $dev not present"; exit 1; }
-  if ! blkid -p "$dev" >/dev/null 2>&1; then                          # E5: only format a brand-new empty volume
-    cmp -s -n 1048576 "$dev" /dev/zero || { echo "FATAL: $dev has data but no recognizable file system, refusing to format"; exit 1; }
+  if ! blkid -p "$dev" >/dev/null 2>&1; then                          # E5: only format a volume this stack just created
+    # A fresh EBS volume is not guaranteed to read back as zeros, so "first MiB is zero" is not a usable test.
+    # The stack tells us whether DataVolume was created by it (new) or handed over via DataVolumeId (existing).
+    [ "${DATA_VOLUME_ORIGIN:-existing}" = new ] || { echo "FATAL: $dev has no recognizable file system and was not created by this stack (DATA_VOLUME_ORIGIN=${DATA_VOLUME_ORIGIN:-unset}), refusing to format"; exit 1; }
     mkfs.xfs -L cadata "$dev"
   fi
   install -d -m 0755 "$DATA"

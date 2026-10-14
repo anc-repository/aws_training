@@ -24,6 +24,8 @@ export interface ImdsOptions {
   fetch?: typeof fetch;
   /** 不可达后多久内不再尝试（默认 60 秒；开发机上避免每次探针都等超时） */
   negativeCacheMs?: number;
+  /** 判定“不可达”之前的重试次数（默认 2，即共 3 次）。进程刚启动时 IMDS 的首个应答可能超过超时 */
+  retries?: number;
 }
 
 export interface ImdsResponse { status: number; body: string }
@@ -34,12 +36,15 @@ export class ImdsClient {
   private readonly tokenTtlSec: number;
   private readonly fetchImpl: typeof fetch;
   private readonly negativeCacheMs: number;
+  private readonly retries: number;
   private cachedToken?: { value: string; expiresAt: number };
   private unreachableUntil = 0;
 
   constructor(opts: ImdsOptions = {}) {
     this.baseUrl = (opts.baseUrl ?? 'http://169.254.169.254').replace(/\/$/, '');
-    this.timeoutMs = opts.timeoutMs ?? 300;
+    // 1 秒：实测 t4g.small 上 api 进程重启后的最初几十秒，IMDS 应答会超过 300 ms（07 验证 2026-10-14）
+    this.timeoutMs = opts.timeoutMs ?? 1000;
+    this.retries = opts.retries ?? 2;
     this.tokenTtlSec = opts.tokenTtlSec ?? 21_600;
     this.fetchImpl = opts.fetch ?? globalThis.fetch;
     this.negativeCacheMs = opts.negativeCacheMs ?? 60_000;
@@ -52,13 +57,17 @@ export class ImdsClient {
 
   private async request(p: string, init: RequestInit = {}): Promise<ImdsResponse | null> {
     if (this.unreachable) return null;
-    try {
-      const res = await this.fetchImpl(`${this.baseUrl}${p}`, { ...init, signal: AbortSignal.timeout(this.timeoutMs) });
-      return { status: res.status, body: await res.text() };
-    } catch {
-      this.unreachableUntil = Date.now() + this.negativeCacheMs;
-      return null;
+    for (let attempt = 0; attempt <= this.retries; attempt++) {
+      try {
+        const res = await this.fetchImpl(`${this.baseUrl}${p}`, { ...init, signal: AbortSignal.timeout(this.timeoutMs) });
+        return { status: res.status, body: await res.text() };
+      } catch {
+        if (attempt < this.retries) await new Promise((r) => setTimeout(r, attempt === 0 ? 100 : 300));
+      }
     }
+    // 全部尝试都失败才进入负缓存：一次偶发超时不会让 ec2 探针在接下来 60 秒里一直报 error
+    this.unreachableUntil = Date.now() + this.negativeCacheMs;
+    return null;
   }
 
   /** PUT /latest/api/token；不可达返回 null */

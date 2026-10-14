@@ -326,33 +326,36 @@ Resources:
         - !If [BackupInstance, { Key: Backup, Value: 'true' }, !Ref 'AWS::NoValue']
         - !If [Platform, { Key: 'atl:role', Value: lab-app }, !Ref 'AWS::NoValue']
       UserData:
-        Fn::Base64: !Sub |
-          #!/bin/bash
-          # CloudAlbum User Data bootstrap stub (00-ec2-base.md 6.5): parameters only, no secrets, no values that change after deploy.
-          set -euo pipefail
-          install -d -m 0700 /etc/cloudalbum-bootstrap
-          cat > /etc/cloudalbum-bootstrap/params.env <<'EOF'
-          CLOUDALBUM_ENV='${Env}'
-          AWS_REGION='${AWS::Region}'
-          DEPLOY_MODE=single
-          APP_ARCHIVE_URL='${AppArchiveUrl}'
-          APP_ARCHIVE_SHA256='${AppArchiveSha256}'
-          APP_PUBLIC_IP='${Eip}'
-          ADMIN_EMAIL='${AdminEmail}'
-          PLATFORM_MODE='${PlatformMode}'
-          BOOTSTRAP_SIGNAL=cfn
-          CFN_STACK='${AWS::StackName}'
-          EOF
-          chmod 0600 /etc/cloudalbum-bootstrap/params.env
-          A=/var/tmp/cloudalbum-release.tgz
-          U='${AppArchiveUrl}'
-          case "$U" in
-            s3://*) for _ in 1 2 3 4 5; do aws s3 cp "$U" "$A" --region '${AWS::Region}' && break; sleep 10; done ;;
-            *)      for _ in 1 2 3 4 5; do curl -fsSL "$U" -o "$A" && break; sleep 10; done ;;
-          esac
-          echo '${AppArchiveSha256}  /var/tmp/cloudalbum-release.tgz' | sha256sum -c -
-          tar xzf "$A" -O --wildcards '*/infra/userdata/l0-bootstrap.sh' > /var/tmp/l0-bootstrap.sh
-          exec bash /var/tmp/l0-bootstrap.sh all
+        Fn::Base64: !Sub
+          - |
+            #!/bin/bash
+            # CloudAlbum User Data bootstrap stub (00-ec2-base.md 6.5): parameters only, no secrets, no values that change after deploy.
+            set -euo pipefail
+            install -d -m 0700 /etc/cloudalbum-bootstrap
+            cat > /etc/cloudalbum-bootstrap/params.env <<'EOF'
+            CLOUDALBUM_ENV='${Env}'
+            AWS_REGION='${AWS::Region}'
+            DEPLOY_MODE=single
+            APP_ARCHIVE_URL='${AppArchiveUrl}'
+            APP_ARCHIVE_SHA256='${AppArchiveSha256}'
+            DATA_VOLUME_ORIGIN='${DataVolumeOrigin}'
+            APP_PUBLIC_IP='${Eip}'
+            ADMIN_EMAIL='${AdminEmail}'
+            PLATFORM_MODE='${PlatformMode}'
+            BOOTSTRAP_SIGNAL=cfn
+            CFN_STACK='${AWS::StackName}'
+            EOF
+            chmod 0600 /etc/cloudalbum-bootstrap/params.env
+            A=/var/tmp/cloudalbum-release.tgz
+            U='${AppArchiveUrl}'
+            case "$U" in
+              s3://*) for _ in 1 2 3 4 5; do aws s3 cp "$U" "$A" --region '${AWS::Region}' && break; sleep 10; done ;;
+              *)      for _ in 1 2 3 4 5; do curl -fsSL "$U" -o "$A" && break; sleep 10; done ;;
+            esac
+            echo '${AppArchiveSha256}  /var/tmp/cloudalbum-release.tgz' | sha256sum -c -
+            tar xzf "$A" -O --wildcards '*/infra/userdata/l0-bootstrap.sh' > /var/tmp/l0-bootstrap.sh
+            exec bash /var/tmp/l0-bootstrap.sh all
+          - DataVolumeOrigin: !If [CreateDataVol, new, existing]
 
   InstanceB:
     Condition: SlotB
@@ -391,33 +394,36 @@ Resources:
         - !If [BackupInstance, { Key: Backup, Value: 'true' }, !Ref 'AWS::NoValue']
         - !If [Platform, { Key: 'atl:role', Value: lab-app }, !Ref 'AWS::NoValue']
       UserData:
-        Fn::Base64: !Sub |
-          #!/bin/bash
-          # CloudAlbum User Data bootstrap stub (00-ec2-base.md 6.5): parameters only, no secrets, no values that change after deploy.
-          set -euo pipefail
-          install -d -m 0700 /etc/cloudalbum-bootstrap
-          cat > /etc/cloudalbum-bootstrap/params.env <<'EOF'
-          CLOUDALBUM_ENV='${Env}'
-          AWS_REGION='${AWS::Region}'
-          DEPLOY_MODE=single
-          APP_ARCHIVE_URL='${AppArchiveUrl}'
-          APP_ARCHIVE_SHA256='${AppArchiveSha256}'
-          APP_PUBLIC_IP='${Eip}'
-          ADMIN_EMAIL='${AdminEmail}'
-          PLATFORM_MODE='${PlatformMode}'
-          BOOTSTRAP_SIGNAL=cfn
-          CFN_STACK='${AWS::StackName}'
-          EOF
-          chmod 0600 /etc/cloudalbum-bootstrap/params.env
-          A=/var/tmp/cloudalbum-release.tgz
-          U='${AppArchiveUrl}'
-          case "$U" in
-            s3://*) for _ in 1 2 3 4 5; do aws s3 cp "$U" "$A" --region '${AWS::Region}' && break; sleep 10; done ;;
-            *)      for _ in 1 2 3 4 5; do curl -fsSL "$U" -o "$A" && break; sleep 10; done ;;
-          esac
-          echo '${AppArchiveSha256}  /var/tmp/cloudalbum-release.tgz' | sha256sum -c -
-          tar xzf "$A" -O --wildcards '*/infra/userdata/l0-bootstrap.sh' > /var/tmp/l0-bootstrap.sh
-          exec bash /var/tmp/l0-bootstrap.sh all
+        Fn::Base64: !Sub
+          - |
+            #!/bin/bash
+            # CloudAlbum User Data bootstrap stub (00-ec2-base.md 6.5): parameters only, no secrets, no values that change after deploy.
+            set -euo pipefail
+            install -d -m 0700 /etc/cloudalbum-bootstrap
+            cat > /etc/cloudalbum-bootstrap/params.env <<'EOF'
+            CLOUDALBUM_ENV='${Env}'
+            AWS_REGION='${AWS::Region}'
+            DEPLOY_MODE=single
+            APP_ARCHIVE_URL='${AppArchiveUrl}'
+            APP_ARCHIVE_SHA256='${AppArchiveSha256}'
+            DATA_VOLUME_ORIGIN='${DataVolumeOrigin}'
+            APP_PUBLIC_IP='${Eip}'
+            ADMIN_EMAIL='${AdminEmail}'
+            PLATFORM_MODE='${PlatformMode}'
+            BOOTSTRAP_SIGNAL=cfn
+            CFN_STACK='${AWS::StackName}'
+            EOF
+            chmod 0600 /etc/cloudalbum-bootstrap/params.env
+            A=/var/tmp/cloudalbum-release.tgz
+            U='${AppArchiveUrl}'
+            case "$U" in
+              s3://*) for _ in 1 2 3 4 5; do aws s3 cp "$U" "$A" --region '${AWS::Region}' && break; sleep 10; done ;;
+              *)      for _ in 1 2 3 4 5; do curl -fsSL "$U" -o "$A" && break; sleep 10; done ;;
+            esac
+            echo '${AppArchiveSha256}  /var/tmp/cloudalbum-release.tgz' | sha256sum -c -
+            tar xzf "$A" -O --wildcards '*/infra/userdata/l0-bootstrap.sh' > /var/tmp/l0-bootstrap.sh
+            exec bash /var/tmp/l0-bootstrap.sh all
+          - DataVolumeOrigin: !If [CreateDataVol, new, existing]
 
 Outputs:
   # No Export (D2) and no PolicyArn (L0 has no IAM). Unprefixed outputs are the "base context" (9.1).

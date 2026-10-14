@@ -202,8 +202,22 @@ describe('IMDS 与本机辅助函数', () => {
     const before = calls;
     expect(await down.token()).toBeNull();
     expect(await down.token()).toBeNull();
-    expect(calls - before).toBe(1);
+    // 默认重试 2 次：第一次 token() 共尝试 3 次，之后进入负缓存，第二次 token() 不再发请求
+    expect(calls - before).toBe(3);
     expect(down.unreachable).toBe(true);
+  });
+
+  it('retries a slow first IMDS answer instead of reporting unreachable (process just restarted)', async () => {
+    let attempts = 0;
+    const flaky = (async (_input: RequestInfo | URL, init?: RequestInit) => {
+      attempts += 1;
+      if (attempts === 1) throw new DOMException('The operation was aborted due to timeout', 'TimeoutError');
+      return new Response(init?.method === 'PUT' ? 'tok' : '', { status: 200 });
+    }) as typeof fetch;
+    const imds = new ImdsClient({ fetch: flaky });
+    expect(await imds.token()).toBe('tok');
+    expect(attempts).toBe(2);
+    expect(imds.unreachable).toBe(false);
   });
 
   it('parseMountinfo 处理八进制转义；detectEc2Host 只在 Linux 上读 DMI', () => {

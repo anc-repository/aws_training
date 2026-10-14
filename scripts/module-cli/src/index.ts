@@ -148,7 +148,7 @@ export function buildProgram(): Command {
     .option('--app-archive-sha256 <sha>', 'SHA-256 of the release archive')
     .option('--param <K=V>', 'extra base stack parameter (repeatable)', collect)
     .option('--instance-profile <name>', 'platform mode: CloudAlbumAppRole (the management channel, 06 PM-05)')
-    .option('--disable-rollback', 'platform mode: keep a failed first deployment for diagnosis')
+    .option('--disable-rollback', 'keep a failed first deployment for diagnosis (SSH in and read /var/log/cloudalbum-bootstrap.log)')
     .option('--retry-az', 'platform mode: on InsufficientInstanceCapacity retry once in another default subnet')
     .action(async (o: BaseDeployOptions, cmd: Command) => run(cmd, (ctx) => baseDeploy(ctx, o), { mutating: true, mayCreateState: true, op: 'base deploy' }));
 
