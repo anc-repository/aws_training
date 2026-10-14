@@ -6,7 +6,9 @@
  */
 import type { Printer } from './printer.js';
 
-export type AwsService = 'cloudformation' | 'ec2' | 'iam' | 's3' | 'ssm' | 'sts' | 'dynamodb' | 'cognito-idp' | 'rds';
+export type AwsService = 'cloudformation' | 'ec2' | 'iam' | 's3' | 'ssm' | 'sts' | 'dynamodb' | 'cognito-idp' | 'rds'
+  // wave1-prep: out-of-band calls and preflight checks of the wave 1 module hooks (module-hooks/<id>.ts)
+  | 'route53' | 'acm' | 'wafv2' | 'sesv2' | 'ce' | 'budgets' | 'sns' | 'logs' | 'cloudfront';
 
 const CLIENTS: Record<AwsService, { pkg: string; client: string }> = {
   cloudformation: { pkg: '@aws-sdk/client-cloudformation', client: 'CloudFormationClient' },
@@ -19,7 +21,21 @@ const CLIENTS: Record<AwsService, { pkg: string; client: string }> = {
   dynamodb: { pkg: '@aws-sdk/client-dynamodb', client: 'DynamoDBClient' },
   'cognito-idp': { pkg: '@aws-sdk/client-cognito-identity-provider', client: 'CognitoIdentityProviderClient' },
   rds: { pkg: '@aws-sdk/client-rds', client: 'RDSClient' },   // env suspend / resume (02 §8.2)
+  // wave1-prep (module-hooks): dns hosted-zone checks, tls ACME endpoint / EAB, waf IP-set import, email identity checks,
+  // cost allocation tags, notification / monitoring subscriptions, shell-access session logs, CloudFront association checks
+  route53: { pkg: '@aws-sdk/client-route-53', client: 'Route53Client' },
+  acm: { pkg: '@aws-sdk/client-acm', client: 'ACMClient' },
+  wafv2: { pkg: '@aws-sdk/client-wafv2', client: 'WAFV2Client' },
+  sesv2: { pkg: '@aws-sdk/client-sesv2', client: 'SESv2Client' },
+  ce: { pkg: '@aws-sdk/client-cost-explorer', client: 'CostExplorerClient' },
+  budgets: { pkg: '@aws-sdk/client-budgets', client: 'BudgetsClient' },
+  sns: { pkg: '@aws-sdk/client-sns', client: 'SNSClient' },
+  logs: { pkg: '@aws-sdk/client-cloudwatch-logs', client: 'CloudWatchLogsClient' },
+  cloudfront: { pkg: '@aws-sdk/client-cloudfront', client: 'CloudFrontClient' },
 };
+
+/** Services whose control plane is global and served from us-east-1 (default region of a call without `region`). */
+export const GLOBAL_SERVICES: ReadonlySet<AwsService> = new Set<AwsService>(['iam', 'route53', 'budgets', 'ce', 'cloudfront']);
 
 export interface AwsCall {
   service: AwsService;
@@ -81,7 +97,7 @@ export class SdkGateway implements AwsGateway {
   }
 
   async send<T>(call: AwsCall): Promise<T | undefined> {
-    const region = call.region ?? (call.service === 'iam' ? 'us-east-1' : this.defaultRegion);
+    const region = call.region ?? (GLOBAL_SERVICES.has(call.service) ? 'us-east-1' : this.defaultRegion);
     const mod = await this.load(call.service);
     const key = `${call.service}@${region}`;
     let client = this.clients.get(key);

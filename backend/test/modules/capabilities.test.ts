@@ -40,6 +40,27 @@ describe('CapabilityRegistry 状态机', () => {
     expect(events.map((e) => `${e.from}->${e.to}`)).toEqual(['ok->error', 'error->degraded', 'degraded->ok']);
   });
 
+  it('启动宽限（wave1-prep）：首次探针超时或瞬时失败记为 degraded，连续 3 次才 error；确定性失败仍直接 error', async () => {
+    const caps = registryFor({ ...ENABLE.iamRole, ...ENABLE.notification });
+    let next: () => Promise<ProbeResult> = () => new Promise<ProbeResult>(() => undefined);   // 永不返回 → 探针超时
+    caps.registerProbe('notification', () => next());
+    await caps.probeModule('notification', { timeoutMs: 5 });
+    expect(caps.status('notification').status).toBe('degraded');
+    next = async () => ({ status: 'error', detail: 'ThrottlingException', transient: true });
+    await caps.probeModule('notification');
+    expect(caps.status('notification').status).toBe('degraded');
+    await caps.probeModule('notification');
+    expect(caps.status('notification').status).toBe('error');
+    next = async () => ({ status: 'ok', detail: 'GetTopicAttributes 200' });
+    await caps.probeModule('notification');
+    expect(caps.status('notification').status).toBe('degraded');
+
+    const other = registryFor({ ...ENABLE.iamRole, ...ENABLE.email });
+    other.registerProbe('email', async () => ({ status: 'error', detail: 'AccessDenied' }));
+    await other.probeModule('email');
+    expect(other.status('email').status).toBe('error');
+  });
+
   it('权威端口 30 秒内连续 5 次真实调用失败 → error（被动信号）', () => {
     const caps = registryFor({ ...ENABLE.iamRole, ...ENABLE.s3 });
     for (let i = 0; i < 5; i += 1) {

@@ -21,10 +21,18 @@ import { CliError, EXIT } from './printer.js';
 import { REGISTRY, moduleOf, stackName } from './registry.js';
 import { deleteStack } from './stack.js';
 import { currentEnv, recordHistory } from './state.js';
-import { confirm, instanceStateUpdate, operatorOf } from './enable.js';
+import { confirm, instanceStateUpdate, operatorOf, printStackDrift } from './enable.js';
+import { hookFor, type HookArgs } from './module-hooks/index.js';
+import { parseAssignments } from './env-file.js';
 import { loadTemplate, mainTemplatePath } from './template.js';
 
-export interface DisableOptions { cascade?: boolean; abandonData?: boolean; migrate?: boolean; purge?: boolean; skipHealth?: boolean }
+export interface DisableOptions {
+  cascade?: boolean; abandonData?: boolean; migrate?: boolean; purge?: boolean; skipHealth?: boolean;
+  /** --reopen-ssh (shell-access): restore SshIngressCidr (9.2 disable step 5); passed to the module hook */
+  reopenSsh?: boolean;
+  /** --param K=V (platform action arguments; passed to the module hook) */
+  param?: string[];
+}
 
 export async function disableCommand(ctx: Ctx, idArg: string, opts: DisableOptions): Promise<number> {
   const id = idArg as ModuleId;
@@ -61,6 +69,14 @@ export async function disableCommand(ctx: Ctx, idArg: string, opts: DisableOptio
     if (check.ran && !check.ok) return EXIT.rules;
   }
   if (!ctx.dryRun && !ctx.yes && !(await confirm(`disable ${id}?`))) { ctx.out.info('aborted'); return EXIT.rules; }
+
+  // module hook (module-hooks/<id>.ts): may refuse (CliError) or keep base parameters (e.g. SshIngressCidr without --reopen-ssh)
+  const hook = hookFor(id);
+  const hookArgs: HookArgs = {
+    params: parseAssignments(opts.param, '--param'), planOnly: false, isTarget: true, ...(opts.reopenSsh ? { reopenSsh: true } : {}),
+  };
+  const before = hook?.beforeDisable ? await hook.beforeDisable(ctx, rec, hookArgs) : undefined;
+  for (const n of before?.notes ?? []) ctx.out.warn(`      ${id}: ${n}`);
 
   // 3. data back to local
   const migration = moduleOf(id).migration;
@@ -120,6 +136,15 @@ export async function disableCommand(ctx: Ctx, idArg: string, opts: DisableOptio
   if (id === 'iam') delete ctx.state.iam;
   const diff = await syncAttachments(ctx.aws, ctx.out, ctx.state);
   for (const d of diff.detach) ctx.out.info(`      detach ${d.policyArn} <- ${d.principal.type}/${d.principal.name}`);
+  for (const param of before?.keepBaseParams ?? []) {
+    // keep the current value: it becomes the value restored when the last contributor is gone
+    const cur = ctx.state.base?.params[param];
+    const recd = ctx.state.baseParams[param];
+    if (cur !== undefined && recd) {
+      recd.original = cur;
+      ctx.out.info(`      baseParams ${param}: kept at ${cur || "''"} (${id} hook)`);
+    }
+  }
   await applyBaseParams(ctx, after, id);
   const secretKeys = [...rec.secretKeys, ...(id === 'iam' && rec.value === 'keys' ? ['IAM_KEYS_ACCESS_KEY_ID', 'IAM_KEYS_SECRET_ACCESS_KEY'] : [])];
   if (secretKeys.length) {
@@ -140,9 +165,12 @@ export async function disableCommand(ctx: Ctx, idArg: string, opts: DisableOptio
     }
   }
 
+  if (hook?.afterDisable) await hook.afterDisable(ctx, rec, hookArgs);
+
   // 7. state
   recordHistory(ctx.state, { op: 'disable', module: id, result: ctx.dryRun ? 'dry-run' : 'ok', exitCode: EXIT.ok });
   ctx.save();
   ctx.out.step(7, `${id} disabled: back to the local implementation`);
+  printStackDrift(ctx, id);
   return EXIT.ok;
 }

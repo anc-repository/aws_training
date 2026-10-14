@@ -28,6 +28,7 @@ import {
 import { parseEnvFile, splitList, type EnvMap } from './env-file.js';
 import { CliError, EXIT } from './printer.js';
 import { MODULE_IDS, REGISTRY, isModuleId, moduleOf, ownerOfKey, switchVar } from './registry.js';
+import { hookFor } from './module-hooks/index.js';
 
 export const PLAN_SCHEMA = 'cloudalbum.plan/v1';
 const NO_IAM_CARDS = new Set(['svc-ec2', 'svc-iam']);
@@ -310,6 +311,12 @@ export function planStartOf(lab: LabDoc, opts: PlanStartOptions): PlanResult {
       throw new CliError(`DRV-5: target ${t.id}=${t.driver} is already in effect in the start state of ${lab.id}`, EXIT.rules, 'DRV-5');
     }
     if (!t.fromDriver) warnings.push(`DRV-5: target ${t.id} appears in the start state (${startValue}); targetModules[].fromDriver must say so`);
+  }
+
+  // module hooks (wave1-prep): pure hints of the targets, e.g. dns / tls "needs your own domain (manual prerequisite)"
+  for (const t of targets) {
+    if (!isModuleId(t.id) || t.id === 'ec2') continue;
+    for (const h of hookFor(t.id as ModuleId)?.planHints?.(targetOf(t)) ?? []) warnings.push(`${t.id}: ${h}`);
   }
 
   // 9. platform section and base parameters

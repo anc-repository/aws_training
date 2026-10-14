@@ -15,6 +15,8 @@ export interface StackRecord {
   stackName: string;     // CloudFormation stack name
   region: string;
   status?: string;
+  /** outputs of this stack (modules with several stacks only; ModuleRecord.outputs holds the merged outputs) */
+  outputs?: Record<string, string>;
 }
 
 export interface ModuleRecord {
@@ -112,7 +114,11 @@ export interface CloudAlbumState {
   modules: Partial<Record<ModuleId, ModuleRecord>>;
   attachments: Attachment[];
   baseParams: Record<string, BaseParamRecord>;
-  outOfBand: Array<{ module: ModuleId; kind: string; id: string; at: string }>;
+  /**
+   * resources created outside CloudFormation ("who creates cleans up", 9.2 disable step 6): iam access keys, tls ACME endpoint /
+   * domain validation / EAB / ACME account, ... — region and non-secret detail (wave1-prep) are optional
+   */
+  outOfBand: Array<{ module: ModuleId; kind: string; id: string; at: string; region?: string; detail?: Record<string, string> }>;
   profile?: string;
   history: HistoryEntry[];
   /** platform mode only */

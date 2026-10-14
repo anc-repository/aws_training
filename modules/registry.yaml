@@ -4,6 +4,8 @@
 #   doc 锚点与 ownsEnv 前缀归属；npm run gen:registry 把本文件内联为 packages/contracts/src/generated/registry.ts。
 # - 各条目摘自 docs/modules/0N-<group>.md 第 0 节（ec2 为 00-ec2-base.md 第 1 节）。本轮 MVP 模块（iam、storage、cdn、
 #   auth、queue、image-processing、cache、database）与 ec2 补齐了 version 与 lab 卡片文案（summary / keyMetrics / diagram / badges）。
+#   第 1 波（wave1-prep：notification、email、monitoring、cost、logging、shell-access、dns、tls、waf、identity-pool）同样补齐了
+#   version、lab 卡片文案与 billing；registry:check 对 MVP 与第 1 波模块执行同一套完整性检查。
 # - 依赖只用 requires / conflicts 表达式书写（§5.1）；规则的级别、消息与修复命令在 backend/src/rules/rules.ts。
 version: 2
 modules:
@@ -172,6 +174,7 @@ modules:
     switch: { var: DNS_PROVIDER, values: [none, external, route53], ownedValues: [route53], localTiers: [external] }
     ownsEnv: [APP_BASE_URL, DNS_]          # 只有 dns 拥有 APP_BASE_URL（约定 5）
     credentials: optional                  # 健康检查状态等控制面感知需要
+    version: 1                                 # 写入栈 Outputs.ModuleVersion（CFG-006）
     prerequisites: [domain]                # 冒烟矩阵中标为“需人工”
     requires:
       - { rule: DEP-040, when: { DNS_TARGET_TYPE: alb }, need: ["load-balancer"] }
@@ -194,7 +197,23 @@ modules:
     hostSetup: infra/modules/dns/host-setup.sh
     migration: none
     probe: { kind: detector, intervalSec: 60 }
-    lab: { compare: before-after, sideBySide: true, hourlyBilled: false, experiments: [ip-change-drill, failover-drill, weighted-sample] }
+    billing:                               # cost 本地估算的输入；不写单价（D14）
+      - { resource: "Route 53 托管区域（按月）", dimension: usage }
+      - { resource: "Route 53 标准查询（指向 AWS 资源的 Alias 查询免费）", dimension: request }
+      - { resource: "Route 53 健康检查（按月）", dimension: usage }
+    lab:
+      summary:
+        local: "用 http://<EIP> 或 EC2 公网主机名访问；邮件与分享链接写的也是 IP，换 IP 后旧链接全部失效"
+        aws: "Route 53 托管区域：固定域名指向 EIP / ALB / CloudFront，换目标只改记录，TTL 过后用户无感；可选健康检查与故障转移"
+      compare: before-after
+      sideBySide: true
+      keyMetrics: ["服务端解析结果与剩余 TTL", "记录变更后公共解析器返回新值所需的秒数", "IP 改变后失效的链接数", "故障转移时间"]
+      hourlyBilled: false
+      diagram:
+        before: "flowchart LR; U[浏览器]--IP 或 EC2 主机名-->EIP-->NG[Nginx]"
+        after:  "flowchart LR; U[浏览器]--album.example.com-->R53[Route 53]; R53-.A 记录 / Alias.->EIP-->NG[Nginx]"
+      experiments: [ip-change-drill, failover-drill, weighted-sample]
+      badges: { local: "入口：{host}（{provider}）", aws: "入口：{host}（Route 53 · {policy}）", degraded: "DNS 降级 · {reason}", error: "域名无法解析" }
     doc: docs/modules/01-edge-network-scaling.md#dns
 
   tls:
@@ -207,6 +226,7 @@ modules:
     switch: { var: TLS_MODE, values: [selfsigned, letsencrypt, acm], ownedValues: [acm], localTiers: [letsencrypt] }
     ownsEnv: [TLS_, ACM_CERT_]
     credentials: optional                  # 只用于 DescribeCertificate 等感知；签发由部署者身份与 ACME 客户端完成
+    version: 1                                 # 写入栈 Outputs.ModuleVersion（CFG-006）
     prerequisites: [domain]
     preflight: [acme-endpoint]             # 探测结果由 scripts/module 写成 tls.env 的 TLS_ACME=on|off（--no-acme 时直接 off）
     requires:
@@ -231,7 +251,29 @@ modules:
     hostSetup: infra/modules/tls/host-setup.sh   # /opt/certbot 虚拟环境、/etc/cloudalbum/tls/server.* 符号链接、cloudalbum-tls-renew.timer
     migration: none
     probe: { kind: detector, intervalSec: 300 }
-    lab: { compare: before-after, sideBySide: true, hourlyBilled: false, experiments: [inspect, handshake, cipher-scan, renew-drill] }
+    billing:
+      - { resource: "ACM ACME 签发的公有证书（按域名，签发与每次续期各计一次）", dimension: request }
+      - { resource: "ACM 集成证书（CloudFront / ALB 使用时免费）", dimension: usage }
+    lab:
+      summary:
+        local: "Nginx 用 User Data 生成的自签名证书（浏览器告警）；本地档 Let's Encrypt：certbot + 定时器续期"
+        aws: "ACM：只有 L0 时经 ACME 端点把 45 天证书装进 Nginx（TLS_ACME=on）；启用 CloudFront / ALB 后由 ACM 集成证书终止 TLS 并托管续期"
+      compare: before-after
+      sideBySide: true
+      keyMetrics: ["各入口证书的签发者与剩余天数", "远端区域的 TLS 握手时间（经 CloudFront vs 直连）", "续期需要的人工步骤数", "协议、加密套件与 ALPN"]
+      hourlyBilled: false
+      diagram:
+        before: "flowchart LR; B[浏览器]--自签名 / Let's Encrypt-->NG[Nginx :443]"
+        after:  "flowchart LR; C[certbot]--EAB 注册 + 申请-->ACME[ACM ACME 端点]; ACME--45 天证书-->NG[Nginx :443]; ACMUS[ACM 证书 us-east-1]-->CF[CloudFront]"
+      experiments: [inspect, handshake, cipher-scan, renew-drill]
+      badges:                              # 前端按驱动名选键（badges.ts）：selfsigned / letsencrypt，启用后 aws
+        selfsigned: "证书：自签名（Nginx）· 不受信任"
+        letsencrypt: "证书：Let's Encrypt（Nginx）"
+        local: "证书：自签名（Nginx）· 不受信任"
+        aws: "证书：ACM（{via}）"         # via = ACME → Nginx / CloudFront 边缘 / ALB
+        note: "考试结论：ACM 证书只能挂在集成服务上；ACME 端点是 2026 年的新能力"
+        degraded: "证书降级 · {reason}"
+        error: "证书过期或域名不匹配"
     doc: docs/modules/01-edge-network-scaling.md#tls
 
   waf:
@@ -245,6 +287,7 @@ modules:
     switch: { var: WAF_MODE, values: [nginx, aws], ownedValues: [aws], localTiers: [] }
     ownsEnv: [WAF_]
     credentials: optional                  # 写 IP 集合、读拦截计数需要；没有时封禁按钮只读，状态 degraded
+    version: 1                                 # 写入栈 Outputs.ModuleVersion（CFG-006）
     prerequisites: []
     requires:
       - { rule: DEP-006, when: { WAF_MODE: aws }, need: ["cdn | load-balancer"] }
@@ -263,7 +306,23 @@ modules:
     hostSetup: infra/modules/waf/host-setup.sh   # 只渲染 WAF_LAB_ALLOW_CIDR 的 Nginx 白名单片段；denylist 的 path 单元归 ec2，与 threat-detection 共用
     migration: scripts/waf/sync-denylist   # denylist.conf ↔ IP 集合
     probe: { kind: detector, intervalSec: 60 }
-    lab: { compare: runtime-ab, sideBySide: true, hourlyBilled: false, experiments: [flood, payloads, false-positive, bypass] }
+    billing:
+      - { resource: "WAF Web ACL 与规则（按月）", dimension: usage }
+      - { resource: "WAF 请求检查（按百万请求）", dimension: request }
+      - { resource: "WAF 日志（CloudWatch Logs 摄取与存储）", dimension: usage }
+    lab:
+      summary:
+        local: "Nginx 的 limit_req 限速与几条正则特征拦截：每个恶意请求都已经到达 EC2"
+        aws: "AWS WAF 在 CloudFront 边缘（或 ALB）按托管规则与限速规则拦截，被拦截的请求不会到达 EC2；IP 封禁同步到 IP 集合"
+      compare: runtime-ab
+      sideBySide: true
+      keyMetrics: ["攻击期间源站收到的请求数", "按规则的拦截计数", "绕过 WAF 的直连请求数", "正常请求的误杀（照片上传等）"]
+      hourlyBilled: false
+      diagram:
+        before: "flowchart LR; A[攻击流量]-->NG[Nginx limit_req + 正则]-->API[api]"
+        after:  "flowchart LR; A[攻击流量]-->CF[CloudFront]-->W{AWS WAF}; W--Block-->A; W--Allow-->NG[Nginx :8080]-->API[api]"
+      experiments: [flood, payloads, false-positive, bypass]
+      badges: { local: "已被 Nginx {reason}（实例上）", aws: "已被 AWS WAF 拦截 · 规则 {rule}", degraded: "WAF 降级 · {reason}", error: "WAF 不可用" }
     doc: docs/modules/01-edge-network-scaling.md#waf
 
   load-balancer:
@@ -436,6 +495,7 @@ modules:
     switch: { var: IDENTITY_POOL_ID, kind: param }   # 空 = none 驱动（应用自签的前缀令牌，L0）；非空 = cognito 驱动
     ownsEnv: [IDENTITY_]
     credentials: required
+    version: 1                                 # 写入栈 Outputs.ModuleVersion（CFG-006）
     requires:
       # 省略 when = 本模块启用（IDENTITY_POOL_ID 非空，MODULE_IDENTITY_POOL=on）时生效（总纲 5.1）
       - { rule: DEP-002, need: ["STORAGE_DRIVER=s3"] }                                              # 原图位置必须在 S3
@@ -450,10 +510,21 @@ modules:
     secretParams: []
     migration: null                             # 无数据迁移；users.identity_id 保留
     probe: { kind: active, method: "cognito-identity:DescribeIdentityPool + s3:HeadBucket(staging)", intervalSec: 30 }
+    billing:
+      - { resource: "S3 暂存桶的请求与短暂存储（Identity Pool 本身不单独收费）", dimension: request }
     lab:
+      summary:
+        local: "应用自签的前缀范围上传令牌：多文件分片续传，但每一片都要先经 EC2 授权（none 驱动）"
+        aws: "Cognito Identity Pool 换取只能写自己前缀的 STS 临时凭证，浏览器直传 S3 暂存桶，授权由 IAM 策略变量完成"
       compare: runtime-ab                       # X-Compare-Bypass: identity-pool
-      experiments: [cross-prefix, upload-bench, resume, policy-sim]
+      sideBySide: true
+      keyMetrics: ["越权写别人前缀时由谁拒绝（应用 403 / S3 AccessDenied）", "批量上传对后端发起的请求数", "批量上传期间 EC2 NetworkIn", "凭证或令牌的作用范围与有效期"]
       hourlyBilled: false
+      diagram:
+        before: "flowchart LR; B[浏览器]--每片先问-->API[api 前缀令牌]; B--分片-->ST[(数据卷 / S3)]"
+        after:  "flowchart LR; B[浏览器]--换取凭证-->CI[Cognito Identity Pool]; B--ASIA 凭证签名 UploadPart-->S3[(S3 暂存桶)]"
+      experiments: [cross-prefix, upload-bench, resume, policy-sim]
+      badges: { local: "应用自签令牌（EC2）", aws: "直传 S3（Identity Pool 临时凭证）", degraded: "已退回逐文件上传", error: "临时凭证不可用" }
     doc: docs/modules/02-identity-security.md#identity-pool
 
   secrets:
@@ -883,6 +954,7 @@ modules:
     switch: { var: NOTIFY_DRIVER, values: [db, sns], ownedValues: [sns], localTiers: [] }
     ownsEnv: [NOTIFY_]
     credentials: required
+    version: 1                                 # 写入栈 Outputs.ModuleVersion（CFG-006）
     prerequisites: [confirm-email]              # 管理员与用户都要点击 AWS 的确认订阅邮件
     requires: []
     soft: [email, queue, kms, monitoring]
@@ -905,6 +977,9 @@ modules:
       compare: functional                       # 业务流量切换前 / 切换后；另有功能对照端点
       keyMetrics: ["一次事件的扇出耗时与接收人数的关系", "EC2 发出的请求数", "被过滤掉的消息数"]
       hourlyBilled: false
+      diagram:
+        before: "flowchart LR; E[事件]-->API[api / worker]-->DB[(站内信)]; API--逐个收件人-->EM[EmailPort]"
+        after:  "flowchart LR; E[事件]-->API[api / worker]--一次 Publish-->SNS[SNS 主题]; SNS--过滤策略-->M[邮件订阅]; SNS-->Q[(收件队列 SQS)]"
       experiments: [fanout, filter, compare, worker-stop]
       badges: { local: "站内通知 + 本地 outbox 邮件", aws: "通知经 Amazon SNS 扇出", degraded: "通知扇出降级", error: "通知主题不可用" }
     doc: docs/modules/04-compute-async.md#notification
@@ -919,6 +994,7 @@ modules:
     switch: { var: EMAIL_DRIVER, values: [outbox, ses], ownedValues: [ses], localTiers: [] }
     ownsEnv: [EMAIL_, SES_]
     credentials: required
+    version: 1                                 # 写入栈 Outputs.ModuleVersion（CFG-006）
     prerequisites: [ses-identity]               # 已验证的发件身份；沙盒期收件人也须验证
     requires: []
     soft: [dns, kms, queue, monitoring]
@@ -940,6 +1016,9 @@ modules:
       compare: functional
       keyMetrics: ["是否送达收件箱", "SPF / DKIM / DMARC 结果", "退信回流延迟", "沙盒拒信比例"]
       hourlyBilled: false
+      diagram:
+        before: "flowchart LR; API[worker email.send]-->OB[(outbox .eml + outbox_emails)]"
+        after:  "flowchart LR; API[worker email.send]--SendEmail-->SES[Amazon SES]-->IN[收件箱]; SES--投递 / 退信 / 投诉-->SNS[SNS]-->Q[(反馈队列)]-->API"
       experiments: [send-matrix, compare, sandbox, register-latency]
       badges: { local: "邮件未真正发出（本地 outbox）", aws: "已通过 Amazon SES 发送", degraded: "SES 沙盒 / 发送受限", error: "邮件发送不可用" }
     doc: docs/modules/04-compute-async.md#email
@@ -1064,6 +1143,7 @@ modules:
     switch: { var: SHELL_ACCESS_MODE, values: [ssh, ssm], ownedValues: [ssm], localTiers: [] }
     ownsEnv: [SHELL_ACCESS_, SSM_SESSION_]
     credentials: required                  # 且必须是 role：SSM Agent 不读取 keys 模式的 IAM_KEYS_*
+    version: 1                                 # 写入栈 Outputs.ModuleVersion（CFG-006）
     prerequisites: []                      # AL2023 官方 AMI 预装 SSM Agent；自制 AMI 需自行安装（ami 模块的配方已包含）
     requires:
       - { rule: DEP-001, when: { SHELL_ACCESS_MODE: ssm }, need: ["IAM_CREDENTIALS=role"] }
@@ -1071,7 +1151,8 @@ modules:
     conflicts: []
     authoritative: false
     bypass: []
-    baseParams: { SshIngressCidr: '' }     # 关闭 22 端口；SHELL_ACCESS_KEEP_SSH=true（过渡期）时 scripts/module 不下发，SEC-003 为预期内 warn
+    baseParams:                            # 关闭 22 端口；SHELL_ACCESS_KEEP_SSH=true（过渡期）时不下发，SEC-003 为预期内 warn
+      SshIngressCidr: { value: '', when: { SHELL_ACCESS_KEEP_SSH: "false" } }   # 字面量 '' = 清空（base-params.ts）；hook 总是写出 SHELL_ACCESS_KEEP_SSH
     hostSetup: infra/modules/shell-access/host-setup.sh   # apply：创建 cloudalbum-ops 与受限 sudoers；revert：删除（00 的 6.9）
     preflight: [ssm-session-preferences, policy-quota]    # 备份区域级单例文档 SSM-SessionManagerRunShell；托管策略配额
     stacks: [{ name: main, template: infra/modules/shell-access.yaml }]
@@ -1079,7 +1160,18 @@ modules:
     probe: { kind: detector, intervalSec: 60 }
     billing:
       - { resource: "会话日志（CloudWatch Logs 摄取与存储）", dimension: usage }
-    lab: { compare: before-after, hourlyBilled: false, experiments: [probe-port, ssh-noise, session-audit, private-subnet] }   # 文案见第 11 节
+    lab:                                   # 文案见第 11 节
+      summary:
+        local: "SSH 22 + 密钥对；登录审计只有 journal 中的公钥指纹与来源 IP"
+        aws: "Session Manager：IAM 身份登录与端口转发，安全组无管理端口入站，会话日志进 CloudWatch Logs"
+      compare: before-after
+      keyMetrics: ["从公网探测 22 端口（open / filtered）", "24 小时 sshd 认证失败次数", "能否回答“谁在什么时间执行了什么命令”"]
+      hourlyBilled: false
+      diagram:
+        before: "flowchart LR; OP[运维机]--SSH 22 + 密钥对-->SG{安全组 22/tcp}-->EC2[EC2 sshd]"
+        after:  "flowchart LR; OP[运维机]--IAM 身份-->SSM[Session Manager]; AG[SSM Agent]--出站 443-->SSM; AG-->EC2[EC2]; SSM-->CWL[(会话日志)]"
+      experiments: [probe-port, ssh-noise, session-audit, private-subnet]
+      badges: { local: "运维登录：SSH 22 · 密钥对", aws: "运维登录：Session Manager · 无管理端口入站", degraded: "运维登录：Session Manager · 22 仍开放", error: "运维登录：SSM Agent 离线" }
     doc: docs/modules/05-ops-observability.md#shell-access
 
   logging:
@@ -1092,6 +1184,7 @@ modules:
     switch: { var: LOG_DRIVER, values: [file, cloudwatch], ownedValues: [cloudwatch], localTiers: [] }
     ownsEnv: [LOG_CW_]
     credentials: required
+    version: 1                                 # 写入栈 Outputs.ModuleVersion（CFG-006）
     prerequisites: []
     requires: []
     soft: [kms, monitoring]                # kms：日志组加密；monitoring：指标过滤器生成的指标可接告警
@@ -1108,7 +1201,18 @@ modules:
     probe: { kind: active, method: "发送器状态 + logs:DescribeLogStreams", intervalSec: 30 }
     billing:
       - { resource: "CloudWatch Logs 摄取、存储与 Logs Insights 扫描", dimension: usage }
-    lab: { compare: before-after, hourlyBilled: false, experiments: [ingest-lag, query-compare, instance-loss, overhead, debug-volume] }   # 文案见第 11 节
+    lab:                                   # 文案见第 11 节
+      summary:
+        local: "日志只在 EBS 数据卷的文件里，本机线性扫描，实例没了日志就没了"
+        aws: "同一份结构化日志批量送入 CloudWatch Logs：跨实例检索、Logs Insights、指标过滤器"
+      compare: before-after
+      keyMetrics: ["摄取延迟（中位数 / 最大值）", "同一查询的耗时与扫描字节数", "实例终止后能否查到日志"]
+      hourlyBilled: false
+      diagram:
+        before: "flowchart LR; API[api / worker / nginx]-->F[(数据卷 logs/)]-->V[本机日志查看器]"
+        after:  "flowchart LR; API[api / worker / nginx]-->F[(数据卷 logs/)]; API--批量 PutLogEvents-->CWL[(CloudWatch Logs)]-->LI[Logs Insights]"
+      experiments: [ingest-lag, query-compare, instance-loss, overhead, debug-volume]
+      badges: { local: "日志：本地文件 · 仅 {instanceId}", aws: "日志：CloudWatch Logs · {instances} 个实例", degraded: "日志：CloudWatch 发送积压", error: "日志：CloudWatch 不可用（本地文件照常）" }
     doc: docs/modules/05-ops-observability.md#logging
 
   monitoring:
@@ -1121,6 +1225,7 @@ modules:
     switch: { var: METRICS_DRIVER, values: [local, cloudwatch], ownedValues: [cloudwatch], localTiers: [] }
     ownsEnv: [METRICS_CW_]
     credentials: required
+    version: 1                                 # 写入栈 Outputs.ModuleVersion（CFG-006）
     prerequisites: [confirm-email]         # 告警邮件订阅需要收件人确认；单模块冒烟矩阵中标为“需人工”
     requires: []
     soft: [logging, kms]
@@ -1142,7 +1247,18 @@ modules:
     probe: { kind: active, method: "最近一次 PutMetricData 成功时间；深度 DescribeAlarms", intervalSec: 30 }
     billing:
       - { resource: "CloudWatch 自定义指标、告警、仪表板与 API 调用", dimension: usage }
-    lab: { compare: fault, hourlyBilled: false, experiments: [time-to-alert, kill-test, mem-visibility, resolution, notify-path] }   # 文案见第 11 节
+    lab:                                   # 文案见第 11 节
+      summary:
+        local: "LabMetricsStore + worker 内的本地告警评估器：进程或实例一挂，告警也跟着沉默"
+        aws: "同样的指标双写到 CloudWatch，Agent 补内存与磁盘；告警在 AWS 侧评估，经自带 SNS 主题送达"
+      compare: fault
+      keyMetrics: ["告警检测时间", "实例停止时能否告警", "内存、磁盘指标是否可得", "指标粒度与出现延迟"]
+      hourlyBilled: false
+      diagram:
+        before: "flowchart LR; APP[api / worker]-->LMS[(LabMetricsStore)]-->EV[worker 内评估器]-->N[站内信 / outbox]"
+        after:  "flowchart LR; APP[api / worker]--PutMetricData-->CW[CloudWatch]; AG[CloudWatch Agent]--内存 / 磁盘-->CW; CW--告警-->SNS[ops-alarms 主题]-->M[邮件]"
+      experiments: [time-to-alert, kill-test, mem-visibility, resolution, notify-path]
+      badges: { local: "监控：本地评估器（实例宕机即失效）", aws: "监控：CloudWatch 告警 · SNS 送达", degraded: "监控降级 · {reason}", error: "监控：CloudWatch 不可用" }
     doc: docs/modules/05-ops-observability.md#monitoring
 
   tracing:
@@ -1315,6 +1431,7 @@ modules:
     switch: { var: COST_MODE, values: [local, budgets], ownedValues: [budgets], localTiers: [] }
     ownsEnv: [COST_]
     credentials: optional                  # 预算由部署者创建；应用只读预算与（手动刷新时）Cost Explorer
+    version: 1                                 # 写入栈 Outputs.ModuleVersion（CFG-006）
     prerequisites: [cost-allocation-tag, confirm-email]
     requires: []
     soft: []

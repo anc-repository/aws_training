@@ -77,6 +77,15 @@ export const SINGLE_LOCAL_SETTINGS: Readonly<Partial<Record<ModuleId, EnvMap>>> 
   queue: { IMAGE_PROCESSOR: 'worker' },
 };
 
+/**
+ * Sub-options of the module itself in its single-module profile (10.4 "可以单独启用的模块": tls needs a domain and
+ * TLS_ACME=on; with TLS_ACME=off DEP-005 3 would pull in dns + cdn). The tls hook still probes the ACME endpoint at enable
+ * time and falls back to TLS_ACME=off (with the DEP-005 3 dependencies) when it is not available. wave1-prep.
+ */
+export const SINGLE_TARGET_SETTINGS: Readonly<Partial<Record<ModuleId, EnvMap>>> = {
+  tls: { TLS_ACME: 'on' },
+};
+
 export interface TargetOptions {
   driver?: string;
   selfHosted?: boolean;

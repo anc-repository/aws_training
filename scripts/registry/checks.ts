@@ -9,13 +9,13 @@
  *   5. `ownsEnv` 前缀两两不重叠，或按“最长前缀”唯一归属（同一个完整项不能出现在两个模块里）；
  *   6. requires / conflicts 的 when、need 与 selfHosted.match 中出现的每个变量、以及每个开关变量都在 config/schema.ts 中声明；
  *      need 中的模块 id 合法；枚举开关的每个取值都能通过 zod 的开关校验；
- *   7. 本轮 MVP 模块与 ec2 的条目写完整（version、lab.summary、lab.keyMetrics、lab.badges）。
+ *   7. MVP 模块、第 1 波模块（WAVE1_MODULES）与 ec2 的条目写完整（version、lab.summary、lab.keyMetrics、lab.badges、lab.experiments）。
  */
 import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { MODULE_IDS, isModuleId, isParamSwitch, type ModuleId, type RegistryDocument } from '@cloudalbum/contracts';
 import { CONFIG_KEYS, parseConfig } from '../../backend/src/config/schema.js';
-import { MVP_MODULES } from '../../backend/src/config/implemented.js';
+import { MVP_MODULES, WAVE1_MODULES } from '../../backend/src/config/implemented.js';
 import { RULES } from '../../backend/src/rules/rules.js';
 import { GENERATED_TS, REPO_ROOT, loadRegistry, renderGenerated, validateRegistrySchema } from './lib.js';
 
@@ -149,10 +149,10 @@ export function checkRegistry(): CheckReport {
     }
   }
 
-  // 7. MVP 模块与 ec2 写完整
-  for (const id of ['ec2', ...MVP_MODULES] as ModuleId[]) {
+  // 7. MVP 模块、第 1 波模块与 ec2 写完整
+  for (const id of ['ec2', ...MVP_MODULES, ...WAVE1_MODULES] as ModuleId[]) {
     const m = doc.modules[id];
-    if (!m.version) errors.push(`${id}: 缺少 version（MVP 模块与 ec2 必须写完整）`);
+    if (!m.version) errors.push(`${id}: 缺少 version（MVP、第 1 波模块与 ec2 必须写完整）`);
     if (!m.lab.summary?.local || !m.lab.summary?.aws) errors.push(`${id}: 缺少 lab.summary.local / aws`);
     if (!m.lab.keyMetrics?.length) errors.push(`${id}: 缺少 lab.keyMetrics`);
     if (!m.lab.badges) errors.push(`${id}: 缺少 lab.badges`);

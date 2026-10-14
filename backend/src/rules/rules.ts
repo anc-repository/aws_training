@@ -146,7 +146,15 @@ export const RULES: Rule[] = [
   },
   {
     id: 'CRED-002', category: 'CRED', severity: 'warn', overridable: false, scope: 'startup', modules: ['iam'],
-    check: (ctx) => ctx.cfg.core.IAM_CREDENTIALS === 'keys',
+    check: (ctx) => {
+      if (ctx.cfg.core.IAM_CREDENTIALS !== 'keys') return false;
+      // 05 组约定 2：Agent 不读 secrets.env 的 IAM_KEYS_*，本项目也不为它另写凭证文件 → 依赖 Agent 的子功能关闭（wave1-prep）
+      const agent: string[] = [];
+      if (ctx.isEnabled('logging') && env(ctx, 'LOG_CW_SHIPPER') === 'agent') agent.push('logging 的 agent 投递方式');
+      if (ctx.isEnabled('monitoring')) agent.push(`monitoring 的内存 / 磁盘指标${env(ctx, 'METRICS_CW_MODE') === 'emf' ? '与 EMF 方式' : ''}`);
+      if (ctx.isEnabled('tracing')) agent.push('tracing 的 xray 档（本机 Collector）');
+      return agent.length ? { message: `依赖 Agent 的子功能不可用：${list(agent)}` } : true;
+    },
     message: () => 'IAM_CREDENTIALS=keys：长期访问密钥（AKIA…）落盘在 secrets.env；SSM Agent、CloudWatch Agent 不读取这份密钥',
     fix: 'scripts/module enable iam --mode role',
   },

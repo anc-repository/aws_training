@@ -6,18 +6,29 @@
 //   keys 模式的长期密钥由 adapters/iam/keys.ts 显式传入，不导出为进程环境变量。
 // - 这里只用 `import type` 引用 SDK 类型（编译后被擦除），运行时依赖全部经动态 import。
 import { createRequire } from 'node:module';
+import type { ACMClient } from '@aws-sdk/client-acm';
+import type { BudgetsClient } from '@aws-sdk/client-budgets';
 import type { CloudFrontClient } from '@aws-sdk/client-cloudfront';
+import type { CloudWatchClient } from '@aws-sdk/client-cloudwatch';
+import type { CloudWatchLogsClient } from '@aws-sdk/client-cloudwatch-logs';
+import type { CognitoIdentityClient } from '@aws-sdk/client-cognito-identity';
 import type { CognitoIdentityProviderClient } from '@aws-sdk/client-cognito-identity-provider';
+import type { CostExplorerClient } from '@aws-sdk/client-cost-explorer';
+import type { EC2Client } from '@aws-sdk/client-ec2';
 import type { ElastiCacheClient } from '@aws-sdk/client-elasticache';
 import type { EventBridgeClient } from '@aws-sdk/client-eventbridge';
 import type { IAMClient } from '@aws-sdk/client-iam';
 import type { LambdaClient } from '@aws-sdk/client-lambda';
 import type { RDSClient } from '@aws-sdk/client-rds';
+import type { Route53Client } from '@aws-sdk/client-route-53';
 import type { S3Client } from '@aws-sdk/client-s3';
 import type { SecretsManagerClient } from '@aws-sdk/client-secrets-manager';
+import type { SESv2Client } from '@aws-sdk/client-sesv2';
+import type { SNSClient } from '@aws-sdk/client-sns';
 import type { SQSClient } from '@aws-sdk/client-sqs';
 import type { SSMClient } from '@aws-sdk/client-ssm';
 import type { STSClient } from '@aws-sdk/client-sts';
+import type { WAFV2Client } from '@aws-sdk/client-wafv2';
 import type { AwsCredentials } from '../../ports/aws-credentials.js';
 
 export class AwsCredentialsUnavailableError extends Error {
@@ -56,6 +67,19 @@ export interface AwsClients {
   secretsManager(o?: ClientOverrides): Promise<SecretsManagerClient>;
   ssm(o?: ClientOverrides): Promise<SSMClient>;
   eventbridge(o?: ClientOverrides): Promise<EventBridgeClient>;
+  // —— 第 1 波模块（wave1-prep）。全局 / 固定区域的服务由调用方传 { region }：
+  //    route53、budgets、costExplorer 的控制面在 us-east-1；waf 的 CLOUDFRONT 范围与 tls-edge 证书也在 us-east-1。
+  sns(o?: ClientOverrides): Promise<SNSClient>;                         // notification；monitoring / cost 的自带主题
+  sesv2(o?: ClientOverrides): Promise<SESv2Client>;                     // email
+  cloudwatch(o?: ClientOverrides): Promise<CloudWatchClient>;           // monitoring；waf 的拦截计数
+  cloudwatchLogs(o?: ClientOverrides): Promise<CloudWatchLogsClient>;   // logging；shell-access 的会话日志
+  budgets(o?: ClientOverrides): Promise<BudgetsClient>;                 // cost（us-east-1）
+  costExplorer(o?: ClientOverrides): Promise<CostExplorerClient>;       // cost（us-east-1；按请求计费，只在手动刷新时调用）
+  cognitoIdentity(o?: ClientOverrides): Promise<CognitoIdentityClient>; // identity-pool
+  wafv2(o?: ClientOverrides): Promise<WAFV2Client>;                     // waf（CLOUDFRONT 范围传 { region: 'us-east-1' }）
+  route53(o?: ClientOverrides): Promise<Route53Client>;                 // dns（us-east-1）
+  acm(o?: ClientOverrides): Promise<ACMClient>;                         // tls（edge 证书传 { region: 'us-east-1' }）
+  ec2(o?: ClientOverrides): Promise<EC2Client>;                         // shell-access 的安全组 22 端口感知
   /** 关闭全部已创建的客户端（SIGTERM） */
   destroy(): void;
 }
@@ -84,6 +108,8 @@ const NOT_FOUND_NAMES = new Set([
   'AWS.SimpleQueueService.NonExistentQueue', 'DBInstanceNotFound', 'DBInstanceNotFoundFault', 'NoSuchDistribution',
   'ReplicationGroupNotFoundFault', 'ServerlessCacheNotFoundFault', 'UserNotFoundException', 'NoSuchEntity',
   'NoSuchEntityException',
+  // 第 1 波模块：SNS / SES v2 / Budgets 的 NotFoundException、WAFv2、Route 53、EC2 安全组
+  'NotFoundException', 'WAFNonexistentItemException', 'NoSuchHostedZone', 'NoSuchHealthCheck', 'InvalidGroup.NotFound',
 ]);
 const ACCESS_DENIED_NAMES = new Set([
   'AccessDenied', 'AccessDeniedException', 'UnauthorizedOperation', 'UnrecognizedClientException',
@@ -108,6 +134,52 @@ export function isAwsNotFound(e: unknown): boolean {
 
 export function isAwsAccessDenied(e: unknown): boolean {
   return ACCESS_DENIED_NAMES.has(awsErrorName(e)) || awsHttpStatus(e) === 403;
+}
+
+/**
+ * 瞬时错误（超时、限流、网络、5xx）：探针与控制面读取可以重试；权限、不存在、参数错误不重试。
+ * 依据 2026-10-14 实机验证：api 重启后的最初一两分钟，IMDS 与 SDK 的首个请求可能很慢（凭证获取 + TLS 握手 + 懒加载 SDK 包）。
+ */
+export function isAwsTransient(e: unknown): boolean {
+  if (isAwsAccessDenied(e) || isAwsNotFound(e)) return false;
+  const name = awsErrorName(e);
+  const status = awsHttpStatus(e);
+  if (status !== undefined && status >= 500) return true;
+  if (status === 429) return true;
+  return /Timeout|TimedOut|Throttl|TooManyRequests|RequestLimitExceeded|ECONNRESET|ECONNREFUSED|ETIMEDOUT|EAI_AGAIN|ENOTFOUND|NetworkingError|socket hang up|CredentialsProviderError|ProbeTimeoutError/i
+    .test(`${name} ${(e as Error | null)?.message ?? ''}`);
+}
+
+/**
+ * 探针与控制面只读调用的统一重试（wave1-prep 提供给各模块实现者）：
+ *   - 每次尝试有自己的超时（默认 3 秒）；只对瞬时错误重试（默认共 3 次，间隔 200、800 ms）；
+ *   - 最后一次仍失败时抛出最后的错误，由调用方映射为 degraded / error。
+ * 能力注册表的状态机另有“启动宽限”：首次探针超时不会直接记为 error（modules/capabilities.ts）。
+ */
+export async function withAwsRetry<T>(fn: () => Promise<T>, opts: { attempts?: number; timeoutMs?: number; delaysMs?: readonly number[] } = {}): Promise<T> {
+  const attempts = Math.max(1, opts.attempts ?? 3);
+  const delays = opts.delaysMs ?? [200, 800];
+  const timeoutMs = opts.timeoutMs ?? 3000;
+  let last: unknown;
+  for (let i = 0; i < attempts; i += 1) {
+    let timer: NodeJS.Timeout | undefined;
+    try {
+      return await Promise.race([
+        fn(),
+        new Promise<never>((_, reject) => {
+          timer = setTimeout(() => reject(Object.assign(new Error(`AWS 调用超时（${timeoutMs} ms）`), { name: 'TimeoutError' })), timeoutMs);
+          timer.unref?.();
+        }),
+      ]);
+    } catch (e) {
+      last = e;
+      if (!isAwsTransient(e) || i === attempts - 1) throw e;
+      await new Promise((r) => setTimeout(r, delays[Math.min(i, delays.length - 1)] ?? 0));
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
+  }
+  throw last;
 }
 
 /** 一行可读描述：`AccessDenied（HTTP 403）：User is not authorized…` */
@@ -238,6 +310,23 @@ export function lazyAwsClients(opts: AwsClientFactoryOptions): AwsClients {
     ssm: (o) => make('SSM', o, async (c) => new (await load('@aws-sdk/client-ssm', () => import('@aws-sdk/client-ssm'))).SSMClient(c)),
     eventbridge: (o) => make('EventBridge', o, async (c) =>
       new (await load('@aws-sdk/client-eventbridge', () => import('@aws-sdk/client-eventbridge'))).EventBridgeClient(c)),
+    sns: (o) => make('SNS', o, async (c) => new (await load('@aws-sdk/client-sns', () => import('@aws-sdk/client-sns'))).SNSClient(c)),
+    sesv2: (o) => make('SES', o, async (c) => new (await load('@aws-sdk/client-sesv2', () => import('@aws-sdk/client-sesv2'))).SESv2Client(c)),
+    cloudwatch: (o) => make('CloudWatch', o, async (c) =>
+      new (await load('@aws-sdk/client-cloudwatch', () => import('@aws-sdk/client-cloudwatch'))).CloudWatchClient(c)),
+    cloudwatchLogs: (o) => make('CloudWatch Logs', o, async (c) =>
+      new (await load('@aws-sdk/client-cloudwatch-logs', () => import('@aws-sdk/client-cloudwatch-logs'))).CloudWatchLogsClient(c)),
+    budgets: (o) => make('Budgets', o, async (c) =>
+      new (await load('@aws-sdk/client-budgets', () => import('@aws-sdk/client-budgets'))).BudgetsClient(c)),
+    costExplorer: (o) => make('Cost Explorer', o, async (c) =>
+      new (await load('@aws-sdk/client-cost-explorer', () => import('@aws-sdk/client-cost-explorer'))).CostExplorerClient(c)),
+    cognitoIdentity: (o) => make('Cognito Identity Pools', o, async (c) =>
+      new (await load('@aws-sdk/client-cognito-identity', () => import('@aws-sdk/client-cognito-identity'))).CognitoIdentityClient(c)),
+    wafv2: (o) => make('WAFV2', o, async (c) => new (await load('@aws-sdk/client-wafv2', () => import('@aws-sdk/client-wafv2'))).WAFV2Client(c)),
+    route53: (o) => make('Route 53', o, async (c) =>
+      new (await load('@aws-sdk/client-route-53', () => import('@aws-sdk/client-route-53'))).Route53Client(c)),
+    acm: (o) => make('ACM', o, async (c) => new (await load('@aws-sdk/client-acm', () => import('@aws-sdk/client-acm'))).ACMClient(c)),
+    ec2: (o) => make('EC2', o, async (c) => new (await load('@aws-sdk/client-ec2', () => import('@aws-sdk/client-ec2'))).EC2Client(c)),
     destroy() {
       for (const c of created.splice(0)) {
         try {

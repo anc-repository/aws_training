@@ -2,16 +2,18 @@ import { readdirSync } from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { classifyOutput } from '../src/outputs.js';
-import { IMPLEMENTED_MODULES, MODULE_IDS, REGISTRY } from '../src/registry.js';
+import { MODULE_IDS, MVP_MODULES, REGISTRY } from '../src/registry.js';
 import { findExportsAndImports, loadTemplate, mainTemplatePath, parseTemplate, staticOutputValue, type CfnTemplate } from '../src/template.js';
-import { REPO_ROOT } from './helpers.js';
+import { REPO_ROOT, modulesWithTemplates } from './helpers.js';
+
+const IMPLEMENTED_MODULES = modulesWithTemplates();   // wave1-prep: wave 1 templates may still be pending (helpers.ts)
 
 const TEMPLATES = readdirSync(path.join(REPO_ROOT, 'infra', 'modules')).filter((f) => f.endsWith('.yaml'));
 const load = (f: string): CfnTemplate => loadTemplate(REPO_ROOT, `infra/modules/${f}`);
 
 describe('infra/modules templates follow the 9.1 conventions', () => {
   it('every MVP module (and ec2, toolchain) has its template', () => {
-    for (const id of [...IMPLEMENTED_MODULES, 'ec2' as const]) expect(TEMPLATES, id).toContain(path.basename(mainTemplatePath(id)));
+    for (const id of [...MVP_MODULES, ...IMPLEMENTED_MODULES, 'ec2' as const]) expect(TEMPLATES, id).toContain(path.basename(mainTemplatePath(id)));
     expect(TEMPLATES).toContain('toolchain.yaml');
   });
 

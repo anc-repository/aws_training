@@ -1,14 +1,22 @@
-// backend/src/config/implemented.ts —— 本轮（MVP）已实现的驱动清单
+// backend/src/config/implemented.ts —— 已实现的驱动清单
 //
 // L0 的全部本地实现 + 8 个 MVP 模块（iam、storage、cdn、auth、queue、image-processing、cache、database）的 AWS 实现
-// 及其本地档。其余模块在 registry 中保留元数据，配置了它们的非本地驱动时以 CFG-001（退出码 78）拒绝启动。
-// 后续版本实现新驱动时，只需在 IMPLEMENTED_DRIVERS 中追加。
+// 及其本地档 + 第 1 波模块（WAVE1_MODULES，docs/implementation-notes.md ## wave1-prep）。其余模块在 registry 中保留元数据，
+// 配置了它们的非本地驱动时以 CFG-001（退出码 78）拒绝启动。后续版本实现新驱动时，只需在 IMPLEMENTED_DRIVERS 中追加。
 import { MODULE_IDS, type ModuleId } from '@cloudalbum/contracts';
 import { REGISTRY, driverOf, localDriverOf, switchOf, type EnvView } from '../modules/registry.js';
 
 export const MVP_MODULES: readonly ModuleId[] = [
   'iam', 'storage', 'cdn', 'auth', 'queue', 'image-processing', 'cache', 'database',
 ];
+
+/** 第 1 波补齐的模块（registry 条目写完整、驱动标记为已实现；scripts/registry/checks.ts 的完整性检查同样覆盖它们） */
+export const WAVE1_MODULES: readonly ModuleId[] = [
+  'notification', 'email', 'monitoring', 'cost', 'logging', 'shell-access', 'dns', 'tls', 'waf', 'identity-pool',
+];
+
+/** 已实现 AWS 驱动的全部模块（MVP + 第 1 波） */
+export const IMPLEMENTED_MODULES: readonly ModuleId[] = [...MVP_MODULES, ...WAVE1_MODULES];
 
 /** 已实现的驱动（未列出的模块 = 只有本地驱动）。 */
 export const IMPLEMENTED_DRIVERS: Readonly<Partial<Record<ModuleId, readonly string[]>>> = {
@@ -22,8 +30,20 @@ export const IMPLEMENTED_DRIVERS: Readonly<Partial<Record<ModuleId, readonly str
   'image-processing': ['inline', 'worker', 'lambda'],
   cache: ['none', 'memory', 'redis'],
   database: ['sqlite', 'postgres'],
-  // tls 本地档 letsencrypt：平台预览方案 B 的 Let's Encrypt IP 证书（06 PM-21；证书由 Nginx 使用，应用只读 TLS_* 计算有效入口）
-  tls: ['selfsigned', 'letsencrypt'],
+  // —— 第 1 波（wave1-prep）：应用适配器型
+  notification: ['db', 'sns'],
+  email: ['outbox', 'ses'],
+  monitoring: ['local', 'cloudwatch'],
+  logging: ['file', 'cloudwatch'],
+  'identity-pool': ['none', 'cognito'],      // 参数型开关 IDENTITY_POOL_ID（空 = none）
+  waf: ['nginx', 'aws'],                     // 纯基础设施型，但带管理用小端口 BlocklistPort
+  // —— 第 1 波：纯基础设施型 / 声明型开关（应用侧只有感知器；资源由 scripts/module 部署）
+  cost: ['local', 'budgets'],
+  'shell-access': ['ssh', 'ssm'],
+  dns: ['none', 'external', 'route53'],      // external：外部注册商 A 记录（本地档，不涉及 AWS）
+  // tls 本地档 letsencrypt：平台预览方案 B 的 Let's Encrypt IP 证书（06 PM-21；证书由 Nginx 使用，应用只读 TLS_* 计算有效入口）；
+  // acm：ACME 端点（TLS_ACME=on，证书装到 Nginx）或回退分支（TLS_ACME=off，仅 CloudFront / ALB 的集成证书）
+  tls: ['selfsigned', 'letsencrypt', 'acm'],
 };
 
 export function implementedDriversOf(id: ModuleId): readonly string[] {
@@ -69,7 +89,7 @@ export function implementationErrors(env: EnvView): Array<{ section: string; pat
       section: 'implementation',
       path: sw.var,
       message:
-        `${sw.var}=${value}：${owner}（${REGISTRY[owner].awsService}）的“${driver}”驱动在本轮（MVP）尚未实现，` +
+        `${sw.var}=${value}：${owner}（${REGISTRY[owner].awsService}）的“${driver}”驱动在本轮尚未实现，` +
         `只能使用 ${allowed}。请改回本地实现：scripts/module disable ${owner}（或删除 modules.d/${owner}.env 中的该键）`,
     });
   }
@@ -78,7 +98,7 @@ export function implementationErrors(env: EnvView): Array<{ section: string; pat
     errors.push({
       section: 'implementation',
       path: v.key,
-      message: `${v.key}=${v.value}：${v.module} 的${v.detail}在本轮（MVP）尚未实现。${v.fix}`,
+      message: `${v.key}=${v.value}：${v.module} 的${v.detail}在本轮尚未实现。${v.fix}`,
     });
   }
   return errors;

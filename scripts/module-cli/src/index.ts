@@ -33,7 +33,9 @@ import { generateSingleProfile } from './profiles.js';
 import { internalEndpointsBlock, writeInternalEndpoints, writeReleaseMeta } from './meta.js';
 import { CliError, EXIT } from './printer.js';
 import { parseModuleId } from './registry.js';
-import { planEnable, resolveTarget } from './deps.js';
+import { SINGLE_TARGET_SETTINGS, planEnable, resolveTarget } from './deps.js';
+import { parseAssignments } from './env-file.js';
+import { hookFor } from './module-hooks/index.js';
 
 export { EXIT };
 
@@ -161,6 +163,11 @@ export function buildProgram(): Command {
     .option('--param <K=V>', 'stack parameter (repeatable)', collect)
     .option('--set <K=V>', 'modules.d/<id>.env setting within ownsEnv (repeatable)', collect)
     .option('--skip-health', 'do not wait for the health probes')
+    // module-specific options, interpreted by the module hooks (scripts/module-cli/src/module-hooks/<id>.ts)
+    .option('--domain <name>', 'dns / tls: your own domain (manual prerequisite "domain"), e.g. album.example.com')
+    .option('--zone-id <id>', 'dns / tls: existing Route 53 public hosted zone')
+    .addOption(new Option('--target <type>', 'dns: record target (default: cdn -> cloudfront, load-balancer -> alb, else eip)').choices(['eip', 'alb', 'cloudfront']))
+    .option('--no-acme', 'tls: do not probe the ACM ACME endpoint; TLS_ACME=off (exam form: ACM only on CloudFront / ALB)')
     .action(async (id: string, o: EnableOptions, cmd: Command) => run(cmd, (ctx) => enableCommand(ctx, parseModuleId(id), o),
       { mutating: true, op: `enable ${id}`, moduleOp: { command: 'enable', module: id, driver: o.driver ?? o.mode ?? null } }));
 
@@ -170,7 +177,8 @@ export function buildProgram(): Command {
     .option('--no-migrate', 'alias of --abandon-data for modules without data')
     .option('--purge', 'also delete retained data resources (not implemented in this round)')
     .option('--skip-health', 'do not wait for the health probes')
-    .option('--param <K=V>', 'platform action arguments (card platformOps args; accepted for the runner, unused by disable)', collect)
+    .option('--param <K=V>', 'platform action arguments (card platformOps args; passed to the module hook)', collect)
+    .option('--reopen-ssh', 'shell-access: restore SshIngressCidr (reopen port 22) instead of keeping it closed')
     .action(async (id: string, o: DisableOptions, cmd: Command) => run(cmd, (ctx) => disableCommand(ctx, parseModuleId(id), o),
       { mutating: true, op: `disable ${id}`, moduleOp: { command: 'disable', module: id } }));
 
@@ -201,6 +209,11 @@ export function buildProgram(): Command {
     .option('--driver <value>', 'switch value')
     .option('--with-deps', 'include missing dependencies')
     .option('--set <K=V>', 'settings (repeatable)', collect)
+    .option('--param <K=V>', 'stack parameter (repeatable)', collect)
+    .option('--domain <name>', 'dns / tls: your own domain (without it the plan prints the hint and skips the module)')
+    .option('--zone-id <id>', 'dns / tls: existing Route 53 public hosted zone')
+    .addOption(new Option('--target <type>', 'dns: record target').choices(['eip', 'alb', 'cloudfront']))
+    .option('--no-acme', 'tls: TLS_ACME=off without probing')
     .option('--start-of <card>', 'derive the start state of a card (labs/<card>/lab.yaml)')
     .option('--variant <id>', 'start variant (default: default)')
     .option('--lab-file <path>', 'lab.yaml outside labs/')
@@ -231,9 +244,12 @@ export function buildProgram(): Command {
         ctx.state.modules = {};
         ctx.out.section(`single-module profile for ${mid} (L0 + ${mid} + minimal dependencies)`);
         for (const l of generateSingleProfile(mid).trimEnd().split('\n')) ctx.out.info(`  ${l}`);
-        const p = planEnable({}, resolveTarget(mid, o.driver ? { driver: o.driver } : {}), { withDeps: true });
+        const own = Object.entries(SINGLE_TARGET_SETTINGS[mid] ?? {}).map(([k, v]) => `${k}=${v}`);
+        const t = resolveTarget(mid, { ...(o.driver ? { driver: o.driver } : {}), settings: parseAssignments([...own, ...(o.set ?? [])], '--set') });
+        for (const h of hookFor(mid)?.planHints?.(t) ?? []) ctx.out.warn(`  ${mid}: ${h}`);
+        const p = planEnable({}, t, { withDeps: true });
         if (p.issues.length) for (const i of p.issues) ctx.out.warn(`  ${i.rule}: ${i.message}`);
-        return enableCommand(ctx, mid, { ...o, withDeps: true, planOnly: true });
+        return enableCommand(ctx, mid, { ...o, set: [...own, ...(o.set ?? [])], withDeps: true, planOnly: true });
       }
       return enableCommand(ctx, mid, { ...o, planOnly: true });
     }, { pure: Boolean(o.startOf || o.profile), op: 'plan' }));

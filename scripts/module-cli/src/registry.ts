@@ -14,10 +14,18 @@ export const REGISTRY: Registry = REGISTRY_DOCUMENT.modules;
 export { MODULE_IDS, isModuleId, moduleFlagKey, moduleVersionKey };
 export type EnvView = Readonly<Record<string, string | undefined>>;
 
-/** The 8 MVP modules whose templates and adapters exist in this round (+ ec2). */
-export const IMPLEMENTED_MODULES: readonly ModuleId[] = [
+/** The 8 MVP modules (templates, adapters, hooks.ts). */
+export const MVP_MODULES: readonly ModuleId[] = [
   'iam', 'storage', 'cdn', 'auth', 'queue', 'image-processing', 'cache', 'database',
 ];
+
+/** Wave 1 modules (same list as backend config/implemented.ts WAVE1_MODULES; module-specific logic in module-hooks/<id>.ts). */
+export const WAVE1_MODULES: readonly ModuleId[] = [
+  'notification', 'email', 'monitoring', 'cost', 'logging', 'shell-access', 'dns', 'tls', 'waf', 'identity-pool',
+];
+
+/** Modules whose templates and adapters exist (+ ec2): enable / profile apply refuse the others. */
+export const IMPLEMENTED_MODULES: readonly ModuleId[] = [...MVP_MODULES, ...WAVE1_MODULES];
 
 /** Parameter switches: [local driver, AWS driver] (same table as backend PARAM_DRIVERS). */
 export const PARAM_DRIVERS: Readonly<Partial<Record<ModuleId, readonly [string, string]>>> = {

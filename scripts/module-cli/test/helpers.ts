@@ -1,12 +1,29 @@
+import { existsSync } from 'node:fs';
 import path from 'node:path';
+import type { ModuleId } from '@cloudalbum/contracts';
 import { fileURLToPath } from 'node:url';
 import { CapturePrinter } from '../src/printer.js';
 import { createContext, type Ctx, type GlobalOptions } from '../src/context.js';
 import { DryRunGateway } from '../src/aws.js';
 import { newState, type CloudAlbumState } from '../src/state.js';
+import { IMPLEMENTED_MODULES, WAVE1_MODULES } from '../src/registry.js';
+import { mainTemplatePath } from '../src/template.js';
 import type { Deliverer, RemoteResult, RemoteScript } from '../src/deliver.js';
 
 export const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
+
+/**
+ * wave1-prep: the wave 1 module templates (infra/modules/<id>.yaml) are written by the module implementers in parallel.
+ * While this is true, template-based tests skip wave 1 modules whose template does not exist yet; the integration step sets
+ * it to false so that every implemented module must have its template.
+ */
+export const ALLOW_PENDING_WAVE1_TEMPLATES = true;
+
+/** Implemented modules whose main template exists (all of them once ALLOW_PENDING_WAVE1_TEMPLATES is false). */
+export function modulesWithTemplates(): ModuleId[] {
+  return IMPLEMENTED_MODULES.filter((id) => !ALLOW_PENDING_WAVE1_TEMPLATES || !WAVE1_MODULES.includes(id)
+    || existsSync(path.join(REPO_ROOT, mainTemplatePath(id))));
+}
 
 /** Deliverer that records the scripts instead of running them. */
 export class RecordingDeliverer implements Deliverer {

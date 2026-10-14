@@ -24,7 +24,10 @@ export const BASE_PARAM_DEFAULTS: Readonly<Record<string, string>> = {
 
 export interface Contribution { module: ModuleId; param: string; value: string; append: boolean }
 
-/** Contributions of one module, evaluated with its outputs / env / params. Empty values are ignored. */
+/**
+ * Contributions of one module, evaluated with its outputs / env / params. A value that evaluates to '' because a reference is
+ * empty or unresolved is ignored; the literal '' is a deliberate "clear" (shell-access: SshIngressCidr '' closes port 22).
+ */
 export function moduleContributions(id: ModuleId, rec: Pick<ModuleRecord, 'outputs' | 'env' | 'params' | 'value'>,
   ctx: { Env: string; Arch?: string }, registry: Registry = REGISTRY): Contribution[] {
   const decl = registry[id]?.baseParams ?? {};
@@ -35,7 +38,7 @@ export function moduleContributions(id: ModuleId, rec: Pick<ModuleRecord, 'outpu
     // iam: only the role mode attaches an instance profile (keys / none -> empty, 02#iam)
     if (id === 'iam' && param === 'InstanceProfileName' && rec.value !== 'role') continue;
     const v = evaluateExpr(expr, { outputs: rec.outputs, env: rec.env, params: rec.params, context: ctx });
-    if (v.value === '' || v.unresolved.length) continue;
+    if (v.unresolved.length || (v.value === '' && expr !== '')) continue;
     out.push({ module: id, param, value: v.value, append: v.append });
   }
   return out;

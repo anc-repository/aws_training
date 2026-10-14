@@ -3,9 +3,8 @@ import {
   EnvOwnershipError, OutputNameError, buildModuleEnv, classifyOutput, envKeyToOutputName, outputNameToEnvKey,
   splitOutputs, validateModuleEnv,
 } from '../src/outputs.js';
-import { IMPLEMENTED_MODULES } from '../src/registry.js';
 import { loadTemplate, mainTemplatePath } from '../src/template.js';
-import { REPO_ROOT } from './helpers.js';
+import { REPO_ROOT, modulesWithTemplates } from './helpers.js';
 
 describe('Outputs -> env key conversion (9.1)', () => {
   it.each([
@@ -88,7 +87,7 @@ describe('modules.d/<id>.env content (9.2 step 4, CFG-002)', () => {
   });
 
   it('every Env* output of every MVP template is a valid key owned by that module', () => {
-    for (const id of IMPLEMENTED_MODULES) {
+    for (const id of modulesWithTemplates()) {
       const t = loadTemplate(REPO_ROOT, mainTemplatePath(id));
       const envOutputs = Object.keys(t.Outputs).filter((k) => classifyOutput(k) === 'env');
       expect(envOutputs.length, id).toBeGreaterThan(0);

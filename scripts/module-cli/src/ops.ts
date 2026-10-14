@@ -7,12 +7,13 @@ import type { Ctx } from './context.js';
 import { computeInjections, injectTargetsOf } from './injects.js';
 import { mergeBaseParams, originalsFor } from './base-params.js';
 import { deployStack, stackTags } from './stack.js';
-import { loadTemplate, mainTemplatePath, noEchoParameters } from './template.js';
+import { loadTemplate, mainTemplatePath, noEchoParameters, templateOfStack } from './template.js';
 import { registryVersion, stackName } from './registry.js';
 import type { CloudAlbumState, ModuleRecord } from './state.js';
 import { currentEnv, nowIso } from './state.js';
 import { CliError, EXIT } from './printer.js';
 import { baseContextParams, httpsOnly } from './hooks.js';
+import { mergeStackOutputs } from './module-hooks/index.js';
 import type { StagedEnv } from './plan.js';
 import type { EnvMap } from './env-file.js';
 
@@ -25,8 +26,9 @@ export function directOrigin(ctx: Ctx): string {
  * of the base context (VpcId, SubnetIds: network injects them) falls back to the base-context value when no provider
  * injects it any more.
  */
-export function injectedParams(ctx: Ctx, target: ModuleId, records: CloudAlbumState['modules'], env: EnvMap): Record<string, string> {
-  const t = loadTemplate(ctx.repoRoot, mainTemplatePath(target));
+export function injectedParams(ctx: Ctx, target: ModuleId, records: CloudAlbumState['modules'], env: EnvMap,
+  template: string = mainTemplatePath(target)): Record<string, string> {
+  const t = loadTemplate(ctx.repoRoot, template);
   const params = Object.keys(t.Parameters);
   const baseLists: Record<string, string> = {};
   if (params.includes('AppOrigins')) baseLists.AppOrigins = target === 'auth' ? '' : directOrigin(ctx);
@@ -41,14 +43,15 @@ export function injectedParams(ctx: Ctx, target: ModuleId, records: CloudAlbumSt
   return out;
 }
 
-/** Full parameter set of a module stack: base context + injections + module specific + user --param. */
+/** Full parameter set of a module stack: base context + injections + module specific + user --param (only declared ones). */
 export function stackParams(ctx: Ctx, id: ModuleId, records: CloudAlbumState['modules'], env: EnvMap,
-  moduleParams: Record<string, string>, userParams: Record<string, string>): { params: Record<string, string>; secret: string[] } {
-  const t = loadTemplate(ctx.repoRoot, mainTemplatePath(id));
+  moduleParams: Record<string, string>, userParams: Record<string, string>,
+  template: string = mainTemplatePath(id)): { params: Record<string, string>; secret: string[] } {
+  const t = loadTemplate(ctx.repoRoot, template);
   const declared = Object.keys(t.Parameters);
   const params = {
     ...baseContextParams(ctx, id, declared),
-    ...injectedParams(ctx, id, records, env),
+    ...injectedParams(ctx, id, records, env, template),
     ...moduleParams,
     ...userParams,
   };
@@ -66,16 +69,28 @@ export async function updateInjectedTargets(ctx: Ctx, provider: ModuleId, record
   for (const target of targets) {
     const rec = records[target];
     if (!rec || rec.tier !== 'aws' || target === provider) continue;
-    const next = injectedParams(ctx, target, records, env);
-    const changed = Object.entries(next).filter(([k, v]) => (rec.params[k] ?? '') !== v);
-    if (!changed.length) continue;
-    ctx.out.info(`      inject ${provider} -> ${target}: ${changed.map(([k, v]) => `${k}=${v || "''"}`).join(', ')}`);
-    const res = await deployStack(ctx.aws, ctx.out, ctx.repoRoot, {
-      stackName: stackName(ctx.env, target), template: mainTemplatePath(target),
-      params: Object.fromEntries(changed), tags: stackTags(ctx.env, target, registryVersion(target)),
-    });
-    rec.params = { ...rec.params, ...Object.fromEntries(changed) };
-    if (!ctx.dryRun) rec.outputs = res.outputs;
+    // every deployed stack of the target (tls main / edge / regional ...) whose template declares a changed parameter
+    const stacks = rec.stacks.length ? rec.stacks : [{ name: 'main', stackName: stackName(ctx.env, target), region: ctx.region }];
+    const applied: Record<string, string> = {};
+    for (const st of stacks) {
+      const template = templateOfStack(target, st.name);
+      const next = injectedParams(ctx, target, records, env, template);
+      const changed = Object.entries(next).filter(([k, v]) => (rec.params[k] ?? '') !== v);
+      if (!changed.length) continue;
+      ctx.out.info(`      inject ${provider} -> ${st.stackName}: ${changed.map(([k, v]) => `${k}=${v || "''"}`).join(', ')}`);
+      const res = await deployStack(ctx.aws, ctx.out, ctx.repoRoot, {
+        stackName: st.stackName, template, params: Object.fromEntries(changed), tags: stackTags(ctx.env, target, registryVersion(target)),
+        ...(st.region && st.region !== ctx.region ? { region: st.region } : {}),
+      });
+      Object.assign(applied, Object.fromEntries(changed));
+      if (!ctx.dryRun) {
+        if (rec.stacks.length > 1) st.outputs = res.outputs;
+        else rec.outputs = res.outputs;
+      }
+    }
+    if (!Object.keys(applied).length) continue;
+    rec.params = { ...rec.params, ...applied };
+    if (!ctx.dryRun && rec.stacks.length > 1) rec.outputs = mergeStackOutputs(rec.stacks.map((s) => s.outputs ?? {}));
     rec.updatedAt = nowIso();
   }
 }

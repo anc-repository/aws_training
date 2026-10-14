@@ -2575,3 +2575,101 @@ e2e：新增“4b csp-live”阶段。工作台阶段结束后，在 `vite previ
 ### 5. 提交范围
 
 只提交本节改动的路径（第 1 节所列文件、对应测试、`scripts/e2e/`）和本节笔记；工作区中其他会话的改动不在提交范围内。
+
+---
+
+## wave1-prep
+
+第 1 波模块补齐的准备阶段：notification、email、monitoring、cost、logging、shell-access、dns、tls、waf、identity-pool 共用的文件、依赖与 hook 机制。各模块的实现者从这里开始，只改自己负责的路径（见第 2 节）。
+
+### 1. 本阶段完成的内容
+
+| 范围 | 文件 | 内容 |
+|---|---|---|
+| registry | `modules/registry.yaml`、`packages/contracts/src/generated/registry.ts` | 10 个条目都补齐了 `version: 1`、`lab.summary / keyMetrics / diagram / badges / experiments` 和 `billing`（不写单价）。文案取自各模块文档第 5、11 节。其他字段与各模块文档第 0 节逐项比对一致，唯一例外是 shell-access 的 `baseParams`（见第 5 节第 3 条） |
+| registry:check | `scripts/registry/checks.ts` | 第 7 项“条目写完整”同时检查 MVP 模块和 `WAVE1_MODULES` |
+| 配置 | `backend/src/config/schema.ts` | logging、monitoring、notification、email 的 AWS 分支按文档第 3 节收紧：栈 Outputs 写入的标识必填，其余取文档默认值。新增分段 `dns`、`tls`、`waf`、`shellAccess`、`cost`（声明型开关 + 子选项；开关取 AWS 值时检查必需键）。`identity` 分段在 `IDENTITY_POOL_ID` 非空时要求 `IDENTITY_STAGING_BUCKET`。ARN 只校验 `arn:aws…:` 前缀 |
+| 已实现驱动 | `backend/src/config/implemented.ts` | `WAVE1_MODULES`、`IMPLEMENTED_MODULES`；10 个模块的 AWS 驱动标记为已实现，dns 另含本地档 external。驱动文件仍是桩时，启动后探针报“未实现”，不再报 CFG-001 |
+| 容器 | `backend/src/container.ts` | 未改动。FACTORIES 已包含 `notification:sns`、`email:ses`、`monitoring:cloudwatch`、`logging:cloudwatch`、`identity-pool:cognito`、`waf:aws`，路径均已核对 |
+| 感知器 | `backend/src/modules/detectors/{dns,tls,waf,shell-access,cost}.ts`、`index.ts` | 可编译的桩（`detect()` 抛 NotImplemented）已在 `DETECTORS` 中登记。只有模块启用时才会运行，L0 不受影响 |
+| SDK 客户端 | `backend/src/adapters/aws/clients.ts` | 新增 `sns`、`sesv2`、`cloudwatch`、`cloudwatchLogs`、`budgets`、`costExplorer`、`cognitoIdentity`、`wafv2`、`route53`、`acm`、`ec2`，用法同前：懒加载，`{ region: 'us-east-1' }` 覆盖区域。另外提供 `withAwsRetry()`（每次尝试单独超时，只对瞬时错误重试）、`isAwsTransient()`，以及几个 wave1 服务的 NotFound 名称 |
+| 探针状态机 | `backend/src/modules/capabilities.ts`、`backend/src/ports/common.ts` | 落实 2026-10-14 实机验证的教训：首次探针遇到瞬时失败（整体超时，或 `ProbeResult.transient=true`）时记为 degraded，连续 3 次失败才进入 error。确定性失败（AccessDenied 等）仍然立即报 error |
+| 规则 | `backend/src/rules/rules.ts` | 本波相关的规则在规则表中都已有判定（DEP-001/002/005/006/015/018/030/040/041、SEC-003、ASG-009～014、CFG-010）。CRED-002 补了 detail：keys 模式下列出不可用的 Agent 子功能（05 组约定 2）。DEP-005 ②（集成证书挂载）属于部署范围，按 plan.ts 的约定由 scripts/module 检查（tls hook），rules.ts 不加 `deployCheck` |
+| contracts | `packages/contracts` | 没有新增 ModuleId 或类型（40 个模块与 `stacks[].region / when` 的类型已经存在） |
+| scripts/module 公共部分 | `scripts/module-cli/src/**` | hook 机制（第 3 节）；多栈、多区域部署（registry `stacks[].when / region`，例如 tls-edge、waf-edge 在 us-east-1）；目标模块有多个栈时，注入对每个栈分别更新；多个 `PolicyArn` 都会附加；enable 或 disable 某个模块后，如果另一个模块的条件栈因此需要增减，会提示重新执行 `enable <那个模块>`（例如先启用 tls、后启用 cdn）；baseParams 中字面量 `''` 表示“清空”；新增选项 `enable/plan --domain --zone-id --target --no-acme` 与 `disable --reopen-ssh`；`AwsService` 增加 route53、acm、wafv2、sesv2、ce、budgets、sns、logs、cloudfront（全局服务默认 us-east-1）；计划校验的占位值能通过新的 zod 校验（IDENTITY_POOL_ID、`*_ARN_*`、数字、枚举）；`SINGLE_TARGET_SETTINGS`（tls 的单模块档位 `TLS_ACME=on`，10.4）；模板缺失时给出可读的错误 |
+| 档位 | `profiles/single/<id>.env`（10 个） | 由 `profile gen-single` 生成（cli.test 校验文件与生成器的输出一致） |
+| 目录 | `labs/_catalog/catalog.yaml` | 只重新生成了其中的 registryVersion 摘要（`npm run labs:catalog`） |
+| 依赖 | `backend/package.json`、`scripts/module-cli/package.json`、`package-lock.json` | `npm install --before=2026-09-29`：backend 新增 client-sns、sesv2、cloudwatch、cloudwatch-logs、budgets、cost-explorer、cognito-identity、wafv2、route-53、acm、ec2；module-cli 新增 client-route-53、acm、wafv2、sesv2、cost-explorer、budgets、sns、cloudwatch-logs、cloudfront。版本都是 3.1142.0，与已有客户端相同 |
+
+### 2. 各实现者负责的文件
+
+每个模块 `<id>` 的实现者负责下列路径，以及 `docs/implementation-notes.md` 中自己的 `## wave1-<标签>` 小节：
+
+- `infra/modules/<id>.yaml`，以及 `infra/modules/<id>/**`（`host-setup.sh`、`nginx/*.tpl`、`systemd/50-<id>.conf`、`cwagent.json`）。主机侧片段只能使用 00-ec2-base.md 规定的扩展点，经 `infra/host/run-hostsetup.sh` 投放。
+- `scripts/module-cli/src/module-hooks/<id>.ts`，测试放在 `scripts/module-cli/test/module-hooks-<id>.test.ts`。
+- `experiments/<id>/**`，以及 `labs/svc-<id>/**`。
+- 应用侧，按模块类型：
+
+| 模块 | 应用侧文件（桩已存在） | 测试（建议路径） |
+|---|---|---|
+| notification | `backend/src/adapters/notification/sns.ts` | `backend/test/adapters/aws/notification-sns.test.ts`（契约：`backend/test/contract/email-notifier.contract.ts`） |
+| email | `backend/src/adapters/email/ses.ts` | `backend/test/adapters/aws/email-ses.test.ts`（同一个契约文件） |
+| monitoring | `backend/src/adapters/monitoring/cloudwatch.ts` | `backend/test/adapters/aws/monitoring-cloudwatch.test.ts` |
+| logging | `backend/src/adapters/logging/cloudwatch.ts` | `backend/test/adapters/aws/logging-cloudwatch.test.ts` |
+| identity-pool | `backend/src/adapters/identity-pool/cognito.ts` | `backend/test/adapters/aws/identity-pool-cognito.test.ts` |
+| waf | `backend/src/adapters/waf/aws.ts`、`backend/src/modules/detectors/waf.ts` | `backend/test/adapters/aws/waf-aws.test.ts`、`backend/test/modules/detector-waf.test.ts` |
+| cost / shell-access / dns / tls | `backend/src/modules/detectors/<id>.ts` | `backend/test/modules/detector-<id>.test.ts` |
+
+- waf 同时有适配器（BlocklistPort）和感知器：capabilities 的状态取适配器的 `probe()`，感知器只提供 `observe()` / `observations()`。
+- 修改共享文件（registry、schema.ts、implemented.ts、container.ts、ports、`backend/src/http/**`、`server.ts` / `worker.ts`、contracts、`scripts/module-cli` 中 `module-hooks/<id>.ts` 以外的文件、根目录 package.json）需要写进自己小节的“需要配合”，由集成阶段处理。
+
+### 3. hook 机制（`scripts/module-cli/src/module-hooks/`）
+
+- `types.ts` 是契约，`index.ts` 是登记表（`hookFor(id)`）。10 个模块各有一个空 hook 文件，文件头列出了文档要求的特殊步骤。MVP 模块的逻辑仍在 `hooks.ts`，不迁移。
+- 调用点（enable，9.2）：
+  1. `plan()`：步骤 1 运行，`scripts/module plan` 也会调用。作用是补充 settings（例如由 `--domain` 得到 TLS_DOMAIN / DNS_RECORD_NAME），打印 notes，返回未满足的人工前置 `missing`。`enable` 遇到 `missing` 时以退出码 2 结束并打印 hint；`plan` 打印 hint 后跳过该模块，退出码 0。
+  2. `prepare()`：在部署栈之前运行，与 `hooks.ts` 的 `prepareModule` 是同一套契约（`p.params`、`secretParams`、`secrets`、`settings`、`remote`、`notes`），registry 的 `preflight` 检查也放在这里。
+  3. `stacks()`：缺省部署 registry `stacks[]` 中 `when` 成立的栈（字符串 when 按 need 表达式求值，例如 `cdn`、`load-balancer | social-api`），区域取 registry 中的值。hook 可以给栈加参数（例如 `Scope`），也可以去掉某个栈。
+  4. `afterDeploy()`：栈部署完成后、写 env 之前运行，用来做带外步骤，例如 tls 的 EAB 与 certbot、waf 首次导入 IP 集合、cost 激活标签。带外资源记入 `ctx.state.outOfBand`（可附 `region`、`detail`）。
+  - disable：`beforeDisable()` 可以抛 CliError 拒绝，也可以返回 `keepBaseParams`（例如没有 `--reopen-ssh` 时保持 SshIngressCidr 关闭）；`afterDisable()` 用来清理带外资源，并提醒处理悬空 NS 委派、外部 DNS 记录等。
+  - `planHints(target)`：纯函数，不访问 AWS。它的结果会出现在 `plan --start-of` 的 warnings 和 `plan --single` 的输出中，例如“需要自有域名（人工前置）”。
+- 所有 AWS 调用都经 `ctx.aws.send()`。`--dry-run` 下这个调用只打印、返回 undefined，hook 要能处理 undefined（可用 `ctx.ph()` 的占位值）。`args.planOnly` 时不得创建任何资源。机密只放在 `p.secrets` 或 NoEcho 参数中。
+- 本机自测：`scripts/module enable <id> --dry-run`、`scripts/module disable <id> --dry-run`、`scripts/module plan <id> --single --dry-run`、`scripts/module plan --start-of svc-<id> --no-rules`。机制本身的测试在 `scripts/module-cli/test/module-hooks.test.ts`，其中用 `setModuleHookForTest()` 临时替换 hook。
+
+### 4. 给实现者的约定（本阶段新增）
+
+- 探针和感知器调用控制面时，用 `withAwsRetry()` 包一层；遇到瞬时失败返回 `{ status: 'degraded', transient: true }`。无凭证时降为 observed / inferred（CRED-004），不报 error。
+- us-east-1 的资源：CLOUDFRONT 范围的 WAF 与 IP 集合、tls-edge 证书、Route 53、Budgets、Cost Explorer，SDK 客户端都要传 `{ region: 'us-east-1' }`。CRED-003 的例外清单由 registry `stacks[].region` 自动生成（tls、waf），cost 另外手工列入。
+- 模板的枚举型 `Env*` 输出（例如 `EnvWafScope`、`EnvDnsTargetType`、`EnvTlsAcme`）尽量写成 `!Ref 参数` 或只依赖参数的 `!If`，这样 `--dry-run` 的计划校验能得到确定的值（`staticOutputValue`）。实在做不到时，`plan.ts` 的 `ENUM_PLACEHOLDERS` 会给出一个合法的占位值。
+- 同一模板部署成多个栈时（tls 的 main / edge / regional、waf 的 edge / regional），IAM 资源名要带上栈的区别（例如 `cloudalbum-${Env}-tls-${StackRole}`）。每个栈可以各自输出 `PolicyArn`，scripts/module 会全部附加。templates.test 要求每个模板只有一个 ManagedPolicy，策略名包含 `cloudalbum-${Env}-<id>`。
+- shell-access 的 hook 必须显式写出 `SHELL_ACCESS_KEEP_SSH=false|true`：registry 的 `SshIngressCidr: { value: '', when: { SHELL_ACCESS_KEEP_SSH: "false" } }` 只在它为 false 时下发。
+- `backend/test/helpers/config.ts` 的 `ENABLE` 中新增了 10 个模块的“已启用”片段，供规则和配置测试使用。
+
+### 5. 设计有歧义时的取舍
+
+1. **registry 的 `platform` 字段（06 PM-34）**：registry.schema.json 中还没有这个字段，MVP 模块也都没写，所以本波不加。平台模式的带外调用白名单由各 hook 在注释中说明，等 schema 增加该字段后统一补上。
+2. **tls 徽章**：文档第 11 节把 `local` 写成嵌套对象，但前端 `badgesOf()` 只读取字符串值，并按驱动名选键。因此 registry 中写成扁平的 `selfsigned`、`letsencrypt`、`local`、`aws`、`note`。
+3. **shell-access 的 baseParams**：文档写的是 `{ SshIngressCidr: '' }`，注释说明 `KEEP_SSH=true` 时不下发。这里改用条件写法 `{ value: '', when: { SHELL_ACCESS_KEEP_SSH: "false" } }`，同时 `base-params.ts` 把字面量 `''` 当作“清空”（以前空值一律被忽略）。引用求值得到的 `''`，例如 dns 没有健康检查安全组时，仍然忽略。
+4. **plan 遇到缺失的人工前置**：`enable` 以退出码 2 结束；`plan`（包括 `--single`）打印 hint 后跳过，退出码 0，对应 10.4 冒烟矩阵中的“需人工”。
+5. **条件栈的重新评估**：其他模块启用或禁用后，scripts/module 不会自动改动别的模块的栈，只打印“重新执行 `enable <id>`”。重新执行时会部署新选中的栈，并在注入更新完成后删除不再选中的栈，以免 ACM 拒绝删除仍在使用的证书。
+6. **单模块档位 single/tls**：10.4 规定 tls 单独启用时“需域名，且 `TLS_ACME=on`”，因此 `SINGLE_TARGET_SETTINGS.tls = { TLS_ACME: 'on' }`。启用时 hook 仍会探测 ACME 端点，不可用就回退为 `TLS_ACME=off`，并带上 DEP-005 ③ 要求的依赖。
+7. **首次探针的宽限**：总纲 6.3 只规定“连续 3 次失败 → error”，原实现对首次探针的任何失败都直接报 error。现在只有瞬时失败享受宽限，确定性失败照旧，现有状态机测试不受影响。
+
+### 6. 需要集成阶段处理的事项
+
+- 全部 wave1 模板到位后，把 `scripts/module-cli/test/helpers.ts` 的 `ALLOW_PENDING_WAVE1_TEMPLATES` 改为 false。在此之前，基于模板的测试会跳过尚不存在的 wave1 模板。
+- 实现者如果需要改 registry（例如 `preflight` 名称、`internalEndpoints`、`auxQueues`），合并后要重新执行 `npm run gen:registry`、`npm run labs:catalog`；`profile gen-single <id>` 只在依赖或档位相关字段变化时需要。
+- `migrate-module`（backend/src/cli.ts）仍是脚手架桩，这一点对所有模块都一样，storage 实机验证时用的也是 `--no-migrate`。notification 声明了 `migration: scripts/migrate/notification`，在迁移框架实现之前，启用时要加 `--no-migrate`。
+- 各适配器桩文件头仍写着“本轮 MVP 不实现”，由各实现者在填充时更新。
+
+### 7. 自测（2026-10-14，Windows 11 / Node 22.14.0 / Docker 28.3.2）
+
+| 命令 | 结果 |
+|---|---|
+| `npm run registry:check` | OK：40 个模块，85 条规则，52 处规则引用，2 个警告（已有的 DEP-012 豁免与 DB_ 前缀重叠） |
+| `npm run build` | 通过 |
+| `npm run lint` | 0 个问题 |
+| `npm test` | 183 个文件（182 个通过、1 个跳过），2242 个测试通过、18 个跳过（需要外部服务）；本阶段新增 `scripts/module-cli/test/module-hooks.test.ts`，扩充规则、配置、能力状态机、SDK 客户端的测试 |
+| `npm run smoke:l0` | 85 通过，0 失败 |
+| `npm run smoke:selfhost` | 31 通过，0 失败 |
+| `npm run labs:lint` / `labs:derive` | 56 张卡片 0 错误 0 警告 / 10 张卡片 0 错误 |

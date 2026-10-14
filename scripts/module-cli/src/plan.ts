@@ -14,16 +14,31 @@ import type { ModuleId } from '@cloudalbum/contracts';
 import { renderEnvFile, type EnvMap } from './env-file.js';
 import type { Printer } from './printer.js';
 
-/** Replace `<placeholder>` values by values that pass the zod schema (URLs, ARNs, pool IDs). */
+/**
+ * Enumerated keys whose stack output may only be known after deployment: a valid value for the staged plan check
+ * (wave1-prep; templates should still prefer static outputs such as `!Ref Scope`, see staticOutputValue).
+ */
+const ENUM_PLACEHOLDERS: Readonly<Record<string, string>> = {
+  WAF_SCOPE: 'CLOUDFRONT', WAF_RULE_ACTION: 'count', WAF_ORIGIN_NGINX_LIMIT: 'relaxed', DNS_TARGET_TYPE: 'eip', DNS_ROUTING_POLICY: 'simple',
+  DNS_CANONICAL_REDIRECT: 'off', METRICS_CW_MODE: 'putmetricdata', LOG_CW_SHIPPER: 'sdk', TLS_ACME: 'off', TLS_FORCE_HTTPS: 'false',
+  EMAIL_SANDBOX_POLICY: 'fail', EMAIL_FOR_COGNITO: 'off', COST_CE_QUERY: 'manual', SHELL_ACCESS_KEEP_SSH: 'false',
+};
+
+/** Replace `<placeholder>` values by values that pass the zod schema (URLs, ARNs, pool IDs, numbers, enumerations). */
 export function stagedValue(key: string, value: string): string {
   if (!value.includes('<')) return value;
   if (key === 'REDIS_URL') return 'rediss://placeholder.invalid:6379';
   if (key === 'CDN_BASE_URL') return 'https://placeholder.cloudfront.net';
   if (key === 'COGNITO_USER_POOL_ID') return 'ap-northeast-1_Placeholder';
   if (key === 'IMAGE_LAMBDA_FUNCTION') return 'arn:aws:lambda:ap-northeast-1:000000000000:function:placeholder';
+  if (key === 'IDENTITY_POOL_ID') return 'ap-northeast-1:00000000-0000-0000-0000-000000000000';
+  if (key === 'KMS_KEY_ID') return 'alias/placeholder';
+  if (key === 'APP_BASE_URL') return 'http://placeholder.invalid';
+  if (ENUM_PLACEHOLDERS[key]) return ENUM_PLACEHOLDERS[key]!;
   if (/_URL$/.test(key)) return `https://placeholder.invalid/${key.toLowerCase()}`;
-  if (/_ARN$/.test(key)) return 'arn:aws:secretsmanager:ap-northeast-1:000000000000:secret:placeholder';
+  if (/(^|_)ARN(_|$)/.test(key)) return 'arn:aws:secretsmanager:ap-northeast-1:000000000000:secret:placeholder';
   if (/_PORT$/.test(key)) return '5432';
+  if (/_(TTL|SEC|MS|DAYS|HOURS|LIMIT|MB|BACKLOG|BUDGET)$/.test(key)) return '60';
   if (/_ID$/.test(key)) return 'placeholder-id';
   return 'placeholder';
 }

@@ -4,6 +4,7 @@
 //   ec2 是 base，不会出现 off，也不输出 localHealth。
 // - 状态机（6.3）：off 只由配置决定；ok → degraded（探针超阈值 / 命中 warn 规则）；连续 3 次探针失败或权威端口
 //   30 秒内连续 5 次真实调用失败 → error；error → degraded 需要 1 次探针成功；degraded → ok 需要连续 2 次健康。
+//   首次探针的确定性失败直接 error；瞬时失败（探针超时、ProbeResult.transient）先记 degraded，同样连续 3 次才 error（wave1-prep）。
 // - CLOUDALBUM_ALLOW_UNSAFE 覆盖的规则使相关模块最好也只能是 degraded；warn 规则使相关模块至少为 degraded。
 // - 每次状态变化：通知订阅者（SSE GET /api/capabilities/stream、capability_events 表、结构化日志）。
 import { createHash } from 'node:crypto';
@@ -25,7 +26,7 @@ import type { Adapter, ProbeResult } from '../ports/common.js';
 import { DEFAULT_RUNTIME_CONFIG, type RuntimeConfig } from '../ports/config.js';
 import type { Finding, Verdict } from '../rules/engine.js';
 import type { Detector } from './detectors/types.js';
-import { startLoop, withTimeout, type LoopHandle } from './probe-loop.js';
+import { ProbeTimeoutError, startLoop, withTimeout, type LoopHandle } from './probe-loop.js';
 import { REGISTRY, driverOf, isEnabled, localSwitchValue, type Registry } from './registry.js';
 
 export type ProcessRole = 'api' | 'worker' | 'cli';
@@ -250,6 +251,8 @@ export class CapabilityRegistry implements CallObserver {
       result = {
         status: 'error',
         detail: isNotImplemented(e) ? `未实现：${(e as Error).message}` : `探针失败：${(e as Error)?.message ?? String(e)}`,
+        // 探针整体超时是瞬时失败：首次探针不直接记为 error（wave1-prep，2026-10-14 实机验证的教训）
+        ...(e instanceof ProbeTimeoutError ? { transient: true } : {}),
       };
     }
     if (result.latencyMs === undefined) result = { ...result, latencyMs: Date.now() - t0 };
@@ -319,7 +322,10 @@ export class CapabilityRegistry implements CallObserver {
     } else if (r.status === 'error') {
       s.consecutiveFailures += 1;
       s.consecutiveHealthy = 0;
-      next = !s.probed || s.consecutiveFailures >= 3 || prev === 'error' ? 'error' : prev;
+      // 首次探针：确定性的失败直接 error；瞬时失败（超时、限流、网络）先记 degraded，连续 3 次失败才进入 error
+      if (s.consecutiveFailures >= 3 || prev === 'error') next = 'error';
+      else if (!s.probed) next = r.transient ? 'degraded' : 'error';
+      else next = prev;
     } else {
       s.consecutiveFailures = 0;
       s.consecutiveHealthy = r.status === 'ok' ? s.consecutiveHealthy + 1 : 0;

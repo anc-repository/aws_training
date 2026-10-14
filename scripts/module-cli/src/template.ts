@@ -3,7 +3,7 @@
  * Used to know which parameters a stack declares (injects with target "*", secret parameters, required parameters)
  * and which Env* outputs it can produce (placeholders in --dry-run plans).
  */
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { parse } from 'yaml';
 import type { ModuleId } from '@cloudalbum/contracts';
@@ -70,6 +70,7 @@ export function loadTemplate(repoRoot: string, relPath: string): CfnTemplate {
   const abs = path.resolve(repoRoot, relPath);
   let t = cache.get(abs);
   if (!t) {
+    if (!existsSync(abs)) throw new Error(`template ${relPath} does not exist (registry stacks[].template; not written yet?)`);
     t = parseTemplate(readFileSync(abs, 'utf8'), relPath);
     cache.set(abs, t);
   }
@@ -85,6 +86,11 @@ export function mainTemplatePath(id: ModuleId, registry: Registry = REGISTRY): s
   const s = registry[id]?.stacks.find((x) => x.name === 'main') ?? registry[id]?.stacks[0];
   if (!s) throw new Error(`module ${id} has no stack`);
   return s.template;
+}
+
+/** Template of a named registry stack of a module (main, edge, regional, ...); falls back to the main template. */
+export function templateOfStack(id: ModuleId, name: string, registry: Registry = REGISTRY): string {
+  return registry[id]?.stacks.find((x) => x.name === name)?.template ?? mainTemplatePath(id, registry);
 }
 
 /** Parameters that must be supplied (no Default) */

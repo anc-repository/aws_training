@@ -13,6 +13,7 @@ interface Case {
 }
 
 const { iamRole, iamKeys, s3, cdn, cognito, sqs, lambdaQueue, lambdaCallback, elasticache, valkeyLocal, rds, pgLocal, asg } = ENABLE;
+const { notification, email, monitoring, logging, identityPool, waf, shellAccess, dns, tlsAcme, cost } = ENABLE;
 
 const CASES: Case[] = [
   // —— CRED ——
@@ -102,7 +103,38 @@ const CASES: Case[] = [
   { rule: 'ASG-007', name: 'asg + auth=local + SECRETS_ORIGIN=bundle', env: { ...asg, SECRETS_ORIGIN: 'bundle' }, expect: 'none' },
   { rule: 'ASG-007', name: 'asg + auth(cognito)', env: { ...asg, ...cognito, ...iamRole }, expect: 'none' },
   { rule: 'ASG-013', name: 'asg + 进程内限速计数', env: { ...asg }, expect: 'warn' },
-  { rule: 'ASG-013', name: 'asg + ElastiCache 计数 + AWS WAF', env: { ...asg, ...elasticache, ...cdn, MODULE_WAF: 'on', WAF_MODE: 'aws' }, expect: 'none' },
+  { rule: 'ASG-013', name: 'asg + ElastiCache 计数 + AWS WAF', env: { ...asg, ...elasticache, ...cdn, ...waf }, expect: 'none' },
+
+  // —— 第 1 波模块相关（wave1-prep）——
+  { rule: 'CRED-002', name: 'keys + monitoring：Agent 子功能不可用（detail）', env: { ...iamKeys, ...monitoring }, expect: 'warn' },
+  { rule: 'CRED-001', name: 'notification(sns) 启用但 IAM_CREDENTIALS=none', env: { ...notification }, expect: 'error' },
+  { rule: 'CRED-001', name: 'notification(sns) + iam(role)', env: { ...notification, ...iamRole }, expect: 'none' },
+  { rule: 'DEP-001', name: 'SHELL_ACCESS_MODE=ssm 但 IAM_CREDENTIALS=keys', env: { ...shellAccess, ...iamKeys }, expect: 'error' },
+  { rule: 'DEP-001', name: 'shell-access(ssm) + iam(role)', env: { ...shellAccess, ...iamRole }, expect: 'none' },
+  { rule: 'DEP-002', name: 'identity-pool 启用但 STORAGE_DRIVER=local', env: { ...identityPool, ...cognito, ...iamRole }, expect: 'error' },
+  { rule: 'DEP-002', name: 'identity-pool + storage(s3) + auth(cognito)', env: { ...identityPool, ...cognito, ...s3, ...iamRole }, expect: 'none' },
+  { rule: 'DEP-005', name: 'TLS_MODE=acm 但 TLS_DOMAIN 为空（没有自有域名）', env: { ...tlsAcme, TLS_DOMAIN: '' }, expect: 'error' },
+  { rule: 'DEP-005', name: 'TLS_ACME=off（回退分支）而没有 cdn / load-balancer', env: { MODULE_TLS: 'on', TLS_MODE: 'acm', TLS_DOMAIN: 'album.example.com', TLS_ACME: 'off', DNS_PROVIDER: 'external' }, expect: 'error' },
+  { rule: 'DEP-005', name: 'TLS_ACME=on：只有 L0 + 域名即可', env: { ...tlsAcme }, expect: 'none' },
+  { rule: 'DEP-005', name: 'TLS_ACME=off + 外部 DNS + cdn', env: { MODULE_TLS: 'on', TLS_MODE: 'acm', TLS_DOMAIN: 'album.example.com', TLS_ACME: 'off', DNS_PROVIDER: 'external', ...cdn, ...iamRole }, expect: 'none' },
+  { rule: 'DEP-006', name: 'WAF_MODE=aws 但没有 cdn / load-balancer', env: { ...waf }, expect: 'error' },
+  { rule: 'DEP-006', name: 'waf(aws) + cdn', env: { ...waf, ...cdn, ...iamRole }, expect: 'none' },
+  { rule: 'DEP-015', name: 'TLS_FORCE_HTTPS=true 而证书是自签名', env: { TLS_FORCE_HTTPS: 'true' }, expect: 'error' },
+  { rule: 'DEP-015', name: 'TLS_FORCE_HTTPS=true + acm', env: { ...tlsAcme, TLS_FORCE_HTTPS: 'true' }, expect: 'none' },
+  { rule: 'DEP-018', name: 'waf(aws, CLOUDFRONT) 而 CDN_DIRECT_ACCESS=open（运行期）', env: { ...waf, ...cdn, ...iamRole }, phases: ['runtime'], expect: 'warn' },
+  { rule: 'DEP-018', name: 'waf(aws) + CDN_DIRECT_ACCESS=closed', env: { ...waf, ...cdn, ...iamRole, CDN_DIRECT_ACCESS: 'closed' }, phases: ['runtime'], expect: 'none' },
+  { rule: 'DEP-030', name: 'identity-pool 启用而 APP_BASE_URL 是 http://', env: { ...identityPool, ...cognito, ...s3, ...iamRole, APP_BASE_URL: 'http://203.0.113.10' }, expect: 'warn' },
+  { rule: 'DEP-030', name: 'identity-pool + https 入口', env: { ...identityPool, ...cognito, ...s3, ...iamRole, APP_BASE_URL: 'https://album.example.com', EXPOSE_PATH_HEADERS: 'admin' }, expect: 'none' },
+  { rule: 'DEP-040', name: 'DNS_TARGET_TYPE=alb 但 load-balancer 未启用', env: { ...dns, DNS_TARGET_TYPE: 'alb' }, expect: 'error' },
+  { rule: 'DEP-040', name: 'DNS_TARGET_TYPE=eip', env: { ...dns }, expect: 'none' },
+  { rule: 'DEP-041', name: 'DNS_TARGET_TYPE=cloudfront 但没有 tls', env: { ...dns, DNS_TARGET_TYPE: 'cloudfront', ...cdn, ...iamRole }, expect: 'error' },
+  { rule: 'DEP-041', name: 'DNS_TARGET_TYPE=cloudfront + cdn + tls', env: { ...dns, DNS_TARGET_TYPE: 'cloudfront', ...cdn, ...tlsAcme, ...iamRole }, expect: 'none' },
+  { rule: 'ASG-009', name: 'asg + LOG_DRIVER=file', env: { ...asg }, expect: 'warn' },
+  { rule: 'ASG-009', name: 'asg + logging(cloudwatch)', env: { ...asg, ...logging, ...iamRole }, expect: 'none' },
+  { rule: 'ASG-011', name: 'asg + EMAIL_DRIVER=outbox', env: { ...asg }, expect: 'warn' },
+  { rule: 'ASG-011', name: 'asg + email(ses)', env: { ...asg, ...email, ...iamRole }, expect: 'none' },
+  { rule: 'CFG-004', name: 'COST_MODE=budgets 却没有 MODULE_COST', env: { ...cost, MODULE_COST: '' }, expect: 'error' },
+  { rule: 'CFG-004', name: 'cost(budgets) 声明启用', env: { ...cost }, expect: 'none' },
 
   // —— SEC ——
   { rule: 'SEC-004', name: 'EXPOSE_PATH_HEADERS=all 且站点是 HTTPS 公网域名', env: { APP_BASE_URL: 'https://album.example.com' }, expect: 'warn' },
@@ -125,7 +157,7 @@ describe('rules.ts 表驱动测试', () => {
       byRule.set(c.rule, set);
     }
     for (const [rule, outcomes] of byRule) {
-      if (rule === 'CFG-005' || rule === 'DEP-002') continue;   // 只验证“不触发”：正例在 load-env / identity-pool（未实现）中
+      if (rule === 'CFG-005') continue;   // 只验证“不触发”：正例在 load-env 中
       expect(outcomes, rule).toEqual(new Set(['none', 'error']));
     }
   });
@@ -166,8 +198,8 @@ describe('未实现的驱动（CFG-001，退出码 78）', () => {
     ['TRACING_DRIVER', 'local'],
     ['SECRETS_DRIVER', 'secretsmanager'],
     ['DEPLOY_MODE', 'asg'],
-    ['TLS_MODE', 'acm'],                  // letsencrypt（本地档）由平台预览方案 B 实现（06 PM-21），acm 仍未实现
-    ['NOTIFY_DRIVER', 'sns'],
+    ['SCHEDULER_DRIVER', 'eventbridge'],
+    ['SOCIAL_DRIVER', 'dynamodb'],
   ])('%s=%s 被拒绝并给出明确提示', (key, value) => {
     const { parsed } = evaluate({ [key]: value }, { checkImplemented: true });
     expect(parsed.config).toBeUndefined();
@@ -181,9 +213,35 @@ describe('未实现的驱动（CFG-001，退出码 78）', () => {
     expect(parsed.errors).toEqual([]);
   });
 
-  it('IDENTITY_POOL_ID（参数型，cognito 驱动）被拒绝', () => {
-    const { parsed } = evaluate({ IDENTITY_POOL_ID: 'ap-northeast-1:12345678-1234-1234-1234-123456789012' }, { checkImplemented: true });
-    expect(parsed.errors.map((e) => e.path)).toContain('IDENTITY_POOL_ID');
+  it('KMS_KEY_ID（参数型，kms 驱动，未实现）被拒绝', () => {
+    const { parsed } = evaluate({ KMS_KEY_ID: 'alias/cloudalbum-lab' }, { checkImplemented: true });
+    expect(parsed.errors.map((e) => e.path)).toContain('KMS_KEY_ID');
+  });
+
+  it('第 1 波模块的 AWS 驱动不被拒绝（wave1-prep：驱动标记为已实现）', () => {
+    const env = { ...iamRole, ...cdn, ...s3, ...cognito, ...notification, ...email, ...monitoring, ...logging, ...identityPool, ...waf,
+      ...shellAccess, ...dns, ...tlsAcme, ...cost };
+    const { parsed } = evaluate(env, { checkImplemented: true });
+    expect(parsed.errors).toEqual([]);
+  });
+
+  it('第 1 波模块缺少栈 Outputs 写入的必需键时，报告的是缺键而不是“未实现”', () => {
+    const cases: Array<[string, Record<string, string>]> = [
+      ['NOTIFY_TOPIC_ARN', { MODULE_NOTIFICATION: 'on', NOTIFY_DRIVER: 'sns' }],
+      ['SES_IDENTITY', { MODULE_EMAIL: 'on', EMAIL_DRIVER: 'ses' }],
+      ['LOG_CW_GROUP_APP', { MODULE_LOGGING: 'on', LOG_DRIVER: 'cloudwatch' }],
+      ['IDENTITY_STAGING_BUCKET', { MODULE_IDENTITY_POOL: 'on', IDENTITY_POOL_ID: 'ap-northeast-1:12345678-1234-1234-1234-123456789012' }],
+      ['WAF_WEB_ACL_ARN', { MODULE_WAF: 'on', WAF_MODE: 'aws' }],
+      ['SSM_SESSION_LOG_GROUP', { MODULE_SHELL_ACCESS: 'on', SHELL_ACCESS_MODE: 'ssm' }],
+      ['DNS_HOSTED_ZONE_ID', { MODULE_DNS: 'on', DNS_PROVIDER: 'route53' }],
+      ['TLS_ACME_DIRECTORY_URL', { MODULE_TLS: 'on', TLS_MODE: 'acm', TLS_DOMAIN: 'album.example.com', TLS_ACME: 'on' }],
+      ['COST_BUDGET_NAMES', { MODULE_COST: 'on', COST_MODE: 'budgets' }],
+    ];
+    for (const [key, env] of cases) {
+      const { parsed } = evaluate({ ...iamRole, ...env }, { checkImplemented: true });
+      expect(parsed.errors.map((e) => e.path), key).toContain(key);
+      expect(parsed.errors.some((e) => e.section === 'implementation'), key).toBe(false);
+    }
   });
 
   it('STORAGE_DRIVER=efs 归到 shared-fs', () => {

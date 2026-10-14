@@ -88,4 +88,32 @@ export const ENABLE = {
   },
   pgLocal: { DB_DRIVER: 'postgres', DB_HOST: '127.0.0.1', DB_USER: 'cloudalbum', DB_PASSWORD: 'secret', DB_SSL: 'disable' },
   asg: { MODULE_AUTOSCALING: 'on', DEPLOY_MODE: 'asg' },
+  // —— 第 1 波（wave1-prep）：各模块文档第 3 节的 env 示例（值为文档示例 / 占位）——
+  notification: {
+    MODULE_NOTIFICATION: 'on', NOTIFY_DRIVER: 'sns',
+    NOTIFY_TOPIC_ARN: 'arn:aws:sns:ap-northeast-1:123456789012:cloudalbum-lab-notification-events',
+    NOTIFY_INBOX_QUEUE_URL: 'https://sqs.ap-northeast-1.amazonaws.com/123456789012/cloudalbum-lab-notification-inbox',
+  },
+  email: { MODULE_EMAIL: 'on', EMAIL_DRIVER: 'ses', SES_IDENTITY: 'mail.example.com', EMAIL_FROM: 'CloudAlbum <no-reply@mail.example.com>' },
+  monitoring: { MODULE_MONITORING: 'on', METRICS_DRIVER: 'cloudwatch', METRICS_CW_NAMESPACE: 'CloudAlbum/App' },
+  logging: { MODULE_LOGGING: 'on', LOG_DRIVER: 'cloudwatch', LOG_CW_GROUP_APP: '/cloudalbum/lab/app', LOG_CW_GROUP_NGINX: '/cloudalbum/lab/nginx' },
+  identityPool: {
+    MODULE_IDENTITY_POOL: 'on', IDENTITY_POOL_ID: 'ap-northeast-1:12345678-1234-1234-1234-123456789012',
+    IDENTITY_STAGING_BUCKET: 'cloudalbum-lab-upload-staging-123456789012',
+  },
+  waf: {
+    MODULE_WAF: 'on', WAF_MODE: 'aws', WAF_SCOPE: 'CLOUDFRONT',
+    WAF_WEB_ACL_ARN: 'arn:aws:wafv2:us-east-1:123456789012:global/webacl/cloudalbum-lab-acl/0000', WAF_IP_SET_ID: 'ipset-0000',
+    WAF_IP_SET_NAME: 'cloudalbum-blocklist',
+  },
+  shellAccess: { MODULE_SHELL_ACCESS: 'on', SHELL_ACCESS_MODE: 'ssm', SSM_SESSION_LOG_GROUP: '/cloudalbum/lab/ssm-sessions', SSM_SESSION_RUN_AS: 'cloudalbum-ops' },
+  dns: {
+    MODULE_DNS: 'on', DNS_PROVIDER: 'route53', APP_BASE_URL: 'http://album.example.com', DNS_HOSTED_ZONE_ID: 'Z0123456789ABCDEFGHIJ',
+    DNS_RECORD_NAME: 'album.example.com', DNS_TARGET_TYPE: 'eip',
+  },
+  tlsAcme: {
+    MODULE_TLS: 'on', TLS_MODE: 'acm', TLS_DOMAIN: 'album.example.com', TLS_ACME: 'on',
+    TLS_ACME_DIRECTORY_URL: 'https://acm-acme-enroll.ap-northeast-1.api.aws/0000/directory',
+  },
+  cost: { MODULE_COST: 'on', COST_MODE: 'budgets', COST_BUDGET_NAMES: 'cloudalbum-lab-project-monthly,cloudalbum-lab-account-monthly' },
 } as const satisfies Record<string, Env>;

@@ -15,7 +15,10 @@ import { planEnable, resolveTarget, type PlanStep } from './deps.js';
 import { RemoteScript, shq } from './deliver.js';
 import { parseAssignments, renderEnvFile, type EnvMap } from './env-file.js';
 import { waitModule, waitReady } from './health.js';
-import { createDemoAccessKey, prepareModule } from './hooks.js';
+import { createDemoAccessKey, prepareModule, type Prepared } from './hooks.js';
+import {
+  hookFor, mergeStackOutputs, selectStacks, stackDrift, type HookArgs, type MissingPrerequisite, type StackPlan,
+} from './module-hooks/index.js';
 import { buildModuleEnv, splitOutputs } from './outputs.js';
 import { applyBaseParams, recordFor, stackParams, stagedEnv, updateInjectedTargets } from './ops.js';
 import { packageLambda } from './package.js';
@@ -25,10 +28,10 @@ import { CliError, EXIT } from './printer.js';
 import {
   IMPLEMENTED_MODULES, REGISTRY, isHourlyBilled, moduleOf, registryVersion, stackName,
 } from './registry.js';
-import { deployStack, stackTags } from './stack.js';
+import { deleteStack, deployStack, stackTags } from './stack.js';
 import { registerHook } from './platform/hooks.js';
 import { previewOffBefore } from './platform/tls-preview.js';
-import { currentEnv, nowIso, recordHistory, type ModuleRecord } from './state.js';
+import { currentEnv, nowIso, recordHistory, type ModuleRecord, type StackRecord } from './state.js';
 import { loadTemplate, mainTemplatePath, staticOutputValue } from './template.js';
 
 export interface EnableOptions {
@@ -42,6 +45,46 @@ export interface EnableOptions {
   skipHealth?: boolean;
   /** `scripts/module plan <id>`: stop after the plan check and print the env previews */
   planOnly?: boolean;
+  // module-specific arguments, passed to the module hooks (module-hooks/types.ts HookArgs)
+  /** --domain <name> (dns, tls) */
+  domain?: string;
+  /** --zone-id <id> (dns, tls) */
+  zoneId?: string;
+  /** --target eip|alb|cloudfront (dns) */
+  target?: string;
+  /** --no-acme gives false (tls) */
+  acme?: boolean;
+}
+
+/** HookArgs of one plan step (only the requested module receives --param and the module-specific options). */
+export function hookArgsFor(step: { isTarget: boolean }, opts: EnableOptions, userParams: Readonly<Record<string, string>>): HookArgs {
+  const own = step.isTarget;
+  return {
+    params: own ? userParams : {}, planOnly: Boolean(opts.planOnly), isTarget: own,
+    ...(own && opts.domain ? { domain: opts.domain } : {}), ...(own && opts.zoneId ? { zoneId: opts.zoneId } : {}),
+    ...(own && opts.target ? { target: opts.target } : {}), ...(own && opts.acme === false ? { acme: false } : {}),
+  };
+}
+
+/** Steps whose hook plan() already ran in enableCommand (enableStep runs it for profile apply / direct callers). */
+const HOOK_PLANNED = new WeakSet<PlanStep>();
+
+/** Run the module hook's plan(): merge its settings into the step, print notes; returns the unmet manual prerequisites. */
+async function runHookPlan(ctx: Ctx, step: PlanStep, args: HookArgs): Promise<MissingPrerequisite[]> {
+  const hook = hookFor(step.module);
+  HOOK_PLANNED.add(step);
+  if (!hook?.plan) return [];
+  const r = await hook.plan(ctx, step, args);
+  Object.assign(step.settings, r.settings ?? {});
+  for (const n of r.notes ?? []) ctx.out.warn(`      ${step.module}: ${n}`);
+  return r.missing ?? [];
+}
+
+function printMissing(ctx: Ctx, id: ModuleId, missing: readonly MissingPrerequisite[], asError: boolean): void {
+  for (const m of missing) {
+    const line = `      ${id}: manual prerequisite "${m.prerequisite}" is not met: ${m.message}${m.hint ? `\n            -> ${m.hint}` : ''}`;
+    if (asError) ctx.out.error(line); else ctx.out.warn(line);
+  }
 }
 
 const MANUAL_PREREQS = new Set(['domain', 'ses-identity', 'confirm-email', 'cost-allocation-tag', 'region-opt-in']);
@@ -55,13 +98,38 @@ export async function enableCommand(ctx: Ctx, idArg: string, opts: EnableOptions
   await previewOffBefore(ctx, id);
 
   ctx.out.section(`plan: enable ${id} (${target.tier}${target.value !== 'aws' ? ` ${moduleOf(id).switch?.var}=${target.value}` : ''})${ctx.dryRun ? ' [dry-run]' : ''}`);
-  const plan = planEnable(currentEnv(ctx.state), target, { ...(opts.withDeps ? { withDeps: true } : {}) });
   ctx.out.step(1, 'plan check: dependencies, credentials, staged check-config --plan');
+  // module hook of the requested module first: its settings (e.g. TLS_DOMAIN from --domain, TLS_ACME) decide the requirements
+  const userParams = parseAssignments(opts.param, '--param');
+  const targetStep: PlanStep = { ...target, reason: 'requested', isTarget: true };
+  const missing: Array<{ module: ModuleId; items: MissingPrerequisite[] }> = [];
+  if (IMPLEMENTED_MODULES.includes(id)) {
+    const own = await runHookPlan(ctx, targetStep, hookArgsFor(targetStep, opts, userParams));
+    if (own.length) missing.push({ module: id, items: own });
+  }
+  const plan = planEnable(currentEnv(ctx.state), target, { ...(opts.withDeps ? { withDeps: true } : {}) });
   plan.steps.forEach((s, i) => ctx.out.info(`      ${i + 1}. ${s.module.padEnd(17)} ${s.tier.padEnd(11)} ${describeValue(s)}  — ${s.reason}${s.rule ? ` (${s.rule})` : ''}`));
   for (const s of plan.steps) {
     if (!IMPLEMENTED_MODULES.includes(s.module)) {
       throw new CliError(`${s.module}: templates / adapters are not implemented in this round (registry metadata only)`, EXIT.rules);
     }
+  }
+  for (const s of plan.steps) {
+    if (s.isTarget) { HOOK_PLANNED.add(s); continue; }
+    const m = await runHookPlan(ctx, s, hookArgsFor(s, opts, userParams));
+    if (m.length) missing.push({ module: s.module, items: m });
+  }
+  if (missing.length) {
+    for (const x of missing) printMissing(ctx, x.module, x.items, !opts.planOnly);
+    if (opts.planOnly) {
+      // plan: skipped with a clear hint (exit 0) — e.g. dns / tls without an own domain (single-module smoke "needs a human")
+      ctx.out.warn(`      plan skipped: ${missing.map((x) => x.module).join(', ')} need(s) the manual prerequisite(s) above; nothing was checked`);
+      return EXIT.ok;
+    }
+    recordHistory(ctx.state, { op: 'enable', module: id, result: 'failed', exitCode: EXIT.rules,
+      detail: `manual prerequisite: ${missing.flatMap((x) => x.items.map((m) => `${x.module}:${m.prerequisite}`)).join(',')}` });
+    ctx.save();
+    return EXIT.rules;
   }
   if (plan.issues.length) {
     for (const i of plan.issues) ctx.out.error(`      ${i.rule}: ${i.message}${i.remedy ? `  ->  scripts/module enable ${i.remedy.module}${i.remedy.tier === 'local' ? ` --driver ${i.remedy.value}` : ''}  (or --with-deps)` : ''}`);
@@ -145,7 +213,20 @@ export async function enableStep(ctx: Ctx, step: PlanStep, opts: EnableOptions):
   const prev = ctx.state.modules[id];
   ctx.out.section(`enable ${id}: ${step.tier} ${describeValue(step)}`);
   const userParams = step.isTarget ? parseAssignments(opts.param, '--param') : {};
+  // module hook (module-hooks/<id>.ts): plan() when the caller did not run it (profile apply), then prepare()
+  const hook = hookFor(id);
+  const hookArgs = hookArgsFor(step, opts, userParams);
+  if (!HOOK_PLANNED.has(step)) {
+    const missing = await runHookPlan(ctx, step, hookArgs);
+    if (missing.length) {
+      printMissing(ctx, id, missing, true);
+      recordHistory(ctx.state, { op: 'enable', module: id, result: 'failed', exitCode: EXIT.rules, detail: `manual prerequisite: ${missing.map((m) => m.prerequisite).join(',')}` });
+      ctx.save();
+      return EXIT.rules;
+    }
+  }
   const prepared = await prepareModule(ctx, step, { params: userParams });
+  if (hook?.prepare) await hook.prepare(ctx, step, hookArgs, prepared);
   for (const n of prepared.notes) ctx.out.warn(`      ${n}`);
   if (userParams.AuthToken === 'generate') delete userParams.AuthToken;
 
@@ -154,35 +235,33 @@ export async function enableStep(ctx: Ctx, step: PlanStep, opts: EnableOptions):
   const secrets: Record<string, string> = { ...prepared.secrets };
 
   if (step.tier === 'aws') {
-    // 3. deploy the stack
-    ctx.out.step(3, `deploy ${stackName(ctx.env, id)}`);
+    // 3. deploy the module stacks: registry stacks[] whose `when` holds (region per stack, e.g. us-east-1), in registry order
     const records = { ...ctx.state.modules };
-    const envAfter = { ...currentEnv(ctx.state), ...previewEnv(ctx.repoRoot, step) };
-    const { params, secret } = stackParams(ctx, id, records, envAfter, prepared.params, userParams);
-    if (prepared.code) {
-      const pkg = await packageLambda(ctx.aws, ctx.out, ctx.repoRoot, { ...prepared.code, ...(ctx.state.toolchain?.bucket ? { bucket: ctx.state.toolchain.bucket } : {}) });
-      params[prepared.code.bucketParam] = pkg.bucket;
-      params[prepared.code.keyParam] = pkg.key;
+    const envAfter = { ...currentEnv(ctx.state), ...previewEnv(ctx.repoRoot, step), ...prepared.settings };
+    let stacks = selectStacks(id, envAfter, ctx.region, { ...prepared.params, ...userParams });
+    if (hook?.stacks) stacks = hook.stacks(ctx, step, hookArgs, stacks, envAfter);
+    if (!stacks.length) throw new CliError(`${id}: no stack to deploy for this configuration (registry stacks[].when)`, EXIT.rules, 'NO_STACK');
+    ctx.out.step(3, `deploy ${stacks.map((s) => `${stackName(ctx.env, id, s.name)}${s.region !== ctx.region ? ` [${s.region}]` : ''}`).join(', ')}`);
+    const deployed = await deployModuleStacks(ctx, id, stacks, { records, envAfter, prepared, userParams });
+    if (hook?.afterDeploy) {
+      ctx.out.step('3b', `${id}: out-of-band steps after the deployment`);
+      await hook.afterDeploy(ctx, step, hookArgs, { outputs: deployed.outputs, byStack: deployed.byStack, stacks }, prepared);
+      Object.assign(secrets, prepared.secrets);
     }
-    const res = await deployStack(ctx.aws, ctx.out, ctx.repoRoot, {
-      stackName: stackName(ctx.env, id), template: mainTemplatePath(id), params, secretParams: [...secret, ...prepared.secretParams],
-      tags: stackTags(ctx.env, id, registryVersion(id)), ...(ctx.state.toolchain?.bucket ? { templateBucket: ctx.state.toolchain.bucket } : {}),
-    });
+    const outputs = deployed.outputs;
     // 4. Outputs -> env; secretParams -> secrets.env
     ctx.out.step(4, 'Outputs -> modules.d env, secretParams -> secrets.env');
     const sw = moduleOf(id).switch;
-    env = buildModuleEnv({ module: id, awsTier: true, outputs: res.outputs, switchValue: sw && !isParamSwitch(sw) ? step.value : undefined, settings: prepared.settings });
+    env = buildModuleEnv({ module: id, awsTier: true, outputs, switchValue: sw && !isParamSwitch(sw) ? step.value : undefined, settings: prepared.settings });
     if (id === 'iam') env.IAM_CREDENTIALS = step.value;
     if (id === 'iam' && step.value === 'keys') {
-      Object.assign(secrets, await createDemoAccessKey(ctx, res.outputs.InfoDemoUserName ?? `cloudalbum-${ctx.env}-demo-keys`));
+      Object.assign(secrets, await createDemoAccessKey(ctx, outputs.InfoDemoUserName ?? `cloudalbum-${ctx.env}-demo-keys`));
     }
-    const nonSecret = Object.fromEntries(Object.entries(params).filter(([k]) => ![...secret, ...prepared.secretParams].includes(k)));
     record = recordFor(prev, {
-      tier: 'aws', value: step.value, env, version: registryVersion(id), outputs: res.outputs, params: nonSecret,
-      stacks: [{ name: 'main', stackName: stackName(ctx.env, id), region: ctx.region, status: res.status }],
+      tier: 'aws', value: step.value, env, version: registryVersion(id), outputs, params: deployed.params, stacks: deployed.records,
       secretKeys: [...new Set([...(prev?.secretKeys ?? []), ...Object.keys(secrets)])],
     });
-    const split = splitOutputs(res.outputs);
+    const split = splitOutputs(outputs);
     for (const [k, v] of Object.entries(split.info)) ctx.out.info(`      ${k} = ${v}`);
     for (const [k, v] of Object.entries(env)) ctx.out.info(`      env ${k}=${v}`);
 
@@ -192,11 +271,17 @@ export async function enableStep(ctx: Ctx, step: PlanStep, opts: EnableOptions):
     await updateInjectedTargets(ctx, id, after);
     await applyBaseParams(ctx, after, id);
     ctx.state.modules[id] = record;   // in --dry-run only in memory (state.json is never written)
+    // stacks of an earlier enable that are no longer selected (e.g. tls edge after cdn was disabled): removed after the injects
+    for (const old of prev?.stacks ?? []) {
+      if (deployed.records.some((s) => s.name === old.name)) continue;
+      ctx.out.info(`      ${old.stackName}: no longer selected (registry stacks[].when) -> delete`);
+      await deleteStack(ctx.aws, ctx.out, old.stackName, old.region);
+    }
     // 5. PolicyArn
     ctx.out.step(5, 'attach PolicyArn');
     if (id === 'iam') {
-      const roleName = res.outputs.InfoAppRoleName ?? 'CloudAlbumAppRole';
-      const iamState = { mode: step.value as 'role' | 'keys', roleName, ...(res.outputs.InfoDemoUserName ? { userName: res.outputs.InfoDemoUserName } : {}) };
+      const roleName = outputs.InfoAppRoleName ?? 'CloudAlbumAppRole';
+      const iamState = { mode: step.value as 'role' | 'keys', roleName, ...(outputs.InfoDemoUserName ? { userName: outputs.InfoDemoUserName } : {}) };
       ctx.state.iam = iamState;
     }
     const diff = await syncAttachments(ctx.aws, ctx.out, ctx.state);
@@ -263,7 +348,55 @@ export async function enableStep(ctx: Ctx, step: PlanStep, opts: EnableOptions):
   recordHistory(ctx.state, { op: 'enable', module: id, result: ctx.dryRun ? 'dry-run' : 'ok', exitCode: EXIT.ok, detail: `${step.tier} ${step.value}` });
   ctx.save();
   ctx.out.step(11, `done: open /lab/m/${id}; compare with \`npm run exp -- ${id} --label after\``);
+  printStackDrift(ctx, id);
   return EXIT.ok;
+}
+
+/** Other enabled modules whose conditional stacks changed because of this operation (e.g. tls edge after enabling cdn). */
+export function printStackDrift(ctx: Ctx, changed: ModuleId): void {
+  for (const d of stackDrift(ctx.state.modules, currentEnv(ctx.state), ctx.region)) {
+    if (d.module === changed) continue;
+    const what = [...d.add.map((n) => `+${n}`), ...d.remove.map((n) => `-${n}`)].join(', ');
+    ctx.out.warn(`      ${d.module}: its conditional stacks changed (${what}); run \`scripts/module enable ${d.module}\` again to apply`);
+  }
+}
+
+interface DeployContext {
+  records: Ctx['state']['modules'];
+  envAfter: EnvMap;
+  prepared: Prepared;
+  userParams: Record<string, string>;
+}
+
+/** Step 3 for every selected stack: parameters per template, Lambda code package (once), deploy, outputs per stack. */
+async function deployModuleStacks(ctx: Ctx, id: ModuleId, stacks: readonly StackPlan[], d: DeployContext): Promise<{
+  outputs: Record<string, string>; byStack: Record<string, Record<string, string>>; records: StackRecord[]; params: Record<string, string>;
+}> {
+  const { prepared } = d;
+  const pkg = prepared.code
+    ? await packageLambda(ctx.aws, ctx.out, ctx.repoRoot, { ...prepared.code, ...(ctx.state.toolchain?.bucket ? { bucket: ctx.state.toolchain.bucket } : {}) })
+    : undefined;
+  const byStack: Record<string, Record<string, string>> = {};
+  const records: StackRecord[] = [];
+  const nonSecret: Record<string, string> = {};
+  for (const st of stacks) {
+    const { params, secret } = stackParams(ctx, id, d.records, d.envAfter, { ...prepared.params, ...(st.params ?? {}) }, d.userParams, st.template);
+    if (pkg && prepared.code && Object.keys(loadTemplate(ctx.repoRoot, st.template).Parameters).includes(prepared.code.bucketParam)) {
+      params[prepared.code.bucketParam] = pkg.bucket;
+      params[prepared.code.keyParam] = pkg.key;
+    }
+    const name = stackName(ctx.env, id, st.name);
+    const res = await deployStack(ctx.aws, ctx.out, ctx.repoRoot, {
+      stackName: name, template: st.template, params, secretParams: [...secret, ...prepared.secretParams],
+      tags: stackTags(ctx.env, id, registryVersion(id)), ...(ctx.state.toolchain?.bucket ? { templateBucket: ctx.state.toolchain.bucket } : {}),
+      ...(st.region !== ctx.region ? { region: st.region } : {}),
+    });
+    byStack[st.name] = res.outputs;
+    records.push({ name: st.name, stackName: name, region: st.region, status: res.status, ...(stacks.length > 1 ? { outputs: res.outputs } : {}) });
+    const hidden = new Set([...secret, ...prepared.secretParams]);
+    for (const [k, v] of Object.entries(params)) if (!hidden.has(k)) nonSecret[k] = v;
+  }
+  return { outputs: mergeStackOutputs(stacks.map((s) => byStack[s.name] ?? {})), byStack, records, params: nonSecret };
 }
 
 /** 7-9: atomic modules.d write with .bak, secrets, host artifacts, check-config (rollback on 78), restart. */

@@ -33,7 +33,10 @@ export async function statusCommand(ctx: Ctx, id: string | undefined, opts: { re
       const r = REGISTRY[m];
       const rec = ctx.state.modules[m];
       let stack = rec?.tier === 'aws' ? (rec.stacks[0]?.status ?? '?') : '-';
-      if (opts.refresh && rec?.tier === 'aws') stack = (await describeStack(ctx.aws, stackName(ctx.env, m)))?.status ?? 'MISSING';
+      if (opts.refresh && rec?.tier === 'aws') {
+        const st = rec.stacks[0];   // multi-stack modules (tls, waf): the first deployed stack, with its region
+        stack = (await describeStack(ctx.aws, st?.stackName ?? stackName(ctx.env, m), st?.region))?.status ?? 'MISSING';
+      }
       const state = m === 'ec2' ? 'base' : rec ? `${rec.tier} ${rec.value}` : 'off (local)';
       ctx.out.info(`  ${m.padEnd(17)} ${r.type.padEnd(7)} ${state.padEnd(22)} ${stack.padEnd(18)} ${r.credentials.padEnd(9)} ${isHourlyBilled(m) ? 'yes   ' : '      '} ${m === 'ec2' || IMPLEMENTED_MODULES.includes(m) ? 'yes' : 'no'}`);
     }

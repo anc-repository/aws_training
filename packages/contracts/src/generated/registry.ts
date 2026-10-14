@@ -3,7 +3,7 @@
 /* eslint-disable */
 import type { RegistryDocument } from '../registry-types.js';
 
-export const REGISTRY_SOURCE_SHA256 = 'e01b78fc6d18460712c7fbf9dc6977239c85b27adf6c185c8e48aca2a40737a3';
+export const REGISTRY_SOURCE_SHA256 = 'ec463e45431ca227f569750af2c510af8eee534da85e2a7029a92c27b96a75a5';
 
 export const REGISTRY_DOCUMENT: RegistryDocument = {
   "version": 2,
@@ -478,6 +478,7 @@ export const REGISTRY_DOCUMENT: RegistryDocument = {
         "DNS_"
       ],
       "credentials": "optional",
+      "version": 1,
       "prerequisites": [
         "domain"
       ],
@@ -562,15 +563,49 @@ export const REGISTRY_DOCUMENT: RegistryDocument = {
         "kind": "detector",
         "intervalSec": 60
       },
+      "billing": [
+        {
+          "resource": "Route 53 托管区域（按月）",
+          "dimension": "usage"
+        },
+        {
+          "resource": "Route 53 标准查询（指向 AWS 资源的 Alias 查询免费）",
+          "dimension": "request"
+        },
+        {
+          "resource": "Route 53 健康检查（按月）",
+          "dimension": "usage"
+        }
+      ],
       "lab": {
+        "summary": {
+          "local": "用 http://<EIP> 或 EC2 公网主机名访问；邮件与分享链接写的也是 IP，换 IP 后旧链接全部失效",
+          "aws": "Route 53 托管区域：固定域名指向 EIP / ALB / CloudFront，换目标只改记录，TTL 过后用户无感；可选健康检查与故障转移"
+        },
         "compare": "before-after",
         "sideBySide": true,
+        "keyMetrics": [
+          "服务端解析结果与剩余 TTL",
+          "记录变更后公共解析器返回新值所需的秒数",
+          "IP 改变后失效的链接数",
+          "故障转移时间"
+        ],
         "hourlyBilled": false,
+        "diagram": {
+          "before": "flowchart LR; U[浏览器]--IP 或 EC2 主机名-->EIP-->NG[Nginx]",
+          "after": "flowchart LR; U[浏览器]--album.example.com-->R53[Route 53]; R53-.A 记录 / Alias.->EIP-->NG[Nginx]"
+        },
         "experiments": [
           "ip-change-drill",
           "failover-drill",
           "weighted-sample"
-        ]
+        ],
+        "badges": {
+          "local": "入口：{host}（{provider}）",
+          "aws": "入口：{host}（Route 53 · {policy}）",
+          "degraded": "DNS 降级 · {reason}",
+          "error": "域名无法解析"
+        }
       },
       "doc": "docs/modules/01-edge-network-scaling.md#dns"
     },
@@ -602,6 +637,7 @@ export const REGISTRY_DOCUMENT: RegistryDocument = {
         "ACM_CERT_"
       ],
       "credentials": "optional",
+      "version": 1,
       "prerequisites": [
         "domain"
       ],
@@ -696,16 +732,49 @@ export const REGISTRY_DOCUMENT: RegistryDocument = {
         "kind": "detector",
         "intervalSec": 300
       },
+      "billing": [
+        {
+          "resource": "ACM ACME 签发的公有证书（按域名，签发与每次续期各计一次）",
+          "dimension": "request"
+        },
+        {
+          "resource": "ACM 集成证书（CloudFront / ALB 使用时免费）",
+          "dimension": "usage"
+        }
+      ],
       "lab": {
+        "summary": {
+          "local": "Nginx 用 User Data 生成的自签名证书（浏览器告警）；本地档 Let's Encrypt：certbot + 定时器续期",
+          "aws": "ACM：只有 L0 时经 ACME 端点把 45 天证书装进 Nginx（TLS_ACME=on）；启用 CloudFront / ALB 后由 ACM 集成证书终止 TLS 并托管续期"
+        },
         "compare": "before-after",
         "sideBySide": true,
+        "keyMetrics": [
+          "各入口证书的签发者与剩余天数",
+          "远端区域的 TLS 握手时间（经 CloudFront vs 直连）",
+          "续期需要的人工步骤数",
+          "协议、加密套件与 ALPN"
+        ],
         "hourlyBilled": false,
+        "diagram": {
+          "before": "flowchart LR; B[浏览器]--自签名 / Let's Encrypt-->NG[Nginx :443]",
+          "after": "flowchart LR; C[certbot]--EAB 注册 + 申请-->ACME[ACM ACME 端点]; ACME--45 天证书-->NG[Nginx :443]; ACMUS[ACM 证书 us-east-1]-->CF[CloudFront]"
+        },
         "experiments": [
           "inspect",
           "handshake",
           "cipher-scan",
           "renew-drill"
-        ]
+        ],
+        "badges": {
+          "selfsigned": "证书：自签名（Nginx）· 不受信任",
+          "letsencrypt": "证书：Let's Encrypt（Nginx）",
+          "local": "证书：自签名（Nginx）· 不受信任",
+          "aws": "证书：ACM（{via}）",
+          "note": "考试结论：ACM 证书只能挂在集成服务上；ACME 端点是 2026 年的新能力",
+          "degraded": "证书降级 · {reason}",
+          "error": "证书过期或域名不匹配"
+        }
       },
       "doc": "docs/modules/01-edge-network-scaling.md#tls"
     },
@@ -735,6 +804,7 @@ export const REGISTRY_DOCUMENT: RegistryDocument = {
         "WAF_"
       ],
       "credentials": "optional",
+      "version": 1,
       "prerequisites": [],
       "requires": [
         {
@@ -797,16 +867,50 @@ export const REGISTRY_DOCUMENT: RegistryDocument = {
         "kind": "detector",
         "intervalSec": 60
       },
+      "billing": [
+        {
+          "resource": "WAF Web ACL 与规则（按月）",
+          "dimension": "usage"
+        },
+        {
+          "resource": "WAF 请求检查（按百万请求）",
+          "dimension": "request"
+        },
+        {
+          "resource": "WAF 日志（CloudWatch Logs 摄取与存储）",
+          "dimension": "usage"
+        }
+      ],
       "lab": {
+        "summary": {
+          "local": "Nginx 的 limit_req 限速与几条正则特征拦截：每个恶意请求都已经到达 EC2",
+          "aws": "AWS WAF 在 CloudFront 边缘（或 ALB）按托管规则与限速规则拦截，被拦截的请求不会到达 EC2；IP 封禁同步到 IP 集合"
+        },
         "compare": "runtime-ab",
         "sideBySide": true,
+        "keyMetrics": [
+          "攻击期间源站收到的请求数",
+          "按规则的拦截计数",
+          "绕过 WAF 的直连请求数",
+          "正常请求的误杀（照片上传等）"
+        ],
         "hourlyBilled": false,
+        "diagram": {
+          "before": "flowchart LR; A[攻击流量]-->NG[Nginx limit_req + 正则]-->API[api]",
+          "after": "flowchart LR; A[攻击流量]-->CF[CloudFront]-->W{AWS WAF}; W--Block-->A; W--Allow-->NG[Nginx :8080]-->API[api]"
+        },
         "experiments": [
           "flood",
           "payloads",
           "false-positive",
           "bypass"
-        ]
+        ],
+        "badges": {
+          "local": "已被 Nginx {reason}（实例上）",
+          "aws": "已被 AWS WAF 拦截 · 规则 {rule}",
+          "degraded": "WAF 降级 · {reason}",
+          "error": "WAF 不可用"
+        }
       },
       "doc": "docs/modules/01-edge-network-scaling.md#waf"
     },
@@ -1361,6 +1465,7 @@ export const REGISTRY_DOCUMENT: RegistryDocument = {
         "IDENTITY_"
       ],
       "credentials": "required",
+      "version": 1,
       "requires": [
         {
           "rule": "DEP-002",
@@ -1407,15 +1512,42 @@ export const REGISTRY_DOCUMENT: RegistryDocument = {
         "method": "cognito-identity:DescribeIdentityPool + s3:HeadBucket(staging)",
         "intervalSec": 30
       },
+      "billing": [
+        {
+          "resource": "S3 暂存桶的请求与短暂存储（Identity Pool 本身不单独收费）",
+          "dimension": "request"
+        }
+      ],
       "lab": {
+        "summary": {
+          "local": "应用自签的前缀范围上传令牌：多文件分片续传，但每一片都要先经 EC2 授权（none 驱动）",
+          "aws": "Cognito Identity Pool 换取只能写自己前缀的 STS 临时凭证，浏览器直传 S3 暂存桶，授权由 IAM 策略变量完成"
+        },
         "compare": "runtime-ab",
+        "sideBySide": true,
+        "keyMetrics": [
+          "越权写别人前缀时由谁拒绝（应用 403 / S3 AccessDenied）",
+          "批量上传对后端发起的请求数",
+          "批量上传期间 EC2 NetworkIn",
+          "凭证或令牌的作用范围与有效期"
+        ],
+        "hourlyBilled": false,
+        "diagram": {
+          "before": "flowchart LR; B[浏览器]--每片先问-->API[api 前缀令牌]; B--分片-->ST[(数据卷 / S3)]",
+          "after": "flowchart LR; B[浏览器]--换取凭证-->CI[Cognito Identity Pool]; B--ASIA 凭证签名 UploadPart-->S3[(S3 暂存桶)]"
+        },
         "experiments": [
           "cross-prefix",
           "upload-bench",
           "resume",
           "policy-sim"
         ],
-        "hourlyBilled": false
+        "badges": {
+          "local": "应用自签令牌（EC2）",
+          "aws": "直传 S3（Identity Pool 临时凭证）",
+          "degraded": "已退回逐文件上传",
+          "error": "临时凭证不可用"
+        }
       },
       "doc": "docs/modules/02-identity-security.md#identity-pool"
     },
@@ -2616,6 +2748,7 @@ export const REGISTRY_DOCUMENT: RegistryDocument = {
         "NOTIFY_"
       ],
       "credentials": "required",
+      "version": 1,
       "prerequisites": [
         "confirm-email"
       ],
@@ -2687,6 +2820,10 @@ export const REGISTRY_DOCUMENT: RegistryDocument = {
           "被过滤掉的消息数"
         ],
         "hourlyBilled": false,
+        "diagram": {
+          "before": "flowchart LR; E[事件]-->API[api / worker]-->DB[(站内信)]; API--逐个收件人-->EM[EmailPort]",
+          "after": "flowchart LR; E[事件]-->API[api / worker]--一次 Publish-->SNS[SNS 主题]; SNS--过滤策略-->M[邮件订阅]; SNS-->Q[(收件队列 SQS)]"
+        },
         "experiments": [
           "fanout",
           "filter",
@@ -2728,6 +2865,7 @@ export const REGISTRY_DOCUMENT: RegistryDocument = {
         "SES_"
       ],
       "credentials": "required",
+      "version": 1,
       "prerequisites": [
         "ses-identity"
       ],
@@ -2796,6 +2934,10 @@ export const REGISTRY_DOCUMENT: RegistryDocument = {
           "沙盒拒信比例"
         ],
         "hourlyBilled": false,
+        "diagram": {
+          "before": "flowchart LR; API[worker email.send]-->OB[(outbox .eml + outbox_emails)]",
+          "after": "flowchart LR; API[worker email.send]--SendEmail-->SES[Amazon SES]-->IN[收件箱]; SES--投递 / 退信 / 投诉-->SNS[SNS]-->Q[(反馈队列)]-->API"
+        },
         "experiments": [
           "send-matrix",
           "compare",
@@ -3188,6 +3330,7 @@ export const REGISTRY_DOCUMENT: RegistryDocument = {
         "SSM_SESSION_"
       ],
       "credentials": "required",
+      "version": 1,
       "prerequisites": [],
       "requires": [
         {
@@ -3208,7 +3351,12 @@ export const REGISTRY_DOCUMENT: RegistryDocument = {
       "authoritative": false,
       "bypass": [],
       "baseParams": {
-        "SshIngressCidr": ""
+        "SshIngressCidr": {
+          "value": "",
+          "when": {
+            "SHELL_ACCESS_KEEP_SSH": "false"
+          }
+        }
       },
       "hostSetup": "infra/modules/shell-access/host-setup.sh",
       "preflight": [
@@ -3232,14 +3380,33 @@ export const REGISTRY_DOCUMENT: RegistryDocument = {
         }
       ],
       "lab": {
+        "summary": {
+          "local": "SSH 22 + 密钥对；登录审计只有 journal 中的公钥指纹与来源 IP",
+          "aws": "Session Manager：IAM 身份登录与端口转发，安全组无管理端口入站，会话日志进 CloudWatch Logs"
+        },
         "compare": "before-after",
+        "keyMetrics": [
+          "从公网探测 22 端口（open / filtered）",
+          "24 小时 sshd 认证失败次数",
+          "能否回答“谁在什么时间执行了什么命令”"
+        ],
         "hourlyBilled": false,
+        "diagram": {
+          "before": "flowchart LR; OP[运维机]--SSH 22 + 密钥对-->SG{安全组 22/tcp}-->EC2[EC2 sshd]",
+          "after": "flowchart LR; OP[运维机]--IAM 身份-->SSM[Session Manager]; AG[SSM Agent]--出站 443-->SSM; AG-->EC2[EC2]; SSM-->CWL[(会话日志)]"
+        },
         "experiments": [
           "probe-port",
           "ssh-noise",
           "session-audit",
           "private-subnet"
-        ]
+        ],
+        "badges": {
+          "local": "运维登录：SSH 22 · 密钥对",
+          "aws": "运维登录：Session Manager · 无管理端口入站",
+          "degraded": "运维登录：Session Manager · 22 仍开放",
+          "error": "运维登录：SSM Agent 离线"
+        }
       },
       "doc": "docs/modules/05-ops-observability.md#shell-access"
     },
@@ -3265,6 +3432,7 @@ export const REGISTRY_DOCUMENT: RegistryDocument = {
         "LOG_CW_"
       ],
       "credentials": "required",
+      "version": 1,
       "prerequisites": [],
       "requires": [],
       "soft": [
@@ -3306,15 +3474,34 @@ export const REGISTRY_DOCUMENT: RegistryDocument = {
         }
       ],
       "lab": {
+        "summary": {
+          "local": "日志只在 EBS 数据卷的文件里，本机线性扫描，实例没了日志就没了",
+          "aws": "同一份结构化日志批量送入 CloudWatch Logs：跨实例检索、Logs Insights、指标过滤器"
+        },
         "compare": "before-after",
+        "keyMetrics": [
+          "摄取延迟（中位数 / 最大值）",
+          "同一查询的耗时与扫描字节数",
+          "实例终止后能否查到日志"
+        ],
         "hourlyBilled": false,
+        "diagram": {
+          "before": "flowchart LR; API[api / worker / nginx]-->F[(数据卷 logs/)]-->V[本机日志查看器]",
+          "after": "flowchart LR; API[api / worker / nginx]-->F[(数据卷 logs/)]; API--批量 PutLogEvents-->CWL[(CloudWatch Logs)]-->LI[Logs Insights]"
+        },
         "experiments": [
           "ingest-lag",
           "query-compare",
           "instance-loss",
           "overhead",
           "debug-volume"
-        ]
+        ],
+        "badges": {
+          "local": "日志：本地文件 · 仅 {instanceId}",
+          "aws": "日志：CloudWatch Logs · {instances} 个实例",
+          "degraded": "日志：CloudWatch 发送积压",
+          "error": "日志：CloudWatch 不可用（本地文件照常）"
+        }
       },
       "doc": "docs/modules/05-ops-observability.md#logging"
     },
@@ -3343,6 +3530,7 @@ export const REGISTRY_DOCUMENT: RegistryDocument = {
         "METRICS_CW_"
       ],
       "credentials": "required",
+      "version": 1,
       "prerequisites": [
         "confirm-email"
       ],
@@ -3395,15 +3583,35 @@ export const REGISTRY_DOCUMENT: RegistryDocument = {
         }
       ],
       "lab": {
+        "summary": {
+          "local": "LabMetricsStore + worker 内的本地告警评估器：进程或实例一挂，告警也跟着沉默",
+          "aws": "同样的指标双写到 CloudWatch，Agent 补内存与磁盘；告警在 AWS 侧评估，经自带 SNS 主题送达"
+        },
         "compare": "fault",
+        "keyMetrics": [
+          "告警检测时间",
+          "实例停止时能否告警",
+          "内存、磁盘指标是否可得",
+          "指标粒度与出现延迟"
+        ],
         "hourlyBilled": false,
+        "diagram": {
+          "before": "flowchart LR; APP[api / worker]-->LMS[(LabMetricsStore)]-->EV[worker 内评估器]-->N[站内信 / outbox]",
+          "after": "flowchart LR; APP[api / worker]--PutMetricData-->CW[CloudWatch]; AG[CloudWatch Agent]--内存 / 磁盘-->CW; CW--告警-->SNS[ops-alarms 主题]-->M[邮件]"
+        },
         "experiments": [
           "time-to-alert",
           "kill-test",
           "mem-visibility",
           "resolution",
           "notify-path"
-        ]
+        ],
+        "badges": {
+          "local": "监控：本地评估器（实例宕机即失效）",
+          "aws": "监控：CloudWatch 告警 · SNS 送达",
+          "degraded": "监控降级 · {reason}",
+          "error": "监控：CloudWatch 不可用"
+        }
       },
       "doc": "docs/modules/05-ops-observability.md#monitoring"
     },
@@ -3885,6 +4093,7 @@ export const REGISTRY_DOCUMENT: RegistryDocument = {
         "COST_"
       ],
       "credentials": "optional",
+      "version": 1,
       "prerequisites": [
         "cost-allocation-tag",
         "confirm-email"

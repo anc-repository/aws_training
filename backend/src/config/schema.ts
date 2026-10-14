@@ -16,6 +16,9 @@ const onOff = z.enum(['on', 'off']);
 const trueFalse = z.enum(['true', 'false']);
 const optUrl = z.union([z.literal(''), z.url()]).default('');
 const optStr = z.string().optional();
+/** 资源 ARN（只校验 `arn:aws…:` 前缀：scripts/module 计划校验的占位值也要能通过） */
+const arn = z.string().regex(/^arn:aws[a-z-]*:/, '必须是 ARN（arn:aws…:）');
+const optArn = z.union([z.literal(''), arn]).optional();
 const intDefault = (d: number, min = 0) => z.coerce.number().int().min(min).default(d);
 
 /** 给每个“开关 + 子配置”的分段补上默认的本地取值，再交给判别联合 */
@@ -246,11 +249,15 @@ export const Tracing = section('TRACING_DRIVER', 'none', z.discriminatedUnion('T
 
 /** F14：identity-pool 的子配置。IDENTITY_DEV_PROVIDER 是 DEP-002 的条件变量；L0（none 驱动）也读取 TTL */
 export const Identity = z.object({
+  IDENTITY_POOL_ID: z.union([z.literal(''), z.string().regex(/^[\w-]+:[0-9a-f-]{36}$/)]).default(''),   // 开关（与 Core 同名同义）
   IDENTITY_TOKEN_TTL_SEC: z.coerce.number().int().min(60).max(3600).default(900),   // none 驱动的前缀令牌有效期
   IDENTITY_DEV_PROVIDER: z.string().default(''),          // auth=local 时的开发者认证身份（如 login.cloudalbum）
-  IDENTITY_STAGING_BUCKET: optStr,                        // cognito 驱动：模块自带暂存桶
+  IDENTITY_STAGING_BUCKET: optStr,                        // cognito 驱动：模块自带暂存桶（Outputs.EnvIdentityStagingBucket）
   IDENTITY_UPLOAD_PREFIX: z.string().default('private/'),
   IDENTITY_PART_SIZE_MB: z.coerce.number().int().min(5).default(8),
+}).superRefine((v, ctx) => {
+  if (v.IDENTITY_POOL_ID && !v.IDENTITY_STAGING_BUCKET)
+    ctx.addIssue({ code: 'custom', path: ['IDENTITY_STAGING_BUCKET'], message: 'IDENTITY_POOL_ID 非空（cognito 驱动）时必须提供 IDENTITY_STAGING_BUCKET（identity-pool 栈的 Outputs）' });
 });
 
 /** 纯基础设施型与参数型模块的子选项，以及其他出现在 registry requires / conflicts 条件里、但不属于上面判别联合的变量（5.1） */
@@ -283,12 +290,91 @@ export const InfraOptions = z.object({
   LB_ADMIN_AUTH: z.enum(['app', 'cognito']).default('app'),                      // DEP-011、017
   LB_ORIGIN_VERIFY: onOff.default('off'),                                         // DEP-042
   LB_LOCK_ORIGIN: onOff.default('off'),
-  WAF_SCOPE: z.enum(['CLOUDFRONT', 'REGIONAL']).optional(),                     // waf 的 injects 条件（CLOUDFRONT 时注入 cdn 的 WebAclArn）
   BACKUP_WHOLE_INSTANCE: onOff.default('off'),                                    // backup 的 baseParams 条件（整机恢复变体）
   COMPLIANCE_LOCAL_INTERVAL_SEC: z.coerce.number().int().min(60).default(300),   // 本地自检周期（local 与 config 档都运行）
   COMPLIANCE_RECORDER: z.enum(['created', 'external']).optional(),              // config 档必填（superRefine）
   COMPLIANCE_RULE_PREFIX: optStr,                                                 // config 档必填
   COMPLIANCE_TOPIC_ARN: optStr,
+});
+
+// ---------------------------------------------------------------------------------------------
+// 第 1 波的纯基础设施型模块（wave1-prep，各模块文档第 3 节）：声明型开关在 Core，这里重复声明同名开关只为求值
+// “AWS 取值时必需的键”；其余是子选项。
+// ---------------------------------------------------------------------------------------------
+
+/** dns（01#dns 第 3 节）。APP_BASE_URL 在 Core（只有 dns 拥有它，约定 5）；DNS_TARGET_TYPE 在 InfraOptions（DEP-040、041） */
+export const Dns = z.object({
+  DNS_PROVIDER: decl(['none', 'external', 'route53']),
+  DNS_HOSTED_ZONE_ID: optStr,                                   // Outputs.EnvDnsHostedZoneId
+  DNS_RECORD_NAME: optStr,                                      // Outputs.EnvDnsRecordName，例如 album.example.com
+  DNS_TTL: z.coerce.number().int().min(0).max(172_800).optional(),
+  DNS_ROUTING_POLICY: z.enum(['simple', 'failover', 'weighted']).default('simple'),
+  DNS_HEALTH_CHECK_ID: optStr,
+  DNS_CANONICAL_REDIRECT: onOff.default('off'),                 // on：Nginx 把 IP / EC2 主机名访问 301 到域名（/api/health/* 除外）
+}).superRefine((v, ctx) => {
+  if (v.DNS_PROVIDER === 'route53' && (!v.DNS_HOSTED_ZONE_ID || !v.DNS_RECORD_NAME))
+    ctx.addIssue({ code: 'custom', path: ['DNS_HOSTED_ZONE_ID'], message: 'DNS_PROVIDER=route53 时必须提供 DNS_HOSTED_ZONE_ID 与 DNS_RECORD_NAME（dns 栈的 Outputs；需要自有域名）' });
+});
+
+/** tls（01#tls 第 3 节）。TLS_DOMAIN、TLS_FORCE_HTTPS、TLS_LE_PROFILE、TLS_PUBLIC_IP、TLS_PREVIEW 在 InfraOptions */
+export const Tls = z.object({
+  TLS_MODE: decl(['selfsigned', 'letsencrypt', 'acm']),
+  TLS_ACME: onOff.default('off'),
+  TLS_ACME_DIRECTORY_URL: optUrl,
+  TLS_LE_EMAIL: optStr,                                         // letsencrypt 与 ACM ACME 注册共用
+  TLS_CERTBOT_CONFIG_DIR: optStr,                               // 默认 /etc/cloudalbum/letsencrypt（数据卷上）
+  ACM_CERT_ARN_EDGE: optArn,                                    // tls-edge 栈（us-east-1）：CloudFront 集成证书
+  ACM_CERT_ARN_REGIONAL: optArn,                                // tls-regional 栈：ALB / API Gateway 集成证书
+}).superRefine((v, ctx) => {
+  if (v.TLS_MODE === 'acm' && v.TLS_ACME === 'on' && !v.TLS_ACME_DIRECTORY_URL)
+    ctx.addIssue({ code: 'custom', path: ['TLS_ACME_DIRECTORY_URL'], message: 'TLS_MODE=acm 且 TLS_ACME=on 时必须提供 TLS_ACME_DIRECTORY_URL（tls main 栈的 Outputs）' });
+});
+
+/** waf（01#waf 第 3 节）：BlocklistPort 的 aws 驱动需要 Web ACL 与 IP 集合 */
+export const Waf = z.object({
+  WAF_MODE: decl(['nginx', 'aws']),
+  WAF_NGINX_RATE_API: z.string().regex(/^\d+r\/[sm]$/).optional(),   // 本地实现的 Nginx 限速参数，两种模式都保留
+  WAF_NGINX_RATE_AUTH: z.string().regex(/^\d+r\/[sm]$/).optional(),
+  WAF_SCOPE: z.enum(['CLOUDFRONT', 'REGIONAL']).optional(),     // injects 条件（CLOUDFRONT 时注入 cdn 的 WebAclArn）；CLOUDFRONT 的 API 在 us-east-1
+  WAF_WEB_ACL_ARN: optArn,
+  WAF_IP_SET_ID: optStr,
+  WAF_IP_SET_NAME: optStr,
+  WAF_RULE_ACTION: z.enum(['count', 'block']).default('count'), // 托管规则组先 Count 观察，再改 block
+  WAF_RATE_LIMIT: z.coerce.number().int().min(10).optional(),
+  WAF_RATE_WINDOW_SEC: z.coerce.number().int().refine((n) => [60, 120, 300, 600].includes(n), '只能是 60 | 120 | 300 | 600').optional(),
+  WAF_LOG_GROUP: optStr,                                        // aws-waf-logs-cloudalbum-<env>
+  WAF_ORIGIN_NGINX_LIMIT: z.enum(['strict', 'relaxed', 'off']).default('relaxed'),
+  WAF_LAB_ALLOW_CIDR: optStr,                                   // 实验机白名单（约定 13），平时为空
+}).superRefine((v, ctx) => {
+  if (v.WAF_MODE === 'aws' && (!v.WAF_SCOPE || !v.WAF_WEB_ACL_ARN || !v.WAF_IP_SET_ID || !v.WAF_IP_SET_NAME))
+    ctx.addIssue({ code: 'custom', path: ['WAF_WEB_ACL_ARN'], message: 'WAF_MODE=aws 时必须提供 WAF_SCOPE、WAF_WEB_ACL_ARN、WAF_IP_SET_ID、WAF_IP_SET_NAME（waf 栈的 Outputs）' });
+});
+
+/** shell-access（05#shell-access 第 3 节）：纯基础设施型，应用侧只有感知器 */
+export const ShellAccess = z.object({
+  SHELL_ACCESS_MODE: decl(['ssh', 'ssm']),
+  SSM_SESSION_LOG_GROUP: optStr,                                // Outputs.EnvSsmSessionLogGroup
+  SSM_SESSION_RUN_AS: optStr,                                   // Outputs.EnvSsmSessionRunAs（cloudalbum-ops）
+  SHELL_ACCESS_KEEP_SSH: trueFalse.default('false'),            // true = 过渡期保留 22 端口（degraded，SEC-003）
+}).superRefine((v, ctx) => {
+  if (v.SHELL_ACCESS_MODE === 'ssm' && !v.SSM_SESSION_LOG_GROUP)
+    ctx.addIssue({ code: 'custom', path: ['SSM_SESSION_LOG_GROUP'], message: 'SHELL_ACCESS_MODE=ssm 时必须提供 SSM_SESSION_LOG_GROUP（shell-access 栈的 Outputs）' });
+});
+
+/** cost（06#cost 第 3 节）：本地估算参数在两种模式下都生效；budgets 只读预算与（手动刷新时）Cost Explorer */
+export const Cost = z.object({
+  COST_MODE: decl(['local', 'budgets']),
+  COST_LOCAL_IDLE_HOURS: z.coerce.number().positive().default(4),   // 长时间空开提醒
+  COST_LOCAL_HOURS_BUDGET: z.union([z.literal(''), z.coerce.number().positive()]).optional(),   // 空 = 不设资源小时预算
+  COST_RATES_FILE: optStr,                                      // 默认 /etc/cloudalbum/cost-rates.yaml（CFG-010）
+  COST_BUDGET_NAMES: optStr,                                    // 逗号分隔：项目预算、账号预算
+  COST_TOPIC_ARN: optArn,
+  COST_TAG_KEY: z.string().min(1).default('Project'),
+  COST_TAG_VALUE: z.string().min(1).default('CloudAlbum'),
+  COST_CE_QUERY: z.enum(['manual', 'off']).default('manual'),   // Cost Explorer API 按请求计费：只手动刷新，不轮询
+}).superRefine((v, ctx) => {
+  if (v.COST_MODE === 'budgets' && !v.COST_BUDGET_NAMES)
+    ctx.addIssue({ code: 'custom', path: ['COST_BUDGET_NAMES'], message: 'COST_MODE=budgets 时必须提供 COST_BUDGET_NAMES（cost 栈的 Outputs）' });
 });
 
 export const Workflow = section('WORKFLOW_DRIVER', 'inline', z.discriminatedUnion('WORKFLOW_DRIVER', [
@@ -319,25 +405,35 @@ export const RuntimeConfigSource = section('CONFIG_DRIVER', 'file', z.discrimina
   z.object({ CONFIG_DRIVER: z.literal('ssm'), CONFIG_PATH: optStr, CONFIG_REFRESH_SEC: intDefault(30, 5) }),
 ]));
 
+// —— 第 1 波（wave1-prep）：logging、monitoring、notification、email 的 AWS 分支按各模块文档第 3 节收紧——
+//    驱动必需的标识（栈 Outputs 写入）为必填；其余子选项取文档默认值。ARN 只校验前缀（计划校验的占位值也能通过）。
 export const Logging = section('LOG_DRIVER', 'file', z.discriminatedUnion('LOG_DRIVER', [
   z.object({ LOG_DRIVER: z.literal('file'), LOG_DIR: z.string().default('/var/lib/cloudalbum/logs') }),
   z.object({ LOG_DRIVER: z.literal('cloudwatch'), LOG_DIR: z.string().default('/var/lib/cloudalbum/logs'),
-             LOG_CW_GROUP_APP: optStr, LOG_CW_GROUP_NGINX: optStr,
-             LOG_CW_SHIPPER: z.enum(['sdk', 'agent']).default('sdk'),
-             LOG_CW_FLUSH_MS: intDefault(2000), LOG_CW_MAX_BACKLOG: intDefault(10_000), LOG_CW_RETENTION_DAYS: optStr }),
+             LOG_CW_GROUP_APP: z.string().min(1),                       // Outputs.EnvLogCwGroupApp
+             LOG_CW_GROUP_NGINX: optStr,                                 // Outputs.EnvLogCwGroupNginx
+             LOG_CW_SHIPPER: z.enum(['sdk', 'agent']).default('sdk'),    // agent 需要 role（05 组约定 2）
+             LOG_CW_FLUSH_MS: intDefault(2000, 100), LOG_CW_MAX_BACKLOG: intDefault(10_000, 100),
+             LOG_CW_RETENTION_DAYS: z.coerce.number().int().min(1).optional() }),   // 仅展示；生效的是日志组保留期
 ]));
 
 export const Monitoring = section('METRICS_DRIVER', 'local', z.discriminatedUnion('METRICS_DRIVER', [
   z.object({ METRICS_DRIVER: z.literal('local') }),
-  z.object({ METRICS_DRIVER: z.literal('cloudwatch'), METRICS_CW_NAMESPACE: optStr, METRICS_CW_MODE: optStr,
-             METRICS_CW_FLUSH_SEC: optStr, METRICS_CW_ALARM_PREFIX: optStr, METRICS_CW_ALARM_TOPIC_ARN: optStr,
-             METRICS_CW_DASHBOARD: optStr, METRICS_CW_EMF_ENDPOINT: optStr }),
+  z.object({ METRICS_DRIVER: z.literal('cloudwatch'),
+             METRICS_CW_NAMESPACE: z.string().min(1).default('CloudAlbum/App'),
+             METRICS_CW_MODE: z.enum(['putmetricdata', 'emf']).default('putmetricdata'),   // emf 需要 Agent（role）
+             METRICS_CW_FLUSH_SEC: intDefault(60, 10),
+             METRICS_CW_ALARM_PREFIX: optStr, METRICS_CW_ALARM_TOPIC_ARN: optArn, METRICS_CW_DASHBOARD: optStr,
+             METRICS_CW_EMF_ENDPOINT: optStr }),                          // 仅 emf：tcp://127.0.0.1:25888
 ]));
 
 export const Notification = section('NOTIFY_DRIVER', 'db', z.discriminatedUnion('NOTIFY_DRIVER', [
   z.object({ NOTIFY_DRIVER: z.literal('db') }),
-  z.object({ NOTIFY_DRIVER: z.literal('sns'), NOTIFY_TOPIC_ARN: optStr, NOTIFY_INBOX_QUEUE_URL: optStr,
-             NOTIFY_DLQ_URL: optStr, NOTIFY_STATUS_SYNC_SEC: optStr }),
+  z.object({ NOTIFY_DRIVER: z.literal('sns'),
+             NOTIFY_TOPIC_ARN: arn,                                       // Outputs.EnvNotifyTopicArn
+             NOTIFY_INBOX_QUEUE_URL: z.url(),                             // 模块自带收件队列（auxQueues notification-inbox）
+             NOTIFY_DLQ_URL: optUrl,                                      // 订阅级 DLQ
+             NOTIFY_STATUS_SYNC_SEC: intDefault(300, 30) }),              // pending 订阅确认状态的同步间隔
 ]));
 
 const emailCommon = {
@@ -348,9 +444,11 @@ const emailCommon = {
 export const Email = section('EMAIL_DRIVER', 'outbox', z.discriminatedUnion('EMAIL_DRIVER', [
   z.object({ EMAIL_DRIVER: z.literal('outbox'), ...emailCommon }),
   z.object({ EMAIL_DRIVER: z.literal('ses'), ...emailCommon,
-             EMAIL_SEND_RATE_PER_SEC: optStr, EMAIL_SANDBOX_POLICY: z.enum(['fail', 'outbox']).default('fail'),
-             EMAIL_FOR_COGNITO: onOff.default('off'), SES_CONFIGURATION_SET: optStr, SES_FEEDBACK_QUEUE_URL: optStr,
-             SES_IDENTITY: optStr }),
+             EMAIL_SEND_RATE_PER_SEC: z.coerce.number().positive().default(1),   // 消费者限速，不超过 SES 账号的最大发送速率
+             EMAIL_SANDBOX_POLICY: z.enum(['fail', 'outbox']).default('fail'),
+             EMAIL_FOR_COGNITO: onOff.default('off'),                             // injects → auth（SesIdentityArn）
+             SES_IDENTITY: z.string().min(1),                                     // 已验证的发件身份（域名或地址）
+             SES_CONFIGURATION_SET: optStr, SES_FEEDBACK_QUEUE_URL: optUrl }),    // 反馈队列（auxQueues email-feedback）
 ]));
 
 const schedulerCommon = {
@@ -429,6 +527,7 @@ export const Platform = z.object({
 export const SECTIONS = {
   core: Core, iam: Iam, storage: Storage, auth: Auth, db: Database, cache: Cache, queue: Queue, image: Image,
   tracing: Tracing, workflow: Workflow, identity: Identity, infra: InfraOptions,
+  dns: Dns, tls: Tls, waf: Waf, shellAccess: ShellAccess, cost: Cost,
   secrets: Secrets, config: RuntimeConfigSource, logging: Logging, monitoring: Monitoring,
   notification: Notification, email: Email, scheduler: Scheduler, social: Social, tagger: Tagger,
   analytics: Analytics, kms: Kms, platform: Platform,

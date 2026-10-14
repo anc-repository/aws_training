@@ -27,12 +27,16 @@ export function principalOf(state: CloudAlbumState): Principal | undefined {
     : { type: 'role', name: state.iam.roleName };
 }
 
-/** PolicyArn of every enabled AWS-tier module (iam itself has none: its base policy is referenced by the role). */
+/**
+ * PolicyArn of every enabled AWS-tier module (iam itself has none: its base policy is referenced by the role). Modules with
+ * several stacks (tls main / edge / regional, waf edge / regional) may output one PolicyArn per stack: all of them are attached.
+ */
 export function desiredPolicies(state: CloudAlbumState): Array<{ module: ModuleId; policyArn: string }> {
   const out: Array<{ module: ModuleId; policyArn: string }> = [];
   for (const [id, rec] of Object.entries(state.modules)) {
-    const arn = rec?.tier === 'aws' ? rec.outputs.PolicyArn : undefined;
-    if (arn) out.push({ module: id as ModuleId, policyArn: arn });
+    if (rec?.tier !== 'aws') continue;
+    const arns = [rec.outputs.PolicyArn, ...rec.stacks.map((s) => s.outputs?.PolicyArn)].filter((a): a is string => Boolean(a));
+    for (const arn of new Set(arns)) out.push({ module: id as ModuleId, policyArn: arn });
   }
   return out;
 }

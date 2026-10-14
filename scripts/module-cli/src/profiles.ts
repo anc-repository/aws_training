@@ -11,7 +11,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { isParamSwitch, type ModuleId } from '@cloudalbum/contracts';
 import {
-  SINGLE_LOCAL_SETTINGS, hardRequirements, planEnable, resolveTarget, type ModuleTarget,
+  SINGLE_LOCAL_SETTINGS, SINGLE_TARGET_SETTINGS, hardRequirements, planEnable, resolveTarget, type ModuleTarget,
 } from './deps.js';
 import { parseAssignments, parseEnvFile, splitList, type EnvMap } from './env-file.js';
 import {
@@ -129,7 +129,8 @@ const AUTO_PREREQS = new Set(['toolchain']);   // satisfied by `scripts/module b
 
 /** profiles/single/<id>.env content (10.4): L0 + module + minimal hard deps + credential prerequisite + local tiers. */
 export function generateSingleProfile(id: ModuleId, registry: Registry = REGISTRY): string {
-  const target = resolveTarget(id, {}, registry);
+  const own = { ...(SINGLE_TARGET_SETTINGS[id] ?? {}) };
+  const target = resolveTarget(id, { settings: { ...own } }, registry);
   const plan = planEnable({}, target, { withDeps: true, registry });
   const local = { ...(SINGLE_LOCAL_SETTINGS[id] ?? {}) };
   const modules = plan.steps.filter((s) => s.tier === 'aws').map((s) => s.module);
@@ -140,6 +141,7 @@ export function generateSingleProfile(id: ModuleId, registry: Registry = REGISTR
     if (s.tier === 'aws') drivers.push(`${sw.var}=${s.value}`);
     else local[sw.var] = s.value;
   }
+  for (const [k, v] of Object.entries(own)) drivers.push(`${k}=${v}`);   // the module's own sub-options (SINGLE_TARGET_SETTINGS)
   const allPrereqs = [...new Set(plan.steps.flatMap((s) => moduleOf(s.module, registry).prerequisites ?? []))];
   const prerequisites = allPrereqs.filter((p) => !AUTO_PREREQS.has(p));
   const autoPrereqs = allPrereqs.filter((p) => AUTO_PREREQS.has(p));

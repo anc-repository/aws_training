@@ -9,6 +9,12 @@ export interface ProbeResult {
   latencyMs?: number;
   confidence?: 'confirmed' | 'observed' | 'inferred';
   data?: Record<string, unknown>;                   // 仅管理员可见（ARN、端点、计数）
+  /**
+   * 本次失败是瞬时的（超时、限流、网络；见 adapters/aws/clients.ts 的 isAwsTransient）。wave1-prep 追加：状态机对瞬时失败
+   * 只累加连续失败计数（连续 3 次才进入 error），首次探针遇到瞬时失败记为 degraded 而不是直接 error（2026-10-14 实机验证：
+   * api 重启后的最初一两分钟，IMDS 与 SDK 的首个请求可能很慢）。
+   */
+  transient?: boolean;
 }
 
 export interface AdapterMeta {
