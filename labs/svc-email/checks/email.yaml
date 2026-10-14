@@ -1,0 +1,173 @@
+checks:
+  # ---- 起始状态（before 一律 once）
+  - id: email-outbox-baseline
+    title: 起始状态：邮件只写进本机 outbox
+    type: capability
+    module: email
+    drift: { policy: once }
+    assert:
+      - { path: $.driver, op: eq, value: outbox, label: 驱动 }
+      - { path: $.status, op: eq, value: 'off', label: 模块状态（本地实现） }
+      - { path: $.localHealth, op: eq, value: ok, label: outbox 目录可写 }
+    explain: outbox 驱动把同一份 MIME 写成 .eml 并记一行 outbox_emails，send() 返回 delivered=false——邮件没有真正发出。
+
+  # ---- 接入 SES
+  - id: email-wired
+    title: email 已切换到 SES（沙盒中为黄色，视为正常）
+    type: capability
+    module: email
+    drift: { policy: must-hold, monitor: true }
+    assert:
+      - { path: $.driver, op: eq, value: ses, label: 驱动 }
+    anyOf:
+      - [ { path: $, op: healthy, label: 状态正常（生产访问） } ]
+      - [ { path: $.status, op: eq, value: degraded, label: 状态为 degraded }, { path: $.detail, op: startsWith, value: 沙盒, label: 原因是 SES 沙盒 } ]
+    explain: SES 沙盒不是规则表中的 warn，healthy 不接受它；这里用 anyOf 单独放行“沙盒”这一种 degraded（附录 C-18）。
+    reproduce: { run: 'curl -s http://127.0.0.1/api/capabilities | jq ".modules.email | {driver, status, detail}"', runsOn: lab }
+
+  - id: email-path-seen
+    title: 最近的真实请求经 SES 发出了邮件
+    type: local
+    on: lab
+    checkId: path-seen
+    args: { segment: email, pattern: 'ses:sent', window: 15m, minCount: 1, excludeProbe: true }
+    dependsOn: [email-wired]
+    drift: { policy: once }
+    assert:
+      - { path: $.count, op: gte, value: 1, label: 出现 email=ses:sent 的请求数 }
+    explain: 在应用预览用 success+demo@simulator.amazonses.com 注册一个用户即可满足（SES 邮箱模拟器在沙盒中也能收信）；探测请求不计入。
+
+  - id: identity-verified
+    title: 发件身份已验证
+    type: aws-readonly
+    service: ses
+    action: GetEmailIdentity
+    region: app
+    params: { EmailIdentity: '{{ learner.inputs.ses-identity }}' }
+    wait: { typicalMinutes: 5, maxMinutes: 20 }
+    pendingIf:
+      - { path: $.VerifiedForSendingStatus, op: eq, value: false }
+    drift: { policy: must-hold }
+    assert:
+      - { path: $.VerifiedForSendingStatus, op: eq, value: true, label: 可用于发信 }
+    explain: 不设 ownership：发件身份是允许跨会话保留的前置资源，复用时它不是本会话创建的；“接入”的证明由 email-wired 与 email-path-seen 提供。
+    reproduce: { run: 'aws sesv2 get-email-identity --email-identity "{{ learner.inputs.ses-identity }}" --query "{verified:VerifiedForSendingStatus,status:VerificationStatus}"', runsOn: workstation }
+    manualFallback:
+      where: { breadcrumb: [Amazon SES, 配置, 身份, '{{ learner.inputs.ses-identity }}'], region: app }
+      observed:
+        question: 身份状态是什么？
+        options:
+          - { value: verified, label: 已验证, expected: true }
+          - { value: pending, label: 验证待定, fixHint: 到邮箱点击“Amazon Web Services – Email Address Verification Request”中的链接 }
+
+  - id: account-production
+    title: 记录本区域的 SES 是否已有生产访问（只展示）
+    type: aws-readonly
+    service: ses
+    action: GetAccount
+    region: app
+    params: {}
+    required: false
+    drift: { policy: once }
+    assert:
+      - { path: $.ProductionAccessEnabled, op: exists, label: ProductionAccessEnabled, severity: warn }
+      - { path: $.SendQuota.Max24HourSend, op: exists, label: 24 小时发送上限, severity: warn }
+    explain: 新账号通常是 false（沙盒）：只能发给已验证地址与 SES 邮箱模拟器。卡片不申请生产访问。
+    reproduce: { run: 'aws sesv2 get-account --query "{production:ProductionAccessEnabled,quota:SendQuota}"', runsOn: workstation }
+    manualFallback:
+      where: { breadcrumb: [Amazon SES, 账户控制面板], region: app }
+      observed:
+        question: 账户控制面板显示的是？
+        options:
+          - { value: sandbox, label: 沙盒, expected: true }
+          - { value: production, label: 生产, expected: true }
+
+  # ---- after
+  - id: feedback-dlq-empty
+    title: 反馈 DLQ 为空（每个 SES 事件都被 worker 处理了）
+    type: aws-readonly
+    service: sqs
+    action: GetQueueAttributes
+    region: app
+    params: { QueueUrl: '{{ var.feedbackDlqUrl }}', AttributeNames: [ApproximateNumberOfMessages] }
+    ownership: { resource: 'arn:aws:sqs:{{ session.region }}:{{ session.accountId }}:cloudalbum-{{ session.env }}-email-feedback-dlq', mode: session, createdAfter: session.readyAt }
+    dependsOn: [email-wired]
+    drift: { policy: must-hold }
+    assert:
+      - { path: $.Attributes.ApproximateNumberOfMessages, op: eq, value: '0', label: 反馈 DLQ 中的消息数 }
+    explain: worker 解析不了的反馈消息在接收 5 次后进入 DLQ；为 0 说明投递、退信、投诉事件都回流到了 outbox_emails。
+    reproduce: { run: 'aws sqs get-queue-attributes --queue-url "{{ var.feedbackDlqUrl }}" --attribute-names ApproximateNumberOfMessages', runsOn: workstation }
+    manualFallback:
+      where: { breadcrumb: [SQS, 队列, 'cloudalbum-{{ session.env }}-email-feedback-dlq'], region: app }
+      observed:
+        question: 反馈 DLQ 的“可用消息”数是多少？
+        options:
+          - { value: '0', label: '0', expected: true }
+          - { value: '1+', label: 1 条或更多, fixHint: 确认 worker 在运行；用 aws sqs receive-message 看看消息内容 }
+
+  - id: dkim-observed
+    title: 在原始邮件中看 DKIM 结果
+    type: manual
+    spec:
+      observed:
+        question: 你邮箱中这封邮件的 Authentication-Results 里，dkim 的结果与签名域（header.d）是？
+        options:
+          - { value: pass-amazonses, label: dkim=pass，签名域是 amazonses.com（邮箱身份）, expected: true }
+          - { value: pass-own, label: dkim=pass，签名域是你的发件域（域名身份 + Easy DKIM）, expected: true }
+          - { value: none, label: 没有 DKIM-Signature, fixHint: 确认看的是 SES 档之后发出的邮件，而不是 outbox 档的记录 }
+
+  - id: sandbox-observed
+    title: 沙盒中被拒的原因
+    type: manual
+    spec:
+      observed:
+        question: sandbox 场景中，发给未验证地址的邮件在 /admin/outbox 里是什么状态？
+        options:
+          - { value: rejected, label: failed，错误 MessageRejected（地址未验证）, expected: true }
+          - { value: delivered, label: 正常发出, fixHint: 该地址已经验证过，或本区域已有生产访问；看 account-production 的结果 }
+          - { value: outbox, label: 改写进了 outbox, expected: true }
+
+  - id: domain-dkim
+    title: 域名身份的 Easy DKIM 已生效
+    type: aws-readonly
+    service: ses
+    action: GetEmailIdentity
+    region: app
+    params: { EmailIdentity: '{{ learner.inputs.domain }}' }
+    when: "learner.inputs.domain != ''"
+    required: false
+    wait: { typicalMinutes: 10, maxMinutes: 20 }
+    pendingIf:
+      - { path: $.DkimAttributes.Status, op: in, value: [PENDING, NOT_STARTED] }
+    drift: { policy: once }
+    assert:
+      - { path: $.DkimAttributes.Status, op: eq, value: SUCCESS, label: DKIM 状态 }
+      - { path: $.VerifiedForSendingStatus, op: eq, value: true, label: 可用于发信 }
+    explain: 3 条 DKIM CNAME 生效之前状态是 PENDING；生效时间以 DNS 传播为准。
+    reproduce: { run: 'aws sesv2 get-email-identity --email-identity "{{ learner.inputs.domain }}" --query DkimAttributes', runsOn: workstation }
+    manualFallback:
+      where: { breadcrumb: [Amazon SES, 配置, 身份, '{{ learner.inputs.domain }}', 身份验证], region: app }
+      observed:
+        question: DKIM 配置的状态是？
+        options:
+          - { value: success, label: 成功, expected: true }
+          - { value: pending, label: 待定, fixHint: 检查 3 条 CNAME 的名称与值是否原样添加（不要重复域名后缀） }
+
+  # ---- 回收验证
+  - id: email-feedback-gone
+    title: 本会话的反馈队列已删除
+    type: aws-readonly
+    service: sqs
+    action: GetQueueUrl
+    region: app
+    params: { QueueName: 'cloudalbum-{{ session.env }}-email-feedback' }
+    expectError: QueueDoesNotExist
+    required: false
+    reproduce: { run: 'aws sqs get-queue-url --queue-name cloudalbum-{{ session.env }}-email-feedback', runsOn: workstation }
+    manualFallback:
+      where: { breadcrumb: [SQS, 队列], region: app }
+      observed:
+        question: 列表中还能找到 cloudalbum-{{ session.env }}-email-feedback 吗？
+        options:
+          - { value: gone, label: 找不到, expected: true }
+          - { value: present, label: 还在 }

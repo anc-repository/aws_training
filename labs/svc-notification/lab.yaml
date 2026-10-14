@@ -1,55 +1,240 @@
-# labs/svc-notification/lab.yaml —— 目录占位（status: planned）：只有目录元数据，可在目录中显示但不能开始实验；
-# 取值来自 05 §4 与 cards/ 逐卡文档。步骤、手册、检查与小测在后续批次补齐，届时 status 改为 beta 并提升版本。
+# labs/svc-notification/lab.yaml —— Amazon SNS：通知扇出与订阅过滤（cards/service-cards-2 svc-notification）
+# 实现核对（implementation-notes wave1-sns-ses）：
+#   - 用户订阅的“迁移”：迁移框架（backend/src/cli.ts migrate-module）尚未接入，卡片的 subscribe-users 步骤改用
+#     experiments/notification/subscribe-users.ts（经 PUT /api/notifications/prefs 走同一个 subscribeEmail），enable 带 --no-migrate；
+#   - fanout 的“管理员广播”只有在功能对照端点 /api/lab/notification/compare 登记后才测量（集成阶段），必需结论来自按用户的评论扇出；
+#   - 运维订阅待确认时探针为 degraded（detail 含“订阅待确认”），wire 检查用 pendingIf 等待（附录 C-18）。
 schema: atl.lab/v2
 id: svc-notification
 kind: service
-version: 0.1.0
-status: planned
+version: 1.0.0
+status: beta
 service: Amazon SNS
 function: 通知扇出与订阅过滤
 title: Amazon SNS：通知扇出与订阅过滤
+subtitle: 逐个发信 → 一次 Publish + 订阅过滤
 summary: 把“应用逐个发邮件”的站外通知换成一次 SNS Publish，按订阅过滤策略扇出到邮件订阅与模块自带的 SQS 收件队列。
+story: |
+  L0 中“有人评论了你的照片”这类事件由 EC2 写站内信，再逐个调用 EmailPort 发邮件：接收人越多、渠道越多，EC2 干的活越多，
+  sync 档下这些时间全部算在发评论的请求里。这张卡片把站外扇出交给 Amazon SNS：应用只 Publish 一次，带上 userId / audience
+  消息属性，由订阅的过滤策略决定谁收到；模块自带的 SQS 收件队列收到每条事件的副本，worker 据此记账。
+objectives:
+  - { text: 用 SNS + SQS 扇出解释“推送式一对多”与 SQS 竞争消费的区别, domain: resilient, relatesTo: after }
+  - { text: 用订阅过滤策略让每位用户只收到与自己有关的通知, domain: resilient, relatesTo: subscribe-users }
+  - { text: 说清邮件订阅为什么要确认、为什么事务性邮件不该用 SNS, domain: resilient, relatesTo: enable }
+  - { text: 看懂 Publish 耗时与接收人数无关, domain: performance, relatesTo: after }
 difficulty: beginner
 estimatedMinutes: 60
 timeLimitMinutes: 90
-extensions: {maxCount: 2, minutesEach: 30}
-retain: {allowed: true, maxHours: 24}
+extensions: { maxCount: 2, minutesEach: 30 }
+retain: { allowed: true, maxHours: 24, reason: 只有按请求计费的 SNS 与 SQS；保留后可以在 sc-event-fanout 中继续 }
 regions:
   supported: [ap-northeast-1]
 services:
-- {id: sns, name: Amazon SNS, role: primary, module: notification}
-- {id: iam, role: context, module: iam}
-modules:
-  target: [notification]
-  start: [iam]
-  context: []
-  related: [email, queue]
+  - { id: sns, name: Amazon SNS, role: primary, module: notification }
+  - { id: sqs, name: Amazon SQS（模块自带收件队列与订阅级 DLQ）, role: context, module: notification }
+  - { id: iam, name: AWS IAM（实例角色）, role: context, module: iam }
+  - { id: cloudwatch, name: Amazon CloudWatch（SNS 指标）, role: observed }
+modules: { target: [notification], start: [iam], context: [], related: [email, queue] }
 prerequisites:
   cards:
-  - {id: svc-ec2, kind: soft}
-  - {id: svc-iam, kind: soft}
-  - {id: svc-email, kind: soft}
-  - {id: sc-event-fanout, kind: soft}
+    - { id: svc-ec2, kind: soft }
+    - { id: svc-iam, kind: soft }
+    - { id: svc-email, kind: soft }
+    - { id: sc-event-fanout, kind: soft }
   learnerInputs:
-  - {id: notify-email}
+    - { id: notify-email }
+  knowledge: [电子邮件的 + 子地址（plus addressing）, JSON]
+
 startProfile:
   provisions:
-  - item: iam
-    kind: module
-    basis: credential
-    set: {IAM_CREDENTIALS: role}
-    reason: 平台约定除 svc-ec2、svc-iam 外起始状态都带实例角色（C3）
-  - {item: preview-direct-https, kind: platform, reason: 预览使用方案 B 的 Let's Encrypt IP 证书（03 §6.2）}
-  platform:
-    preview: {directHttps: 'on'}
+    - { item: iam, kind: module, basis: credential, set: { IAM_CREDENTIALS: role },
+        reason: 平台约定除 svc-ec2、svc-iam 外起始状态都带实例角色（C3）；notification 本身也是 credentials required（CRED-001） }
+    - { item: mgmt-channel, kind: platform, reason: 实验机挂只含 AmazonSSMManagedInstanceCore 的 CloudAlbumAppRole，是平台的管理通道，不是应用权限 }
+    - { item: workstation, kind: platform, reason: 每个会话一台工作台，用于运行 scripts/module、AWS CLI 与对比实验 }
+    - { item: preview-direct-https, kind: platform, reason: 预览使用方案 B 的 Let's Encrypt IP 证书（03 §6.2）；本卡不涉及 tls，保持开启 }
+  platform: { preview: { directHttps: 'on' } }
+  reason: notification 的 requires 为空，不依赖 email 与 queue（SNS → SQS 扇出用的是本模块自带的收件队列）；起始状态是 L0 + 实例角色（档位 atl/svc-notification/default）
 targetModules:
-- {id: notification, driver: sns}
+  - { id: notification, driver: sns, fromDriver: db, wireStep: enable, adoptsExisting: false }
 expectedWarnings: []
-cost: {tier: low}
-provision: {class: A}
-badge: {title: 一发多收}
+workstation: { required: true, tools: [aws-cli, node, jq], savingsMode: degraded }
+platform:
+  consoleLinks: [sqs.queue]
+provision: { class: A }
+
+variables:
+  topicArn: { label: 通知主题 ARN, from: derived, fillFrom: stack.notification.EnvNotifyTopicArn }
+  inboxUrl: { label: 收件队列 URL, from: derived, fillFrom: stack.notification.EnvNotifyInboxQueueUrl }
+  inboxArn: { label: 收件队列 ARN, from: derived, fillFrom: stack.notification.InfoInboxQueueArn }
+  dlqUrl: { label: 订阅级 DLQ URL, from: derived, fillFrom: stack.notification.EnvNotifyDlqUrl }
+
+cost:
+  currency: USD
+  tier: low
+  mainDrivers: [SNS 发布与投递（邮件协议单价高于 SQS）, 收件队列的 SQS 请求]
+  basis:
+    - { ref: start-profile, note: 实验机 EC2、EBS（根卷与数据卷）、公网 IPv4 }
+    - { ref: workstation, note: 工作台 EC2、EBS、公网 IPv4 }
+    - { key: sns-requests, pricingKey: sns.requests, billing: usage, quantity: 1, unit: requests,
+        assumedUsagePerHour: 200, source: target, whenRetained: true, note: Publish 与按协议计的投递（邮件、SQS）；学习规模通常在免费额度内 }
+    - { key: sqs-requests, pricingKey: sqs.requests, billing: usage, quantity: 1, unit: requests,
+        assumedUsagePerHour: 2000, source: target, whenRetained: true, note: worker 对收件队列的长轮询（空队列也计请求） }
+  assumptions:
+    - 主题空闲时没有费用；不使用短信与移动推送；单价以官方定价为准
+
+steps:
+  - id: seed
+    type: cli
+    title: 准备 3 个测试用户（+u1～+u3）
+    manual: manual/10-seed.md
+    panel: terminal-workstation
+    estMinutes: 5
+    checks: [notification-db-baseline]
+
+  - id: baseline
+    type: experiment
+    title: 记录 before：逐个调用 EmailPort 的扇出
+    manual: manual/20-baseline.md
+    experiment: { module: notification, id: fanout, label: before }
+    requires: { steps: [seed] }
+    panel: terminal-workstation
+    estMinutes: 6
+    checks: [exp-fanout-before]
+
+  - id: enable
+    type: script
+    wire: true
+    title: 接入 SNS：部署主题、收件队列与运维订阅
+    manual: manual/30-enable.md
+    methods: [script]
+    requires: { steps: [baseline] }
+    panel: terminal-workstation
+    estMinutes: 8
+    startsBilling: { class: usage, pricingKeys: [sns.requests, sqs.requests], note: 按请求与投递计费 }
+    wait: { typicalMinutes: 4, maxMinutes: 15, text: 部署主题与两条队列，然后到邮箱点击运维订阅的确认链接 }
+    checks: [notification-wired, notification-path-seen, topic-subscriptions, inbox-queue-policy]
+
+  - id: subscribe-users
+    type: cli
+    title: 为测试用户建带过滤策略的邮件订阅
+    manual: manual/40-subscribe-users.md
+    requires: { steps: [enable] }
+    panel: terminal-workstation
+    estMinutes: 10
+    wait: { typicalMinutes: 5, maxMinutes: 15, text: 3 封确认邮件，逐个点击 }
+    checks: [user-subscriptions, user-filter-policy]
+
+  - id: after
+    type: experiment
+    title: 记录 after：一次 Publish 的扇出
+    manual: manual/50-after.md
+    experiment: { module: notification, id: fanout, label: after }
+    requires: { steps: [subscribe-users] }
+    panel: terminal-workstation
+    estMinutes: 7
+    checks: [exp-fanout-pair]
+
+  - id: filter
+    type: experiment
+    title: 只发给 u1：订阅过滤策略
+    manual: manual/55-filter.md
+    experiment: { module: notification, id: filter, label: after }
+    requires: { steps: [after] }
+    panel: terminal-workstation
+    estMinutes: 6
+    wait: { typicalMinutes: 3, maxMinutes: 10, text: SNS 指标有分钟级延迟 }
+    checks: [exp-filter-after, filtered-out-metric]
+
+  - id: worker-stop
+    type: observe
+    title: （观察）worker 停机时邮件照常到达
+    manual: manual/60-worker-stop.md
+    requires: { steps: [enable] }
+    panel: terminal-lab
+    estMinutes: 8
+    checks: [inbox-backlog, worker-stop-mail]
+
+finalChecks:
+  - no-world-ssh
+  - { ref: notification-wired, as: final-notification-wired }
+
+experiments:
+  - module: notification
+    id: fanout
+    labels:
+      - { id: before, role: baseline, requires: { notification: db } }
+      - { id: after, role: treatment, requires: { notification: sns } }
+    pairs: [[before, after]]
+    requiredLabels: [before, after]
+    required: true
+    runner: workstation
+    allowSimulatedBaseline: false
+    corroboration: { minServerRatio: 0.9 }
+  - module: notification
+    id: filter
+    labels: [ { id: after, role: single } ]
+    required: true
+    runner: workstation
+    validity: functional
+    corroborateWith: [notification-wired]
+  - module: notification
+    id: worker-stop
+    labels: [ { id: after, role: single } ]
+    required: false
+    runner: workstation
+    validity: functional
+    corroborateWith: [notification-wired]
+
+quiz: { file: quiz.yaml, draw: 3 }
+badge: { title: 一发多收, icon: assets/badge.svg }
 tracks: [resilient, saa-main, serverless]
+
+cleanup:
+  summary: 结束实验后，平台删除本次会话创建的通知主题、收件队列与订阅级 DLQ；主题删除后所有订阅（包括待确认的）随之删除。测试用户与站内信随实验机删除。
+  autoReclaim: true
+  dataRisk: [邮箱里收到的确认邮件与通知邮件留在你的邮箱中，无需处理]
+  learnerCreatedHints: []
+  verify:
+    - notification-topic-gone
+
 saa:
   domains: [resilient, performance]
-tags: [notification, sns]
-certificate: {enabled: false}
+  topics:
+    - { id: fan-out, title: SNS + SQS 扇出与竞争消费的区别, domain: resilient, relatesTo: after }
+    - { id: filter-policy, title: 订阅过滤策略（消息属性 / 消息体）, domain: resilient, relatesTo: filter }
+    - { id: confirm, title: 邮件订阅确认、原始消息传递、订阅级 DLQ, domain: resilient, relatesTo: enable }
+    - { id: source-arn, title: 队列策略中的 aws:SourceArn（混淆代理人）, domain: secure, relatesTo: enable }
+  confusables:
+    - { a: SNS, b: SQS, rule: SNS 推送式一对多（每个订阅一份副本）；SQS 拉取式多选一（一条消息只给一个消费者） }
+    - { a: SNS 邮件订阅, b: Amazon SES, rule: SNS 邮件要先确认、纯文本、所有订阅者内容相同、带退订尾注；事务性个性化邮件用 SES }
+    - { a: SNS, b: EventBridge, rule: SNS 按订阅扇出、过滤看消息属性或消息体；EventBridge 按规则匹配事件内容并路由到目标，另有归档与重放 }
+
+tags: [notification, sns, sqs, fan-out, filter-policy]
+
+permissions:
+  learner:
+    - cloudformation:CreateChangeSet
+    - cloudformation:DescribeChangeSet
+    - cloudformation:ExecuteChangeSet
+    - cloudformation:DescribeStacks
+    - cloudformation:DescribeStackEvents
+    - sns:CreateTopic
+    - sns:Subscribe
+    - sns:GetTopicAttributes
+    - sns:SetTopicAttributes
+    - sns:ListSubscriptionsByTopic
+    - sns:GetSubscriptionAttributes
+    - sns:TagResource
+    - sqs:CreateQueue
+    - sqs:SetQueueAttributes
+    - sqs:GetQueueAttributes
+    - sqs:TagQueue
+    - iam:CreatePolicy
+    - iam:AttachRolePolicy
+    - ssm:SendCommand
+    - ssm:GetCommandInvocation
+  notes: 平台模式下 scripts/module 给栈打 atl:component=env、atl:session-id、atl:lab-id 标签（C4(d)）；确认订阅邮件由学员在自己的邮箱中点击（人工前置 confirm-email），平台不代为确认
+
+certificate: { enabled: false }
+owners: [cloudalbum-maintainers]

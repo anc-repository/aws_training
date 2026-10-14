@@ -1,0 +1,189 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >-
+  CloudAlbum module "notification" - Amazon SNS fan-out topic with per-user subscription filter policies, a module-owned
+  SQS inbox (raw message delivery) and a subscription-level DLQ. docs/modules/04-compute-async.md#notification
+
+Metadata:
+  CloudAlbum:
+    module: notification
+    registryVersion: 1
+    # Injected parameters: KmsKeyArn (kms, topic SSE-KMS only). Provides (registry injects): NotifyTopicArn -> social-api.
+    # Tags: stack-level tags from scripts/module (Project, Env, Module, ModuleVersion, ManagedBy; platform mode adds atl:*).
+    # No topic policy: only the application role publishes (IAM is enough). The two queues keep SSE-SQS even when kms is
+    # enabled: a CMK on a queue needs a key policy statement for sns.amazonaws.com, otherwise deliveries fail silently.
+
+Parameters:
+  Env:
+    Type: String
+    Default: lab
+    AllowedPattern: '^[a-z][a-z0-9-]{1,15}$'
+  ModuleVersion:
+    Type: String
+    Default: '1'
+  AdminEmail:
+    Type: String
+    Default: ''
+    AllowedPattern: '^$|^[^@\s]+@[^@\s]+\.[^@\s]+$'
+    Description: >-
+      Operator / admin fallback address (not a secret). Subscribed with the filter policy {"audience":["admin"]};
+      the recipient must click the AWS confirmation link. Empty = no admin subscription.
+  InboxMaxReceiveCount:
+    Type: Number
+    Default: 5
+    MinValue: 1
+    MaxValue: 1000
+  KmsKeyArn:
+    Type: String
+    Default: ''
+    Description: Injected by kms. Non-empty = SSE-KMS on the topic (the application role gets kms:GenerateDataKey / Decrypt).
+
+Conditions:
+  HasAdminEmail: !Not [!Equals [!Ref AdminEmail, '']]
+  HasKms: !Not [!Equals [!Ref KmsKeyArn, '']]
+
+Resources:
+  EventsTopic:
+    Type: AWS::SNS::Topic
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Delete
+    Properties:
+      TopicName: !Sub 'cloudalbum-${Env}-notification-events'
+      DisplayName: CloudAlbum
+      KmsMasterKeyId: !If [HasKms, !Ref KmsKeyArn, !Ref 'AWS::NoValue']
+      Tags:
+        - { Key: Name, Value: !Sub 'cloudalbum-${Env}-notification-events' }
+
+  NotificationDlq:
+    Type: AWS::SQS::Queue
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Delete
+    Properties:
+      QueueName: !Sub 'cloudalbum-${Env}-notification-dlq'
+      MessageRetentionPeriod: 1209600          # 14 days: longer than the inbox
+      SqsManagedSseEnabled: true
+      Tags:
+        - { Key: Name, Value: !Sub 'cloudalbum-${Env}-notification-dlq' }
+
+  InboxQueue:
+    Type: AWS::SQS::Queue
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Delete
+    Properties:
+      QueueName: !Sub 'cloudalbum-${Env}-notification-inbox'
+      ReceiveMessageWaitTimeSeconds: 20
+      VisibilityTimeout: 60
+      MessageRetentionPeriod: 345600           # 4 days
+      SqsManagedSseEnabled: true
+      RedrivePolicy:                           # messages the worker cannot parse end up next to the failed SNS deliveries
+        deadLetterTargetArn: !GetAtt NotificationDlq.Arn
+        maxReceiveCount: !Ref InboxMaxReceiveCount
+      Tags:
+        - { Key: Name, Value: !Sub 'cloudalbum-${Env}-notification-inbox' }
+
+  QueuesPolicy:
+    Type: AWS::SQS::QueuePolicy
+    Properties:
+      Queues: [!Ref InboxQueue, !Ref NotificationDlq]
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: OnlyThisTopic                 # aws:SourceArn: confused-deputy protection
+            Effect: Allow
+            Principal: { Service: sns.amazonaws.com }
+            Action: sqs:SendMessage
+            Resource: [!GetAtt InboxQueue.Arn, !GetAtt NotificationDlq.Arn]
+            Condition:
+              ArnEquals: { 'aws:SourceArn': !Ref EventsTopic }
+
+  InboxSubscription:
+    Type: AWS::SNS::Subscription
+    DependsOn: QueuesPolicy
+    Properties:
+      TopicArn: !Ref EventsTopic
+      Protocol: sqs
+      Endpoint: !GetAtt InboxQueue.Arn
+      RawMessageDelivery: true                 # the worker receives the published `sqs` text (the event JSON) as is
+      RedrivePolicy:                           # subscription-level DLQ: deliveries SNS gave up on
+        deadLetterTargetArn: !GetAtt NotificationDlq.Arn
+
+  AdminEmailSubscription:
+    Type: AWS::SNS::Subscription
+    Condition: HasAdminEmail
+    DependsOn: QueuesPolicy
+    Properties:
+      TopicArn: !Ref EventsTopic
+      Protocol: email
+      Endpoint: !Ref AdminEmail
+      FilterPolicyScope: MessageAttributes
+      FilterPolicy:
+        audience: [admin]
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt NotificationDlq.Arn
+
+  AppPolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      ManagedPolicyName: !Sub 'cloudalbum-${Env}-notification'   # attached by scripts/module (D2)
+      Description: CloudAlbum notification module - publish, per-user subscriptions, inbox consumer and probe permissions
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: Topic
+            Effect: Allow
+            Action:
+              - sns:Publish
+              - sns:Subscribe
+              - sns:GetTopicAttributes
+              - sns:ListSubscriptionsByTopic
+            Resource: !Ref EventsTopic
+          - Sid: Subscriptions                 # subscription ARNs are <topic ARN>:<id>
+            Effect: Allow
+            Action:
+              - sns:Unsubscribe
+              - sns:GetSubscriptionAttributes
+              - sns:SetSubscriptionAttributes
+            Resource: [!Ref EventsTopic, !Sub '${EventsTopic}:*']
+          - Sid: InboxAndDlq
+            Effect: Allow
+            Action: [sqs:ReceiveMessage, sqs:DeleteMessage, sqs:GetQueueAttributes]
+            Resource: [!GetAtt InboxQueue.Arn, !GetAtt NotificationDlq.Arn]
+          - Sid: TopicMetrics                  # /lab card and the deep probe: NumberOfNotificationsFilteredOut / Failed
+            Effect: Allow
+            Action: cloudwatch:GetMetricData
+            Resource: '*'
+          - !If
+            - HasKms
+            - Sid: Kms
+              Effect: Allow
+              Action: [kms:GenerateDataKey, kms:Decrypt]
+              Resource: !Ref KmsKeyArn
+            - !Ref 'AWS::NoValue'
+
+Outputs:
+  ModuleId:
+    Value: notification
+  ModuleVersion:
+    Value: !Ref ModuleVersion
+  PolicyArn:
+    Value: !Ref AppPolicy
+  EnvNotifyDriver:
+    Value: sns
+  EnvNotifyTopicArn:
+    Value: !Ref EventsTopic
+  EnvNotifyInboxQueueUrl:
+    Value: !Ref InboxQueue
+  EnvNotifyDlqUrl:
+    Value: !Ref NotificationDlq
+  InfoTopicArn:
+    Description: injected into social-api (NotifyTopicArn) when SOCIAL_API_INTEGRATION=lambda
+    Value: !Ref EventsTopic
+  InfoTopicName:
+    Value: !GetAtt EventsTopic.TopicName
+  InfoInboxQueueArn:
+    Value: !GetAtt InboxQueue.Arn
+  InfoDlqArn:
+    Value: !GetAtt NotificationDlq.Arn
+  InfoAdminSubscription:
+    Value: !If [HasAdminEmail, !Sub '${AdminEmail} (filter audience=admin; confirm the AWS Notifications e-mail)', 'none']
+  InfoTopicEncryption:
+    Value: !If [HasKms, 'SSE-KMS', 'none']

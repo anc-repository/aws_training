@@ -1,0 +1,118 @@
+{
+  "$schema": "../_lib/schema/experiment.schema.json",
+  "module": "email",
+  "title": "email：有 / 无 SES（docs/modules/04-compute-async.md#email 第 5 节）",
+  "default": "send-matrix",
+  "experiments": [
+    {
+      "module": "email",
+      "id": "send-matrix",
+      "title": "发信矩阵：SES 邮箱模拟器（success / bounce / complaint）+ 你的已验证地址",
+      "kind": "before-after",
+      "doc": "docs/modules/04-compute-async.md#email",
+      "description": "对每个地址注册测试用户（已存在则跳过）并触发“找回密码”，以管理员身份轮询 /api/admin/outbox 读取 transport、status 与反馈队列更新的 delivery_status（服务端证据）。outbox 档全部写入 outbox（未真正发出）；ses 档 success → 已投递、bounce → 退信、complaint → 投诉。业务流量只能切换前 / 切换后（邮件是对外副作用）。只适用于 auth=local。",
+      "requires": {
+        "before": { "email.driver": "outbox" },
+        "after": { "email.driver": "ses", "email.status": ["ok", "degraded"] }
+      },
+      "labels": {
+        "before": { "title": "outbox：只写本机，未真正发出", "role": "baseline" },
+        "after": { "title": "ses：经 Amazon SES 发出，反馈经 SNS → SQS 回流", "role": "treatment" }
+      },
+      "scenario": { "tool": "node", "script": "send-matrix.ts", "vus": 1, "duration": "300s" },
+      "params": {
+        "to": { "type": "string", "default": "", "description": "你自己的已验证地址（沙盒期必须已验证；可省略，只用模拟器）" },
+        "waitSec": { "type": "number", "default": 180, "min": 0, "max": 900, "description": "等待反馈事件回流的上限（ses 档）" }
+      },
+      "metrics": [
+        "client.http_req_duration{route:/api/auth/forgot}.p95",
+        "server.route./api/auth/forgot.p95",
+        "server.port.email.dur.p95",
+        "biz.email_send_ms_p50",
+        "biz.mail_outbox_only",
+        "biz.mail_delivered",
+        "biz.mail_bounced",
+        "biz.mail_complained",
+        "biz.mail_failed",
+        "biz.feedback_latency_sec_max"
+      ],
+      "expect": [
+        { "metric": "biz.mail_outbox_only", "direction": "down", "note": "ses 档邮件真正发出（保留域名除外）" },
+        { "metric": "biz.mail_delivered", "direction": "up", "note": "success@simulator 回流为已投递" },
+        { "metric": "biz.mail_bounced", "direction": "up", "note": "bounce@simulator 回流为退信，用户 email_status=bounced" },
+        { "metric": "biz.mail_complained", "direction": "up", "note": "complaint@simulator 回流为投诉" },
+        { "metric": "biz.email_send_ms_p50", "direction": "up", "note": "每封多一次 HTTPS API 调用（几十到上百毫秒量级）；outbox 只写文件与数据库" }
+      ]
+    },
+    {
+      "module": "email",
+      "id": "compare",
+      "title": "功能对照：同一封邮件经 outbox 与 SES 各发一次",
+      "kind": "functional",
+      "doc": "docs/modules/04-compute-async.md#email",
+      "description": "POST /api/lab/email/compare {to}（仅管理员；实现见 backend/src/adapters/email/compare.ts）。只发给你指定的地址，沙盒期必须已验证。",
+      "requires": {
+        "after": { "email.driver": "ses" }
+      },
+      "labels": {
+        "after": { "title": "ses 档下的并排对照", "role": "single" }
+      },
+      "scenario": { "tool": "node", "script": "compare.ts", "vus": 1, "duration": "30s" },
+      "params": {
+        "to": { "type": "string", "default": "", "description": "收件地址（必填；沙盒期必须已验证）" }
+      },
+      "metrics": ["biz.compare_outbox_ms", "biz.compare_ses_ms", "biz.compare_ses_delivered"]
+    },
+    {
+      "module": "email",
+      "id": "sandbox",
+      "title": "SES 沙盒：发给未验证地址被拒（MessageRejected）",
+      "kind": "functional",
+      "doc": "docs/modules/04-compute-async.md#email",
+      "description": "用一个未验证的地址注册（或重发验证邮件），读服务端的发送记录：status=failed、错误 MessageRejected（EMAIL_SANDBOX_POLICY=outbox 时改写进 outbox）。另记录 capabilities 中的沙盒状态与配额（GetAccount）。",
+      "requires": {
+        "after": { "email.driver": "ses" }
+      },
+      "labels": {
+        "after": { "title": "ses 档（沙盒）", "role": "single" }
+      },
+      "scenario": { "tool": "node", "script": "sandbox.ts", "vus": 1, "duration": "30s" },
+      "params": {
+        "to": { "type": "string", "default": "", "description": "一个没有在 SES 验证过的地址（必填；不要用 example.com 等保留域名）" }
+      },
+      "metrics": ["biz.sandbox_rejected"],
+      "expect": [
+        { "metric": "biz.sandbox_rejected", "direction": "nonzero", "note": "沙盒中只能发给已验证地址与 SES 邮箱模拟器" }
+      ]
+    },
+    {
+      "module": "email",
+      "id": "register-latency",
+      "title": "同步链路的代价：注册接口的延迟（验证邮件在请求内经 EmailPort 发出）",
+      "kind": "before-after",
+      "doc": "docs/modules/04-compute-async.md#email",
+      "description": "注册 count 个 success+reg-<runId>-<n>@simulator.amazonses.com 用户，比较 outbox 与 ses 两档注册接口的延迟与 Server-Timing 的 email 段（文档的 register.k6.js 在本仓库以 Node 场景实现）。",
+      "requires": {
+        "before": { "email.driver": "outbox" },
+        "after": { "email.driver": "ses", "email.status": ["ok", "degraded"] }
+      },
+      "labels": {
+        "before": { "title": "outbox", "role": "baseline" },
+        "after": { "title": "ses", "role": "treatment" }
+      },
+      "scenario": { "tool": "node", "script": "register-latency.ts", "vus": 1, "duration": "120s" },
+      "params": {
+        "count": { "type": "number", "default": 10, "min": 1, "max": 18, "description": "注册人数（注册接口每 IP 10 分钟限 20 次）" }
+      },
+      "metrics": [
+        "client.http_req_duration{route:/api/auth/register}.p95",
+        "server.route./api/auth/register.p95",
+        "biz.register_email_ms_p50",
+        "biz.register_ms_p95"
+      ],
+      "expect": [
+        { "metric": "biz.register_email_ms_p50", "direction": "up", "note": "outbox 写文件毫秒级；SES 一次 HTTPS 调用，几十到上百毫秒量级" }
+      ]
+    }
+  ]
+}

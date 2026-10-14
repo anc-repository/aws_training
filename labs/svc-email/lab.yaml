@@ -1,58 +1,253 @@
-# labs/svc-email/lab.yaml —— 目录占位（status: planned）：只有目录元数据，可在目录中显示但不能开始实验；
-# 取值来自 05 §4 与 cards/ 逐卡文档。步骤、手册、检查与小测在后续批次补齐，届时 status 改为 beta 并提升版本。
+# labs/svc-email/lab.yaml —— Amazon SES：真实发信与退信回流（cards/service-cards-2 svc-email）
+# 实现核对（implementation-notes wave1-sns-ses）：
+#   - 发件身份可保留（keepablePrerequisites）：email.yaml 新增 AdoptExistingIdentity，scripts/module 在身份已存在时只读接入、
+#     禁用时不删除，附录 C-12 的“保留后再部署栈失败”不再出现；
+#   - SES 沙盒时探针为 degraded，detail 以“沙盒”开头，wire 检查用 anyOf 接受（附录 C-18）；
+#   - register-latency 在本仓库是 Node 场景（文档原写 register.k6.js），sandbox 是 npm run exp 场景（文档原写 npx tsx … --to）；
+#   - 功能对照端点 /api/lab/email/compare 由集成阶段登记，手册中选读。
 schema: atl.lab/v2
 id: svc-email
 kind: service
-version: 0.1.0
-status: planned
+version: 1.0.0
+status: beta
 service: Amazon SES
 function: 真实发信与退信回流
 title: Amazon SES：真实发信与退信回流
+subtitle: 本地 outbox → SES + 反馈回流
 summary: 把只写进本地 outbox 的邮件改由 SES 真正发出，验证发件身份、查看 DKIM 签名，并用 SES 邮箱模拟器演练退信与投诉回流。
+story: |
+  L0 的所有邮件（注册验证、找回密码、评论提醒、日报）只写进 EC2 上的 outbox（.eml + outbox_emails 表），本人在 /me/outbox 预览，
+  页面标注“本地实现，未真正发信”。这也意味着 outbox 档的“邮箱已验证”证明不了邮箱归属。这张卡片让同一份 MIME 经 Amazon SES 真正发出，
+  投递、退信与投诉事件经模块自带的 SNS → SQS 回流到应用，EC2 不需要任何入站端口。
+objectives:
+  - { text: 说清 SES 身份验证、沙盒与生产访问（按区域）, domain: secure, relatesTo: enable }
+  - { text: 用配置集事件目标与 SNS → SQS 把退信、投诉安全地送回应用, domain: resilient, relatesTo: after }
+  - { text: 在原始邮件中看懂 DKIM 签名与认证结果, domain: secure, relatesTo: headers }
+  - { text: 理解为什么不从 EC2 直接用 25 端口发信, domain: resilient, relatesTo: enable }
 difficulty: beginner
 estimatedMinutes: 60
 timeLimitMinutes: 90
-extensions: {maxCount: 2, minutesEach: 30}
-retain: {allowed: true, maxHours: 24}
+extensions: { maxCount: 2, minutesEach: 30 }
+retain: { allowed: true, maxHours: 24, reason: 只有按封计费的 SES 与按请求计费的 SNS / SQS }
 regions:
   supported: [ap-northeast-1]
 services:
-- {id: ses, name: Amazon SES, role: primary, module: email}
-- {id: iam, role: context, module: iam}
-modules:
-  target: [email]
-  start: [iam]
-  context: []
-  related: [notification]
+  - { id: ses, name: Amazon SES, role: primary, module: email }
+  - { id: sns, name: Amazon SNS（模块自带事件主题）, role: context, module: email }
+  - { id: sqs, name: Amazon SQS（模块自带反馈队列）, role: context, module: email }
+  - { id: iam, name: AWS IAM（实例角色）, role: context, module: iam }
+modules: { target: [email], start: [iam], context: [], related: [notification, auth] }
 prerequisites:
   cards:
-  - {id: svc-ec2, kind: soft}
-  - {id: svc-iam, kind: soft}
-  - {id: svc-notification, kind: soft}
+    - { id: svc-ec2, kind: soft }
+    - { id: svc-iam, kind: soft }
+    - { id: svc-notification, kind: soft }
   learnerInputs:
-  - {id: ses-identity}
+    - { id: ses-identity }
+    - { id: domain, required: false }
+  knowledge: [邮件头（From、Message-ID）, DNS 的 CNAME 与 TXT 记录]
+
 startProfile:
   provisions:
-  - item: iam
-    kind: module
-    basis: credential
-    set: {IAM_CREDENTIALS: role}
-    reason: 平台约定除 svc-ec2、svc-iam 外起始状态都带实例角色（C3）
-  - {item: preview-direct-https, kind: platform, reason: 预览使用方案 B 的 Let's Encrypt IP 证书（03 §6.2）}
-  platform:
-    preview: {directHttps: 'on'}
+    - { item: iam, kind: module, basis: credential, set: { IAM_CREDENTIALS: role },
+        reason: 平台约定除 svc-ec2、svc-iam 外起始状态都带实例角色（C3）；email 本身也是 credentials required（CRED-001） }
+    - { item: mgmt-channel, kind: platform, reason: 实验机挂只含 AmazonSSMManagedInstanceCore 的 CloudAlbumAppRole，是平台的管理通道，不是应用权限 }
+    - { item: workstation, kind: platform, reason: 每个会话一台工作台，用于运行 scripts/module、AWS CLI 与对比实验 }
+    - { item: preview-direct-https, kind: platform, reason: 预览使用方案 B 的 Let's Encrypt IP 证书（03 §6.2）；本卡不涉及 tls，保持开启 }
+  platform: { preview: { directHttps: 'on' } }
+  reason: email 的 requires 为空，不依赖 notification 与 queue（反馈通道自带）；不使用域名时也不需要 dns。起始状态是 L0 + 实例角色（档位 atl/svc-email/default）
 targetModules:
-- {id: email, driver: ses}
+  - { id: email, driver: ses, fromDriver: outbox, wireStep: enable, adoptsExisting: false }
 expectedWarnings: []
+workstation: { required: true, tools: [aws-cli, node, jq], savingsMode: degraded }
 platform:
+  consoleLinks: [sqs.queue]
   accountImpact:
-  - {id: ses-identity, scope: region, resource: SES 发件身份, revert: delete, note: 本会话创建的删除；可勾选保留}
-cost: {tier: low}
-provision: {class: A}
+    - { id: ses-identity, scope: region, resource: SES 发件身份, revert: delete, note: 本会话创建的删除；可勾选保留（再次部署时只读接入） }
+provision: { class: A }
 keepablePrerequisites: [ses-identity]
-badge: {title: 真实投递}
+
+variables:
+  feedbackUrl: { label: 反馈队列 URL, from: derived, fillFrom: stack.email.EnvSesFeedbackQueueUrl }
+  feedbackDlqUrl: { label: 反馈 DLQ URL, from: derived, fillFrom: stack.email.InfoFeedbackDlqUrl }
+  configSet: { label: 配置集, from: derived, fillFrom: stack.email.EnvSesConfigurationSet }
+
+cost:
+  currency: USD
+  tier: low
+  mainDrivers: [SES 发送封数, 反馈通道的 SNS / SQS 请求]
+  basis:
+    - { ref: start-profile, note: 实验机 EC2、EBS（根卷与数据卷）、公网 IPv4 }
+    - { ref: workstation, note: 工作台 EC2、EBS、公网 IPv4 }
+    - { key: ses-messages, pricingKey: ses.messages, billing: usage, quantity: 1, unit: messages,
+        assumedUsagePerHour: 50, source: target, whenRetained: true, note: 按发送封数计费，附件与数据量另计；免费额度的条件以官方定价为准 }
+    - { key: sns-requests, pricingKey: sns.requests, billing: usage, quantity: 1, unit: requests,
+        assumedUsagePerHour: 100, source: target, whenRetained: true, note: 配置集事件 → SNS → SQS }
+    - { key: sqs-requests, pricingKey: sqs.requests, billing: usage, quantity: 1, unit: requests,
+        assumedUsagePerHour: 2000, source: target, whenRetained: true, note: worker 对反馈队列的长轮询（空队列也计请求） }
+  assumptions:
+    - 卡片始终在 SES 沙盒中完成，不申请生产访问；不使用专用 IP 与 Virtual Deliverability Manager
+
+steps:
+  - id: baseline
+    type: experiment
+    title: 记录 before：邮件只写进本机 outbox
+    manual: manual/10-baseline.md
+    experiment: { module: email, id: send-matrix, label: before }
+    panel: terminal-workstation
+    estMinutes: 8
+    checks: [email-outbox-baseline, exp-send-matrix-before]
+
+  - id: enable
+    type: script
+    wire: true
+    title: 接入 SES：验证发件身份并切换驱动
+    manual: manual/20-enable.md
+    methods: [script]
+    requires: { steps: [baseline] }
+    panel: terminal-workstation
+    estMinutes: 10
+    startsBilling: { class: usage, pricingKeys: [ses.messages, sns.requests, sqs.requests], note: 按封与请求计费 }
+    wait: { typicalMinutes: 5, maxMinutes: 20, text: 部署后到邮箱点击 AWS 的验证链接，脚本轮询到“已验证”才写 env }
+    checks: [email-wired, email-path-seen, identity-verified, account-production]
+
+  - id: after
+    type: experiment
+    title: 记录 after：发信矩阵与反馈回流
+    manual: manual/30-after.md
+    experiment: { module: email, id: send-matrix, label: after }
+    requires: { steps: [enable] }
+    panel: terminal-workstation
+    estMinutes: 10
+    checks: [exp-send-matrix-pair, feedback-dlq-empty]
+
+  - id: headers
+    type: observe
+    title: 看原始邮件：DKIM 签名与认证结果
+    manual: manual/40-headers.md
+    requires: { steps: [after] }
+    panel: preview
+    estMinutes: 5
+    checks: [dkim-observed]
+
+  - id: sandbox
+    type: experiment
+    title: 沙盒限制：发给未验证地址
+    manual: manual/50-sandbox.md
+    experiment: { module: email, id: sandbox, label: after }
+    requires: { steps: [enable] }
+    panel: terminal-workstation
+    estMinutes: 6
+    checks: [exp-sandbox-after, sandbox-observed]
+
+  - id: register-latency
+    type: experiment
+    title: （选做）注册接口的同步链路代价
+    manual: manual/60-register-latency.md
+    optional: { reason: 与 send-matrix 的发送耗时结论方向一致 }
+    experiment: { module: email, id: register-latency, label: after }
+    requires: { steps: [enable] }
+    panel: terminal-workstation
+    estMinutes: 6
+    checks: [ { ref: exp-register-after, required: false } ]
+
+  - id: domain-identity
+    type: script
+    title: （选做）域名身份与 Easy DKIM
+    manual: manual/70-domain-identity.md
+    optional: { reason: 需要自有域名（人工前置）, when: "learner.inputs.domain != ''" }
+    when: "learner.inputs.domain != ''"
+    methods: [script]
+    requires: { steps: [after] }
+    panel: terminal-workstation
+    estMinutes: 10
+    wait: { typicalMinutes: 10, maxMinutes: 20, text: DKIM CNAME 生效与 SES 验证需要时间 }
+    checks: [ { ref: domain-dkim, required: false } ]
+
+finalChecks:
+  - no-world-ssh
+  - { ref: email-wired, as: final-email-wired }
+
+experiments:
+  - module: email
+    id: send-matrix
+    labels:
+      - { id: before, role: baseline, requires: { email: outbox } }
+      - { id: after, role: treatment, requires: { email: ses } }
+    pairs: [[before, after]]
+    requiredLabels: [before, after]
+    required: true
+    runner: workstation
+    allowSimulatedBaseline: false
+    corroboration: { minServerRatio: 0.9 }
+  - module: email
+    id: sandbox
+    labels: [ { id: after, role: single } ]
+    required: true
+    runner: workstation
+    validity: functional
+    corroborateWith: [email-wired]
+  - module: email
+    id: register-latency
+    labels:
+      - { id: before, role: baseline, requires: { email: outbox } }
+      - { id: after, role: treatment, requires: { email: ses } }
+    pairs: [[before, after]]
+    required: false
+    runner: workstation
+
+quiz: { file: quiz.yaml, draw: 3 }
+badge: { title: 真实投递, icon: assets/badge.svg }
 tracks: [saa-main]
+
+cleanup:
+  summary: 结束实验后，平台删除本次会话创建的配置集、事件主题与反馈队列；发件身份可以勾选保留（下次再部署时只读接入，不会因同名身份已存在而失败）。沙盒状态按区域保持不变。
+  autoReclaim: true
+  dataRisk: [发出的邮件已经在收件人的邮箱里，无法撤回；不要用真实用户的地址做实验]
+  learnerCreatedHints:
+    - { resourceType: AWS::SES::EmailIdentity, how: 勾选保留的发件身份留在账号中；不再需要时在 SES 控制台“已验证身份”中删除 }
+  verify:
+    - email-feedback-gone
+
 saa:
   domains: [secure, resilient]
-tags: [email, ses]
-certificate: {enabled: false}
+  topics:
+    - { id: identity, title: SES 身份（邮箱 / 域名）、Easy DKIM、SPF、DMARC, domain: secure, relatesTo: enable }
+    - { id: sandbox, title: 沙盒与生产访问（按区域）、发送配额与速率, domain: resilient, relatesTo: sandbox }
+    - { id: feedback, title: 配置集事件目标、退信与投诉、抑制列表, domain: resilient, relatesTo: after }
+    - { id: dkim, title: 原始邮件中的 DKIM-Signature 与 Authentication-Results, domain: secure, relatesTo: headers }
+  confusables:
+    - { a: Amazon SES, b: SNS 邮件订阅, rule: SES 发事务性、个性化邮件，收件人不需要订阅；SNS 邮件订阅是广播，要先确认、只能纯文本 }
+    - { a: SES API, b: SES SMTP 接口, rule: API 走 HTTPS 与 IAM 签名；SMTP 用从 IAM 派生的 SMTP 凭证（587 端口），EC2 默认限制 25 端口 }
+
+tags: [email, ses, dkim, bounce, sandbox]
+
+permissions:
+  learner:
+    - cloudformation:CreateChangeSet
+    - cloudformation:DescribeChangeSet
+    - cloudformation:ExecuteChangeSet
+    - cloudformation:DescribeStacks
+    - cloudformation:DescribeStackEvents
+    - ses:CreateEmailIdentity
+    - ses:GetEmailIdentity
+    - ses:GetAccount
+    - ses:CreateConfigurationSet
+    - ses:CreateConfigurationSetEventDestination
+    - ses:TagResource
+    - sns:CreateTopic
+    - sns:SetTopicAttributes
+    - sns:Subscribe
+    - sns:TagResource
+    - sqs:CreateQueue
+    - sqs:SetQueueAttributes
+    - sqs:GetQueueAttributes
+    - sqs:TagQueue
+    - iam:CreatePolicy
+    - iam:AttachRolePolicy
+    - ssm:SendCommand
+    - ssm:GetCommandInvocation
+  notes: 平台模式下 scripts/module 给栈打 atl:component=env、atl:session-id、atl:lab-id 标签（C4(d)）；SES 的沙盒状态是账号级的，平台不代为申请生产访问；验证邮件由学员在自己的邮箱中点击（人工前置 ses-identity）
+
+certificate: { enabled: false }
+owners: [cloudalbum-maintainers]

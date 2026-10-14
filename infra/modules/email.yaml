@@ -1,0 +1,348 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >-
+  CloudAlbum module "email" - Amazon SES sender identity (e-mail address or domain with Easy DKIM), configuration set with
+  reputation metrics and suppression, and a module-owned feedback channel (event destination -> SNS -> SQS + DLQ).
+  docs/modules/04-compute-async.md#email
+
+Metadata:
+  CloudAlbum:
+    module: email
+    registryVersion: 1
+    # Injected parameters: HostedZoneId (dns: DKIM / MAIL FROM / DMARC records). Provides (registry injects):
+    # SesIdentityArn -> auth when EMAIL_FOR_COGNITO=on (ForCognito=true).
+    # Tags: stack-level tags from scripts/module (Project, Env, Module, ModuleVersion, ManagedBy; platform mode adds atl:*).
+    # AdoptExistingIdentity=true (06 PM-M24): the identity already exists in the account and region (verified before, kept
+    # from an earlier session); the stack neither creates nor deletes it.
+    # Not taking KmsKeyArn: SES -> SNS -> SQS with a CMK needs key policy statements for ses.amazonaws.com and
+    # sns.amazonaws.com (kms module); this round keeps the feedback channel on SSE-SQS.
+    # Cognito sending authorization: current User Pools send through the Cognito service-linked role (to be confirmed in the
+    # official documentation); there is no CloudFormation resource for SES identity policies, so ForCognito only switches
+    # EnvEmailForCognito and the registry inject of SesIdentityArn into the auth stack.
+
+Parameters:
+  Env:
+    Type: String
+    Default: lab
+    AllowedPattern: '^[a-z][a-z0-9-]{1,15}$'
+  ModuleVersion:
+    Type: String
+    Default: '1'
+  Email:
+    Type: String
+    Default: ''
+    AllowedPattern: '^$|^[^@\s]+@[^@\s]+\.[^@\s]+$'
+    Description: E-mail address identity (no own domain). Exactly one of Email / Domain.
+  Domain:
+    Type: String
+    Default: ''
+    AllowedPattern: '^$|^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$'
+    Description: Domain identity with Easy DKIM (needs DNS write access). Exactly one of Email / Domain.
+  MailFromDomain:
+    Type: String
+    Default: ''
+    AllowedPattern: '^$|^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$'
+    Description: Optional custom MAIL FROM (domain identity only), e.g. bounce.mail.example.com (SPF alignment).
+  CreateDmarcRecord:
+    Type: String
+    Default: 'false'
+    AllowedValues: ['true', 'false']
+    Description: With HostedZoneId and a domain identity, also write _dmarc.<Domain> TXT "v=DMARC1; p=none".
+  HostedZoneId:
+    Type: String
+    Default: ''
+    Description: Injected by dns. Non-empty (and a domain identity) = this stack writes the 3 DKIM CNAMEs (and MAIL FROM records).
+  ForCognito:
+    Type: String
+    Default: 'false'
+    AllowedValues: ['true', 'false']
+    Description: '--param ForCognito=true: EMAIL_FOR_COGNITO=on, the registry injects InfoIdentityArn into auth (SesIdentityArn).'
+  AdoptExistingIdentity:
+    Type: String
+    Default: 'false'
+    AllowedValues: ['true', 'false']
+  FeedbackMaxReceiveCount:
+    Type: Number
+    Default: 5
+    MinValue: 1
+    MaxValue: 1000
+
+Rules:
+  ExactlyOneIdentity:
+    Assertions:
+      - Assert: !Not [!And [!Equals [!Ref Email, ''], !Equals [!Ref Domain, '']]]
+        AssertDescription: set --param Email=<address> or --param Domain=<domain>
+      - Assert: !Or [!Equals [!Ref Email, ''], !Equals [!Ref Domain, '']]
+        AssertDescription: Email and Domain are mutually exclusive
+
+Conditions:
+  HasDomain: !Not [!Equals [!Ref Domain, '']]
+  CreateIdentity: !Equals [!Ref AdoptExistingIdentity, 'false']
+  HasZone: !Not [!Equals [!Ref HostedZoneId, '']]
+  ForCognitoOn: !Equals [!Ref ForCognito, 'true']
+  CreateDomainIdentity: !And [!Condition HasDomain, !Condition CreateIdentity]
+  WriteDkim: !And [!Condition CreateDomainIdentity, !Condition HasZone]
+  HasMailFrom: !And [!Condition HasDomain, !Not [!Equals [!Ref MailFromDomain, '']]]
+  CreateMailFrom: !And [!Condition HasMailFrom, !Condition CreateIdentity]
+  WriteMailFrom: !And [!Condition CreateMailFrom, !Condition HasZone]
+  WriteDmarc: !And [!Condition HasDomain, !Condition HasZone, !Equals [!Ref CreateDmarcRecord, 'true']]
+
+Resources:
+  SenderIdentity:
+    Type: AWS::SES::EmailIdentity
+    Condition: CreateIdentity
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Retain                # a replaced identity would need to be verified again
+    Properties:
+      EmailIdentity: !If [HasDomain, !Ref Domain, !Ref Email]
+      DkimSigningAttributes: !If [HasDomain, { NextSigningKeyLength: RSA_2048_BIT }, !Ref 'AWS::NoValue']
+      DkimAttributes: !If [HasDomain, { SigningEnabled: true }, !Ref 'AWS::NoValue']
+      MailFromAttributes: !If [CreateMailFrom, { MailFromDomain: !Ref MailFromDomain, BehaviorOnMxFailure: USE_DEFAULT_VALUE }, !Ref 'AWS::NoValue']
+      ConfigurationSetAttributes:
+        ConfigurationSetName: !Ref ConfigSet
+
+  DkimRecord1:
+    Type: AWS::Route53::RecordSet
+    Condition: WriteDkim
+    Properties:
+      HostedZoneId: !Ref HostedZoneId
+      Name: !GetAtt SenderIdentity.DkimDNSTokenName1
+      Type: CNAME
+      TTL: '1800'
+      ResourceRecords: [!GetAtt SenderIdentity.DkimDNSTokenValue1]
+  DkimRecord2:
+    Type: AWS::Route53::RecordSet
+    Condition: WriteDkim
+    Properties:
+      HostedZoneId: !Ref HostedZoneId
+      Name: !GetAtt SenderIdentity.DkimDNSTokenName2
+      Type: CNAME
+      TTL: '1800'
+      ResourceRecords: [!GetAtt SenderIdentity.DkimDNSTokenValue2]
+  DkimRecord3:
+    Type: AWS::Route53::RecordSet
+    Condition: WriteDkim
+    Properties:
+      HostedZoneId: !Ref HostedZoneId
+      Name: !GetAtt SenderIdentity.DkimDNSTokenName3
+      Type: CNAME
+      TTL: '1800'
+      ResourceRecords: [!GetAtt SenderIdentity.DkimDNSTokenValue3]
+
+  MailFromMx:
+    Type: AWS::Route53::RecordSet
+    Condition: WriteMailFrom
+    Properties:
+      HostedZoneId: !Ref HostedZoneId
+      Name: !Ref MailFromDomain
+      Type: MX
+      TTL: '1800'
+      ResourceRecords: [!Sub '10 feedback-smtp.${AWS::Region}.amazonses.com']
+  MailFromSpf:
+    Type: AWS::Route53::RecordSet
+    Condition: WriteMailFrom
+    Properties:
+      HostedZoneId: !Ref HostedZoneId
+      Name: !Ref MailFromDomain
+      Type: TXT
+      TTL: '1800'
+      ResourceRecords: ['"v=spf1 include:amazonses.com ~all"']
+  DmarcRecord:
+    Type: AWS::Route53::RecordSet
+    Condition: WriteDmarc
+    Properties:
+      HostedZoneId: !Ref HostedZoneId
+      Name: !Sub '_dmarc.${Domain}'
+      Type: TXT
+      TTL: '1800'
+      ResourceRecords: ['"v=DMARC1; p=none"']
+
+  ConfigSet:
+    Type: AWS::SES::ConfigurationSet
+    Properties:
+      Name: !Sub 'cloudalbum-${Env}-email'
+      ReputationOptions:
+        ReputationMetricsEnabled: true
+      SendingOptions:
+        SendingEnabled: true
+      SuppressionOptions:                      # configuration-set level suppression (the account-level list is the second line)
+        SuppressedReasons: [BOUNCE, COMPLAINT]
+
+  EventsTopic:
+    Type: AWS::SNS::Topic
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Delete
+    Properties:
+      TopicName: !Sub 'cloudalbum-${Env}-email-events'
+      DisplayName: CloudAlbum SES events
+      Tags:
+        - { Key: Name, Value: !Sub 'cloudalbum-${Env}-email-events' }
+
+  EventsTopicPolicy:
+    Type: AWS::SNS::TopicPolicy
+    Properties:
+      Topics: [!Ref EventsTopic]
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: SesFromThisAccount            # aws:SourceAccount / SourceArn: confused-deputy protection
+            Effect: Allow
+            Principal: { Service: ses.amazonaws.com }
+            Action: sns:Publish
+            Resource: !Ref EventsTopic
+            Condition:
+              StringEquals: { 'aws:SourceAccount': !Ref 'AWS::AccountId' }
+              ArnLike: { 'aws:SourceArn': !Sub 'arn:${AWS::Partition}:ses:${AWS::Region}:${AWS::AccountId}:configuration-set/cloudalbum-${Env}-email' }
+
+  FeedbackDlq:
+    Type: AWS::SQS::Queue
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Delete
+    Properties:
+      QueueName: !Sub 'cloudalbum-${Env}-email-feedback-dlq'
+      MessageRetentionPeriod: 1209600
+      SqsManagedSseEnabled: true
+      Tags:
+        - { Key: Name, Value: !Sub 'cloudalbum-${Env}-email-feedback-dlq' }
+
+  FeedbackQueue:
+    Type: AWS::SQS::Queue
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Delete
+    Properties:
+      QueueName: !Sub 'cloudalbum-${Env}-email-feedback'
+      ReceiveMessageWaitTimeSeconds: 20
+      VisibilityTimeout: 60
+      MessageRetentionPeriod: 345600
+      SqsManagedSseEnabled: true
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt FeedbackDlq.Arn
+        maxReceiveCount: !Ref FeedbackMaxReceiveCount
+      Tags:
+        - { Key: Name, Value: !Sub 'cloudalbum-${Env}-email-feedback' }
+
+  FeedbackQueuePolicy:
+    Type: AWS::SQS::QueuePolicy
+    Properties:
+      Queues: [!Ref FeedbackQueue]
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: OnlyEventsTopic
+            Effect: Allow
+            Principal: { Service: sns.amazonaws.com }
+            Action: sqs:SendMessage
+            Resource: !GetAtt FeedbackQueue.Arn
+            Condition:
+              ArnEquals: { 'aws:SourceArn': !Ref EventsTopic }
+
+  FeedbackSubscription:
+    Type: AWS::SNS::Subscription
+    DependsOn: FeedbackQueuePolicy
+    Properties:
+      TopicArn: !Ref EventsTopic
+      Protocol: sqs
+      Endpoint: !GetAtt FeedbackQueue.Arn
+      RawMessageDelivery: true                 # the worker receives the SES event JSON as is
+
+  SnsEventDestination:
+    Type: AWS::SES::ConfigurationSetEventDestination
+    DependsOn: EventsTopicPolicy
+    Properties:
+      ConfigurationSetName: !Ref ConfigSet
+      EventDestination:
+        Name: feedback-sns
+        Enabled: true
+        MatchingEventTypes: [send, delivery, bounce, complaint, reject, deliveryDelay]
+        SnsDestination:
+          TopicARN: !Ref EventsTopic
+
+  CloudWatchEventDestination:
+    Type: AWS::SES::ConfigurationSetEventDestination
+    Properties:
+      ConfigurationSetName: !Ref ConfigSet
+      EventDestination:
+        Name: metrics-cloudwatch
+        Enabled: true
+        MatchingEventTypes: [send, delivery, bounce, complaint, reject]
+        CloudWatchDestination:
+          DimensionConfigurations:
+            - DimensionName: category              # EmailTags category=<verification|password-reset|notification|report|system>
+              DimensionValueSource: messageTag
+              DefaultDimensionValue: none
+
+  AppPolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      ManagedPolicyName: !Sub 'cloudalbum-${Env}-email'   # attached by scripts/module (D2)
+      Description: CloudAlbum email module - send from the module identity only, probe and feedback queue permissions
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: SendFromIdentityOnly
+            Effect: Allow
+            Action: [ses:SendEmail, ses:SendRawEmail]
+            Resource:
+              - !Sub
+                - 'arn:${AWS::Partition}:ses:${AWS::Region}:${AWS::AccountId}:identity/${Name}'
+                - { Name: !If [HasDomain, !Ref Domain, !Ref Email] }
+              - !Sub 'arn:${AWS::Partition}:ses:${AWS::Region}:${AWS::AccountId}:configuration-set/${ConfigSet}'
+            Condition:
+              StringLike:
+                'ses:FromAddress': !If [HasDomain, !Sub '*@${Domain}', !Ref Email]
+          - Sid: ProbeAccount
+            Effect: Allow
+            Action: ses:GetAccount
+            Resource: '*'
+          - Sid: ProbeIdentity
+            Effect: Allow
+            Action: ses:GetEmailIdentity
+            Resource: !Sub
+              - 'arn:${AWS::Partition}:ses:${AWS::Region}:${AWS::AccountId}:identity/${Name}'
+              - { Name: !If [HasDomain, !Ref Domain, !Ref Email] }
+          - Sid: FeedbackQueue
+            Effect: Allow
+            Action: [sqs:ReceiveMessage, sqs:DeleteMessage, sqs:GetQueueAttributes]
+            Resource: [!GetAtt FeedbackQueue.Arn, !GetAtt FeedbackDlq.Arn]
+
+Outputs:
+  ModuleId:
+    Value: email
+  ModuleVersion:
+    Value: !Ref ModuleVersion
+  PolicyArn:
+    Value: !Ref AppPolicy
+  EnvEmailDriver:
+    Value: ses
+  EnvEmailFrom:
+    Value: !If [HasDomain, !Sub 'CloudAlbum <no-reply@${Domain}>', !Sub 'CloudAlbum <${Email}>']
+  EnvSesIdentity:
+    Value: !If [HasDomain, !Ref Domain, !Ref Email]
+  EnvSesConfigurationSet:
+    Value: !Ref ConfigSet
+  EnvSesFeedbackQueueUrl:
+    Value: !Ref FeedbackQueue
+  EnvEmailForCognito:
+    Value: !If [ForCognitoOn, 'on', 'off']
+  InfoIdentityArn:
+    Description: injected into auth (SesIdentityArn) when EMAIL_FOR_COGNITO=on
+    Value: !Sub
+      - 'arn:${AWS::Partition}:ses:${AWS::Region}:${AWS::AccountId}:identity/${Name}'
+      - { Name: !If [HasDomain, !Ref Domain, !Ref Email] }
+  InfoIdentityManagedBy:
+    Value: !If [CreateIdentity, 'stack', 'adopted (AdoptExistingIdentity=true: not created, not deleted by this stack)']
+  InfoDkimRecords:
+    Description: Easy DKIM CNAMEs (add them at your DNS provider unless the dns module wrote them)
+    Value: !If
+      - CreateDomainIdentity
+      - !Join
+        - ' | '
+        - - !Join [' CNAME ', [!GetAtt SenderIdentity.DkimDNSTokenName1, !GetAtt SenderIdentity.DkimDNSTokenValue1]]
+          - !Join [' CNAME ', [!GetAtt SenderIdentity.DkimDNSTokenName2, !GetAtt SenderIdentity.DkimDNSTokenValue2]]
+          - !Join [' CNAME ', [!GetAtt SenderIdentity.DkimDNSTokenName3, !GetAtt SenderIdentity.DkimDNSTokenValue3]]
+      - 'n/a (e-mail address identity, or an adopted identity)'
+  InfoDkimWrittenBy:
+    Value: !If [WriteDkim, 'this stack (Route 53, dns module zone)', 'you (external DNS provider) or not applicable']
+  InfoEventsTopicArn:
+    Value: !Ref EventsTopic
+  InfoFeedbackDlqUrl:
+    Value: !Ref FeedbackDlq

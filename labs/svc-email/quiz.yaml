@@ -1,0 +1,76 @@
+schema: atl.quiz/v1
+version: 1.0.0
+questions:
+  - id: ses-sandbox
+    domain: resilient
+    type: single
+    kind: scenario
+    services: [ses]
+    stem: 新账号中的应用调用 SES 给注册用户发邮件，只有少数地址能收到，其余报“地址未验证”。原因与做法是？
+    options:
+      - { id: a, text: 账号处于 SES 沙盒，只能发给已验证的身份；需要申请生产访问 }
+      - { id: b, text: 需要先为每个用户创建 SNS 订阅 }
+      - { id: c, text: EC2 的出站 25 端口被限制，需要申请解除 }
+      - { id: d, text: 需要为 SES 开启 VPC 终端节点 }
+    answer: [a]
+    explain: 沙盒按区域生效，收件人必须已验证；走 SES API 不涉及 25 端口。
+    relatesTo: sandbox
+    difficulty: 1
+  - id: ses-deliverability
+    domain: secure
+    type: multi
+    kind: concept
+    services: [ses]
+    stem: 提高从 SES 发出的邮件的认证与送达率，应该做哪三项？
+    options:
+      - { id: a, text: 为发件域开启 Easy DKIM }
+      - { id: b, text: 配置自定义 MAIL FROM 域，使 SPF 与发件域对齐 }
+      - { id: c, text: 发布 DMARC 记录 }
+      - { id: d, text: 改为从 EC2 弹性 IP 用 25 端口直接投递 }
+    answer: [a, b, c]
+    explain: DKIM、SPF、DMARC 三者配合；从 EC2 IP 直接投递信誉差，且 25 端口默认受限。
+    relatesTo: headers
+    difficulty: 1
+  - id: ses-feedback
+    domain: resilient
+    type: single
+    kind: scenario
+    services: [ses, sns, sqs]
+    stem: 要自动跟踪退信与投诉，并停止向无效地址发信，同时不让 EC2 开放入站端口。应该怎么做？
+    options:
+      - { id: a, text: 定期登录控制台查看信誉面板 }
+      - { id: b, text: 为配置集添加事件目标到 SNS，再由 SQS 订阅，应用轮询处理；配合抑制列表 }
+      - { id: c, text: 让 SES 通过 HTTP 回调 EC2 }
+      - { id: d, text: 用 CloudWatch Logs 订阅 SES 的发送日志 }
+    answer: [b]
+    explain: 配置集事件经 SNS → SQS 回流，应用主动拉取，不需要入站端口；抑制列表兜底。
+    relatesTo: after
+    difficulty: 1
+  - id: ses-vs-sns-email
+    domain: resilient
+    type: single
+    kind: concept
+    services: [ses, sns]
+    stem: 下面哪种邮件最适合用 SNS 邮件订阅而不是 SES 发送？
+    options:
+      - { id: a, text: 注册验证码 }
+      - { id: b, text: 带个人链接的找回密码邮件 }
+      - { id: c, text: 运维人员订阅的告警广播（纯文本即可） }
+      - { id: d, text: 带 HTML 模板的每周摘要 }
+    answer: [c]
+    explain: SNS 邮件订阅适合需要先确认、内容对所有订阅者相同的广播；事务性与个性化邮件用 SES。
+    difficulty: 1
+  - id: ses-smtp
+    domain: secure
+    type: single
+    kind: concept
+    services: [ses, iam]
+    stem: 一个老系统只能通过 SMTP 发信，要改为经 SES 发送。凭证应该怎么准备？
+    options:
+      - { id: a, text: 使用 AWS 账号的根用户密码 }
+      - { id: b, text: 从一个只允许 ses:SendRawEmail 的 IAM 用户派生 SMTP 凭证，经 587 端口（STARTTLS）连接 SES 的 SMTP 端点 }
+      - { id: c, text: 直接使用 EC2 实例角色的临时凭证作为 SMTP 密码 }
+      - { id: d, text: 在 EC2 上安装 postfix，用 25 端口直接投递 }
+    answer: [b]
+    explain: SES 的 SMTP 接口使用从 IAM 用户派生的 SMTP 凭证；走 API 时直接用 IAM 签名（实例角色），不需要 SMTP 凭证。
+    difficulty: 2

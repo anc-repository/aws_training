@@ -1,0 +1,24 @@
+checks:
+  - id: exp-fanout-before
+    title: fanout 的 before（db：逐个调用 EmailPort）有一条有效结果
+    type: experiment
+    module: notification
+    experiment: fanout
+    label: before
+    accept: [valid]
+
+  - id: exp-fanout-pair
+    title: fanout 的 before 与 after 都有效且可比
+    type: experiment
+    module: notification
+    experiment: fanout
+    pair: [before, after]
+    accept: [valid]
+
+  - id: exp-filter-after
+    title: filter（只发给 u1）有一条有效结果
+    type: experiment
+    module: notification
+    experiment: filter
+    label: after
+    accept: [valid]

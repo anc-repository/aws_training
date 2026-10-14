@@ -1,0 +1,215 @@
+checks:
+  # ---- 起始状态（before 一律 once）
+  - id: notification-db-baseline
+    title: 起始状态：站外通知由 db 驱动逐个调用 EmailPort
+    type: capability
+    module: notification
+    drift: { policy: once }
+    assert:
+      - { path: $.driver, op: eq, value: db, label: 驱动 }
+      - { path: $.status, op: eq, value: 'off', label: 模块状态（本地实现） }
+    explain: db 驱动只在开启了邮件通知的用户上逐个调用 EmailPort；站内信由核心服务写库，与驱动无关。
+
+  # ---- 接入 SNS
+  - id: notification-wired
+    title: notification 已切换到 SNS，且状态正常
+    type: capability
+    module: notification
+    drift: { policy: must-hold, monitor: true }
+    wait: { typicalMinutes: 5, maxMinutes: 30 }
+    pendingIf:
+      - { path: $.status, op: eq, value: degraded }
+      - { path: $.detail, op: contains, value: 订阅待确认 }
+    assert:
+      - { path: $.driver, op: eq, value: sns, label: 驱动 }
+      - { path: $, op: healthy, label: 状态正常（本卡 expectedWarnings 为空，即必须是 ok） }
+    explain: 运维订阅（--param AdminEmail）点击确认链接之前，探针报 degraded“运维订阅待确认”，这里记为等待而不是失败（附录 C-18）。
+    reproduce: { run: 'curl -s http://127.0.0.1/api/capabilities | jq ".modules.notification | {driver, status, detail}"', runsOn: lab }
+    pitfalls: [admin-not-confirmed]
+
+  - id: notification-path-seen
+    title: 最近的真实请求把通知发布到了 SNS
+    type: local
+    on: lab
+    checkId: path-seen
+    args: { segment: notification, pattern: 'sns:published', window: 15m, minCount: 1, excludeProbe: true }
+    dependsOn: [notification-wired]
+    drift: { policy: once }
+    assert:
+      - { path: $.count, op: gte, value: 1, label: 出现 notification=sns:published 的请求数 }
+    explain: 在应用预览里给 +u1 的照片发一条评论即可满足；路径签名由应用按实际调用的驱动生成，探测请求不计入。
+
+  - id: topic-subscriptions
+    title: 本会话的通知主题至少有 2 个已确认订阅（收件队列 + 运维邮箱）
+    type: aws-readonly
+    service: sns
+    action: GetTopicAttributes
+    region: app
+    params: { TopicArn: '{{ var.topicArn }}' }
+    ownership: { resource: '{{ var.topicArn }}', mode: session, createdAfter: session.readyAt }
+    wait: { typicalMinutes: 5, maxMinutes: 30 }
+    pendingIf:
+      - { path: $.Attributes.SubscriptionsConfirmed, op: lt, value: 2 }
+    drift: { policy: must-hold }
+    assert:
+      - { path: $.Attributes.SubscriptionsConfirmed, op: gte, value: 2, label: 已确认订阅数 }
+    explain: 收件队列的 sqs 订阅由 CloudFormation 自动确认；运维邮箱的订阅要你点击确认链接，之前这里是等待。
+    reproduce: { run: 'aws sns get-topic-attributes --topic-arn "{{ var.topicArn }}" --query "Attributes.[SubscriptionsConfirmed,SubscriptionsPending]"', runsOn: workstation }
+    manualFallback:
+      where: { breadcrumb: [SNS, 主题, 'cloudalbum-{{ session.env }}-notification-events', 订阅], region: app }
+      observed:
+        question: 订阅列表中“已确认”的订阅有几个？
+        options:
+          - { value: '2+', label: 2 个或更多, expected: true }
+          - { value: '1', label: 只有 1 个（收件队列）, fixHint: 到运维邮箱点击“AWS Notification - Subscription Confirmation”中的确认链接 }
+
+  - id: inbox-queue-policy
+    title: 收件队列只接受本主题投递（aws:SourceArn），并配置了 DLQ 与 SSE
+    type: aws-readonly
+    service: sqs
+    action: GetQueueAttributes
+    region: app
+    params: { QueueUrl: '{{ var.inboxUrl }}', AttributeNames: [All] }
+    ownership: { resource: '{{ var.inboxArn }}', mode: session, createdAfter: session.readyAt }
+    drift: { policy: must-hold }
+    assert:
+      - { path: $.Attributes.Policy, op: contains, value: 'sns.amazonaws.com', label: 允许 SNS 服务主体 }
+      - { path: $.Attributes.Policy, op: contains, value: 'aws:SourceArn', label: 用 aws:SourceArn 限定来源 }
+      - { path: $.Attributes.Policy, op: contains, value: '{{ var.topicArn }}', label: 来源是本会话的主题 }
+      - { path: $.Attributes.RedrivePolicy, op: contains, value: 'notification-dlq', label: 坏消息进入 DLQ }
+      - { path: $.Attributes.SqsManagedSseEnabled, op: eq, value: 'true', label: SSE-SQS 加密 }
+    explain: 只有 sns.amazonaws.com 且来源 ARN 是本主题时才能写入队列，防止别的主题或账号冒用（混淆代理人）。
+    reproduce: { run: 'aws sqs get-queue-attributes --queue-url "{{ var.inboxUrl }}" --attribute-names Policy --query Attributes.Policy --output text | jq .', runsOn: workstation }
+    manualFallback:
+      where: { breadcrumb: [SQS, 队列, 'cloudalbum-{{ session.env }}-notification-inbox', 访问策略], region: app }
+      observed:
+        question: 访问策略的 Condition 里限定了什么？
+        options:
+          - { value: source-arn, label: aws:SourceArn 等于通知主题的 ARN, expected: true }
+          - { value: none, label: 没有条件, fixHint: 不要在控制台修改栈管理的队列策略；重新执行 scripts/module enable notification }
+
+  # ---- 用户订阅
+  - id: user-subscriptions
+    title: 主题上有 3 个用户订阅（共至少 5 个订阅）
+    type: aws-readonly
+    service: sns
+    action: ListSubscriptionsByTopic
+    region: app
+    params: { TopicArn: '{{ var.topicArn }}' }
+    dependsOn: [topic-subscriptions]
+    drift: { policy: once }
+    assert:
+      - { path: $.Subscriptions, op: len_gte, value: 5, label: 订阅数（收件队列 + 运维邮箱 + 3 个用户） }
+    explain: 主题的归属已由 topic-subscriptions 确认；待确认的订阅在列表中显示为 PendingConfirmation，也计入。
+    reproduce: { run: 'aws sns list-subscriptions-by-topic --topic-arn "{{ var.topicArn }}" --query "Subscriptions[].[Protocol,Endpoint,SubscriptionArn]" --output table', runsOn: workstation }
+    manualFallback:
+      where: { breadcrumb: [SNS, 主题, 'cloudalbum-{{ session.env }}-notification-events', 订阅], region: app }
+      observed:
+        question: 订阅列表一共有几项？
+        options:
+          - { value: '5+', label: 5 项或更多, expected: true }
+          - { value: less, label: 少于 5 项, fixHint: 先运行 experiments/notification/subscribe-users.ts }
+
+  - id: user-filter-policy
+    title: 看懂 +u1 订阅的过滤策略
+    type: manual
+    spec:
+      where: { breadcrumb: [SNS, 订阅, '<+u1 的订阅>', 订阅筛选策略], region: app }
+      observed:
+        question: +u1 订阅的筛选策略是哪一种？（种子用户已被设为管理员）
+        options:
+          - { value: or, label: '{"$or":[{"userId":["<u1 的 ID>"]},{"audience":["admin"]}]}', expected: true }
+          - { value: user-only, label: '{"userId":["<u1 的 ID>"]}', fixHint: 种子用户默认被设为管理员；--no-admins 时是这一种 }
+          - { value: none, label: 没有筛选策略, fixHint: 没有筛选策略的邮件订阅会收到所有人的通知——这是隐私事故，检查 subscribe-users 的输出 }
+
+  # ---- after
+  - id: filtered-out-metric
+    title: CloudWatch 记录到被过滤掉的投递（NumberOfNotificationsFilteredOut）
+    type: aws-readonly
+    service: cloudwatch
+    action: GetMetricData
+    region: app
+    params:
+      StartTime: '{{ session.readyAt }}'
+      EndTime: '{{ session.deadlineAt }}'
+      MetricDataQueries:
+        - Id: filtered
+          MetricStat:
+            Metric:
+              Namespace: AWS/SNS
+              MetricName: NumberOfNotificationsFilteredOut
+              Dimensions: [ { Name: TopicName, Value: 'cloudalbum-{{ session.env }}-notification-events' } ]
+            Period: 300
+            Stat: Sum
+    dependsOn: [topic-subscriptions]
+    wait: { typicalMinutes: 3, maxMinutes: 10 }
+    pendingIf:
+      - { path: '$.MetricDataResults[0].Values', op: len_eq, value: 0 }
+    drift: { policy: once }
+    assert:
+      - { path: '$.MetricDataResults[0].Values', op: len_gte, value: 1, label: 有被过滤掉的投递的 5 分钟区间数 }
+    explain: 发给 u1 的事件对 u2、u3 的订阅不匹配，SNS 记为 FilteredOut；SNS 指标有分钟级延迟，所以这是等待型检查。
+    reproduce: { run: 'aws cloudwatch get-metric-statistics --namespace AWS/SNS --metric-name NumberOfNotificationsFilteredOut --dimensions Name=TopicName,Value=cloudalbum-{{ session.env }}-notification-events --start-time "{{ session.readyAt }}" --end-time "$(date -u +%FT%TZ)" --period 300 --statistics Sum', runsOn: workstation }
+    manualFallback:
+      where: { breadcrumb: [CloudWatch, 指标, SNS, 'TopicName = cloudalbum-{{ session.env }}-notification-events', NumberOfNotificationsFilteredOut], region: app }
+      observed:
+        question: 最近 15 分钟的 NumberOfNotificationsFilteredOut 有数据点吗？
+        options:
+          - { value: yes, label: 有，且大于 0, expected: true }
+          - { value: no, label: 还没有, fixHint: 指标有几分钟延迟；也确认 filter 场景已经运行 }
+
+  # ---- worker 停机（观察）
+  - id: inbox-backlog
+    title: worker 停机期间收件队列有积压
+    type: aws-readonly
+    service: sqs
+    action: GetQueueAttributes
+    region: app
+    params: { QueueUrl: '{{ var.inboxUrl }}', AttributeNames: [ApproximateNumberOfMessages, ApproximateNumberOfMessagesNotVisible] }
+    dependsOn: [inbox-queue-policy]
+    required: false
+    drift: { policy: once }
+    assert:
+      - { path: $.Attributes.ApproximateNumberOfMessages, op: gte, value: 1, label: 收件队列的可见消息数, severity: warn }
+    explain: 只在 worker 停止期间有意义；worker 启动后积压被消费，数字回到 0。
+    reproduce: { run: 'aws sqs get-queue-attributes --queue-url "{{ var.inboxUrl }}" --attribute-names ApproximateNumberOfMessages', runsOn: workstation }
+    manualFallback:
+      where: { breadcrumb: [SQS, 队列, 'cloudalbum-{{ session.env }}-notification-inbox'], region: app }
+      observed:
+        question: worker 停止期间“可用消息”数是多少？
+        options:
+          - { value: '1+', label: 1 条或更多, expected: true }
+          - { value: '0', label: '0', fixHint: 确认 worker 已停止（systemctl is-active cloudalbum-worker），并在停机期间发几条评论 }
+
+  - id: worker-stop-mail
+    title: worker 停机期间的通知邮件是否到达
+    type: manual
+    spec:
+      observed:
+        question: worker 停止期间发的评论，对应的通知邮件到达你的邮箱了吗？
+        options:
+          - { value: arrived, label: 照常到达（SNS 投递不依赖 worker）, expected: true }
+          - { value: missing, label: 没有到达, fixHint: 确认对应用户的订阅已确认（PendingConfirmation 的订阅不投递）；邮件也可能在垃圾箱 }
+
+  # ---- 回收验证
+  - id: notification-topic-gone
+    title: 本会话的通知主题已删除
+    type: aws-readonly
+    service: sns
+    action: GetTopicAttributes
+    region: app
+    params: { TopicArn: '{{ var.topicArn }}' }
+    expectError: NotFoundException
+    required: false
+    reproduce: { run: 'aws sns get-topic-attributes --topic-arn "{{ var.topicArn }}"', runsOn: workstation }
+    manualFallback:
+      where: { breadcrumb: [SNS, 主题], region: app }
+      observed:
+        question: 列表中还能找到 cloudalbum-{{ session.env }}-notification-events 吗？
+        options:
+          - { value: gone, label: 找不到, expected: true }
+          - { value: present, label: 还在 }
+
+pitfalls:
+  - { id: admin-not-confirmed, title: 运维订阅还没确认, match: [ { checkId: notification-wired, result: pending } ],
+      cause: 运维邮箱的订阅处于 PendingConfirmation，探针报 degraded“运维订阅待确认”, fix: 在运维邮箱（你的 +admin 别名）里找 AWS Notifications 的确认邮件并点击链接；可能在垃圾箱 }

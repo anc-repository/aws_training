@@ -1,0 +1,77 @@
+schema: atl.quiz/v1
+version: 1.0.0
+questions:
+  - id: sns-fanout-queues
+    domain: resilient
+    type: single
+    kind: scenario
+    services: [sns, sqs]
+    stem: 一个“照片已上传”事件需要分别触发缩略图、打标签、统计三个独立服务，各自按自己的速度处理，任何一个暂时不可用都不能丢消息。最合适的是？
+    options:
+      - { id: a, text: 一个 SQS 队列，三个服务竞争消费 }
+      - { id: b, text: 一个 SNS 主题，三个服务各订阅一个自己的 SQS 队列 }
+      - { id: c, text: 应用依次同步调用三个服务 }
+      - { id: d, text: 一个 SNS 主题，三个服务都用 HTTP 端点订阅 }
+    answer: [b]
+    explain: SNS + SQS 扇出让每个消费者拿到一份副本并在自己的队列里缓冲；竞争消费时每条消息只会被一个服务处理；HTTP 订阅在端点不可用时按重试策略重试后丢弃。
+    relatesTo: after
+    difficulty: 1
+  - id: sns-filter-policy
+    domain: resilient
+    type: single
+    kind: scenario
+    services: [sns]
+    stem: 同一个主题上有很多用户的邮件订阅，每位用户只应收到与自己有关的通知。应该怎么做？
+    options:
+      - { id: a, text: 为每个用户创建一个主题 }
+      - { id: b, text: 在每个订阅上设置过滤策略（如按消息属性 userId），发布时带上该属性 }
+      - { id: c, text: 在邮件客户端设置收信规则 }
+      - { id: d, text: 使用 SNS FIFO 主题 }
+    answer: [b]
+    explain: 订阅过滤策略在 SNS 侧过滤；发布时忘了带属性，所有带过滤策略的订阅都收不到。
+    relatesTo: subscribe-users
+    difficulty: 1
+  - id: sns-vs-ses
+    domain: resilient
+    type: single
+    kind: scenario
+    services: [sns, ses]
+    stem: 注册后要给用户发送带个性化链接的 HTML 验证邮件，用户此前没有订阅过任何东西。应使用？
+    options:
+      - { id: a, text: SNS 邮件订阅 }
+      - { id: b, text: Amazon SES }
+      - { id: c, text: SNS 短信 }
+      - { id: d, text: CloudWatch 告警通知 }
+    answer: [b]
+    explain: SNS 邮件订阅需要收件人先确认、只能发纯文本、所有订阅者内容相同；事务性个性化邮件用 SES。
+    relatesTo: enable
+    difficulty: 1
+  - id: sns-sqs-kms
+    domain: secure
+    type: single
+    kind: scenario
+    services: [sns, sqs, kms]
+    stem: SNS 主题向一个用客户托管 KMS 密钥加密的 SQS 队列投递，主题的 NumberOfNotificationsFailed 一直在增加，队列里没有消息。最可能的原因是？
+    options:
+      - { id: a, text: 队列没有开启长轮询 }
+      - { id: b, text: KMS 密钥策略没有授权 sns.amazonaws.com 使用该密钥 }
+      - { id: c, text: 订阅没有开启原始消息传递 }
+      - { id: d, text: 队列的可见性超时太短 }
+    answer: [b]
+    explain: SNS 以服务主体身份写入加密队列，需要密钥策略允许 sns.amazonaws.com 执行 kms:GenerateDataKey / kms:Decrypt；否则投递静默失败，只能从指标看出来。
+    difficulty: 2
+  - id: sns-confused-deputy
+    domain: secure
+    type: single
+    kind: concept
+    services: [sns, sqs]
+    stem: 队列策略允许 sns.amazonaws.com 执行 sqs:SendMessage。为了只让你自己的那个主题能写入，应该再加什么？
+    options:
+      - { id: a, text: 条件 aws:SourceArn 等于该主题的 ARN }
+      - { id: b, text: 条件 aws:SecureTransport 为 true }
+      - { id: c, text: 把 Principal 改成 * }
+      - { id: d, text: 给队列开启 SSE-SQS }
+    answer: [a]
+    explain: 服务主体代表很多账号行事；用 aws:SourceArn（或 aws:SourceAccount）限定来源，防止混淆代理人。
+    relatesTo: enable
+    difficulty: 1

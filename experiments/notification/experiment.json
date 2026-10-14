@@ -1,0 +1,119 @@
+{
+  "$schema": "../_lib/schema/experiment.schema.json",
+  "module": "notification",
+  "title": "notification：有 / 无 SNS（docs/modules/04-compute-async.md#notification 第 5 节）",
+  "default": "fanout",
+  "experiments": [
+    {
+      "module": "notification",
+      "id": "fanout",
+      "title": "一次事件的站外扇出：db 逐个调用 EmailPort 对 sns 一次 Publish",
+      "kind": "before-after",
+      "doc": "docs/modules/04-compute-async.md#notification",
+      "description": "前置：npx tsx experiments/notification/seed-users.ts --count 3 --email <你的邮箱>（+u1～+u3 子地址、各一张公开照片、已开启邮件通知、设为管理员）。场景以管理员身份给种子用户的照片评论 comments 次（每条一个 comment.created），读 Server-Timing 的 notification 段与服务端投递记录 /api/admin/notifications/deliveries；功能对照端点可用时另测一次管理员广播（report.ready 测试事件）。业务流量只能切换前 / 切换后（通知是全局状态）。",
+      "requires": {
+        "before": { "notification.driver": "db" },
+        "after": { "notification.driver": "sns", "notification.status": ["ok", "degraded"] }
+      },
+      "labels": {
+        "before": { "title": "db：站内信 + 逐个调用 EmailPort", "role": "baseline" },
+        "after": { "title": "sns：一次 Publish，SNS 扇出", "role": "treatment" }
+      },
+      "scenario": { "tool": "node", "script": "fanout.ts", "vus": 1, "duration": "120s" },
+      "params": {
+        "comments": { "type": "number", "default": 20, "min": 1, "max": 200, "description": "评论条数（随机分给种子用户）" },
+        "waitSec": { "type": "number", "default": 20, "min": 0, "max": 600, "description": "等待收件队列的 sqs-copy 投递记录到齐的上限（sns 档）" },
+        "users": { "type": "string", "default": "", "description": "种子用户清单（缺省 .cloudalbum/experiments/notification-users.json）" }
+      },
+      "metrics": [
+        "client.http_req_duration{route:/social/photos/:id/comments}.p95",
+        "server.route./social/photos/:id/comments.p95",
+        "server.port.notification.dur.p95",
+        "biz.notification_publish_ms_p95",
+        "biz.deliveries_email",
+        "biz.deliveries_sns",
+        "biz.deliveries_inbox",
+        "biz.broadcast_db_ms",
+        "biz.broadcast_db_email_calls",
+        "biz.broadcast_sns_ms"
+      ],
+      "expect": [
+        { "metric": "biz.deliveries_email", "direction": "down", "note": "sns 档 EC2 不再逐个调用 EmailPort，邮件由 SNS 发出" },
+        { "metric": "biz.deliveries_sns", "direction": "up", "note": "每条事件一次 Publish（一行 sns 投递记录）" },
+        { "metric": "biz.deliveries_inbox", "direction": "up", "note": "收件队列收到每条事件的副本（worker 记 sqs-copy）" },
+        { "metric": "biz.broadcast_db_email_calls", "direction": "flat", "note": "db 驱动的广播调用次数 = 管理员人数（与驱动无关的参照）；sns 侧始终 1 次 Publish" }
+      ]
+    },
+    {
+      "module": "notification",
+      "id": "filter",
+      "title": "订阅过滤策略：只给 u1 发布一条事件，只有 +u1 收到",
+      "kind": "functional",
+      "doc": "docs/modules/04-compute-async.md#notification",
+      "description": "--param user=u1。服务端证据：该事件的投递记录（sns 档 1 行 sns + 1 行 sqs-copy；db 档 1 行 email 且只发给 u1）。SNS 侧的过滤在邮箱与 CloudWatch NumberOfNotificationsFilteredOut 上核对（分钟级延迟）。",
+      "requires": {
+        "before": { "notification.driver": "db" },
+        "after": { "notification.driver": "sns", "notification.status": ["ok", "degraded"] }
+      },
+      "labels": {
+        "before": { "title": "db：应用代码判断收件人", "role": "baseline" },
+        "after": { "title": "sns：订阅过滤策略", "role": "treatment" }
+      },
+      "scenario": { "tool": "node", "script": "filter.ts", "vus": 1, "duration": "60s" },
+      "params": {
+        "user": { "type": "string", "default": "u1", "description": "接收事件的种子用户（u1、u2 …）" },
+        "users": { "type": "string", "default": "", "description": "种子用户清单（缺省 .cloudalbum/experiments/notification-users.json）" }
+      },
+      "metrics": ["biz.filter_emailed_others", "biz.filter_inbox_copies"],
+      "expect": [
+        { "metric": "biz.filter_emailed_others", "direction": "zero", "note": "不相关的订阅者收不到（db 档由应用代码保证，sns 档由过滤策略保证）" }
+      ]
+    },
+    {
+      "module": "notification",
+      "id": "compare",
+      "title": "功能对照：同一个 report.ready 测试事件经 db 与 sns 驱动各发一次",
+      "kind": "functional",
+      "doc": "docs/modules/04-compute-async.md#notification",
+      "description": "POST /api/lab/notification/compare（仅管理员；实现见 backend/src/adapters/notification/compare.ts）。db 一侧逐个发给全部管理员，sns 一侧一次 Publish；测试事件不写站内信。",
+      "requires": {
+        "after": { "notification.driver": "sns" }
+      },
+      "labels": {
+        "after": { "title": "sns 档下的并排对照", "role": "single" }
+      },
+      "scenario": { "tool": "node", "script": "compare.ts", "vus": 1, "duration": "30s" },
+      "metrics": ["biz.compare_db_ms", "biz.compare_db_calls", "biz.compare_sns_ms", "biz.compare_sns_calls"]
+    },
+    {
+      "module": "notification",
+      "id": "worker-stop",
+      "title": "worker 停机：邮件照常到达，只有收件队列积压",
+      "kind": "fault",
+      "doc": "docs/modules/04-compute-async.md#notification",
+      "description": "第 5 秒停止 cloudalbum-worker、第 50 秒启动；期间每 intervalSec 秒评论一次，记录收件队列深度（管理员视图 capabilities）与 sqs-copy 投递记录的补齐情况。没有投递通道时用 --fault-via skip 并按提示手工执行。",
+      "requires": {
+        "after": { "notification.driver": "sns", "notification.status": ["ok", "degraded"] }
+      },
+      "labels": {
+        "after": { "title": "sns 档：worker 停机 45 秒", "role": "single" }
+      },
+      "scenario": { "tool": "node", "script": "worker-stop.ts", "vus": 1, "duration": "75s" },
+      "params": {
+        "intervalSec": { "type": "number", "default": 5, "min": 1, "max": 60 },
+        "drainSec": { "type": "number", "default": 120, "min": 0, "max": 900, "description": "负载结束后等待积压消费完的上限" },
+        "users": { "type": "string", "default": "" }
+      },
+      "metrics": ["biz.worker_stop_comment_failures", "biz.worker_stop_max_inbox_depth", "biz.worker_stop_inbox_missing"],
+      "faults": [
+        { "at": "5s", "script": "faults/stop-worker.sh", "onlyFor": ["after"], "description": "sudo systemctl stop cloudalbum-worker", "manual": "在实验机上执行 sudo systemctl stop cloudalbum-worker" },
+        { "at": "50s", "script": "faults/start-worker.sh", "onlyFor": ["after"], "description": "sudo systemctl start cloudalbum-worker", "manual": "在实验机上执行 sudo systemctl start cloudalbum-worker" }
+      ],
+      "expect": [
+        { "metric": "biz.worker_stop_comment_failures", "direction": "zero", "note": "Publish 在 api 进程，worker 停机不影响发评论" },
+        { "metric": "biz.worker_stop_max_inbox_depth", "direction": "nonzero", "note": "停机期间收件队列积压" },
+        { "metric": "biz.worker_stop_inbox_missing", "direction": "zero", "note": "worker 启动后积压被消费，sqs-copy 投递记录补齐" }
+      ]
+    }
+  ]
+}

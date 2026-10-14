@@ -2673,3 +2673,77 @@ e2e：新增“4b csp-live”阶段。工作台阶段结束后，在 `vite previ
 | `npm run smoke:l0` | 85 通过，0 失败 |
 | `npm run smoke:selfhost` | 31 通过，0 失败 |
 | `npm run labs:lint` / `labs:derive` | 56 张卡片 0 错误 0 警告 / 10 张卡片 0 错误 |
+
+## wave1-sns-ses
+
+第 1 波 notification（Amazon SNS）与 email（Amazon SES）两个应用适配器型模块：AWS 驱动、模板、scripts/module hook、对比实验与卡片
+svc-notification / svc-email。全程没有调用真实 AWS API、没有部署任何东西（aws-sdk-client-mock、内存替身、`--dry-run`、cfn-lint）。
+
+### 1. 完成的内容
+
+| 范围 | 文件 | 内容 |
+|---|---|---|
+| notification 驱动 | `backend/src/adapters/notification/sns.ts` | `publish`：一次 Publish（MessageStructure=json：default / email 纯文本 / sqs 完整事件 JSON），消息属性 eventType、userId（admin 广播为 `*`）、audience、origin、eventId；写一行 `notification_deliveries`（channel=sns），同一 eventId 不重复发布；失败抛 503、路径段 `sns:error`，不回退逐个发信。`subscribeEmail`：`Subscribe(ReturnSubscriptionArn=true, FilterPolicyScope=MessageAttributes)`，普通用户 `{"userId":[id]}`、管理员 `{"$or":[{"userId":[id]},{"audience":["admin"]}]}`；已用不同属性订阅过时改写过滤策略；保留域名不建订阅。`unsubscribe` / `dropSubscription`。`syncSubscriptions`：pending → confirmed；订阅消失 → `email_enabled=false` + 站内信；角色变化 → 改写过滤策略。`consume({signal})`：收件队列长轮询 + 每 `NOTIFY_STATUS_SYNC_SEC` 秒同步一次（有 LockPort 时只在一台上执行）。探针见第 2 节 |
+| | `notification/inbox.ts`、`sqs-poll.ts` | 收件队列消息：每个 eventId 记一行 `sqs-copy`；`origin≠ec2` 代写站内信（管理员广播按 `adminRowEventId`）；探针消息只记账；坏消息不删除（maxReceiveCount 后进 DLQ）。`sqs-poll.ts` 是 notification 收件队列与 email 反馈队列共用的长轮询循环 |
+| | `notification/compare.ts`、`migrate.ts` | `/api/lab/notification/compare` 的实现函数；迁移 plan / up / down / verify（总纲 9.3，供 `migrate-module notification` 接入） |
+| email 驱动 | `backend/src/adapters/email/ses.ts` | 与 outbox 同一份 MIME（`buildMime`，`X-CloudAlbum-Transport: ses`）经 `SendEmail(Content.Raw)` 发出，配置集与 `category` 标签；每封写一行 `outbox_emails`（transport=ses、provider_message_id，不存正文）。发送前：保留域名（PM-46）→ 本机 outbox + “保留域名，未发送”（`outbox:reserved`）；`email_status=bounced/complained` 的地址只发 verification / password-reset（`ses:suppressed`）；进程内按 `EMAIL_SEND_RATE_PER_SEC` 限速。失败不抛出：记 failed、`ses:rejected` / `ses:error`；`EMAIL_SANDBOX_POLICY=outbox` 时被拒的改写进本机 outbox。`consume({signal})` 长轮询反馈队列。`readBody` / `resolveEmlPath` 委托给 outbox（改写进 outbox 的邮件可预览） |
+| | `email/feedback.ts`、`reserved.ts`、`compare.ts` | SES 事件（Delivery / Bounce / Complaint / Reject / DeliveryDelay）→ `delivery_status`（只升级不降级）与 `users.email_status`；保留域名判断；`/api/lab/email/compare` 的实现函数 |
+| 模板 | `infra/modules/notification.yaml`、`infra/modules/email.yaml` | 见第 3 节；cfn-lint 1.57.2 零发现 |
+| scripts/module | `scripts/module-cli/src/module-hooks/{notification,email}.ts` | 见第 4 节 |
+| 实验 | `experiments/notification/`（fanout、filter、compare、worker-stop + seed-users / subscribe-users）、`experiments/email/`（send-matrix、compare、sandbox、register-latency） | 服务端证据：`/api/admin/notifications/deliveries`、`/api/admin/outbox`（投递状态由反馈队列更新）、Server-Timing 的 notification / email 段、管理员视图 capabilities |
+| 卡片 | `labs/svc-notification/**`、`labs/svc-email/**` | lab.yaml v2（status planned → beta，1.0.0）、手册、检查、小测、徽章；labs:lint 两张卡 0 错误 0 警告，labs:derive 通过 |
+| 测试 | `backend/test/adapters/aws/{notification-sns,email-ses}.test.ts`、`fake-sns.ts`；`scripts/module-cli/test/module-hooks-{notification,email}.test.ts`；`experiments/test/notification-email.test.ts` | 端口契约（`email-notifier.contract.ts`）+ 驱动细节；`fake-sns.ts` 是 SNS 的内存替身（订阅、确认、`$or` 过滤策略、按协议取文本、SQS 原始消息投递到 FakeSqs），用来验证扇出与过滤的真实行为 |
+
+### 2. 探针（落实 2026-10-14 的教训）
+
+- 控制面读取全部经 `withAwsRetry`（单次 3 秒超时，只对瞬时错误重试）；瞬时失败返回 `{status: 'degraded', transient: true}`，由能力注册表的状态机决定何时升级为 error；确定性失败（NotFound、AccessDenied）直接 error。
+- notification：`GetTopicAttributes` + `ListSubscriptionsByTopic` + 收件队列 / 订阅级 DLQ 的 `GetQueueAttributes`。degraded：运维订阅待确认（detail 以“运维订阅待确认”开头，卡片用 `pendingIf` 等待）、收件队列未订阅、DLQ 深度 > 0、最近 5 分钟 Publish 失败。用户订阅待确认只计数，不影响状态（否则用户不点确认邮件就永远是黄色）。深度探针另读 CloudWatch 的 `NumberOfNotificationsFilteredOut / Failed / Delivered`，并发布一条 `probe=true` 的探针消息（每 60 秒最多一次；过滤策略挡住所有邮件订阅，只进收件队列）。
+- email：`GetAccount` + `GetEmailIdentity` + 反馈队列 / DLQ（DLQ 由 RedrivePolicy 推出）。error：`SendingEnabled=false`、身份未验证、NotFound / AccessDenied；degraded：沙盒（detail 以“沙盒：只能发给已验证地址 · 今日已发 n / 上限 m”开头，上限取自 GetAccount）、最近 5 分钟被拒或出错、反馈 DLQ 深度 > 0、EnforcementStatus 不是 HEALTHY。深度探针向 `success@simulator.amazonses.com` 发探针邮件（每 10 分钟最多一次）。
+
+### 3. 模板
+
+- notification：主题（`KmsKeyArn` 非空时 SSE-KMS）、收件队列（长轮询 20 秒、SSE-SQS、RedrivePolicy → DLQ）、订阅级 DLQ、队列策略（`sns.amazonaws.com` + `aws:SourceArn` = 本主题）、收件队列订阅（原始消息传递、订阅级 RedrivePolicy）、可选运维订阅（参数 `AdminEmail`，过滤 `audience=admin`）、`AppPolicy`。Outputs：`EnvNotifyDriver/TopicArn/InboxQueueUrl/DlqUrl`、`InfoTopicArn`（registry injects → social-api）等。
+- email：`SenderIdentity`（邮箱或域名二选一，用 Rules 断言；域名时 Easy DKIM RSA_2048；`MailFromDomain` 可选；`AdoptExistingIdentity=true` 时不创建）、`HostedZoneId`（dns 注入）非空时写 3 条 DKIM CNAME / MAIL FROM MX + SPF / 可选 DMARC、配置集（信誉指标、配置集级抑制 BOUNCE / COMPLAINT）、事件主题 + 主题策略（`ses.amazonaws.com`，`aws:SourceAccount` 与 `aws:SourceArn` 限定本配置集）、反馈队列 + DLQ + 队列策略 + 订阅（原始消息传递）、SNS 与 CloudWatch（`category` 维度）两个事件目标、`AppPolicy`（`ses:SendEmail` / `SendRawEmail` 只限本身份与配置集，`ses:FromAddress` 条件）。Outputs：`EnvEmailDriver/EmailFrom/SesIdentity/SesConfigurationSet/SesFeedbackQueueUrl/EmailForCognito`、`InfoIdentityArn`（registry injects → auth）、`InfoDkimRecords` 等。
+- 标签：两份模板都依赖 scripts/module 的栈级标签（会传播到资源），主题与队列另带 `Name` 标签；没有承载权威数据的资源，DeletionPolicy 为 Delete（身份的 UpdateReplacePolicy 为 Retain：替换会丢失已验证状态）。
+
+### 4. scripts/module hook
+
+- notification：`--param AdminEmail` 可选；格式错误或保留域名 → CliError（退出码 2）；重新 enable 不带 `--param` 时沿用已部署的 AdminEmail。plan 提示人工前置 confirm-email 与“迁移尚未接入，用 `--no-migrate`”。
+- email：没有 `--param Email` / `--param Domain`（或 `--domain`）→ 人工前置 ses-identity 未满足（enable 退出码 2，plan 打印 hint 后跳过）；保留域名同样视为未满足。plan 写入 `SES_IDENTITY`（与输出同值，使 `--dry-run` 的 check-config --plan 能通过）、`EMAIL_SANDBOX_POLICY`（默认 fail）、`EMAIL_SEND_RATE_PER_SEC`（默认 1）。prepare：`GetEmailIdentity` 发现身份已存在 → `AdoptExistingIdentity=true`（已部署的栈从不翻转该值）；`GetAccount` 打印沙盒提示。afterDeploy：每 15 秒轮询 `GetEmailIdentity` 直到 `VerifiedForSendingStatus=true`，超过 `--param VerifyTimeoutSec`（默认 900）以退出码 5 结束、不写 env、栈保留。disable：`EMAIL_FOR_COGNITO=on` 与只读接入身份的提示；域名身份提醒删除外部 DNS 中手动添加的 DKIM 记录。
+
+### 5. 设计有歧义时的取舍
+
+1. **SNS Subject 的字符集**：官方对 Subject 的字符限制以文档为准，为避免 Publish 失败，Subject 只用可打印 ASCII：标题本身是 ASCII 时保留，否则用英文事件名（例如 `CloudAlbum: New comment on your photo`），中文标题放在邮件正文第一行。
+2. **用户订阅待确认不算 degraded**：文档的 degraded 判据是“管理员订阅仍为待确认”。运维订阅由“待确认的邮件订阅中，地址不属于 `notification_prefs` 记录的用户”识别。
+3. **管理员过滤策略的更新**：文档要求用户进出 admin 组时调用 `SetSubscriptionAttributes`；为不改共享的管理路由，由 worker 的周期同步（`syncSubscriptions`）按当前角色校正过滤策略，最长延迟一个同步周期。
+4. **收件队列的坏消息**：收件队列本身也配 RedrivePolicy（maxReceiveCount 5）指向同一个 DLQ，所以“订阅级 DLQ 深度 > 0”同时覆盖 SNS 投递失败与 worker 解析不了的消息。
+5. **队列不随 kms 改用 CMK**：notification 只对主题应用 `KmsKeyArn`；两条队列保持 SSE-SQS（CMK 需要密钥策略授权 sns.amazonaws.com，否则投递静默失败，属于 kms 模块的范围）。email 不接收 `KmsKeyArn`（SES → SNS → SQS 全链路的 CMK 授权同理）。
+6. **Cognito 发送授权**：CloudFormation 没有 SES 身份策略资源，且 User Pool 现行做法经服务关联角色发送（以官方文档为准），所以 `ForCognito` 只决定 `EnvEmailForCognito` 与 registry 对 auth 的 `SesIdentityArn` 注入，不建身份策略。
+7. **SES 失败不抛出**：auth=local 的注册在请求内直接调用 EmailPort，抛错会让注册失败；非权威端口一律记 failed 并返回 `delivered=false`（SDK 自身的重试之外不再由队列重试）。
+8. **保留域名（PM-46）只在 ses 驱动中拦截**：outbox 驱动本来就不发信，行为不变（避免改动 L0 的路径段）。
+9. **register-latency** 是 Node 场景（运行器不执行 k6）；**sandbox** 是 `npm run exp` 场景（文档原写 `npx tsx … --to`）；两个 `compare` 场景也可以直接用 `npx tsx experiments/<id>/compare.ts` 运行（转交给运行器）。
+10. **卡片 svc-notification 的“迁移”步骤**改用 `experiments/notification/subscribe-users.ts`（经 `PUT /api/notifications/prefs` 走同一个 `subscribeEmail`），enable 带 `--no-migrate`；卡片把 filter 拆成独立的实验步骤（lint A11：必需标签要有自己的实验步骤）。
+11. **svc-email 的保留身份冲突（附录 C-12）**：由模板参数 `AdoptExistingIdentity` + hook 预检解决，卡片保留 `keepablePrerequisites: [ses-identity]`；域名身份步骤为选做，`when: learner.inputs.domain != ''`。
+
+### 6. 需要集成阶段处理（共享文件）
+
+- `backend/src/worker.ts`：notifier / email 驱动提供 `consume({signal})` 时在 worker 中启动（`if (typeof (c.notifier as {consume?}).consume === 'function') void c.notifier.consume({ signal })`，email 同理）。`consume` 已在 `instrument.ts` 的 UNTIMED_METHODS 中，不需要改 instrument。
+- 路由（仅管理员）：`POST /api/lab/notification/compare` → `compareNotificationDrivers(deps, c.notifier)`；`POST /api/lab/email/compare {to}` → `compareEmailDrivers(deps, c.email, to)`（deps 需要 db、email、cfg、aws）。在登记之前，实验与卡片把它们当作选读，返回 404 时记 note。
+- `backend/src/cli.ts` 的 `migrate-module notification up|down|verify` 接到 `adapters/notification/migrate.ts`（target 为 SnsNotifier）；接入后卡片与 hook 中的 `--no-migrate` / subscribe-users 说明可以去掉。
+- `experiments/test/manifest.test.ts` 的 “exist for all 8 MVP modules” 断言模块目录恰好是 8 个 MVP 模块；新增 experiments/notification、email（以及其他 wave1 模块）后失败，需要改为包含 wave1 模块。`scripts/labs/test/{lint,derive,build}.test.ts` 假设“10 张完整卡片、46 张占位”，同理需要更新；`labs/_catalog/catalog.yaml` 需要 `npm run labs:catalog` 重新生成。
+- `scripts/module-cli/test/helpers.ts` 的 `ALLOW_PENDING_WAVE1_TEMPLATES`：notification.yaml、email.yaml 已就位。
+- （可选）`scripts/module-cli/src/enable.ts` 的 `previewEnv` 计算静态输出时没有传入用户参数；email 的 hook 用 `SES_IDENTITY` 设置绕过了这一点。
+
+### 7. 自测（2026-10-14，Windows 11 / Node 22.14.0 / Docker 28.3.2）
+
+| 命令 | 结果 |
+|---|---|
+| backend / module-cli / experiments 的 `tsc --noEmit`；本模块文件的 `eslint` | 通过；0 个问题 |
+| `npx vitest run`（backend 中本模块的适配器测试与契约） | notification-sns 23、email-ses 18 个测试通过 |
+| `npx vitest run`（module-cli：hook 与模板） | module-hooks-notification 5、module-hooks-email 12、templates 54、templates-platform 19 个测试通过 |
+| `npx vitest run test/notification-email.test.ts`（experiments） | 10 个测试通过（清单校验 + 8 个场景对 mock 服务器） |
+| `cfn-lint infra/modules/notification.yaml infra/modules/email.yaml`（1.57.2） | 0 个发现 |
+| `scripts/module enable/disable/plan --dry-run`、`plan --single`、`plan --start-of svc-<id>` | 均通过；email 没有身份时 enable 退出码 2、plan 跳过并给出 hint |
+| `npm run labs:lint` / `labs:derive` | 两张卡 0 错误 0 警告 / derive 通过；全仓库剩余问题来自其他模块的进行中卡片与 `_catalog`（见第 6 节） |
+| `npm test`（全仓库，含其他实现者的进行中改动） | 2504 通过、18 跳过、6 失败（均为第 6 节所列的数量假设：experiments manifest、labs 工具的 10 / 46 张卡片假设与 catalog） |
+| `npm run smoke:l0` / `smoke:selfhost` | 85 通过 0 失败 / 31 通过 0 失败 |
