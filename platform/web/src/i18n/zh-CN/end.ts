@@ -191,4 +191,14 @@ export default {
     noAccess: '保留期间没有终端与控制台访问。要继续操作，请开始一个复用该环境的新会话。',
     resources: '保留的资源（{n} 项）',
   },
+  /** 回收进度的图形（09 视觉化 I6 f）：阶段图示、资源删除进度、保留期限。 */
+  visual: {
+    deleted: '已删除',
+    details: '详细说明',
+    keepTimeline: '保留期限',
+    created: '创建',
+    now: '现在',
+    keepUntil: '自动释放',
+    maxAge: '最长期限',
+  },
 };

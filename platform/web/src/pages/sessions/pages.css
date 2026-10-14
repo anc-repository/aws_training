@@ -99,3 +99,127 @@ h2.st,.checklist .st,[data-section="validity"] .st,[data-section="pair"] .st,.va
 h2.st .shp,.checklist .st .shp,[data-section="validity"] .st .shp,.varcol .st .shp{margin-top:5px}
 .filters .fi{display:inline-flex; gap:6px; align-items:center; min-width:0}
 @media (max-width:767px){ .tbl-wrap.cardify .tbl td>.pill,.tbl-wrap.cardify .tbl td>.st{justify-self:start} }
+
+/* ------------------------------------------------------------------------------------------------
+ * 图形（09「视觉化」I6 f；sessions/visuals.tsx）：图块、徽记、步骤条、堆叠条、比例条、证书印章、时间轴。
+ * 颜色只按语义色调（.vtone.<tone>，与 .st.<tone> 相同的映射）；不写 style 属性；forced-colors 下退回系统色。
+ * ------------------------------------------------------------------------------------------------ */
+.vtone.pass{color:var(--st-pass)} .vtone.fail{color:var(--st-fail)} .vtone.pend{color:var(--st-pending)} .vtone.drift{color:var(--st-drift)}
+.vtone.manual{color:var(--st-manual)} .vtone.needs{color:var(--st-needs)} .vtone.err{color:var(--st-error)} .vtone.stale{color:var(--st-stale)}
+.vtone.lock{color:var(--st-locked)} .vtone.mut{color:var(--text-2)} .vtone.faint{color:var(--text-3)} .vtone.live{color:var(--ses-live)} .vtone.kept{color:var(--ses-kept)}
+
+.vtiles{display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%,150px),1fr)); gap:var(--sp-3); min-width:0}
+.vtile{display:flex; align-items:center; gap:var(--sp-3); padding:10px 12px; border:1px solid var(--border); border-radius:var(--radius-card); background:var(--surface); min-width:0}
+.vtile-vis{flex:none; display:inline-flex}
+.vtile-txt{display:grid; min-width:0}
+.vtile-v{font-size:18px; font-weight:600; line-height:1.3; font-variant-numeric:tabular-nums; overflow-wrap:anywhere}
+.vtile-k{font-size:12px; color:var(--text-2); overflow-wrap:anywhere}
+
+.vbadge,.vicon{display:inline-grid; place-items:center; flex:none; width:36px; height:36px; border-radius:50%; border:2px solid currentColor; background:var(--surface)}
+.vbadge.sm,.vicon.sm{width:24px; height:24px; border-width:1.5px}
+.vbadge.lg,.vicon.lg{width:48px; height:48px}
+.vbadge .shp{width:18px; height:18px} .vbadge.sm .shp{width:12px; height:12px} .vbadge.lg .shp{width:24px; height:24px}
+.vicon .ico{width:18px; height:18px} .vicon.sm .ico{width:13px; height:13px} .vicon.lg .ico{width:24px; height:24px}
+.vicon.fill{background:currentColor} .vicon.fill .ico{color:var(--on-ink)}
+
+.vstrip{list-style:none; margin:0; padding:0; display:flex; flex-wrap:wrap; gap:6px; align-items:center}
+.vstrip li{display:inline-grid; place-items:center; width:26px; height:26px; border-radius:50%; border:2px solid currentColor; font-size:12px; font-weight:600; font-variant-numeric:tabular-nums}
+.vstrip li>span{color:var(--text)}
+.vstrip li.fill{background:currentColor} .vstrip li.fill>span{color:var(--on-ink)}
+
+.vstack,.vmini,.vmeter{display:block; width:100%; height:8px}
+.vmini{height:6px; max-width:140px}
+.vmeter{height:10px; max-width:220px}
+.vstack-track{fill:var(--surface-2)}
+.vstack rect.vtone,.vmini rect.vtone,.vmeter rect.vtone,.vtime rect.vtone{fill:currentColor}
+.vmeter-tick{stroke:var(--text); stroke-width:2; vector-effect:non-scaling-stroke}
+
+.vseal{flex:none; display:inline-block; vertical-align:middle}
+.vseal-out{fill:currentColor; fill-opacity:.16; stroke:currentColor; stroke-width:1.4; stroke-linejoin:round}
+.vseal-in{fill:currentColor}
+.vseal-mark{fill:none; stroke:var(--on-ink); stroke-width:2.6; stroke-linecap:round; stroke-linejoin:round}
+.vseal-mark .f{fill:var(--on-ink); stroke:none}
+.vseal.hollow .vseal-out{fill:none; stroke-dasharray:3 2}
+.vseal.hollow .vseal-in{fill:none; stroke:currentColor; stroke-width:1.4}
+.vseal.hollow .vseal-mark{stroke:currentColor} .vseal.hollow .vseal-mark .f{fill:currentColor}
+
+.vtime{display:grid; gap:2px; max-width:560px; min-width:0}
+.vtime svg{display:block; width:100%; height:10px}
+.vtime-tick{stroke:currentColor; stroke-width:2; vector-effect:non-scaling-stroke}
+.vtime-labels{list-style:none; margin:0; padding:0; display:flex; justify-content:space-between; gap:8px; font-size:11.5px}
+.vtime-labels li{min-width:0; overflow-wrap:anywhere}
+.vtime-labels .vtime-k{color:var(--text-2)}
+
+/* 结束阶段的阶段图示（EndPhaseList）：窄屏纵向；≥ 768px 横向，节点之间连线（已完成的连线加深） */
+ol.prov.endflow .phrow{grid-template-columns:36px minmax(0,1fr) auto; align-items:center}
+.efnode{position:relative; display:inline-grid; place-items:center; width:32px; height:32px; border-radius:50%; border:2px solid currentColor; background:var(--surface)}
+.efnode .ico{width:16px; height:16px}
+.efnode.fill{background:currentColor} .efnode.fill .ico{color:var(--on-ink)}
+.efnode.todo{border-style:dashed}
+.efnode .efst{position:absolute; right:-6px; bottom:-6px; display:inline-flex; padding:1px; border-radius:50%; background:var(--surface)}
+.efnode .efst .shp{width:12px; height:12px}
+@media (min-width:768px){
+  ol.prov.endflow{grid-auto-flow:column; grid-auto-columns:minmax(0,1fr); gap:0 4px; align-items:start}
+  ol.prov.endflow .phrow{position:relative; grid-template-columns:minmax(0,1fr); justify-items:center; text-align:center; border-bottom:0; padding:4px 2px 8px; gap:4px}
+  ol.prov.endflow .phrow::before{content:""; position:absolute; top:19px; left:calc(-50% + 18px); right:calc(50% + 20px); height:2px; background:var(--border)}
+  ol.prov.endflow .phrow:first-child::before{display:none}
+  ol.prov.endflow .phrow[data-status="done"]::before,ol.prov.endflow .phrow[data-status="skipped"]::before{background:var(--border-strong)}
+  ol.prov.endflow .phrow .pt{font-size:12.5px}
+  ol.prov.endflow .phrow .pt .small{display:block; font-weight:400}
+  ol.prov.endflow .phrow .pd{grid-column:auto; font-size:11.5px}
+}
+
+/* 资源删除进度（ResourceStages） */
+.vres-sum{display:flex; gap:var(--sp-3); align-items:center; min-width:0}
+.vres-sum .vstack{flex:1 1 auto; max-width:520px}
+details.rstage>summary .vmini{width:96px}
+
+/* 报告的图形摘要 */
+.rep-hero{display:grid; gap:var(--sp-3); grid-template-columns:minmax(0,1fr); min-width:0}
+@media (min-width:960px){ .rep-hero{grid-template-columns:minmax(0,3fr) minmax(0,2fr)} }
+.rep-ev{border:1px solid var(--border); border-radius:var(--radius-card); background:var(--surface); padding:10px 12px; min-width:0}
+.rep-arch{margin:0; display:grid; gap:6px; min-width:0}
+.rep-arch figcaption{font-size:12px; color:var(--text-2)}
+.stepev .row .step-ico{color:var(--text-2)}
+
+/* 证书：印章、完成度环、“已核验”占比条、证书卡片、徽章墙的服务图标 */
+.cert-state{display:flex; gap:8px; align-items:flex-start; min-width:0}
+.cert-state>div{display:grid; gap:2px; min-width:0}
+.cert-cond{display:grid; grid-template-columns:auto minmax(0,1fr); gap:4px 10px; align-items:center; min-width:0}
+.cert-cond>.cert-cond-txt{display:grid; gap:4px; min-width:0}
+.certcard{position:relative; display:grid; grid-template-columns:auto minmax(0,1fr); gap:var(--sp-4); align-items:center; margin:0; padding:var(--sp-4) var(--sp-5); border:1px solid var(--border-strong); border-radius:var(--radius-card); background:var(--surface); min-width:0}
+.certcard::after{content:""; position:absolute; inset:5px; border:1px solid var(--border); border-radius:4px; pointer-events:none}
+.certcard-body{display:grid; gap:2px; min-width:0}
+.certcard-kicker{font-size:11px; letter-spacing:.08em; text-transform:uppercase; color:var(--text-3)}
+.certcard-title{font-size:18px; font-weight:600; line-height:1.4; overflow-wrap:anywhere}
+.certcard-name{font-size:16px; overflow-wrap:anywhere}
+.certcard-date{font-size:12px; color:var(--text-2); font-variant-numeric:tabular-nums}
+.certcard-labs{display:flex; flex-wrap:wrap; gap:4px; margin-top:6px}
+.certcard-ring{display:none}
+@media (min-width:640px){ .certcard{grid-template-columns:auto minmax(0,1fr) auto} .certcard-ring{display:inline-flex} }
+@media (max-width:480px){ .certcard{padding:var(--sp-3)} }
+.certcard.revoked .certcard-title,.certcard.revoked .certcard-name{text-decoration:line-through; text-decoration-color:var(--text-3)}
+.bw-cat{display:flex; align-items:center; gap:8px}
+.bw-glyph{position:relative; display:inline-block; line-height:0}
+.bw-glyph .bw-svc{position:absolute; right:-5px; bottom:-5px}
+
+/* 会话时间线：事件类别图标 */
+.timeline li .what .ev-ico{display:inline-flex; color:var(--text-3); margin-right:6px; vertical-align:-2px}
+
+/* 标题与表格中的服务图标 */
+.h-glyph{vertical-align:-4px}
+
+/* 保留中的环境：启用的模块 */
+.vchips{display:flex; flex-wrap:wrap; gap:6px 10px; align-items:center}
+.vchip{display:inline-flex; align-items:center; gap:4px}
+
+@media (forced-colors: active){
+  .vstack rect.vtone,.vmini rect.vtone,.vmeter rect.vtone,.vtime rect.vtone,.vseal-in{fill:CanvasText}
+  .vstack-track{fill:Canvas; stroke:CanvasText}
+  .vstrip li,.vbadge,.vicon,.efnode{border-color:CanvasText}
+  .vstrip li.fill,.vicon.fill,.efnode.fill{background:CanvasText}
+  .vstrip li.fill>span,.vicon.fill .ico,.efnode.fill .ico{color:Canvas}
+  .vseal-mark{stroke:Canvas}
+  ol.prov.endflow .phrow::before{background:CanvasText}
+}
+@media print{ .vtiles,.certcard,.rep-hero{break-inside:avoid} }

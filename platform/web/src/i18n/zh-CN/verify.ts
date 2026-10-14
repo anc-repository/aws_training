@@ -7,6 +7,7 @@ export default {
     docTitle: 'ATL 证书验证（非 AWS 官方）',
     skip: '跳到主要内容',
     title: 'ATL 证书验证',
+    natureShort: '这不是 AWS 官方认证，而是自托管 ATL 实例签发的完成证明。',
     nature: '本证明由部署在学员自己 AWS 账号中的自托管 AWS Training Lab 实例自动签发，表示该实例记录到持有人完成了所列实验，签名可用于确认内容未被篡改、且出自该实例的签名密钥。它不是 AWS 官方认证，也不代表 AWS Certified Solutions Architect – Associate 或任何 AWS 认证资格；签发者与持有人可能是同一人，平台的数据与密钥由账号所有者控制。验证结果只说明“该实例签发了此内容”，不说明签发过程的独立性。',
     retry: '重试',
     paste: '粘贴证书',

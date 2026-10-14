@@ -57,6 +57,9 @@ describe('P08 实验报告', () => {
     await waitFor(() => expect(summary.textContent).toContain('徽章“边缘缓存” · 已核验（证据分 0.97）'));
     expect(summary.textContent).toContain('已完成（全自动）');
     expect(summary.textContent).toContain('可信度：高 12 · 中 2 · 低 0');
+    // 图形摘要（I6 f）：步骤完成度环、结论徽记、证据可信度条形图（表格即数据视图）
+    expect(summary.querySelector('[data-visual="summary"] [data-tile="steps"] svg.pring[role="img"]')).toBeTruthy();
+    expect(within(summary).getByRole('table', { name: '证据可信度' }).querySelectorAll('tbody tr')).toHaveLength(3);
     expect(summary.textContent).toContain('账号 ••••3333');
     expect(summary.textContent).toContain('开始前估算 未知');
     expect(summary.textContent).not.toContain('111122223333');

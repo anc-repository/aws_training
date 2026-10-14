@@ -8,193 +8,193 @@ import type zh from '../zh-CN/core';
 
 export default {
   app: {
-    name: '', // ATL 实验平台
-    unofficial: '', // 非 AWS 官方
-    fullName: '', // ATL 实验平台（非 AWS 官方）
-    skipToMain: '', // 跳到主要内容
-    loading: '', // 正在加载…
-    stillLoading: '', // 仍在加载…
-    retry: '', // 重试
-    reload: '', // 重新加载
-    close: '', // 关闭
-    cancel: '', // 取消
-    copy: '', // 复制
-    copied: '', // 已复制
-    copyDiagnostics: '', // 复制诊断信息
-    backToCatalog: '', // 回到卡片目录
-    newTab: '', // （新标签页）
-    todo: '', // 这个画面将在后续实现。
+    name: 'ATL ラボプラットフォーム', // ATL 实验平台
+    unofficial: 'AWS 非公式', // 非 AWS 官方
+    fullName: 'ATL ラボプラットフォーム（AWS 非公式）', // ATL 实验平台（非 AWS 官方）
+    skipToMain: 'メインコンテンツへスキップ', // 跳到主要内容
+    loading: '読み込んでいます…', // 正在加载…
+    stillLoading: 'まだ読み込んでいます…', // 仍在加载…
+    retry: '再試行', // 重试
+    reload: '再読み込み', // 重新加载
+    close: '閉じる', // 关闭
+    cancel: 'キャンセル', // 取消
+    copy: 'コピー', // 复制
+    copied: 'コピーしました', // 已复制
+    copyDiagnostics: '診断情報をコピー', // 复制诊断信息
+    backToCatalog: 'カード一覧に戻る', // 回到卡片目录
+    newTab: '（新しいタブ）', // （新标签页）
+    todo: 'この画面は今後実装されます。', // 这个画面将在后续实现。
   },
   nav: {
-    label: '', // 主导航
-    catalog: '', // 卡片目录
-    track: '', // 学习路径
-    learning: '', // 我的学习
-    sessions: '', // 我的实验
-    openMenu: '', // 打开导航
-    progress: '', // 进度 {counted}/{min}
+    label: 'メインナビゲーション', // 主导航
+    catalog: 'カード一覧', // 卡片目录
+    track: '学習パス', // 学习路径
+    learning: '学習状況', // 我的学习
+    sessions: '実験履歴', // 我的实验
+    openMenu: 'ナビゲーションを開く', // 打开导航
+    progress: '進捗 {counted}/{min}', // 进度 {counted}/{min}
   },
   roles: {
-    L: '', // 学员
-    A: '', // 助教
-    O: '', // 观察者
+    L: '受講者', // 学员
+    A: 'アシスタント', // 助教
+    O: '閲覧者', // 观察者
   },
   account: {
-    menu: '', // 账号与区域
-    menuLabel: '', // 账号与区域：{region}，账号尾号 {last4}，{name}，{role}
-    region: '', // 区域
-    drRegion: '', // 灾备区域
-    account: '', // 账号
-    reveal: '', // 显示
-    revealLabel: '', // 显示完整账号 ID 10 秒
-    accountLater: '', // 账号 ID 将在第一次实验时显示
-    regionFixed: '', // 区域不可在界面中切换（换区域需要重新安装）
-    theme: '', // 主题
-    themeSystem: '', // 跟随系统
-    themeLight: '', // 亮
-    themeDark: '', // 暗
-    shortcuts: '', // 键盘快捷键与图例
-    profile: '', // 个人资料与偏好 →
-    settings: '', // 平台设置 →
-    signOut: '', // 退出
+    menu: 'アカウントとリージョン', // 账号与区域
+    menuLabel: 'アカウントとリージョン：{region}、アカウント末尾 {last4}、{name}、{role}', // 账号与区域：{region}，账号尾号 {last4}，{name}，{role}
+    region: 'リージョン', // 区域
+    drRegion: 'DR リージョン', // 灾备区域
+    account: 'アカウント', // 账号
+    reveal: '表示', // 显示
+    revealLabel: '完全なアカウント ID を 10 秒間表示', // 显示完整账号 ID 10 秒
+    accountLater: 'アカウント ID は最初のラボで表示されます', // 账号 ID 将在第一次实验时显示
+    regionFixed: 'リージョンは画面から変更できません（変更には再インストールが必要です）', // 区域不可在界面中切换（换区域需要重新安装）
+    theme: 'テーマ', // 主题
+    themeSystem: 'システムに合わせる', // 跟随系统
+    themeLight: 'ライト', // 亮
+    themeDark: 'ダーク', // 暗
+    shortcuts: 'キーボードショートカットと凡例', // 键盘快捷键与图例
+    profile: 'プロフィールと設定 →', // 个人资料与偏好 →
+    settings: 'プラットフォーム設定 →', // 平台设置 →
+    signOut: 'ログアウト', // 退出
   },
   session: {
-    pillLabel: '', // 当前实验 {labId}，{state}，{rest}，回到工作台
-    pillPrepLabel: '', // 当前实验 {labId}，{state}，回到工作台
-    pillWindLabel: '', // {labId}，{state}，查看回收进度
-    pillKeptLabel: '', // {labId}，环境保留中，管理保留
-    pillFailedLabel: '', // {labId}，释放未完成，查看清单
-    elapsed: '', // 已用 {t}
-    remaining: '', // 剩余 {t}
-    until: '', // 至 {t}
-    saveMode: '', // 节省模式
-    deleted: '', // 已删除 {n}/{m}
-    hourlyBilled: '', // {n} 项按小时计费
-    menu: '', // 会话菜单
-    menuBackToWorkspace: '', // 回到工作台
-    menuReclaim: '', // 查看回收进度
-    menuKeep: '', // 管理保留的环境
-    menuCancel: '', // 取消…
-    menuExtend: '', // 延长 {minutes} 分钟（剩余 {n} 次）
-    menuEnd: '', // 结束实验…
-    menuDetail: '', // 会话详情
-    countdownNotStarted: '', // 倒计时未开始
-    serverTime: '', // 按服务器时间计算
-    expiresAt: '', // {t} 到期（本地时间）
+    pillLabel: '実行中のラボ {labId}、{state}、{rest}、ワークベンチに戻る', // 当前实验 {labId}，{state}，{rest}，回到工作台
+    pillPrepLabel: '実行中のラボ {labId}、{state}、ワークベンチに戻る', // 当前实验 {labId}，{state}，回到工作台
+    pillWindLabel: '{labId}、{state}、回収の進捗を見る', // {labId}，{state}，查看回收进度
+    pillKeptLabel: '{labId}、環境を保持中、保持を管理', // {labId}，环境保留中，管理保留
+    pillFailedLabel: '{labId}、解放未完了、リストを見る', // {labId}，释放未完成，查看清单
+    elapsed: '経過 {t}', // 已用 {t}
+    remaining: '残り {t}', // 剩余 {t}
+    until: '{t} まで', // 至 {t}
+    saveMode: '節約モード', // 节省模式
+    deleted: '削除済み {n}/{m}', // 已删除 {n}/{m}
+    hourlyBilled: '{n} 件が時間課金', // {n} 项按小时计费
+    menu: 'セッションメニュー', // 会话菜单
+    menuBackToWorkspace: 'ワークベンチに戻る', // 回到工作台
+    menuReclaim: '回収の進捗を見る', // 查看回收进度
+    menuKeep: '保持している環境を管理', // 管理保留的环境
+    menuCancel: 'キャンセル…', // 取消…
+    menuExtend: '{minutes} 分延長（残り {n} 回）', // 延长 {minutes} 分钟（剩余 {n} 次）
+    menuEnd: 'ラボを終了…', // 结束实验…
+    menuDetail: 'セッションの詳細', // 会话详情
+    countdownNotStarted: 'カウントダウンは未開始', // 倒计时未开始
+    serverTime: 'サーバー時刻で計算', // 按服务器时间计算
+    expiresAt: '{t} に期限切れ（ローカル時刻）', // {t} 到期（本地时间）
     extendBlocked: {
-      none: '', // 延长次数已用完。
-      last30s: '', // 即将到期，无法延长（截止前最后 30 秒不接受延长）。
-      cap: '', // 已达到单次实验总时长上限。
-      uninstalling: '', // 平台正在卸载，不能延长。
-      budget: '', // 本月费用已超过预算，按设置不能延长。
-      state: '', // 实验已到期或正在结束，无法延长。
+      none: '延長回数を使い切りました。', // 延长次数已用完。
+      last30s: 'まもなく期限のため延長できません（締め切り前の最後の 30 秒は延長を受け付けません）。', // 即将到期，无法延长（截止前最后 30 秒不接受延长）。
+      cap: '1 回のラボの合計時間の上限に達しました。', // 已达到单次实验总时长上限。
+      uninstalling: 'プラットフォームをアンインストール中のため延長できません。', // 平台正在卸载，不能延长。
+      budget: '今月の費用が予算を超えたため、設定により延長できません。', // 本月费用已超过预算，按设置不能延长。
+      state: 'ラボは期限切れか終了処理中のため延長できません。', // 实验已到期或正在结束，无法延长。
     },
   },
   footer: {
-    live: '', // 实时 · 轮询中（{s} 秒）
-    paused: '', // 已暂停（页面在后台）
-    offline: '', // 连接中断
-    shortcutsHint: '', // 按 ? 查看快捷键
-    clockSkew: '', // 本机时钟与服务器相差约 {n} 分钟，倒计时已按服务器时间显示。
+    live: 'リアルタイム · ポーリング中（{s} 秒）', // 实时 · 轮询中（{s} 秒）
+    paused: '一時停止中（ページがバックグラウンド）', // 已暂停（页面在后台）
+    offline: '接続が切れました', // 连接中断
+    shortcutsHint: '? でショートカットを表示', // 按 ? 查看快捷键
+    clockSkew: 'この端末の時計はサーバーと約 {n} 分ずれています。カウントダウンはサーバー時刻で表示しています。', // 本机时钟与服务器相差约 {n} 分钟，倒计时已按服务器时间显示。
   },
   banners: {
-    region: '', // 提醒
-    more: '', // 还有 {n} 条提醒
-    collapse: '', // 收起提醒
-    dismiss: '', // 关闭提醒
-    uninstalling: '', // 平台正在卸载：已停止接受新实验，正在结束并回收全部环境。
-    uninstallingAction: '', // 查看卸载进度
-    residual: '', // {what}有 {n} 项资源未释放{hourly}。
-    residualHourly: '', // ，其中 {n} 项按小时计费
-    residualAction: '', // 查看清单
-    residualPrevious: '', // 之前的实验
-    budgetExceeded: '', // 本月费用已超过预算（atl-platform-guard）。按设置，平台已暂停开始新实验。
-    budgetAction: '', // 查看护栏
-    expiring: '', // {labId} 将于 {at} 到期（剩余 {min} 分钟），到期后自动释放资源。
-    expiringAction: '', // 回到工作台
-    envDegraded: '', // 实验机的管理通道不可达，终端与本地检测暂时不可用。
-    envDegradedAction: '', // 查看排障
-    maintenance: '', // 平台处于维护模式，暂时不能开始新实验。
-    maintenanceAction: '', // 设置
-    budgetWarn: '', // 本月费用已达到预算的 80%（实际或预测）。开始、延长、保留时会再次请你确认。
-    catalogUpdated: '', // 卡片目录已更新到 {v}。
-    platformUpdated: '', // 平台已更新到 {v}。
-    refresh: '', // 刷新
-    keep: '', // 保留的环境将于 {at} 自动释放。
-    keepAction: '', // 管理保留
-    onboardingSkipped: '', // 首次设置已跳过：可在 设置 › 平台 中重看。
+    region: 'お知らせ', // 提醒
+    more: 'ほかに {n} 件のお知らせ', // 还有 {n} 条提醒
+    collapse: 'お知らせを折りたたむ', // 收起提醒
+    dismiss: 'お知らせを閉じる', // 关闭提醒
+    uninstalling: 'プラットフォームをアンインストール中：新しいラボの受け付けを停止し、すべての環境を終了・回収しています。', // 平台正在卸载：已停止接受新实验，正在结束并回收全部环境。
+    uninstallingAction: 'アンインストールの進捗を見る', // 查看卸载进度
+    residual: '{what}に解放されていないリソースが {n} 件あります{hourly}。', // {what}有 {n} 项资源未释放{hourly}。
+    residualHourly: '（うち {n} 件は時間課金）', // ，其中 {n} 项按小时计费
+    residualAction: 'リストを見る', // 查看清单
+    residualPrevious: '以前のラボ', // 之前的实验
+    budgetExceeded: '今月の費用が予算を超えました（atl-platform-guard）。設定により、新しいラボの開始を一時停止しています。', // 本月费用已超过预算（atl-platform-guard）。按设置，平台已暂停开始新实验。
+    budgetAction: 'ガードレールを見る', // 查看护栏
+    expiring: '{labId} は {at} に期限切れになります（残り {min} 分）。期限後、リソースは自動で解放されます。', // {labId} 将于 {at} 到期（剩余 {min} 分钟），到期后自动释放资源。
+    expiringAction: 'ワークベンチに戻る', // 回到工作台
+    envDegraded: 'ラボ用インスタンスの管理チャネルに到達できません。ターミナルとローカルのチェックは一時的に使えません。', // 实验机的管理通道不可达，终端与本地检测暂时不可用。
+    envDegradedAction: 'トラブルシューティングを見る', // 查看排障
+    maintenance: 'プラットフォームはメンテナンスモードのため、新しいラボを開始できません。', // 平台处于维护模式，暂时不能开始新实验。
+    maintenanceAction: '設定', // 设置
+    budgetWarn: '今月の費用が予算の 80%（実績または予測）に達しました。開始、延長、保持の際にもう一度確認します。', // 本月费用已达到预算的 80%（实际或预测）。开始、延长、保留时会再次请你确认。
+    catalogUpdated: 'カード一覧が {v} に更新されました。', // 卡片目录已更新到 {v}。
+    platformUpdated: 'プラットフォームが {v} に更新されました。', // 平台已更新到 {v}。
+    refresh: '更新', // 刷新
+    keep: '保持している環境は {at} に自動で解放されます。', // 保留的环境将于 {at} 自动释放。
+    keepAction: '保持を管理', // 管理保留
+    onboardingSkipped: '初回設定をスキップしました。設定 › プラットフォーム から見直せます。', // 首次设置已跳过：可在 设置 › 平台 中重看。
   },
   p13: {
-    offline: '', // 网络已断开。实验仍在服务端计时，资源照常计费；恢复后自动同步。
-    apiUnavailable: '', // 平台服务暂时不可用（{status}）。
-    throttled: '', // AWS 接口繁忙，平台已重试。请稍后再试。
-    rateLimited: '', // 操作太频繁，请在 {n} 秒后重试。
-    authExpiredTitle: '', // 登录已过期
-    authExpired: '', // 登录已过期。你在本页填写的内容会保留在本标签页。
-    signInAgain: '', // 重新登录
-    reauthTitle: '', // 需要重新登录
-    reauth: '', // 这个操作要求最近 60 分钟内登录过（打开终端、控制台登录、查看管理员密码、领取证书、平台动作、卸载准备）。
-    roleDeniedTitle: '', // 角色不足
-    roleDenied: '', // 你的角色（{role}）只能查看，不能进入这个页面或执行这个操作。地址已保留。
-    roleDeniedInline: '', // 你的角色（{role}）只能查看，不能执行这个操作。
-    noRoleTitle: '', // 账号未分配角色
-    noRole: '', // 这个账号还没有被分配为学员、助教或观察者。请联系平台的学员（账号所有者）在 设置 › 成员 中邀请你。
-    platformUnavailableTitle: '', // 平台暂时不可用
-    platformUnavailable: '', // 读取平台配置失败。实验仍在服务端计时，资源照常计费。
-    notFoundTitle: '', // 页面不存在
-    notFound: '', // 页面不存在。
-    pageErrorTitle: '', // 页面出错了
-    pageError: '', // 渲染时出现异常（错误 ID {id}）。实验仍在服务端计时，资源照常计费。
-    precondition: '', // 截止时间刚刚变化（可能在另一个标签页延长过），已刷新。
-    unknown: '', // {title}
-    requestId: '', // 错误 ID
+    offline: 'ネットワークが切断されました。ラボはサーバー側で時間を計測しており、リソースの課金も続きます。復旧すると自動で同期します。', // 网络已断开。实验仍在服务端计时，资源照常计费；恢复后自动同步。
+    apiUnavailable: 'プラットフォームのサービスは一時的に利用できません（{status}）。', // 平台服务暂时不可用（{status}）。
+    throttled: 'AWS の API が混み合っているため、プラットフォームが再試行しました。しばらくしてからもう一度お試しください。', // AWS 接口繁忙，平台已重试。请稍后再试。
+    rateLimited: '操作が多すぎます。{n} 秒後にもう一度お試しください。', // 操作太频繁，请在 {n} 秒后重试。
+    authExpiredTitle: 'ログインの有効期限が切れました', // 登录已过期
+    authExpired: 'ログインの有効期限が切れました。このページで入力した内容はこのタブに残ります。', // 登录已过期。你在本页填写的内容会保留在本标签页。
+    signInAgain: 'もう一度ログイン', // 重新登录
+    reauthTitle: '再ログインが必要です', // 需要重新登录
+    reauth: 'この操作には直近 60 分以内のログインが必要です（ターミナルを開く、コンソールへのサインイン、管理者パスワードの表示、修了証の受け取り、プラットフォーム操作、アンインストールの準備）。', // 这个操作要求最近 60 分钟内登录过（打开终端、控制台登录、查看管理员密码、领取证书、平台动作、卸载准备）。
+    roleDeniedTitle: 'ロールの権限が足りません', // 角色不足
+    roleDenied: 'このロール（{role}）は閲覧のみで、このページへのアクセスやこの操作はできません。アドレスは保持しています。', // 你的角色（{role}）只能查看，不能进入这个页面或执行这个操作。地址已保留。
+    roleDeniedInline: 'このロール（{role}）は閲覧のみで、この操作はできません。', // 你的角色（{role}）只能查看，不能执行这个操作。
+    noRoleTitle: 'アカウントにロールが割り当てられていません', // 账号未分配角色
+    noRole: 'このアカウントは受講者、アシスタント、閲覧者のいずれにも割り当てられていません。プラットフォームの受講者（アカウント所有者）に、設定 › メンバー から招待してもらってください。', // 这个账号还没有被分配为学员、助教或观察者。请联系平台的学员（账号所有者）在 设置 › 成员 中邀请你。
+    platformUnavailableTitle: 'プラットフォームは一時的に利用できません', // 平台暂时不可用
+    platformUnavailable: 'プラットフォームの設定を読み込めませんでした。ラボはサーバー側で時間を計測しており、リソースの課金も続きます。', // 读取平台配置失败。实验仍在服务端计时，资源照常计费。
+    notFoundTitle: 'ページが見つかりません', // 页面不存在
+    notFound: 'ページが見つかりません。', // 页面不存在。
+    pageErrorTitle: 'ページでエラーが発生しました', // 页面出错了
+    pageError: '表示中に例外が発生しました（エラー ID {id}）。ラボはサーバー側で時間を計測しており、リソースの課金も続きます。', // 渲染时出现异常（错误 ID {id}）。实验仍在服务端计时，资源照常计费。
+    precondition: '締め切り時刻が変わったため（別のタブで延長した可能性があります）、更新しました。', // 截止时间刚刚变化（可能在另一个标签页延长过），已刷新。
+    unknown: '{title}', // {title}
+    requestId: 'エラー ID', // 错误 ID
   },
   errors: {
-    SESSION_ACTIVE_EXISTS: '', // 已有进行中的实验：{detail}
-    ENV_KEPT_EXISTS: '', // 有保留中的环境：请先释放，或在该环境中开始
-    CLEANUP_IN_PROGRESS: '', // 上一个环境正在释放，完成后才能开始新的实验
-    RESIDUAL_ACK_REQUIRED: '', // 上次实验还有按小时计费的资源未释放，开始前需要你确认
-    RESIDUAL_BLOCKING: '', // 上次实验还有按小时计费的资源未释放。按平台设置，必须先处理残留才能开始新的实验
-    REUSE_IN_PROGRESS: '', // 该环境正在被新会话接管，不能立即释放
-    INVALID_STATE: '', // 当前状态不允许这个操作，页面已刷新
-    SESSION_EXPIRING_OR_ENDED: '', // 实验已到期或正在结束，无法延长
-    EXTENSION_LIMIT: '', // 延长次数或累计时长已用完
-    KEEP_NOT_ALLOWED: '', // 本卡片不允许保留环境
-    MAINTENANCE_MODE: '', // 平台处于维护模式
-    PLATFORM_UNINSTALLING: '', // 平台正在卸载
-    BUDGET_BLOCKED: '', // 本月费用已超过预算，按设置暂停了这个操作
-    PRECONDITION_FAILED: '', // 数据刚刚被修改，已刷新，请重新操作
-    COST_ACK_REQUIRED: '', // 请先确认费用
-    QUOTE_EXPIRED: '', // 费用报价已过期，已重新计算
-    QUOTE_MISMATCH: '', // 价格或卡片版本已更新，请重新确认费用
-    LIMIT_EXCEEDED: '', // 超过时长或保留上限
-    OP_NOT_ALLOWED: '', // 本卡片不允许这个平台动作
-    VARIANT_UNKNOWN: '', // 这个起始方式已不存在
-    PROFILE_DIGEST_MISMATCH: '', // 实验定义与平台版本不匹配（内容需重新发布）
-    CERT_NOT_ELIGIBLE: '', // 还不满足领取条件：{detail}
-    VALIDATION_FAILED: '', // 输入不符合要求：{detail}
-    RATE_LIMITED: '', // 操作太频繁，请稍后重试
-    UPSTREAM_THROTTLED: '', // AWS 接口繁忙，平台已重试，请稍后再试
-    UPSTREAM_UNAVAILABLE: '', // 依赖的 AWS 服务暂时不可用
-    NOT_FOUND: '', // 没有找到
-    INTERNAL: '', // 平台内部错误（错误 ID：{requestId}）
-    UNAUTHENTICATED: '', // 登录已过期，请重新登录
-    FORBIDDEN_ROLE: '', // 你的角色不能执行这个操作
-    REAUTH_REQUIRED: '', // 这个操作要求最近 60 分钟内登录过
-    TARGET_ALREADY_SATISFIED: '', // 这个环境里 {module} 已经是 {value}，在这里开始拿不到本次会话的完成证据
-    HARD_PREREQ_UNMET: '', // 前置卡片还没有完成
-    LAB_DEPRECATED: '', // 本卡片已停用
-    TERMINAL_SESSION_STATE: '', // 当前状态不能打开终端（或访问已收回）
-    TERMINAL_TARGET_NOT_IN_SESSION: '', // 目标实例不属于本环境
-    TERMINAL_TARGET_NOT_CONNECTED: '', // 实验机的管理通道不可达，暂时不能打开终端
-    TERMINAL_TARGET_NOT_PREPARED: '', // 实验机还没有准备好终端
-    TERMINAL_LIMIT: '', // 终端数量已达上限
-    TERMINAL_GONE: '', // 终端会话已结束，不能续连
-    CONSOLE_SESSION_STATE: '', // 当前状态不能获取控制台登录
-    CONSOLE_DESTINATION_NOT_ALLOWED: '', // 这个控制台页面不在允许的列表中
-    CONSOLE_FEDERATION_FAILED: '', // 控制台登录服务暂时不可用
-    NETWORK: '', // 无法连接平台，请检查网络后重试
-    BAD_RESPONSE: '', // 平台返回了无法识别的响应
+    SESSION_ACTIVE_EXISTS: '実行中のラボがあります：{detail}', // 已有进行中的实验：{detail}
+    ENV_KEPT_EXISTS: '保持中の環境があります：先に解放するか、その環境で開始してください', // 有保留中的环境：请先释放，或在该环境中开始
+    CLEANUP_IN_PROGRESS: '前の環境を解放中です。完了してから新しいラボを開始できます', // 上一个环境正在释放，完成后才能开始新的实验
+    RESIDUAL_ACK_REQUIRED: '前回のラボで時間課金のリソースが解放されていません。開始前に確認が必要です', // 上次实验还有按小时计费的资源未释放，开始前需要你确认
+    RESIDUAL_BLOCKING: '前回のラボで時間課金のリソースが解放されていません。プラットフォームの設定により、残存リソースを処理するまで新しいラボを開始できません', // 上次实验还有按小时计费的资源未释放。按平台设置，必须先处理残留才能开始新的实验
+    REUSE_IN_PROGRESS: 'この環境は新しいセッションに引き継ぎ中のため、すぐには解放できません', // 该环境正在被新会话接管，不能立即释放
+    INVALID_STATE: '現在の状態ではこの操作はできません。ページを更新しました', // 当前状态不允许这个操作，页面已刷新
+    SESSION_EXPIRING_OR_ENDED: 'ラボは期限切れか終了処理中のため延長できません', // 实验已到期或正在结束，无法延长
+    EXTENSION_LIMIT: '延長回数または合計時間を使い切りました', // 延长次数或累计时长已用完
+    KEEP_NOT_ALLOWED: 'このカードでは環境を保持できません', // 本卡片不允许保留环境
+    MAINTENANCE_MODE: 'プラットフォームはメンテナンスモードです', // 平台处于维护模式
+    PLATFORM_UNINSTALLING: 'プラットフォームをアンインストール中です', // 平台正在卸载
+    BUDGET_BLOCKED: '今月の費用が予算を超えたため、設定によりこの操作を停止しています', // 本月费用已超过预算，按设置暂停了这个操作
+    PRECONDITION_FAILED: 'データが更新されたばかりです。ページを更新したので、もう一度操作してください', // 数据刚刚被修改，已刷新，请重新操作
+    COST_ACK_REQUIRED: '先に費用を確認してください', // 请先确认费用
+    QUOTE_EXPIRED: '費用の見積もりの有効期限が切れたため、再計算しました', // 费用报价已过期，已重新计算
+    QUOTE_MISMATCH: '価格またはカードのバージョンが更新されました。もう一度費用を確認してください', // 价格或卡片版本已更新，请重新确认费用
+    LIMIT_EXCEEDED: '時間または保持の上限を超えています', // 超过时长或保留上限
+    OP_NOT_ALLOWED: 'このカードではこのプラットフォーム操作はできません', // 本卡片不允许这个平台动作
+    VARIANT_UNKNOWN: 'この開始方法はもうありません', // 这个起始方式已不存在
+    PROFILE_DIGEST_MISMATCH: 'ラボの定義とプラットフォームのバージョンが一致しません（コンテンツの再公開が必要です）', // 实验定义与平台版本不匹配（内容需重新发布）
+    CERT_NOT_ELIGIBLE: 'まだ受け取りの条件を満たしていません：{detail}', // 还不满足领取条件：{detail}
+    VALIDATION_FAILED: '入力が要件を満たしていません：{detail}', // 输入不符合要求：{detail}
+    RATE_LIMITED: '操作が多すぎます。しばらくしてからもう一度お試しください', // 操作太频繁，请稍后重试
+    UPSTREAM_THROTTLED: 'AWS の API が混み合っているため、プラットフォームが再試行しました。しばらくしてからもう一度お試しください', // AWS 接口繁忙，平台已重试，请稍后再试
+    UPSTREAM_UNAVAILABLE: '依存している AWS サービスが一時的に利用できません', // 依赖的 AWS 服务暂时不可用
+    NOT_FOUND: '見つかりません', // 没有找到
+    INTERNAL: 'プラットフォームの内部エラー（エラー ID：{requestId}）', // 平台内部错误（错误 ID：{requestId}）
+    UNAUTHENTICATED: 'ログインの有効期限が切れました。もう一度ログインしてください', // 登录已过期，请重新登录
+    FORBIDDEN_ROLE: 'このロールではこの操作はできません', // 你的角色不能执行这个操作
+    REAUTH_REQUIRED: 'この操作には直近 60 分以内のログインが必要です', // 这个操作要求最近 60 分钟内登录过
+    TARGET_ALREADY_SATISFIED: 'この環境では {module} はすでに {value} のため、ここで開始してもこのセッションの完了の証拠は得られません', // 这个环境里 {module} 已经是 {value}，在这里开始拿不到本次会话的完成证据
+    HARD_PREREQ_UNMET: '前提となるカードがまだ完了していません', // 前置卡片还没有完成
+    LAB_DEPRECATED: 'このカードは提供を終了しました', // 本卡片已停用
+    TERMINAL_SESSION_STATE: '現在の状態ではターミナルを開けません（またはアクセスが取り消されています）', // 当前状态不能打开终端（或访问已收回）
+    TERMINAL_TARGET_NOT_IN_SESSION: '対象のインスタンスはこの環境のものではありません', // 目标实例不属于本环境
+    TERMINAL_TARGET_NOT_CONNECTED: 'ラボ用インスタンスの管理チャネルに到達できないため、現在ターミナルを開けません', // 实验机的管理通道不可达，暂时不能打开终端
+    TERMINAL_TARGET_NOT_PREPARED: 'ラボ用インスタンスのターミナルの準備ができていません', // 实验机还没有准备好终端
+    TERMINAL_LIMIT: 'ターミナルの数が上限に達しました', // 终端数量已达上限
+    TERMINAL_GONE: 'ターミナルのセッションは終了しており、再接続できません', // 终端会话已结束，不能续连
+    CONSOLE_SESSION_STATE: '現在の状態ではコンソールのサインインを取得できません', // 当前状态不能获取控制台登录
+    CONSOLE_DESTINATION_NOT_ALLOWED: 'このコンソールのページは許可リストにありません', // 这个控制台页面不在允许的列表中
+    CONSOLE_FEDERATION_FAILED: 'コンソールのサインインサービスは一時的に利用できません', // 控制台登录服务暂时不可用
+    NETWORK: 'プラットフォームに接続できません。ネットワークを確認してから再試行してください', // 无法连接平台，请检查网络后重试
+    BAD_RESPONSE: 'プラットフォームから認識できない応答が返されました', // 平台返回了无法识别的响应
   },
   auth: {
     loginTitle: 'ログイン', // 登录

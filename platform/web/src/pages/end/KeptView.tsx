@@ -14,9 +14,11 @@ import { useGlobalStatus } from '../../app/globalStatus';
 import { allowedActionsOf } from '../../app/sessionRouting';
 import { formatDate, formatSpan } from '../../lib/format';
 import { BILLING_TEXT, Button, Countdown, Icon, Shape } from '../../ui';
+import { ServiceGlyph } from '../../ui/glyphs';
 import { useApiData } from '../sessions/data';
 import { formatMoneyRange, hourlyRange } from '../sessions/sessionText';
 import '../sessions/pages.css';
+import { TimeBar, type TimelineMark } from '../sessions/visuals';
 import { KeepExtendDialog, ReleaseKeepDialog } from './KeepDialogs';
 import { normalizeResource } from './resources';
 import { ResourceStages } from './ResourceStages';
@@ -69,6 +71,17 @@ export function KeptView({ view }: { view: SessionView }) {
   const hasAsg = billable.some((b) => /AutoScaling/.test(b.type ?? ''));
   const envId = view.env?.envId ?? ce?.envId ?? null;
   const ledger = (resources.data?.items ?? []).map(normalizeResource);
+  const KVV = msg.end.visual;
+  const ms = (iso: string | null | undefined) => (iso ? Date.parse(iso) : NaN);
+  const created = ms(ce?.createdAt);
+  const until = ms(keepUntil);
+  const maxAge = ms(ce?.maxAgeUntil);
+  const end = Number.isFinite(maxAge) ? maxAge : until;
+  const marks: TimelineMark[] = [
+    ...(Number.isFinite(created) ? [{ key: 'created', at: created, label: KVV.created }] : []),
+    ...(Number.isFinite(until) ? [{ key: 'until', at: until, label: KVV.keepUntil, tone: 'kept' as const }] : []),
+    ...(Number.isFinite(maxAge) && maxAge !== until ? [{ key: 'max', at: maxAge, label: KVV.maxAge }] : []),
+  ];
 
   return (
     <div className="stack-24" data-screen="P07-K">
@@ -95,6 +108,13 @@ export function KeptView({ view }: { view: SessionView }) {
         </div>
       </div>
 
+      {Number.isFinite(created) && Number.isFinite(end) && end > created ? (
+        <div className="stack-4" data-visual="keep-timeline">
+          <span className="small muted">{KVV.keepTimeline}</span>
+          <TimeBar from={created} to={end} now={clock.now()} marks={marks} />
+        </div>
+      ) : null}
+
       <dl className="kv">
         <dt>{KV.from}</dt>
         <dd>{t(KV.fromValue, { labId: view.labId, when: view.stateEnteredAt ? t(KV.endedAt, { t: formatDate(view.stateEnteredAt, clock.now()) }) : '—' })}</dd>
@@ -106,7 +126,21 @@ export function KeptView({ view }: { view: SessionView }) {
           {ce?.maxAgeUntil ? t(KV.maxAge, { t: formatDate(ce.maxAgeUntil, clock.now()) }) : ''}
         </dd>
         <dt>{KV.modules}</dt>
-        <dd className="mono">{ce?.enabledModules?.length ? ce.enabledModules.join(KV.listSep) : '—'}</dd>
+        <dd>
+          {ce?.enabledModules?.length ? (
+            <span className="vchips">
+              {ce.enabledModules.map((m, i) => (
+                <span key={m} className="vchip">
+                  <ServiceGlyph id={m} size={20} tooltip />
+                  <span className="mono small">{m}</span>
+                  {i < ce.enabledModules!.length - 1 ? <span className="sr">{KV.listSep}</span> : null}
+                </span>
+              ))}
+            </span>
+          ) : (
+            '—'
+          )}
+        </dd>
       </dl>
 
       <div className="box stack-8" data-section="keep-cost">

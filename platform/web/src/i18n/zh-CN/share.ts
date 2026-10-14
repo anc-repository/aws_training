@@ -67,4 +67,13 @@ export default {
   header: '实验报告 · 第 {rev} 版 · 报告生成于 {generated} · 卡片版本 {version} · 起始变体 {variant}',
   footer1: '平台卸载后此链接失效 · 生成于 {t}{expires}',
   footer2: '本副本由自托管 AWS Training Lab 实例生成：账号 ID、IP、资源 ID 的中段、会话 id 与环境名已打码，不含手动确认备注。费用信息不在副本中，以 AWS 账单为准。',
+  /** 分享副本的图形摘要与语言切换（09 视觉化 I6 f、§1.8）。 */
+  visual: {
+    steps: '步骤',
+    evidence: '证据可信度',
+    high: '高',
+    medium: '中',
+    low: '低',
+    language: '语言',
+  },
 };

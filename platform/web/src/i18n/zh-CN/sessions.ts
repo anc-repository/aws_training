@@ -350,4 +350,12 @@ export default {
     colAction: '动作',
     colTarget: '对象',
   },
+  /** 我的实验的概览图块（09 视觉化 I6 f）。 */
+  visual: {
+    sessions: '会话',
+    ended: '已结束',
+    total: '实验时长',
+    manual: '待人工处理',
+    kept: '保留中的环境',
+  },
 };

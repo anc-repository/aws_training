@@ -8,8 +8,10 @@ import { useMemo, useState } from 'react';
 import { formatDate, formatSpan, formatUtcTitle } from '../../lib/format';
 import { redact } from '../../lib/redact';
 import { CHECK_RESULT_META, CheckResultRow, Skeleton, Status, STEP_STATE_META, type CheckResult, type StepState } from '../../ui';
+import { StepTypeIcon, isStepType } from '../../ui/charts';
 import { InlineProblem } from '../errors/InlineProblem';
 import { stepCheckRefs, useApiData, type LabContent, type LabStep } from '../sessions/data';
+import { isSettledTone, StepStrip } from '../sessions/visuals';
 
 import { t } from '../../i18n';
 import { RP } from './strings';
@@ -64,8 +66,17 @@ export function StepEvidence({ sid, lab, steps, loaded, error, onRetry, nowMs }:
   const byId = new Map(steps.map((s) => [s.stepId, s]));
   const order: LabStep[] = lab?.steps?.length ? lab.steps : steps.map((s) => ({ id: s.stepId, title: s.stepId, checks: Object.keys(s.checks ?? {}).map((k) => k.split('/').pop()!) }));
   if (!order.length) return <p className="small muted">{RP.evidence.noSteps}</p>;
+  const stateOf = (st: LabStep): StepState => {
+    const r = byId.get(st.id);
+    return (r?.skipped ? 'skipped' : (r?.state ?? 'available')) as StepState;
+  };
+  const strip = order.map((st, i) => {
+    const meta = STEP_STATE_META[stateOf(st)] ?? STEP_STATE_META.available;
+    return { key: st.id, n: i + 1, tone: meta.tone, filled: isSettledTone(meta.tone), tip: `${i + 1} ${st.title ?? st.id} · ${meta.text}` };
+  });
   return (
     <div data-steps={order.length}>
+      <StepStrip items={strip} />
       {order.map((st, i) => {
         const r = byId.get(st.id);
         const state = (r?.skipped ? 'skipped' : (r?.state ?? 'available')) as StepState;
@@ -77,11 +88,16 @@ export function StepEvidence({ sid, lab, steps, loaded, error, onRetry, nowMs }:
           <div key={st.id} className="stepev" id={`step-${sid}-${st.id}`} data-step={st.id} data-state={state}>
             <div className="row">
               <Status meta={meta} shapeOnly />
+              {st.type && isStepType(st.type) ? (
+                <span className="step-ico">
+                  <StepTypeIcon type={st.type} label />
+                </span>
+              ) : null}
               <b>
                 {i + 1} {st.title ?? st.id}
               </b>
               <span className="small faint">
-                {st.type ? `${st.type} · ` : ''}
+                {st.type && !isStepType(st.type) ? `${st.type} · ` : ''}
                 {meta.text}
                 {r?.firstPassedAt ? (
                   <span title={formatUtcTitle(r.firstPassedAt)}>{t(RP.evidence.firstPassed, { t: formatDate(r.firstPassedAt, nowMs) })}</span>

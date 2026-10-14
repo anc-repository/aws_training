@@ -3545,3 +3545,57 @@ At start / When done（与视觉组件一致）；详细（折叠）→ 詳し�
 `npm run i18n:check`：本组键全部译完（只剩 `frame.ws.*` 4 键，属于工作台）。截图自查用单独起的 Vite（5193 端口，代理到正在运行的
 8787 dev API，开发令牌用户 `web-catalog-check`）：亮 / 暗 × 1280 / 400px × ja / en / zh-CN，目录、服务地图、路径、简介页、学习页、
 路径详情、设置页无横向滚动、`<html lang>` 正确。
+
+## i18n-web-results
+
+结果类画面（对比实验 P06、结束与回收 P07 / P07-K / P07-M、报告 P08、证书 P09-A / P09-C、我的实验 P11、错误页）、公开验证页 P09-V、
+分享副本 P08-S，以及全局框架（顶栏、页脚、横幅、对话框）的 ja / en 翻译与图形化（I5、I6 f）。只改了
+`platform/web/src/pages/{experiments,end,manual,report,share,certificates,verify,sessions,errors}/**`、`platform/web/public-pages/**`
+与下列词典条目。
+
+**翻译范围**（`i18n/ja|en/<ns>.ts`，按 glossary.md；`i18n:check` 对这些键 0 缺键、0 空值、0 占位符不一致）：
+
+- 整个命名空间：`experiments`、`end`、`report`、`share`、`certificates`、`verify`、`sessions`；
+- `core` 中的全局框架：`app`、`nav`、`roles`、`account`、`session`（会话胶囊与菜单）、`footer`、`banners`、`p13`（全局错误与降级）、
+  `errors`（API 错误码按码本地化；服务器的中文 `detail` 仍只作 `{detail}` 补充）；`core.auth`（登录页）不在本组；
+- `frame` 中的 `routes`、`bar`、`notFound`、`residualOf`、`actions`、`pill`、`onboarding`、`footerCatalog`、`manualPage`；`pages.manualExport`；
+- `ui`（设计系统：状态语义、命令块、资源行、检查结果行、倒计时、费用档位、按钮）：顶栏会话胶囊、对话框与本组画面都用它，
+  开工时没有人改过它，所以一并翻译（集成时如另有一份译文，以术语表为准合并）。
+- 英语复数用 `{n, plural, …}`（只用在经 `t()` / `rich()` 渲染的模板上）。
+
+**图形化（I6 f）**，共用组件在 `pages/sessions/visuals.tsx`（样式在 `pages/sessions/pages.css` 末尾；颜色一律按语义色调
+`.vtone.<tone>`，与 `.st.<tone>` 相同的映射；不写 style 属性；forced-colors 退回系统色）：
+
+| 画面 | 做法 |
+|---|---|
+| P08 报告 | 摘要首屏：图块（步骤完成度环 `ProgressRing`、结论徽记、用时、清理状态）+ 证据可信度条形图（`BarChart`，表格即数据视图）+ “这次实验搭建的构成”（`ArchDiagram mode="after"`，输入取目录索引中的卡片）；原来的统计格折叠进“詳しく”（结论有说明时默认展开）；逐步证据上方加步骤条（每步一个序号圆点，色调 = 步骤状态），步骤标题前用 `StepTypeIcon`；费用说明折叠；对比实验标题前加服务图标 |
+| P06 对比实验 | 原有条形对照 / 分位阶梯不变；标题前加模块的 `ServiceGlyph`；“差异方向”说明折叠到“グラフの読み方” |
+| P07 回收进度 | 结束阶段 `<ol>` 改成阶段图示：每个阶段一个图标节点（`EndPhaseList.tsx` 的 `STAGE_ICON`：停止 pause、收回 key、报告 doc、工作台 term、拆除 cloud、回收 refresh、结论 shield），完成实心、未开始虚线，右下角是状态形状；≥ 768px 横向带连线，窄屏纵向。资源区块加删除进度环 + 各状态堆叠条，每个 S0～S6 分组加迷你进度条 |
+| P07-K 保留 | 保留期限时间轴（创建 → 自动释放 → 最长期限，当前进度着色）；启用的模块改为服务图标 + 模块 id |
+| P07-M 待人工处理 | 严重级别堆叠条；长说明折叠 |
+| P09-A 证书 | 路径证书的状态列加自绘玫瑰形印章（已领取 = 勾、可领取 = 星、已吊销 = 叉、未达成 = 空心、不签发 = 横线），条件列加必修完成度环与“已核验”占比条（带门槛刻度）；徽章墙加总完成度环、每个类别的小环，徽章右下角叠加卡片主服务的图标 |
+| P09-C 证书详情 | 页首证书卡片（双线框、印章、证书名、持有人、日期、包含卡片的徽章、“已核验”占比环；装饰，信息在下方文字中，`aria-hidden`）；卡片表格前加服务图标 |
+| P11 我的实验 | 概览改为图块（会话、已结束、实验时长、待人工处理；原句保留给读屏）；卡片列前加主服务图标 |
+| P09-V 验证页 | 语言链接移到页首右上；结果形状放大为圆形徽记；性质声明首屏只显示一句（新键 `verify.static.natureShort`），全文折叠；“如何独立核对”折叠 |
+| P08-S 分享副本 | 摘要首屏：步骤完成度环、步骤条、证据可信度条形图（纯 SVG / 表格字符串，样式内联在副本的 `<style>` 中） |
+
+有歧义时的取舍（都取最简单的做法）：
+
+| 问题 | 决定 |
+|---|---|
+| 验证页“按 URL 参数或浏览器设置选择语言” | `?lang=` → 浏览器中已保存的选择（`atl.locale.v1`）→ 日语；不看 `navigator.language`（I1 第一次访问一律日语）。没有脚本时仍是 zh-CN 源文案 |
+| 分享副本是无脚本的静态页（CSP 不允许脚本），无法读 `?lang=` | `ShareMeta.lang` 省略时，一个文档里生成 ja / en / zh-CN 三块，默认显示日语，`#en` / `#zh-CN` 片段（`:target`）切换，页首有语言链接；id 按语言加前缀不重复。指定 `lang` 时与以前一样只有一种语言 |
+| 服务器端的报告 / 分享 HTML（`platform/api/src/services/reports/html.ts`） | 不在本组路径，仍是中文；建议 API 改用 `render-share.mjs`（public-pages/build.mjs 的产物）或照同样方式三语生成 |
+| 验证页的性质声明很长 | 首屏只显示一句短声明（仍明确“不是 AWS 官方认证”），全文在 `<details>` 中；分享副本的声明本来就短，保持不变 |
+| 统计格与图块内容重复 | 图块是首屏，统计格折叠进“詳しく”；报告测试仍按原文断言（`<details>` 的内容在 DOM 中） |
+| 图形是否给读屏 | 有数值的图（进度环、条形图）带 `role="img"` / 表格语义；其余都是“已有文字的图形化”，`aria-hidden`，不重复输出已有句子 |
+| 阶段图示的连线颜色 | 不用状态色（连线不是状态），已完成段用 `--border-strong`，未完成用 `--border` |
+| e2e 断言的中文文案（“分享…”“领取…”“已公开证书文件”等） | zh-CN 源文案一律不改；e2e 仍按 zh-CN 运行 |
+
+建议加入术语表的新词（集成时合并到 glossary.md）：释放 → 解放 / release；释放未完成 → 解放未完了 / Cleanup incomplete；复扫 → 再スキャン /
+rescan；待人工处理（清单）→ 要対応（リスト）/ needs you（manual-handling list）；我已处理，重新核对 → 対応済み、再確認 / Handled, recheck；
+吊销（证书）→ 失効 / revoke；撤回（徽章）→ 取り消し / withdrawn；已核验 → 検証済み / verified；可信度 → 信頼度 / confidence；
+证据 → 証拠 / evidence；漂移 → ドリフト / drift；打码 → マスク / mask；交叉校验 → 照合 / cross-check；分享链接 → 共有リンク / share link。
+
+测试：`pages/sessions/visuals.test.tsx`（本组词典 ja / en 全覆盖、不翻译项、图形组件几何与无 style 属性、阶段图标、日语下的 P11、
+分享副本三语与默认日语）；`report`、`end`、`certificates`、`share` 的用例补了图形断言；`EndPage.test.tsx` 的模块断言改为服务图标。

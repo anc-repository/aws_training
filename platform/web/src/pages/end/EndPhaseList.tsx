@@ -5,8 +5,20 @@
 import { useEffect, useRef, type ReactNode } from 'react';
 import { announce } from '../../lib/announce';
 import { formatClock, formatUtcTitle } from '../../lib/format';
-import { Shape } from '../../ui';
-import { STAGE_STATUS_META, type EndStage } from './phases';
+import { Icon, Shape, type IconName } from '../../ui';
+import { STAGE_STATUS_META, type EndStage, type EndStageDef } from './phases';
+
+/** 阶段图示的图标（I6 f：回收进度用阶段图示）。 */
+export const STAGE_ICON: Readonly<Record<EndStageDef['id'], IconName>> = {
+  stop: 'pause',
+  revoke: 'key',
+  finalize: 'doc',
+  workstation: 'term',
+  suspend: 'clock',
+  destroy: 'cloud',
+  reclaim: 'refresh',
+  conclude: 'shield',
+};
 
 import { msg, t } from '../../i18n';
 export interface EndPhaseListProps {
@@ -27,15 +39,21 @@ export function EndPhaseList({ stages, extra = {} }: EndPhaseListProps) {
   return (
     <section className="sec" aria-labelledby="end-phases-h" data-section="phases">
       <h2 id="end-phases-h">{msg.end.phasesTitle}</h2>
-      <ol className="prov" data-phases="">
+      <ol className="prov endflow" data-phases="">
         {stages.map((s) => {
           const m = STAGE_STATUS_META[s.status];
           const todo = s.status === 'todo';
+          const settled = s.status === 'done' || s.status === 'failed';
           const detail = [extra[s.def.id], ...s.details.map((d, i) => <span key={i}>{d}</span>)].filter(Boolean);
           return (
             <li key={s.def.id} className={todo ? 'phrow todo' : 'phrow'} aria-current={s.current ? 'step' : undefined} data-stage={s.def.id} data-status={s.status}>
-              <span className={`st ${m.tone}`}>
-                <Shape name={m.shape} spin={m.spin} />
+              <span className={`efnode vtone ${m.tone}${settled ? ' fill' : ''}${todo ? ' todo' : ''}`}>
+                <Icon name={STAGE_ICON[s.def.id]} />
+                {!todo ? (
+                  <span className={`efst st ${m.tone}`}>
+                    <Shape name={m.shape} spin={m.spin} />
+                  </span>
+                ) : null}
                 <span className="sr">{m.text}</span>
               </span>
               <span className="pt">

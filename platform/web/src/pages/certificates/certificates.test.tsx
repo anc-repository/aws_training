@@ -65,6 +65,11 @@ describe('P09-A 证书与徽章', () => {
     const saa = rows.find((r) => r.getAttribute('data-track') === 'saa-main')!;
     await waitFor(() => expect(saa.textContent).toContain('1 张徽章核验中，结束后才能计入'));
     expect(saa.textContent).toContain('已核验 50%（需 ≥ 80%）');
+    // 图形（I6 f）：状态印章、必修完成度环、“已核验”占比条（低于门槛）
+    expect(secure.querySelector('.vseal')!.getAttribute('data-seal')).toBe('check');
+    expect(rows[0]!.querySelector('.vseal')!.getAttribute('data-seal')).toBe('star');
+    expect(saa.querySelector('svg.pring[role="img"]')).toBeTruthy();
+    expect(saa.querySelector('.vmeter')!.getAttribute('data-ok')).toBe('0');
   });
 
   it('claim: PATCH /me when the name changed, POST /certificates, 422 reasons listed', async () => {
@@ -133,6 +138,11 @@ describe('P09-C 证书详情', () => {
     });
     expect(await screen.findByRole('heading', { level: 1, name: `七项点名对比证书 · ${CERT}` })).toBeTruthy();
     expect(screen.getByText(/持有人 张三/)).toBeTruthy();
+    // 证书卡片（装饰，信息在下方文字中）：印章 + 包含的卡片的徽章
+    const card = document.querySelector('[data-visual="certificate"]')!;
+    expect(card.getAttribute('aria-hidden')).toBe('true');
+    expect(card.querySelector('.vseal')!.getAttribute('data-seal')).toBe('check');
+    expect(card.querySelectorAll('.certcard-labs svg[data-badge]')).toHaveLength(2);
     const labs = screen.getByRole('heading', { name: '包含的卡片（2）' }).closest('section')!;
     expect(within(labs).getAllByRole('link', { name: /查看 .* 的报告/ })[0]!.getAttribute('href')).toBe('/sessions/s4k7m2q9x1abc/report');
     expect(screen.getByText(`https://d1234abcd.cloudfront.net/verify/${CERT}`)).toBeTruthy();

@@ -8,8 +8,10 @@ import { useEffect, useRef, useState } from 'react';
 import { redact } from '../../lib/redact';
 import { announce } from '../../lib/announce';
 import { Status, BILLING_TEXT, CLEANUP_STATE_META, SEVERITY_META } from '../../ui';
+import { ProgressRing } from '../../ui/charts';
 import { STAGE_TEXT } from '../sessions/sessionText';
-import { countLedger, groupByStage, slowHint, type LedgerItem } from './resources';
+import { MiniBar, StackBar, type StackSeg } from '../sessions/visuals';
+import { countLedger, groupByStage, slowHint, type LedgerCounts, type LedgerItem } from './resources';
 
 import { msg, t } from '../../i18n';
 
@@ -19,6 +21,18 @@ const openMemory = new Map<string, boolean>();
 /** 测试用。 */
 export function resetStageMemory(): void {
   openMemory.clear();
+}
+
+/** 资源删除进度的堆叠条（I6 f）：已删除 / 删除中 / 等待 / 保留 / 需人工，色调取 CLEANUP_STATE_META。 */
+export function ledgerSegments(c: LedgerCounts): StackSeg[] {
+  const M = CLEANUP_STATE_META;
+  return [
+    { key: 'deleted', value: c.deleted, tone: M.DELETED.tone, label: M.DELETED.text },
+    { key: 'deleting', value: c.deleting, tone: M.DELETING.tone, label: M.DELETING.text },
+    { key: 'waiting', value: c.waiting, tone: M.TRACKED.tone, label: M.TRACKED.text },
+    { key: 'retained', value: c.retained, tone: M.RETAINED.tone, label: M.RETAINED.text },
+    { key: 'attention', value: c.attention, tone: M.MANUAL_REQUIRED.tone, label: M.MANUAL_REQUIRED.text },
+  ];
 }
 
 export interface ResourceStagesProps {
@@ -73,6 +87,12 @@ export function ResourceStages({ sid, items, heading, chainExtra = 0, canUnmask 
           ) : null}
         </span>
       </h2>
+      {counts.total > 0 ? (
+        <div className="vres-sum" data-visual="ledger">
+          <ProgressRing value={counts.deleted} max={counts.total} size={44} label={msg.end.visual.deleted} tone="pass" />
+          <StackBar segments={ledgerSegments(counts)} total={counts.total} />
+        </div>
+      ) : null}
       {groups.length === 0 ? <p className="small muted">{RR.none}</p> : null}
       {groups.map((g) => {
         const k = `${sid}|${g.stage}`;
@@ -94,6 +114,7 @@ export function ResourceStages({ sid, items, heading, chainExtra = 0, canUnmask 
           >
             <summary>
               <b>{STAGE_TEXT[g.stage] ?? g.stage}</b> <Status meta={sum} />
+              <MiniBar done={g.done} total={g.total} tone={sum.tone} />
               <span className="sr">{t(RR.stageSr, { done: g.done, total: g.total })}</span>
             </summary>
             <div className="tbl-wrap">

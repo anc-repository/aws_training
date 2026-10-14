@@ -8,50 +8,50 @@ import type zh from '../zh-CN/frame';
 
 export default {
   routes: {
-    login: '', // 登录
-    callback: '', // 正在完成登录
-    signedOut: '', // 已退出
-    setup: '', // 首次设置
-    catalog: '', // 卡片目录
-    card: '', // 卡片简介
-    quiz: '', // 小测
-    track: '', // 学习路径
-    workspace: '', // 工作台
-    sessions: '', // 我的实验
-    session: '', // 会话详情
-    end: '', // 结束与回收进度
-    report: '', // 实验报告
-    experiment: '', // 对比实验
-    manual: '', // 待人工处理清单
-    certificates: '', // 证书与徽章
-    certificate: '', // 证书详情
-    learning: '', // 我的学习
-    settings: '', // 设置
+    login: 'ログイン', // 登录
+    callback: 'ログインを完了しています', // 正在完成登录
+    signedOut: 'ログアウトしました', // 已退出
+    setup: '初回設定', // 首次设置
+    catalog: 'カード一覧', // 卡片目录
+    card: 'カードの紹介', // 卡片简介
+    quiz: '小テスト', // 小测
+    track: '学習パス', // 学习路径
+    workspace: 'ワークベンチ', // 工作台
+    sessions: '実験履歴', // 我的实验
+    session: 'セッションの詳細', // 会话详情
+    end: '終了と回収の進捗', // 结束与回收进度
+    report: 'ラボレポート', // 实验报告
+    experiment: '比較実験', // 对比实验
+    manual: '要対応リスト', // 待人工处理清单
+    certificates: '修了証とバッジ', // 证书与徽章
+    certificate: '修了証の詳細', // 证书详情
+    learning: '学習状況', // 我的学习
+    settings: '設定', // 设置
   },
   bar: {
-    progress: '', // 进度
-    learning: '', // 我的学习 →
-    certificates: '', // 证书 →
+    progress: '進捗', // 进度
+    learning: '学習状況 →', // 我的学习 →
+    certificates: '修了証 →', // 证书 →
   },
   notFound: {
-    mySessions: '', // 我的实验
-    body: '', // {notFound} 地址 {path} 没有对应的画面；链接可能已过期，或输入有误。
-    back: '', // 回到我的实验
-    missingBody: '', // 它可能已被删除，或者不属于这个平台安装。
-    canRetry: '', // 可以重试了。
+    mySessions: '実験履歴', // 我的实验
+    body: '{notFound} アドレス {path} に対応する画面はありません。リンクの期限が切れているか、入力に誤りがある可能性があります。', // {notFound} 地址 {path} 没有对应的画面；链接可能已过期，或输入有误。
+    back: '実験履歴に戻る', // 回到我的实验
+    missingBody: '削除されたか、このプラットフォームのものではない可能性があります。', // 它可能已被删除，或者不属于这个平台安装。
+    canRetry: '再試行できます。', // 可以重试了。
   },
-  residualOf: '', // {labId}（{t} 的实验）
+  residualOf: '{labId}（{t} のラボ）', // {labId}（{t} 的实验）
   actions: {
-    cancel: '', // 取消实验
-    extend: '', // 延长实验
-    end: '', // 结束实验
+    cancel: 'ラボをキャンセル', // 取消实验
+    extend: 'ラボを延長', // 延长实验
+    end: 'ラボを終了', // 结束实验
   },
   pill: {
-    session: '', // 会话 {sid} · {state}
-    tier: '', // ，费用档位{tier}
+    session: 'セッション {sid} · {state}', // 会话 {sid} · {state}
+    tier: '、コスト区分{tier}', // ，费用档位{tier}
   },
-  onboarding: '', // 首次设置还没有完成：可以先继续实验，之后在 设置 › 平台 中重看。
-  footerCatalog: '', // 目录 {v}
+  onboarding: '初回設定はまだ完了していません。先にラボを続けて、後で 設定 › プラットフォーム から見直せます。', // 首次设置还没有完成：可以先继续实验，之后在 设置 › 平台 中重看。
+  footerCatalog: 'カタログ {v}', // 目录 {v}
   login: {
     devSubInvalid: '英数字、- と _ のみ使えます（1～64 文字）', // 只能包含字母、数字、- 与 _（1～64 个字符）
     redirecting: '移動しています…', // 正在跳转…
@@ -70,41 +70,41 @@ export default {
   },
   manualPage: {
     severity: {
-      all: '', // 全部
-      BLOCKING: '', // 阻塞
-      REVIEW: '', // 需复核
-      INFO: '', // 信息
+      all: 'すべて', // 全部
+      BLOCKING: 'ブロック', // 阻塞
+      REVIEW: '要確認', // 需复核
+      INFO: '情報', // 信息
     },
-    crumbs: '', // 面包屑
-    mySessions: '', // 我的实验
-    title: '', // 待人工处理清单
-    sub: '', // 跨会话汇总 · 每项都有控制台链接与 CLI 命令，处理后可重新核对
-    remask: '', // 恢复打码
-    unmask: '', // 显示完整名称
-    filters: '', // 筛选
-    severityLabel: '', // 严重级别
-    billing: '', // 计费方式
-    all: '', // 全部
-    count: '', // 共 {n} 项
-    countHourly: '', // 共 {n} 项，其中 {h} 项阻塞且按小时计费
-    emptyTitle: '', // 没有未释放的资源。
-    viewSessions: '', // 查看我的实验
-    emptyBody: '', // 回收失败或复扫发现的残留会出现在这里。
-    noMatch: '', // 没有符合筛选条件的条目。
-    clear: '', // 清除筛选
-    tagNote: '', // 这些资源都带有 atl:env-id 标签，可以在控制台按标签查找。处理后点“我已处理，重新核对”，平台会复核并在全部处理后结束回收。
-    previous: '', // 之前的实验
-    session: '', //  · 会话 {sid}
-    reclaim: '', // 回收进度
-    export: '', // 导出
-    confirmed: '', // 已确认：资源已不存在
-    still: '', // 资源仍然存在
-    verifying: '', // 正在核对…
-    safe: '', // 安全
-    safeNote: '', // {safe} 这不是计费资源，但留着会让域名指向已删除的托管区域。
-    confirmedNote: '', // 已确认：资源已不存在。
-    stillNote: '', // 资源仍然存在，请确认删除已完成；CloudFront、RDS 等删除较慢，可以稍后再核对。
-    slowNote: '', // 核对仍在进行，结果出来后清单会自动更新；也可以稍后刷新本页。
+    crumbs: 'パンくずリスト', // 面包屑
+    mySessions: '実験履歴', // 我的实验
+    title: '要対応リスト', // 待人工处理清单
+    sub: 'セッション横断のまとめ · 各項目にコンソールのリンクと CLI コマンドがあり、対応後に再確認できます', // 跨会话汇总 · 每项都有控制台链接与 CLI 命令，处理后可重新核对
+    remask: 'マスクに戻す', // 恢复打码
+    unmask: '完全な名前を表示', // 显示完整名称
+    filters: '絞り込み', // 筛选
+    severityLabel: '重要度', // 严重级别
+    billing: '課金方式', // 计费方式
+    all: 'すべて', // 全部
+    count: '全 {n} 件', // 共 {n} 项
+    countHourly: '全 {n} 件（うち {h} 件はブロックかつ時間課金）', // 共 {n} 项，其中 {h} 项阻塞且按小时计费
+    emptyTitle: '解放されていないリソースはありません。', // 没有未释放的资源。
+    viewSessions: '実験履歴を見る', // 查看我的实验
+    emptyBody: '回収の失敗や再スキャンで見つかった残存リソースがここに表示されます。', // 回收失败或复扫发现的残留会出现在这里。
+    noMatch: '絞り込みに合う項目はありません。', // 没有符合筛选条件的条目。
+    clear: '絞り込みを解除', // 清除筛选
+    tagNote: 'これらのリソースにはすべて atl:env-id タグが付いているので、コンソールでタグから探せます。対応後に「対応済み、再確認」を押すと、プラットフォームが確認し、すべて対応済みになると回収を終了します。', // 这些资源都带有 atl:env-id 标签，可以在控制台按标签查找。处理后点“我已处理，重新核对”，平台会复核并在全部处理后结束回收。
+    previous: '以前のラボ', // 之前的实验
+    session: ' · セッション {sid}', //  · 会话 {sid}
+    reclaim: '回収の進捗', // 回收进度
+    export: 'エクスポート', // 导出
+    confirmed: '確認済み：リソースは存在しません', // 已确认：资源已不存在
+    still: 'リソースはまだ存在します', // 资源仍然存在
+    verifying: '確認しています…', // 正在核对…
+    safe: '安全', // 安全
+    safeNote: '{safe} 課金対象のリソースではありませんが、残しておくとドメインが削除済みのホストゾーンを指したままになります。', // {safe} 这不是计费资源，但留着会让域名指向已删除的托管区域。
+    confirmedNote: '確認済み：リソースは存在しません。', // 已确认：资源已不存在。
+    stillNote: 'リソースはまだ存在します。削除が完了したか確認してください。CloudFront や RDS などは削除に時間がかかるため、少し後で再確認できます。', // 资源仍然存在，请确认删除已完成；CloudFront、RDS 等删除较慢，可以稍后再核对。
+    slowNote: '確認はまだ続いています。結果が出るとリストは自動で更新されます。少し後でこのページを更新しても構いません。', // 核对仍在进行，结果出来后清单会自动更新；也可以稍后刷新本页。
   },
   preflight: {
     verdict: {

@@ -18,7 +18,10 @@ import { neverReady } from '../../app/sessionRouting';
 import { copyText } from '../../lib/clipboard';
 import { formatClock, formatDate, formatSpan, formatUtcTitle } from '../../lib/format';
 import { maskAccountId } from '../../lib/redact';
-import { ATTEMPT_STATUS_META, Button, EmptyState, ErrorPanel, Icon, SessionStatePill, Shape, Skeleton, Status, type AttemptStatus } from '../../ui';
+import { ATTEMPT_STATUS_META, Button, EmptyState, ErrorPanel, Icon, SessionStatePill, Shape, Skeleton, Status, type AttemptStatus, type Tone } from '../../ui';
+import { BarChart, ProgressRing } from '../../ui/charts';
+import { ArchDiagram, archInputFromCatalogCard } from '../../ui/diagram';
+import { ServiceGlyph } from '../../ui/glyphs';
 import { InlineProblem } from '../errors/InlineProblem';
 import { Missing } from '../errors/NotFoundPage';
 import { useAction } from '../errors/useAction';
@@ -26,6 +29,7 @@ import { ExperimentCompare } from '../experiments/ExperimentCompare';
 import { cardTitle, useApiData, useCatalogIndex, useLabContent, useSessionView, viewX, type SessionViewX } from '../sessions/data';
 import '../sessions/pages.css';
 import { BADGE_LEVEL_TEXT, BADGE_STATUS_TEXT, formatMoneyRange, hourlyRange } from '../sessions/sessionText';
+import { IconBadge, StatusBadge, VTile, VTiles } from '../sessions/visuals';
 import { ExportDialog } from './ExportDialog';
 import { ShareDialog, ShareList } from './Shares';
 import { CheckHistory, StepEvidence, type StepResult } from './StepEvidence';
@@ -203,6 +207,29 @@ function ReportView({ view }: { view: SessionViewX }) {
   const revisions = (r?.revisions ?? []).filter((x) => typeof x.version === 'number');
   const htmlUrl = r?.downloads?.html?.url ?? null;
   const experiments = lab?.experiments ?? [];
+  // 图形摘要（I6 f）：完成度环、结论徽记、用时、清理状态、证据可信度条形图、构成图
+  const RV = RP.visual;
+  const stepsDone = r?.summary?.stepsDone ?? view.progress?.stepsDone ?? null;
+  const stepsTotal = r?.summary?.stepsTotal ?? view.progress?.stepsTotal ?? null;
+  const cleanupTile: { icon: 'refresh' | 'shield' | 'clock' | 'play'; tone: Tone; text: string } =
+    view.state === 'CLEANUP_FAILED'
+      ? { icon: 'refresh', tone: 'fail', text: msg.end.page.cleanupFailed }
+      : view.state === 'ENDING' || view.state === 'CLEANING'
+        ? { icon: 'refresh', tone: 'pend', text: msg.end.page.reclaiming }
+        : view.state === 'KEPT'
+          ? { icon: 'clock', tone: 'kept', text: RP.page.cleanupKept }
+          : live
+            ? { icon: 'play', tone: 'live', text: RP.page.cleanupLive }
+            : { icon: 'shield', tone: 'pass', text: followUp === 'PENDING' ? RP.page.cleanupRescan : RP.page.cleanupDone };
+  const evidenceBars = ev
+    ? [
+        { key: 'high', label: RV.high, value: ev.high ?? 0, tone: 'after' as const },
+        { key: 'medium', label: RV.medium, value: ev.medium ?? 0, tone: 'third' as const },
+        { key: 'low', label: RV.low, value: ev.low ?? 0, tone: 'before' as const },
+      ]
+    : null;
+  const archInput = card && (card.targets?.length || card.startProfiles?.length) ? archInputFromCatalogCard(card, view.variant ?? undefined) : null;
+  const attemptNote = attempt === 'unverified' || (attempt === 'incomplete' && !!r?.eligibility?.reasons?.length) || view.endReason === 'IDLE_NOT_STARTED';
 
   return (
     <div className="stack-24" data-screen="P08" data-report={live ? 'preview' : 'ready'}>
@@ -271,6 +298,32 @@ function ReportView({ view }: { view: SessionViewX }) {
 
       <section className="sec" aria-labelledby="r-sum" data-section="summary">
         <h2 id="r-sum">{RP.page.summary}</h2>
+        <div className="rep-hero" data-visual="summary">
+          <VTiles>
+            <VTile
+              data="steps"
+              visual={typeof stepsDone === 'number' && typeof stepsTotal === 'number' && stepsTotal > 0 ? <ProgressRing value={stepsDone} max={stepsTotal} size={48} label={RV.steps} /> : <IconBadge name="check" />}
+              value={t(RV.stepsValue, { done: stepsDone ?? '—', total: stepsTotal ?? '—' })}
+              label={RV.steps}
+            />
+            <VTile data="conclusion" visual={attemptMeta ? <StatusBadge shape={attemptMeta.shape} tone={attemptMeta.tone} /> : <StatusBadge shape="ring" tone="faint" />} value={<span className="small">{attempt === 'unverified' ? RP.page.unverified : (attemptMeta?.text ?? '—')}</span>} label={RV.conclusion} />
+            <VTile data="duration" visual={<IconBadge name="clock" />} value={total ?? '—'} label={RV.duration} />
+            <VTile data="cleanup" visual={<IconBadge name={cleanupTile.icon} tone={cleanupTile.tone} />} value={<span className="small">{cleanupTile.text}</span>} label={RP.page.cleanup} />
+          </VTiles>
+          {evidenceBars ? (
+            <div className="rep-ev">
+              <BarChart caption={RV.evidence} data={evidenceBars} />
+            </div>
+          ) : null}
+        </div>
+        {archInput ? (
+          <figure className="rep-arch" data-visual="architecture">
+            <figcaption>{RV.built}</figcaption>
+            <ArchDiagram input={archInput} mode="after" title={RV.built} />
+          </figure>
+        ) : null}
+        <details className="disc" open={attemptNote || undefined}>
+          <summary>{RV.details}</summary>
         <div className="statgrid">
           <div className="stat">
             <span className="k">{RP.page.conclusion}</span>
@@ -328,6 +381,7 @@ function ReportView({ view }: { view: SessionViewX }) {
             </span>
           </div>
         </div>
+        </details>
       </section>
 
       {!live ? (
@@ -375,7 +429,7 @@ function ReportView({ view }: { view: SessionViewX }) {
         {experiments.map((x) => (
           <div key={`${x.module}/${x.id}`} className="stack-8" data-experiment={`${x.module}/${x.id}`}>
             <h3>
-              {x.module}/{x.id}
+              <ServiceGlyph id={x.module} size={20} tooltip className="h-glyph" /> {x.module}/{x.id}
               {x.required ? RP.page.required : RP.page.optional}{' '}
               <Link className="small" to={`/sessions/${sid}/experiments/${x.module}/${x.id}`}>
                 {RP.page.openCompare}
@@ -396,7 +450,6 @@ function ReportView({ view }: { view: SessionViewX }) {
 
       <section className="sec" id="r-cost" tabIndex={-1} aria-labelledby="r-cost-h">
         <h2 id="r-cost-h">{RP.page.cost}</h2>
-        <p className="small">{t(RP.page.costNote, { asOf: q?.priceAsOf ? t(RP.page.priceAsOf, { t: formatDate(q.priceAsOf, now) }) : '' })}</p>
         <dl className="kv">
           <dt>{RP.page.startEstimate}</dt>
           <dd>
@@ -410,6 +463,10 @@ function ReportView({ view }: { view: SessionViewX }) {
           <dt>{RP.page.billActual}</dt>
           <dd className="small muted">{RP.page.billNote}</dd>
         </dl>
+        <details className="disc">
+          <summary>{RP.visual.details}</summary>
+          <p className="small">{t(RP.page.costNote, { asOf: q?.priceAsOf ? t(RP.page.priceAsOf, { t: formatDate(q.priceAsOf, now) }) : '' })}</p>
+        </details>
         {role !== 'O' ? (
           <p className="small">
             <Link to={`/sessions/${sid}?tab=cost`}>{RP.page.costInDetail}</Link>

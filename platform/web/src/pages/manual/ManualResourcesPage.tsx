@@ -10,12 +10,13 @@ import { Link, useSearchParams } from 'react-router-dom';
 import type { SessionView } from '../../api/types';
 import { useAuth, useServices } from '../../app/context';
 import { formatDate } from '../../lib/format';
-import { BILLING_TEXT, EmptyState, Skeleton } from '../../ui';
+import { BILLING_TEXT, EmptyState, SEVERITY_META, Skeleton } from '../../ui';
 import { CleanupExport } from '../end/CleanupExport';
 import { isOpen, normalizeResource, type LedgerItem } from '../end/resources';
 import { InlineProblem } from '../errors/InlineProblem';
 import { useApiData } from '../sessions/data';
 import '../sessions/pages.css';
+import { StackBar, StatusBadge } from '../sessions/visuals';
 import { ManualList } from './ManualList';
 
 import { msg, rich, t } from '../../i18n';
@@ -172,7 +173,17 @@ export default function ManualResourcesPage() {
         />
       ) : (
         <>
-          <p className="small muted">{MP.tagNote}</p>
+          <div className="vres-sum" data-visual="severity">
+            <StatusBadge shape={SEVERITY_META.BLOCKING.shape} tone={hourly ? 'fail' : SEVERITY_META.BLOCKING.tone} size="sm" />
+            <StackBar
+              total={items.length}
+              segments={(['BLOCKING', 'REVIEW', 'INFO'] as const).map((k) => ({ key: k, value: items.filter((r) => (r.severity ?? 'BLOCKING') === k).length, tone: SEVERITY_META[k].tone, label: SEVERITY_META[k].text }))}
+            />
+          </div>
+          <details className="disc">
+            <summary>{msg.end.visual.details}</summary>
+            <p className="small muted">{MP.tagNote}</p>
+          </details>
           {groups.map(([sid, list]) => {
             const h = heads[sid];
             return (

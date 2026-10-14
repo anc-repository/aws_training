@@ -229,4 +229,17 @@ export default {
     download: '下载 {format}',
     validFor: '链接 15 分钟内有效。',
   },
+  /** 报告的图形摘要（09 视觉化 I6 f）：进度环、证据可信度条形图、构成图。 */
+  visual: {
+    steps: '步骤',
+    stepsValue: '{done}/{total}',
+    conclusion: '结论',
+    duration: '用时',
+    evidence: '证据可信度',
+    high: '高',
+    medium: '中',
+    low: '低',
+    built: '这次实验搭建的构成',
+    details: '详细说明',
+  },
 };

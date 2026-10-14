@@ -15,9 +15,11 @@ import { useGlobalStatus } from '../../app/globalStatus';
 import { formatDate, formatSpan, formatUtcTitle } from '../../lib/format';
 import { Button, DataTable, EmptyState, SessionStatePill, Skeleton, Status, SESSION_STATE_META, type Column } from '../../ui';
 import { InlineProblem } from '../errors/InlineProblem';
-import { cardTitle, useCatalogIndex } from './data';
+import { ServiceGlyph } from '../../ui/glyphs';
+import { cardTitle, primaryServiceOf, useCatalogIndex } from './data';
 import './pages.css';
 import { endReasonText } from './sessionText';
+import { IconBadge, VTile, VTiles } from './visuals';
 
 import { t } from '../../i18n';
 import { SN } from './strings';
@@ -163,6 +165,11 @@ export default function SessionsPage() {
       header: SN.list.colCard,
       render: (s) => (
         <span>
+          {primaryServiceOf(index?.cards?.find((c) => c.id === s.labId)) ? (
+            <>
+              <ServiceGlyph id={primaryServiceOf(index?.cards?.find((c) => c.id === s.labId))!} size={20} tooltip className="h-glyph" />{' '}
+            </>
+          ) : null}
           <Link className="mono" to={`/labs/${encodeURIComponent(s.labId)}`} onClick={(e) => e.stopPropagation()}>
             {s.labId}
           </Link>
@@ -209,9 +216,15 @@ export default function SessionsPage() {
         </span>
       </div>
 
-      <div className="box stack-4" data-section="overview">
+      <div className="box stack-8" data-section="overview">
         <b>{SN.list.overview}</b>
-        <span className="small">
+        <VTiles decorative>
+          <VTile data="sessions" visual={<IconBadge name="play" tone="live" />} value={recent.length} label={SN.visual.sessions} />
+          <VTile data="ended" visual={<IconBadge name="check" tone="pass" />} value={ended} label={SN.visual.ended} />
+          <VTile data="time" visual={<IconBadge name="clock" />} value={formatSpan(totalMinutes * 60_000)} label={SN.visual.total} />
+          {role !== 'O' ? <VTile data="manual" visual={<IconBadge name="wrench" tone={openManual.length ? 'fail' : 'mut'} filled={openManual.length > 0} />} value={openManual.length} label={SN.visual.manual} /> : null}
+        </VTiles>
+        <span className="sr">
           {t(SN.list.overviewLine, { n: recent.length, ended, total: formatSpan(totalMinutes * 60_000) })}
         </span>
         {role !== 'O' ? (

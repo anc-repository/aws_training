@@ -17,7 +17,7 @@ import { BADGE_LEVEL_TEXT, BADGE_STATUS_TEXT, COMPARE_REASON_TEXT, endReasonText
 import { redactDeep } from './publicRedact';
 import { shapeSvgString } from './shapes';
 
-import { getLocale, msg, setLocale, t, type Locale } from '../../i18n/core';
+import { getLocale, INTL_TAG, LOCALE_NAMES, LOCALES, msg, setLocale, t, type Locale } from '../../i18n/core';
 /** atl.report/v1 中分享副本用到的部分（字段全部可选：上游版本不同也能渲染）。 */
 export interface ShareReport {
   schema?: string;
@@ -69,6 +69,10 @@ export interface ShareMeta {
 
 const SH = msg.share;
 
+/** 正在渲染的语言块的 id 前缀（同一文档中三种语言各一块，id 不能重复）。 */
+let idPrefix = '';
+const hid = (s: string): string => `${idPrefix}${s}`;
+
 const pad = (n: number) => String(n).padStart(2, '0');
 
 /** 分享副本里的时间一律写 UTC（读者的时区未知，静态页没有脚本换算）。 */
@@ -102,6 +106,67 @@ function sourceTag(src?: string): string {
   return m ? `<span class="src"><span aria-hidden="true">${escapeXml(m.symbol)}</span> ${escapeXml(m.text)}</span>` : '<span class="src">—</span>';
 }
 
+/** 已有结论的色调用实心（与 SPA 的 sessions/visuals.tsx 相同）。 */
+const settledTone = (tone: string) => tone !== 'mut' && tone !== 'faint' && tone !== 'lock' && tone !== 'pend';
+
+function pctText(ratio: number): string {
+  try {
+    return new Intl.NumberFormat(INTL_TAG[getLocale()], { style: 'percent', maximumFractionDigits: 0 }).format(ratio);
+  } catch {
+    return `${Math.round(ratio * 100)}%`;
+  }
+}
+
+/** 完成度环（SVG 字符串；颜色 --viz-after，底环 --viz-grid）。 */
+function ringSvg(done: number, total: number, label: string): string {
+  const size = 56;
+  const stroke = 6;
+  const r = (size - stroke) / 2;
+  const c = 2 * Math.PI * r;
+  const ratio = total > 0 ? Math.max(0, Math.min(1, done / total)) : 0;
+  const dash = Math.round(c * ratio * 100) / 100;
+  const pct = pctText(ratio);
+  return `<svg class="ring" width="${size}" height="${size}" viewBox="0 0 ${size} ${size}" role="img" aria-label="${escapeXml(`${label}: ${pct}`)}"><circle class="ring-t" cx="28" cy="28" r="${r}" stroke-width="${stroke}"/>${
+    ratio > 0 ? `<circle class="ring-f" cx="28" cy="28" r="${r}" stroke-width="${stroke}" stroke-dasharray="${dash} ${Math.round(c * 100) / 100}" transform="rotate(-90 28 28)"/>` : ''
+  }<text x="28" y="28" text-anchor="middle" dominant-baseline="central">${escapeXml(pct)}</text></svg>`;
+}
+
+/** 横向条形图（表格 + 装饰条，与 SPA 的 ui/charts/BarChart 同一做法）。 */
+function barTable(caption: string, rows: readonly [string, number, 'a' | 'b' | 't3'][]): string {
+  const top = Math.max(0, ...rows.map((x) => x[1]));
+  const body = rows
+    .map(([label, v, cls]) => {
+      const w = top > 0 ? Math.round((v / top) * 1000) / 10 : 0;
+      return `<tr><th scope="row">${escapeXml(label)}</th><td class="bc-bar" aria-hidden="true"><svg viewBox="0 0 100 10" preserveAspectRatio="none"><rect class="bc-t" x="0" y="0" width="100" height="10"/>${w > 0 ? `<rect class="${cls}" x="0" y="0" width="${Math.max(w, 0.8)}" height="10"/>` : ''}</svg></td><td class="num">${escapeXml(String(v))}</td></tr>`;
+    })
+    .join('');
+  return `<table class="bchart"><caption>${escapeXml(caption)}</caption><tbody>${body}</tbody></table>`;
+}
+
+/** 摘要首屏的图形（I6 f）：步骤完成度环、步骤条、证据可信度条形图。 */
+function visualSummary(r: ShareReport): string {
+  const list = r.steps ?? [];
+  const done = list.filter((s) => s.state === 'done' || s.state === 'done_manual').length;
+  const ring = list.length ? `<div class="vring">${ringSvg(done, list.length, SH.visual.steps)}<span><b>${done}/${list.length}</b><br><span class="small muted">${escapeXml(SH.visual.steps)}</span></span></div>` : '';
+  const strip = list.length
+    ? `<ol class="vstrip" aria-hidden="true">${list
+        .map((s, i) => {
+          const m = stepMeta(s.state);
+          return `<li class="vtone ${m.tone}${settledTone(m.tone) ? ' fill' : ''}" title="${e(`${i + 1} ${s.title ?? s.stepId ?? ''} · ${m.text}`)}"><span>${i + 1}</span></li>`;
+        })
+        .join('')}</ol>`
+    : '';
+  const trust = r.outcome?.trustSummary;
+  const bars = trust
+    ? barTable(SH.visual.evidence, [
+        [SH.visual.high, trust.high ?? 0, 'a'],
+        [SH.visual.medium, trust.medium ?? 0, 't3'],
+        [SH.visual.low, trust.low ?? 0, 'b'],
+      ])
+    : '';
+  return ring || strip || bars ? `<div class="vsum"><div class="vsum-l">${ring}${strip}</div>${bars ? `<div class="vsum-r">${bars}</div>` : ''}</div>` : '';
+}
+
 function summary(r: ShareReport): string {
   const o = r.outcome ?? {};
   const att = attemptMeta(o.attemptStatus);
@@ -130,12 +195,12 @@ function summary(r: ShareReport): string {
     ],
     [SH.end, e(t(SH.endValue, { reason: endReasonText(s.endReason), ready: utcStamp(s.readyAt), ended: utcStamp(s.endedAt) }))],
   ];
-  return `<section class="sec" aria-labelledby="h-sum"><h2 id="h-sum">${e(SH.summary)}</h2><div class="statgrid">${tiles.map(([k, v]) => `<div class="stat"><span class="k">${k}</span><span class="v">${v}</span></div>`).join('')}</div></section>`;
+  return `<section class="sec" aria-labelledby="${hid('h-sum')}"><h2 id="${hid('h-sum')}">${e(SH.summary)}</h2>${visualSummary(r)}<div class="statgrid">${tiles.map(([k, v]) => `<div class="stat"><span class="k">${k}</span><span class="v">${v}</span></div>`).join('')}</div></section>`;
 }
 
 function steps(r: ShareReport): string {
   const list = r.steps ?? [];
-  if (!list.length) return `<section class="sec" aria-labelledby="h-steps"><h2 id="h-steps">${e(SH.steps)}</h2><p class="muted">${e(SH.noSteps)}</p></section>`;
+  if (!list.length) return `<section class="sec" aria-labelledby="${hid('h-steps')}"><h2 id="${hid('h-steps')}">${e(SH.steps)}</h2><p class="muted">${e(SH.noSteps)}</p></section>`;
   const body = list
     .map((s, i) => {
       const meta = stepMeta(s.state);
@@ -159,7 +224,7 @@ function steps(r: ShareReport): string {
       return `<div class="step"><h3>${st(meta, '')}<span>${i + 1} ${e(s.title ?? s.stepId)}</span><span class="small muted">${e(s.type ?? '')} · ${escapeXml(meta.text)}</span></h3>${table}</div>`;
     })
     .join('');
-  return `<section class="sec" aria-labelledby="h-steps"><h2 id="h-steps">${e(SH.steps)}</h2>${body}</section>`;
+  return `<section class="sec" aria-labelledby="${hid('h-steps')}"><h2 id="${hid('h-steps')}">${e(SH.steps)}</h2>${body}</section>`;
 }
 
 function roleOf(v?: string): VariantDecl['role'] {
@@ -168,7 +233,7 @@ function roleOf(v?: string): VariantDecl['role'] {
 
 function experiments(r: ShareReport): string {
   const list = r.experiments ?? [];
-  if (!list.length) return `<section class="sec" aria-labelledby="h-exp"><h2 id="h-exp">${e(SH.experiments)}</h2><p class="muted">${e(SH.noExperiments)}</p></section>`;
+  if (!list.length) return `<section class="sec" aria-labelledby="${hid('h-exp')}"><h2 id="${hid('h-exp')}">${e(SH.experiments)}</h2><p class="muted">${e(SH.noExperiments)}</p></section>`;
   const body = list
     .map((x, xi) => {
       const variants: VariantDecl[] = (x.variants ?? []).filter((v) => v.label).map((v) => ({ label: String(v.label), role: roleOf(v.role) }));
@@ -200,10 +265,10 @@ function experiments(r: ShareReport): string {
 <p class="small muted">${e(t(SH.variants, { list: variants.map((v) => t(SH.variantItem, { label: v.label, role: v.role })).join(SH.listSep) || '—' }))}</p>
 ${pairs ? `<ul class="small plain">${pairs}</ul>` : ''}
 ${rows ? `<div class="tbl-wrap"><table class="tbl"><caption class="sr">${e(t(SH.metricsCaption, { name: `${x.module} / ${x.experiment}` }))}</caption><thead>${head}</thead><tbody>${rows}</tbody></table></div>` : `<p class="muted small">${e(SH.noMetrics)}</p>`}
-${bars ? `<figure>${barsChartSvg(bars, `exp${xi}`)}</figure>` : ''}${ladder ? `<figure>${ladderChartSvg(ladder)}</figure>` : ''}</div>`;
+${bars ? `<figure>${barsChartSvg(bars, hid(`exp${xi}`))}</figure>` : ''}${ladder ? `<figure>${ladderChartSvg(ladder)}</figure>` : ''}</div>`;
     })
     .join('');
-  return `<section class="sec" aria-labelledby="h-exp"><h2 id="h-exp">${e(SH.experiments)}</h2>${body}<p class="small muted">${e(SH.directionNote)}</p></section>`;
+  return `<section class="sec" aria-labelledby="${hid('h-exp')}"><h2 id="${hid('h-exp')}">${e(SH.experiments)}</h2>${body}<p class="small muted">${e(SH.directionNote)}</p></section>`;
 }
 
 function cleanup(r: ShareReport): string {
@@ -212,7 +277,7 @@ function cleanup(r: ShareReport): string {
   const pending = (c.pendingManual ?? [])
     .map((p) => `<tr><td class="mono small">${e(p.resourceType)}</td><td class="mono small">${e(p.id)}</td><td>${e(p.severity && p.severity in SH.severity ? SH.severity[p.severity as keyof typeof SH.severity] : p.severity)}</td><td>${e(p.reason)}</td></tr>`)
     .join('');
-  return `<section class="sec" aria-labelledby="h-clean"><h2 id="h-clean">${e(SH.cleanup)}</h2><p>${e(status)}${typeof c.reclaimed === 'number' ? e(t(SH.reclaimed, { n: c.reclaimed })) : ''}</p>${
+  return `<section class="sec" aria-labelledby="${hid('h-clean')}"><h2 id="${hid('h-clean')}">${e(SH.cleanup)}</h2><p>${e(status)}${typeof c.reclaimed === 'number' ? e(t(SH.reclaimed, { n: c.reclaimed })) : ''}</p>${
     pending
       ? `<div class="tbl-wrap"><table class="tbl"><thead><tr><th scope="col">${e(SH.colType)}</th><th scope="col">${e(SH.colResource)}</th><th scope="col">${e(SH.colLevel)}</th><th scope="col">${e(SH.colReason)}</th></tr></thead><tbody>${pending}</tbody></table></div>`
       : ''
@@ -260,6 +325,22 @@ figure{margin:4px 0;border:1px solid var(--border);border-radius:4px;background:
 .chart .grid{stroke:var(--viz-grid)}.chart .b{fill:var(--viz-before)}.chart .a{fill:var(--viz-after)}.chart .t3{fill:var(--viz-third)}
 .chart path.ln{fill:none;stroke-width:2}.chart path.ln.b{stroke:var(--viz-before)}.chart path.ln.a{stroke:var(--viz-after)}.chart path.ln.t3{stroke:var(--viz-third)}.chart path.dash{stroke-dasharray:6 3}
 footer{font-size:12px;color:var(--text-3);border-top:1px solid var(--border);padding-top:10px}
+.lv{display:none;gap:20px;min-width:0}.lv>*{min-width:0}.lv.lv-default,.lv:target{display:grid}
+body:has(.lv:target) .lv.lv-default:not(:target){display:none}
+.langnav{display:flex;gap:6px;justify-content:flex-end;flex-wrap:wrap;font-size:12px}.langnav a{color:var(--accent)}
+.vsum{display:grid;gap:12px;grid-template-columns:repeat(auto-fit,minmax(min(100%,260px),1fr));align-items:start}
+.vsum-l,.vsum-r{display:grid;gap:10px;min-width:0;border:1px solid var(--border);border-radius:6px;background:var(--surface);padding:10px 12px}
+.vring{display:flex;gap:12px;align-items:center}.ring{flex:none}.ring-t{fill:none;stroke:var(--viz-grid)}.ring-f{fill:none;stroke:var(--viz-after);stroke-linecap:round}
+.ring text{fill:var(--text);font-size:13px;font-weight:600}
+.vstrip{list-style:none;margin:0;padding:0;display:flex;flex-wrap:wrap;gap:6px}
+.vstrip li{display:inline-grid;place-items:center;width:26px;height:26px;border-radius:50%;border:2px solid currentColor;font-size:12px;font-weight:600}
+.vstrip li>span{color:var(--text)}.vstrip li.fill{background:currentColor}.vstrip li.fill>span{color:var(--surface)}
+.vtone.pass{color:var(--st-pass)}.vtone.fail{color:var(--st-fail)}.vtone.pend{color:var(--st-pending)}.vtone.drift{color:var(--st-drift)}.vtone.manual{color:var(--st-manual)}
+.vtone.needs{color:var(--st-needs)}.vtone.err{color:var(--st-error)}.vtone.stale{color:var(--st-stale)}.vtone.lock{color:var(--st-locked)}.vtone.mut{color:var(--text-2)}.vtone.faint{color:var(--text-3)}
+.bchart{width:100%;border-collapse:collapse;font-size:13px}.bchart caption{caption-side:top;text-align:left;font-weight:600;padding-bottom:6px}
+.bchart th{text-align:left;font-weight:400;padding:3px 10px 3px 0;white-space:nowrap}.bchart td{padding:3px 0}.bchart .num{text-align:right;padding-left:8px;color:var(--text-2)}
+.bc-bar{width:70%}.bc-bar svg{display:block;width:100%;height:12px}.bc-t{fill:var(--surface-2)}.bchart .a{fill:var(--viz-after)}.bchart .b{fill:var(--viz-before)}.bchart .t3{fill:var(--viz-third)}
+@media (forced-colors:active){.ring-f,.vstrip li{stroke:CanvasText;border-color:CanvasText}.vstrip li.fill{background:CanvasText}.bchart rect{fill:CanvasText}.bc-t{fill:Canvas}}
 @media print{@page{size:A4 portrait;margin:14mm}body{background:#fff;color:#000}main{max-width:none;padding:0}tr,figure,table,.step{break-inside:avoid}}
 `;
 
@@ -282,24 +363,38 @@ export function shareReportJson(input: ShareReport): string {
 
 export { redactDeep, redactText } from './publicRedact';
 
-/** 渲染分享副本（完整 HTML 文档）。 */
+/** 不指定 `lang` 时副本包含的语言（第一个是默认显示的语言，I1：日语）。 */
+export const SHARE_LANGS: readonly Locale[] = LOCALES;
+
+/**
+ * 渲染分享副本（完整 HTML 文档）。
+ *
+ * - `meta.lang` 指定时只生成这一种语言（与以前相同）；
+ * - 省略时生成三种语言（09 §1.8）：同一文档里 ja / en / zh-CN 各一块，默认显示日语；副本是无脚本的静态页（CSP 不允许脚本），
+ *   所以用 URL 片段选择语言：`…/index.html#en`、`#zh-CN`（`:target` 切换，页首有 日本語 / English / 中文 链接）。
+ */
 export function renderShareHtml(input: ShareReport, meta: ShareMeta): string {
   const previous = getLocale();
-  if (meta.lang && meta.lang !== previous) setLocale(meta.lang, { persist: false });
+  const langs = meta.lang ? [meta.lang] : SHARE_LANGS;
+  const blocks: { lang: Locale; language: string; title: string; body: string }[] = [];
   try {
-    return renderShareDocument(input, meta);
+    for (const lang of langs) {
+      if (lang !== getLocale()) setLocale(lang, { persist: false });
+      idPrefix = langs.length > 1 ? `${lang}-` : '';
+      blocks.push({ lang, language: SH.visual.language, ...renderShareBlock(input, meta) });
+    }
   } finally {
-    if (meta.lang && meta.lang !== previous) setLocale(previous, { persist: false });
+    idPrefix = '';
+    if (getLocale() !== previous) setLocale(previous, { persist: false });
   }
-}
-
-function renderShareDocument(input: ShareReport, meta: ShareMeta): string {
-  const r = redactDeep(input, 'share');
-  const lab = r.lab ?? {};
-  const title = t(SH.title, { id: lab.id ?? SH.lab });
-  const expires = meta.expiresAt ? t(SH.expiresAt, { t: e(utcStamp(meta.expiresAt)) }) : e(SH.noExpiry);
+  const first = blocks[0]!;
+  const multi = blocks.length > 1;
+  const nav = multi
+    ? `<nav class="langnav" aria-label="${e(blocks.map((b) => b.language).join(' / '))}">${blocks.map((b) => `<a href="#${b.lang}" lang="${b.lang}" hreflang="${b.lang}">${e(LOCALE_NAMES[b.lang])}</a>`).join(' · ')}</nav>`
+    : '';
+  const body = multi ? blocks.map((b, i) => `<div class="lv${i === 0 ? ' lv-default' : ''}" id="${b.lang}" lang="${b.lang}">\n${b.body}\n</div>`).join('\n') : first.body;
   return `<!doctype html>
-<html lang="${getLocale()}">
+<html lang="${first.lang}">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -307,20 +402,30 @@ function renderShareDocument(input: ShareReport, meta: ShareMeta): string {
 <meta http-equiv="Content-Security-Policy" content="${escapeXml(SHARE_CSP)}">
 <meta name="robots" content="noindex, nofollow">
 <meta name="referrer" content="no-referrer">
-<title>${e(title)}</title>
+<title>${e(first.title)}</title>
 <style>${SHARE_CSS}</style>
 </head>
 <body>
 <main>
-<p class="nature" role="note">${e(SH.nature)}</p>
+${nav}${body}
+</main>
+</body>
+</html>
+`;
+}
+
+/** 当前语言的一块正文（性质声明、页头、摘要、逐步证据、对比实验、清理、页脚）。 */
+function renderShareBlock(input: ShareReport, meta: ShareMeta): { title: string; body: string } {
+  const r = redactDeep(input, 'share');
+  const lab = r.lab ?? {};
+  const title = t(SH.title, { id: lab.id ?? SH.lab });
+  const expires = meta.expiresAt ? t(SH.expiresAt, { t: e(utcStamp(meta.expiresAt)) }) : e(SH.noExpiry);
+  const body = `<p class="nature" role="note">${e(SH.nature)}</p>
 <header><h1>${e(lab.id)} · ${e(lab.title)}</h1><p class="small muted">${t(e(SH.header), { rev: e(r.revision ?? 1), generated: e(utcStamp(r.generatedAt)), version: e(lab.version), variant: e(lab.variant ?? 'default') })}</p></header>
 ${summary(r)}
 ${steps(r)}
 ${experiments(r)}
 ${cleanup(r)}
-<footer><p>${t(e(SH.footer1), { t: e(utcStamp(meta.publishedAt)), expires })}</p><p>${e(SH.footer2)}</p></footer>
-</main>
-</body>
-</html>
-`;
+<footer><p>${t(e(SH.footer1), { t: e(utcStamp(meta.publishedAt)), expires })}</p><p>${e(SH.footer2)}</p></footer>`;
+  return { title, body };
 }

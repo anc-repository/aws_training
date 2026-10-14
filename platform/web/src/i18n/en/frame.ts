@@ -8,50 +8,50 @@ import type zh from '../zh-CN/frame';
 
 export default {
   routes: {
-    login: '', // 登录
-    callback: '', // 正在完成登录
-    signedOut: '', // 已退出
-    setup: '', // 首次设置
-    catalog: '', // 卡片目录
-    card: '', // 卡片简介
-    quiz: '', // 小测
-    track: '', // 学习路径
-    workspace: '', // 工作台
-    sessions: '', // 我的实验
-    session: '', // 会话详情
-    end: '', // 结束与回收进度
-    report: '', // 实验报告
-    experiment: '', // 对比实验
-    manual: '', // 待人工处理清单
-    certificates: '', // 证书与徽章
-    certificate: '', // 证书详情
-    learning: '', // 我的学习
-    settings: '', // 设置
+    login: 'Sign in', // 登录
+    callback: 'Completing sign-in', // 正在完成登录
+    signedOut: 'Signed out', // 已退出
+    setup: 'First-time setup', // 首次设置
+    catalog: 'Card catalog', // 卡片目录
+    card: 'Card overview', // 卡片简介
+    quiz: 'Quiz', // 小测
+    track: 'Learning path', // 学习路径
+    workspace: 'Workbench', // 工作台
+    sessions: 'My labs', // 我的实验
+    session: 'Session details', // 会话详情
+    end: 'End and reclaim progress', // 结束与回收进度
+    report: 'Lab report', // 实验报告
+    experiment: 'Comparison experiment', // 对比实验
+    manual: 'Manual-handling list', // 待人工处理清单
+    certificates: 'Certificates and badges', // 证书与徽章
+    certificate: 'Certificate details', // 证书详情
+    learning: 'My learning', // 我的学习
+    settings: 'Settings', // 设置
   },
   bar: {
-    progress: '', // 进度
-    learning: '', // 我的学习 →
-    certificates: '', // 证书 →
+    progress: 'Progress', // 进度
+    learning: 'My learning →', // 我的学习 →
+    certificates: 'Certificates →', // 证书 →
   },
   notFound: {
-    mySessions: '', // 我的实验
-    body: '', // {notFound} 地址 {path} 没有对应的画面；链接可能已过期，或输入有误。
-    back: '', // 回到我的实验
-    missingBody: '', // 它可能已被删除，或者不属于这个平台安装。
-    canRetry: '', // 可以重试了。
+    mySessions: 'My labs', // 我的实验
+    body: '{notFound} There is no screen at {path}; the link may have expired or been mistyped.', // {notFound} 地址 {path} 没有对应的画面；链接可能已过期，或输入有误。
+    back: 'Back to My labs', // 回到我的实验
+    missingBody: 'It may have been deleted, or it does not belong to this platform installation.', // 它可能已被删除，或者不属于这个平台安装。
+    canRetry: 'You can retry now.', // 可以重试了。
   },
-  residualOf: '', // {labId}（{t} 的实验）
+  residualOf: '{labId} (lab of {t})', // {labId}（{t} 的实验）
   actions: {
-    cancel: '', // 取消实验
-    extend: '', // 延长实验
-    end: '', // 结束实验
+    cancel: 'Cancel lab', // 取消实验
+    extend: 'Extend lab', // 延长实验
+    end: 'End lab', // 结束实验
   },
   pill: {
-    session: '', // 会话 {sid} · {state}
-    tier: '', // ，费用档位{tier}
+    session: 'Session {sid} · {state}', // 会话 {sid} · {state}
+    tier: ', cost tier {tier}', // ，费用档位{tier}
   },
-  onboarding: '', // 首次设置还没有完成：可以先继续实验，之后在 设置 › 平台 中重看。
-  footerCatalog: '', // 目录 {v}
+  onboarding: 'First-time setup is not finished. You can carry on with the lab and revisit it later in Settings › Platform.', // 首次设置还没有完成：可以先继续实验，之后在 设置 › 平台 中重看。
+  footerCatalog: 'Catalog {v}', // 目录 {v}
   login: {
     devSubInvalid: 'Only letters, digits, - and _ (1–64 characters)', // 只能包含字母、数字、- 与 _（1～64 个字符）
     redirecting: 'Redirecting…', // 正在跳转…
@@ -70,41 +70,41 @@ export default {
   },
   manualPage: {
     severity: {
-      all: '', // 全部
-      BLOCKING: '', // 阻塞
-      REVIEW: '', // 需复核
-      INFO: '', // 信息
+      all: 'All', // 全部
+      BLOCKING: 'Blocking', // 阻塞
+      REVIEW: 'Review', // 需复核
+      INFO: 'Info', // 信息
     },
-    crumbs: '', // 面包屑
-    mySessions: '', // 我的实验
-    title: '', // 待人工处理清单
-    sub: '', // 跨会话汇总 · 每项都有控制台链接与 CLI 命令，处理后可重新核对
-    remask: '', // 恢复打码
-    unmask: '', // 显示完整名称
-    filters: '', // 筛选
-    severityLabel: '', // 严重级别
-    billing: '', // 计费方式
-    all: '', // 全部
-    count: '', // 共 {n} 项
-    countHourly: '', // 共 {n} 项，其中 {h} 项阻塞且按小时计费
-    emptyTitle: '', // 没有未释放的资源。
-    viewSessions: '', // 查看我的实验
-    emptyBody: '', // 回收失败或复扫发现的残留会出现在这里。
-    noMatch: '', // 没有符合筛选条件的条目。
-    clear: '', // 清除筛选
-    tagNote: '', // 这些资源都带有 atl:env-id 标签，可以在控制台按标签查找。处理后点“我已处理，重新核对”，平台会复核并在全部处理后结束回收。
-    previous: '', // 之前的实验
-    session: '', //  · 会话 {sid}
-    reclaim: '', // 回收进度
-    export: '', // 导出
-    confirmed: '', // 已确认：资源已不存在
-    still: '', // 资源仍然存在
-    verifying: '', // 正在核对…
-    safe: '', // 安全
-    safeNote: '', // {safe} 这不是计费资源，但留着会让域名指向已删除的托管区域。
-    confirmedNote: '', // 已确认：资源已不存在。
-    stillNote: '', // 资源仍然存在，请确认删除已完成；CloudFront、RDS 等删除较慢，可以稍后再核对。
-    slowNote: '', // 核对仍在进行，结果出来后清单会自动更新；也可以稍后刷新本页。
+    crumbs: 'Breadcrumb', // 面包屑
+    mySessions: 'My labs', // 我的实验
+    title: 'Manual-handling list', // 待人工处理清单
+    sub: 'Across sessions · each item has a console link and a CLI command; recheck after handling it', // 跨会话汇总 · 每项都有控制台链接与 CLI 命令，处理后可重新核对
+    remask: 'Mask again', // 恢复打码
+    unmask: 'Show full names', // 显示完整名称
+    filters: 'Filters', // 筛选
+    severityLabel: 'Severity', // 严重级别
+    billing: 'Billing', // 计费方式
+    all: 'All', // 全部
+    count: '{n, plural, one {# item} other {# items}}', // 共 {n} 项
+    countHourly: '{n} items, {h} blocking and billed hourly', // 共 {n} 项，其中 {h} 项阻塞且按小时计费
+    emptyTitle: 'No unreleased resources.', // 没有未释放的资源。
+    viewSessions: 'View My labs', // 查看我的实验
+    emptyBody: 'Leftovers from failed reclaims or rescans appear here.', // 回收失败或复扫发现的残留会出现在这里。
+    noMatch: 'No items match the filters.', // 没有符合筛选条件的条目。
+    clear: 'Clear filters', // 清除筛选
+    tagNote: 'Every resource carries the atl:env-id tag, so you can find them by tag in the console. After handling one, press “Handled, recheck”: the platform verifies it and finishes the reclaim once everything is handled.', // 这些资源都带有 atl:env-id 标签，可以在控制台按标签查找。处理后点“我已处理，重新核对”，平台会复核并在全部处理后结束回收。
+    previous: 'Earlier lab', // 之前的实验
+    session: ' · session {sid}', //  · 会话 {sid}
+    reclaim: 'Reclaim progress', // 回收进度
+    export: 'Export', // 导出
+    confirmed: 'Confirmed: the resource no longer exists', // 已确认：资源已不存在
+    still: 'The resource still exists', // 资源仍然存在
+    verifying: 'Checking…', // 正在核对…
+    safe: 'Safety', // 安全
+    safeNote: '{safe} This is not a billed resource, but leaving it makes the domain point at a deleted hosted zone.', // {safe} 这不是计费资源，但留着会让域名指向已删除的托管区域。
+    confirmedNote: 'Confirmed: the resource no longer exists.', // 已确认：资源已不存在。
+    stillNote: 'The resource still exists; make sure the deletion has finished. CloudFront, RDS and similar resources are slow to delete, so you can recheck later.', // 资源仍然存在，请确认删除已完成；CloudFront、RDS 等删除较慢，可以稍后再核对。
+    slowNote: 'The check is still running; the list updates automatically when the result is in, or you can refresh this page later.', // 核对仍在进行，结果出来后清单会自动更新；也可以稍后刷新本页。
   },
   preflight: {
     verdict: {

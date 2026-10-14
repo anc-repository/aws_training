@@ -15,13 +15,17 @@ import { announce } from '../../lib/announce';
 import { copyText } from '../../lib/clipboard';
 import { formatDate, formatUtcTitle } from '../../lib/format';
 import { Button, Dialog, ErrorPanel, Icon, Shape, Skeleton, Status } from '../../ui';
+import { ProgressRing } from '../../ui/charts';
 import { InlineProblem } from '../errors/InlineProblem';
 import { Missing } from '../errors/NotFoundPage';
 import { useAction } from '../errors/useAction';
-import { cardTitle, useApiData, useCatalogIndex } from '../sessions/data';
+import { ServiceGlyph } from '../../ui/glyphs';
+import { cardTitle, primaryServiceOf, useApiData, useCatalogIndex } from '../sessions/data';
 import { saveText } from '../sessions/download';
 import '../sessions/pages.css';
+import { CertSeal } from '../sessions/visuals';
 import { certLabs, decodeJws, type CertPayload } from '../verify/verifyCore';
+import { BadgeGlyph, type BadgeState } from './BadgeGlyph';
 import { BADGE_LEVEL_META, pct, REVOKE_REASON_TEXT, revokeReasonText } from './certText';
 import type { CertificateItem } from './CertificatesPage';
 
@@ -160,6 +164,30 @@ export default function CertificateDetailPage() {
         </div>
       </div>
 
+      <figure className={valid ? 'certcard' : 'certcard revoked'} aria-hidden="true" data-visual="certificate">
+        <CertSeal tone={valid ? 'pass' : 'fail'} mark={valid ? 'check' : 'x'} size={72} />
+        <div className="certcard-body">
+          <span className="certcard-kicker">ATL · {a.trackId ?? a.labId ?? ''}</span>
+          <span className="certcard-title">{title}</span>
+          <span className="certcard-name">{payload?.subject?.displayName ?? c.displayName ?? '—'}</span>
+          <span className="certcard-date">{c.issuedAt ? formatDate(c.issuedAt, now) : ''}</span>
+          {labs.length ? (
+            <span className="certcard-labs">
+              {labs.map((l) => {
+                const card = index?.cards?.find((x) => x.id === l.labId);
+                const st: BadgeState = l.badgeLevel === 'attested' ? 'attested' : l.badgeLevel === 'self-reported' ? 'self-reported' : 'verified';
+                return <BadgeGlyph key={l.labId} labId={l.labId} kind={card?.kind ?? (l.labId.startsWith('sc-') ? 'scenario' : 'service')} category={card?.category} state={st} size={24} />;
+              })}
+            </span>
+          ) : null}
+        </div>
+        {a.verifiedRatio != null ? (
+          <span className="certcard-ring">
+            <ProgressRing value={a.verifiedRatio} size={64} label={CT.visual.verified} decorative />
+          </span>
+        ) : null}
+      </figure>
+
       <div className="note">
         <Icon name="shield" />
         <span>{CD.notice}</span>
@@ -207,6 +235,7 @@ export default function CertificateDetailPage() {
                 return (
                   <tr key={l.labId}>
                     <td data-label={CD.colCard}>
+                      {primaryServiceOf(index?.cards?.find((x) => x.id === l.labId)) ? <ServiceGlyph id={primaryServiceOf(index?.cards?.find((x) => x.id === l.labId))!} size={20} tooltip className="h-glyph" /> : null}{' '}
                       <span className="mono">
                         {l.labId}
                         {l.labVersion ? ` v${l.labVersion}` : ''}

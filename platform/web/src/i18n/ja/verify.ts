@@ -8,94 +8,95 @@ import type zh from '../zh-CN/verify';
 
 export default {
   static: {
-    docTitle: '', // ATL 证书验证（非 AWS 官方）
-    skip: '', // 跳到主要内容
-    title: '', // ATL 证书验证
-    nature: '', // 本证明由部署在学员自己 AWS 账号中的自托管 AWS Training Lab 实例自动签发，表示该实例记录到持有人完成了所列实验，签名可用于确认内容未被篡改、且出自该实例的签名密钥。它不是 AWS 官方认证，也不代表 AWS Certified Solutions Architect – Associate 或任何 AWS 认证资格；签发者与持有人可能是同一人，平台的数据与密钥由账号所有者控制。验证结果只说明“该实例签发了此内容”，不说明签发过程的独立性。
-    retry: '', // 重试
-    paste: '', // 粘贴证书
-    labsTitle: '', // 包含的卡片
-    labsNote: '', // 核对报告：选择持有人提供的报告 JSON，浏览器按 RFC 8785 规范化后计算 SHA-256 并与证书中的报告摘要比较，文件不会上传。请使用持有人在证书详情中下载的“核验用报告 JSON”；打码导出的报告或更新过的版本会显示不一致。
-    howTitle: '', // 如何独立核对
-    howBody: '', // 把上面的公钥指纹与持有人在其公开主页（例如 GitHub 个人页）上公布的指纹对照。验证完全在你的浏览器中完成，不需要登录：页面读取本实例的公钥与签名的吊销列表，用浏览器内置的 WebCrypto 验证 ES256 签名。
-    pasteTitle: '', // 粘贴证书或选择文件
-    jwsLabel: '', // 证书（JWS）
-    pasteHint: '', // 也可以选择证书文件（.jws）或离线验证包（.json）。
-    submit: '', // 验证
-    chooseFile: '', // 选择文件…
-    footNote: '', // 自托管 ATL 实验平台（非 AWS 官方）。平台卸载后，本页与公开证书文件随之失效；请使用证书页提供的离线验证包。
-    language: '', // 语言
+    docTitle: 'ATL 修了証の検証（AWS 非公式）', // ATL 证书验证（非 AWS 官方）
+    skip: 'メインコンテンツへスキップ', // 跳到主要内容
+    title: 'ATL 修了証の検証', // ATL 证书验证
+    natureShort: 'AWS の公式認定ではなく、セルフホストの ATL インスタンスが発行した修了証明です。', // 这不是 AWS 官方认证，而是自托管 ATL 实例签发的完成证明。
+    nature: 'この証明は、受講者自身の AWS アカウントにデプロイされたセルフホストの AWS Training Lab インスタンスが自動で発行したものです。そのインスタンスが、保有者が記載のラボを完了したことを記録したことを示します。署名により、内容が改ざんされていないこと、そのインスタンスの署名鍵で発行されたことを確認できます。AWS の公式認定ではなく、AWS Certified Solutions Architect – Associate やその他の AWS 認定資格を示すものでもありません。発行者と保有者が同一人物の場合があり、プラットフォームのデータと鍵はアカウント所有者が管理しています。検証結果が示すのは「このインスタンスがこの内容を発行した」ことだけで、発行手続きの独立性は示しません。', // 本证明由部署在学员自己 AWS 账号中的自托管 AWS Training Lab 实例自动签发，表示该实例记录到持有人完成了所列实验，签名可用于确认内容未被篡改、且出自该实例的签名密钥。它不是 AWS 官方认证，也不代表 AWS Certified Solutions Architect – Associate 或任何 AWS 认证资格；签发者与持有人可能是同一人，平台的数据与密钥由账号所有者控制。验证结果只说明“该实例签发了此内容”，不说明签发过程的独立性。
+    retry: '再試行', // 重试
+    paste: '修了証を貼り付ける', // 粘贴证书
+    labsTitle: '含まれるカード', // 包含的卡片
+    labsNote: 'レポートの照合：保有者から受け取ったレポート JSON を選ぶと、ブラウザーが RFC 8785 で正規化して SHA-256 を計算し、修了証のレポートダイジェストと比較します。ファイルはアップロードされません。保有者が修了証の詳細からダウンロードした「照合用レポート JSON」を使ってください。マスクしてエクスポートしたレポートや更新後の版は不一致になります。', // 核对报告：选择持有人提供的报告 JSON，浏览器按 RFC 8785 规范化后计算 SHA-256 并与证书中的报告摘要比较，文件不会上传。请使用持有人在证书详情中下载的“核验用报告 JSON”；打码导出的报告或更新过的版本会显示不一致。
+    howTitle: '独自に確認する方法', // 如何独立核对
+    howBody: '上の公開鍵フィンガープリントを、保有者が公開プロフィール（GitHub のプロフィールなど）に載せているフィンガープリントと照らし合わせてください。検証はすべてブラウザー内で行われ、ログインは不要です。このページはインスタンスの公開鍵と署名付き失効リストを読み込み、ブラウザー組み込みの WebCrypto で ES256 署名を検証します。', // 把上面的公钥指纹与持有人在其公开主页（例如 GitHub 个人页）上公布的指纹对照。验证完全在你的浏览器中完成，不需要登录：页面读取本实例的公钥与签名的吊销列表，用浏览器内置的 WebCrypto 验证 ES256 签名。
+    pasteTitle: '修了証を貼り付けるか、ファイルを選択', // 粘贴证书或选择文件
+    jwsLabel: '修了証（JWS）', // 证书（JWS）
+    pasteHint: '修了証ファイル（.jws）やオフライン検証パッケージ（.json）も選べます。', // 也可以选择证书文件（.jws）或离线验证包（.json）。
+    submit: '検証', // 验证
+    chooseFile: 'ファイルを選択…', // 选择文件…
+    footNote: 'セルフホストの ATL ラボプラットフォーム（AWS 非公式）。プラットフォームをアンインストールすると、このページと公開された修了証ファイルは使えなくなります。修了証ページにあるオフライン検証パッケージを使ってください。', // 自托管 ATL 实验平台（非 AWS 官方）。平台卸载后，本页与公开证书文件随之失效；请使用证书页提供的离线验证包。
+    language: '言語', // 语言
   },
   revokeReason: {
-    superseded: '', // 被新证书取代
-    'learner-request': '', // 持有人申请
-    'evidence-invalidated': '', // 依据的证据被判无效
-    'content-defect': '', // 内容缺陷
-    misissued: '', // 误签
-    'key-compromise': '', // 密钥泄露
-    'dependency-revoked': '', // 所依据的旧版证书已被吊销
+    superseded: '新しい修了証に置き換え', // 被新证书取代
+    'learner-request': '保有者の申請', // 持有人申请
+    'evidence-invalidated': '根拠の証拠が無効と判定', // 依据的证据被判无效
+    'content-defect': 'コンテンツの不具合', // 内容缺陷
+    misissued: '誤発行', // 误签
+    'key-compromise': '鍵の漏えい', // 密钥泄露
+    'dependency-revoked': '根拠となる旧版の修了証が失効', // 所依据的旧版证书已被吊销
   },
   badgeLevel: {
-    verified: '', // 已核验
-    attested: '', // 含手动
-    'self-reported': '', // 自述为主
+    verified: '検証済み', // 已核验
+    attested: '手動確認を含む', // 含手动
+    'self-reported': '自己申告中心', // 自述为主
   },
-  unspecified: '', // 未说明
-  otherReason: '', // 其他原因
+  unspecified: '理由の記載なし', // 未说明
+  otherReason: 'その他の理由', // 其他原因
   result: {
-    verifying: '', // 正在验证签名…
-    noInput: '', // 粘贴证书以验证
-    noInputDetail: '', // 把持有人提供的证书（JWS）粘贴到下面，或选择证书文件。验证完全在你的浏览器中完成。
-    notPublic: '', // 该证书未公开
-    notPublicDetail: '', // 请使用持有人提供的证书文件，或带 #jws= 的链接。
-    unsupported: '', // 你的浏览器不支持本地验签
-    unsupportedDetail: '', // 请换用新版浏览器，或使用离线验证包中的脚本。
-    network: '', // 无法读取公钥（网络错误）
-    revUnavailable: '', // 签名有效 · 无法确认吊销状态
-    revUnavailableDetail: '', // 吊销列表暂不可用。
-    revRollback: '', // 签名有效 · 吊销列表可能是旧版本
-    revRollbackDetail: '', // 序号 {got} < {seen}（本浏览器见过更新的列表）。
-    valid: '', // 签名有效
-    revoked: '', // 已吊销
-    revokedAt: '', //  · 吊销于 {t}
-    revokedReason: '', // 原因：{reason}
-    revokedCode: '', // （{code}）
-    invalidSignature: '', // 签名无效
-    invalidSignatureDetail: '', // 内容被修改，或不是本实例签发。
-    unknownKey: '', // 未知签名密钥
-    unknownKeyDetail: '', // 证书可能来自另一个 ATL 实例，或密钥已被移除。
-    keyNotValid: '', // 签发时间不在该密钥的有效期内
-    originMismatch: '', // 签发源不符
-    originMismatchDetail: '', // 证书声明的签发实例与本站不一致。
-    malformed: '', // 这不是有效的 ATL 证书
-    malformedDetail: '', // 不是三段式 JWS、签名算法或类型不符，或证书内容的格式不符。
+    verifying: '署名を検証しています…', // 正在验证签名…
+    noInput: '修了証を貼り付けて検証します', // 粘贴证书以验证
+    noInputDetail: '保有者から受け取った修了証（JWS）を下に貼り付けるか、修了証ファイルを選んでください。検証はすべてブラウザー内で行われます。', // 把持有人提供的证书（JWS）粘贴到下面，或选择证书文件。验证完全在你的浏览器中完成。
+    notPublic: 'この修了証は公開されていません', // 该证书未公开
+    notPublicDetail: '保有者から受け取った修了証ファイルか、#jws= 付きのリンクを使ってください。', // 请使用持有人提供的证书文件，或带 #jws= 的链接。
+    unsupported: 'このブラウザーはローカルでの署名検証に対応していません', // 你的浏览器不支持本地验签
+    unsupportedDetail: '新しいブラウザーを使うか、オフライン検証パッケージのスクリプトを使ってください。', // 请换用新版浏览器，或使用离线验证包中的脚本。
+    network: '公開鍵を読み込めません（ネットワークエラー）', // 无法读取公钥（网络错误）
+    revUnavailable: '署名は有効 · 失効状態を確認できません', // 签名有效 · 无法确认吊销状态
+    revUnavailableDetail: '失効リストは現在利用できません。', // 吊销列表暂不可用。
+    revRollback: '署名は有効 · 失効リストが古い可能性があります', // 签名有效 · 吊销列表可能是旧版本
+    revRollbackDetail: '連番 {got} < {seen}（このブラウザーはより新しいリストを見ています）。', // 序号 {got} < {seen}（本浏览器见过更新的列表）。
+    valid: '署名は有効です', // 签名有效
+    revoked: '失効', // 已吊销
+    revokedAt: ' · {t} に失効', //  · 吊销于 {t}
+    revokedReason: '理由：{reason}', // 原因：{reason}
+    revokedCode: '（{code}）', // （{code}）
+    invalidSignature: '署名が無効です', // 签名无效
+    invalidSignatureDetail: '内容が変更されているか、このインスタンスが発行したものではありません。', // 内容被修改，或不是本实例签发。
+    unknownKey: '不明な署名鍵', // 未知签名密钥
+    unknownKeyDetail: '別の ATL インスタンスの修了証か、鍵が削除された可能性があります。', // 证书可能来自另一个 ATL 实例，或密钥已被移除。
+    keyNotValid: '発行日時がこの鍵の有効期間外です', // 签发时间不在该密钥的有效期内
+    originMismatch: '発行元が一致しません', // 签发源不符
+    originMismatchDetail: '修了証に記載された発行インスタンスがこのサイトと一致しません。', // 证书声明的签发实例与本站不一致。
+    malformed: '有効な ATL 修了証ではありません', // 这不是有效的 ATL 证书
+    malformedDetail: '3 つの部分からなる JWS ではない、署名アルゴリズムや種類が違う、または修了証の内容の形式が正しくありません。', // 不是三段式 JWS、签名算法或类型不符，或证书内容的格式不符。
   },
   detail: {
-    cert: '', // 证书
-    scope: '', // （{scope}）
-    holder: '', // 持有人
-    holderValue: '', // {name} · 签发于 {t}
-    ratio: '', //  · “已核验”占比 {ratio}
-    issuer: '', // 签发实例
-    issuerValue: '', // {origin} · 安装 {install} · 公钥指纹 {kid}
-    kidTitle: '', // 公钥指纹（kid）：{kid}
-    revocations: '', // 吊销列表
-    revRevoked: '', // 已吊销（列表序号 {seq}，签名有效）
-    revRollback: '', // 可能是旧版本（序号 {got} < {seen}）
-    revOk: '', // 未吊销（列表序号 {seq}，签名有效）
-    revUnknown: '', // 无法确认（吊销列表暂不可用）
-    checks: '', // 自动 {auto} / 手动 {manual}
-    digest: '', // 报告摘要 {d}…
-    noDigest: '', // 没有报告摘要
+    cert: '修了証', // 证书
+    scope: '（{scope}）', // （{scope}）
+    holder: '保有者', // 持有人
+    holderValue: '{name} · {t} 発行', // {name} · 签发于 {t}
+    ratio: ' · 「検証済み」の割合 {ratio}', //  · “已核验”占比 {ratio}
+    issuer: '発行インスタンス', // 签发实例
+    issuerValue: '{origin} · インストール {install} · 公開鍵フィンガープリント {kid}', // {origin} · 安装 {install} · 公钥指纹 {kid}
+    kidTitle: '公開鍵フィンガープリント（kid）：{kid}', // 公钥指纹（kid）：{kid}
+    revocations: '失効リスト', // 吊销列表
+    revRevoked: '失効（リスト連番 {seq}、署名は有効）', // 已吊销（列表序号 {seq}，签名有效）
+    revRollback: '古い版の可能性（連番 {got} < {seen}）', // 可能是旧版本（序号 {got} < {seen}）
+    revOk: '失効していません（リスト連番 {seq}、署名は有効）', // 未吊销（列表序号 {seq}，签名有效）
+    revUnknown: '確認できません（失効リストは現在利用できません）', // 无法确认（吊销列表暂不可用）
+    checks: '自動 {auto} / 手動 {manual}', // 自动 {auto} / 手动 {manual}
+    digest: 'レポートダイジェスト {d}…', // 报告摘要 {d}…
+    noDigest: 'レポートダイジェストなし', // 没有报告摘要
   },
   page: {
-    labsCount: '', // 包含的卡片（{n}）
-    checkReport: '', // 核对报告文件…
-    computing: '', // 正在计算摘要…
-    match: '', // 报告一致：文件 {name} 的摘要与证书中的报告摘要相同。文件未上传。
-    notReport: '', // 文件 {name} 不是报告 JSON。
-    otherLab: '', // （文件中的报告属于 {labId}）
-    mismatch: '', // 报告不一致：文件 {name} 的摘要 {got}… 与证书中的 {want}… 不同{other}。文件未上传。
-    pasteFirst: '', // 请先粘贴证书（JWS），或选择证书文件。
+    labsCount: '含まれるカード（{n}）', // 包含的卡片（{n}）
+    checkReport: 'レポートファイルを照合…', // 核对报告文件…
+    computing: 'ダイジェストを計算しています…', // 正在计算摘要…
+    match: 'レポートが一致しました：ファイル {name} のダイジェストは修了証のレポートダイジェストと同じです。ファイルはアップロードされていません。', // 报告一致：文件 {name} 的摘要与证书中的报告摘要相同。文件未上传。
+    notReport: 'ファイル {name} はレポート JSON ではありません。', // 文件 {name} 不是报告 JSON。
+    otherLab: '（ファイルのレポートは {labId} のものです）', // （文件中的报告属于 {labId}）
+    mismatch: 'レポートが一致しません：ファイル {name} のダイジェスト {got}… は修了証の {want}… と異なります{other}。ファイルはアップロードされていません。', // 报告不一致：文件 {name} 的摘要 {got}… 与证书中的 {want}… 不同{other}。文件未上传。
+    pasteFirst: '先に修了証（JWS）を貼り付けるか、修了証ファイルを選んでください。', // 请先粘贴证书（JWS），或选择证书文件。
   },
 } satisfies Dict<typeof zh>;

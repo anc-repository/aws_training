@@ -49,9 +49,13 @@ describe('P07 回收进度', () => {
     const current = phases.querySelector('[aria-current="step"]')!;
     expect(current.getAttribute('data-stage')).toBe('destroy');
     expect(phases.querySelector('[data-stage="workstation"]')!.getAttribute('data-status')).toBe('done');
+    // 阶段图示（I6 f）：每个阶段一个图标节点，已完成的实心
+    expect(phases.querySelectorAll('li .efnode svg[data-icon]').length).toBe(phases.querySelectorAll('li').length);
+    expect(phases.querySelector('[data-stage="workstation"] .efnode')!.classList.contains('fill')).toBe(true);
     expect(within(phases as HTMLElement).getByText(/尝试：已完成（全自动）/)).toBeTruthy();
     const res = await screen.findByRole('heading', { name: /资源（本次实验创建或接管的 2 项）/ });
     expect(res.textContent).toContain('已删除 1 · 删除中 1');
+    expect(document.querySelectorAll('[data-visual="ledger"] rect[data-seg]')).toHaveLength(2);
     const s0 = document.querySelector('details[data-stage="S0"]') as HTMLDetailsElement;
     expect(s0.open).toBe(true);
     expect((document.querySelector('details[data-stage="S1"]') as HTMLDetailsElement).open).toBe(false);
@@ -174,7 +178,12 @@ describe('P07-K 保留中的环境', () => {
     expect(await screen.findByRole('heading', { level: 1, name: /环境保留中 · svc-cdn/ })).toBeTruthy();
     expect(screen.getByRole('timer').textContent).toMatch(/^至 \d{2}:\d{2}（剩余 \d:\d{2}:\d{2}）$/);
     expect(await screen.findByText(/仍在计费（估算，按当前实际资源）：未知/)).toBeTruthy();
-    expect(await screen.findByText('iam、cdn')).toBeTruthy();
+    // 启用的模块：服务图标 + 模块 id（I6 f）
+    expect(await screen.findByText('cdn')).toBeTruthy();
+    const chips = screen.getByText('iam').closest('.vchips')!;
+    expect([...chips.querySelectorAll('svg[data-glyph]')].map((s) => s.getAttribute('data-glyph'))).toEqual(['iam', 'cdn']);
+    // 保留期限的时间轴：创建 → 自动释放 → 最长期限
+    expect(document.querySelectorAll('[data-visual="keep-timeline"] .vtime-labels li').length).toBe(3);
     expect(screen.getByRole('link', { name: '继续本卡片 →' }).getAttribute('href')).toBe('/labs/svc-cdn?start=1&reuse=01JA0000000000000000000000');
     expect(screen.getByText(/保留期间没有终端与控制台访问/)).toBeTruthy();
   });

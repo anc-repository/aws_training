@@ -5,6 +5,7 @@
  */
 import { Link, useParams, useSearchParams } from 'react-router-dom';
 import { ErrorPanel, SessionStatePill, Skeleton } from '../../ui';
+import { ServiceGlyph } from '../../ui/glyphs';
 import { Missing } from '../errors/NotFoundPage';
 import { useLabContent, useSessionView } from '../sessions/data';
 import '../sessions/pages.css';
@@ -49,6 +50,7 @@ export default function ExperimentPage() {
         <div className="ph">
           <div className="ttl">
             <h1 tabIndex={-1}>
+              <ServiceGlyph id={module} size={24} tooltip className="h-glyph" />{' '}
               {t(EX.page.heading, { labId: view.labId, key: `${module}/${experimentId}` })}
               {decl?.required ? EX.page.required : decl ? EX.page.optional : ''}
             </h1>

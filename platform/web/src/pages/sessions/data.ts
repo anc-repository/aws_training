@@ -269,6 +269,17 @@ export interface CatalogCard {
   category?: string;
   cat?: string;
   status?: string;
+  /** 涉及的服务（taxonomy 服务 id；主服务 role=primary）：结果画面的服务图标（I6 f）。 */
+  services?: { id: string; role?: string }[];
+  /** 目标模块与起始变体：报告的构成图（ui/diagram archInputFromCatalogCard）。 */
+  targets?: { module: string; from?: string | null; to?: string | null; optional?: boolean }[];
+  startProfiles?: { variant?: string; select?: string; modules?: (string | { id?: string; module?: string })[] }[];
+}
+
+/** 卡片的主服务（目录索引 `services[].role=primary`，没有时取第一个目标模块）：ServiceGlyph 的 id。 */
+export function primaryServiceOf(card: CatalogCard | null | undefined): string | null {
+  if (!card) return null;
+  return card.services?.find((s) => s.role === 'primary')?.id ?? card.services?.[0]?.id ?? card.targets?.[0]?.module ?? null;
 }
 
 export interface CatalogIndexJson {

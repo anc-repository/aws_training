@@ -312,7 +312,10 @@ export function ExperimentCompare({ view, module, experimentId, mode = 'page', s
               ) : null}
             </>
           )}
-          <p className="small muted">{t(XC.directionNote, { a: variants[0]?.label, b: variants[1]?.label ?? XC.others })}</p>
+          <details className="disc">
+            <summary>{EX.visual.details}</summary>
+            <p className="small muted">{t(XC.directionNote, { a: variants[0]?.label, b: variants[1]?.label ?? XC.others })}</p>
+          </details>
         </div>
       ) : null}
 

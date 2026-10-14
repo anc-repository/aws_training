@@ -12,10 +12,13 @@ import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth, useServices, useSessionEvents } from '../../app/context';
 import { formatDate } from '../../lib/format';
 import { Button, Drawer, EmptyState, Icon, Skeleton, Status } from '../../ui';
+import { ProgressRing } from '../../ui/charts';
+import { ServiceGlyph } from '../../ui/glyphs';
 import { InlineProblem } from '../errors/InlineProblem';
 import { useAction } from '../errors/useAction';
-import { cardTitle, useApiData, useCatalogIndex, type CatalogCard } from '../sessions/data';
+import { cardTitle, primaryServiceOf, useApiData, useCatalogIndex, type CatalogCard } from '../sessions/data';
 import '../sessions/pages.css';
+import { CertSeal, RatioMeter, type SealMark } from '../sessions/visuals';
 import { BadgeGlyph, type BadgeState } from './BadgeGlyph';
 import { BADGE_LEVEL_META, pct, revokeReasonText, TRACK_CERT_META, type TrackCertState } from './certText';
 import { ClaimDialog, issuedCertId, type IssuedCert } from './ClaimDialog';
@@ -24,6 +27,16 @@ import { t as tr } from '../../i18n';
 import { CT } from './strings';
 
 const CL = CT.list;
+const CV = CT.visual;
+
+/** 路径证书状态 → 印章的标记（I6 f：证书页更图形化）。 */
+export const TRACK_SEAL: Readonly<Record<TrackCertState, SealMark>> = {
+  'not-eligible': 'none',
+  eligible: 'star',
+  issued: 'check',
+  revoked: 'x',
+  disabled: 'dash',
+};
 export interface CertificateItem {
   certId: string;
   scope?: 'track' | 'lab';
@@ -227,6 +240,8 @@ export default function CertificatesPage() {
                     const p = d?.progress ?? null;
                     const groupsDone = p?.groups ? p.groups.filter((g) => g.done >= g.pick).length : null;
                     const pending = (d?.certificate?.reasons ?? []).filter((r) => (r as { code?: string }).code === 'BADGE_PENDING').length;
+                    const reqDone = p?.requiredDone ?? t.progress?.requiredDone ?? null;
+                    const reqTotal = p?.requiredTotal ?? t.progress?.requiredTotal ?? null;
                     return (
                       <tr key={t.id} data-track={t.id} data-state={state}>
                         <td data-label={CL.colCert}>
@@ -234,6 +249,9 @@ export default function CertificatesPage() {
                           <span className="small mono faint block-line">{t.id}</span>
                         </td>
                         <td data-label={CL.colState}>
+                          <div className="cert-state">
+                          <CertSeal tone={TRACK_CERT_META[state].tone} mark={TRACK_SEAL[state]} hollow={state === 'not-eligible'} size={32} />
+                          <div>
                           <Status meta={TRACK_CERT_META[state]} />
                           {valid ? (
                             <span className="small block-line">
@@ -256,12 +274,22 @@ export default function CertificatesPage() {
                               </ul>
                             </details>
                           ) : null}
+                          </div>
+                          </div>
                         </td>
                         <td className="small" data-label={CL.colCond}>
-                          {tr(CL.required, { done: p?.requiredDone ?? t.progress?.requiredDone ?? '—', total: p?.requiredTotal ?? t.progress?.requiredTotal ?? '—' })}
-                          {p?.groups?.length ? tr(CL.groups, { done: groupsDone, total: p.groups.length }) : ''}
-                          {p && p.verifiedRatio != null ? tr(CL.ratio, { ratio: pct(p.verifiedRatio), min: pct(t.completion?.minAutoRatio ?? 0.8) }) : ''}
-                          {pending ? <span className="block-line">{tr(CL.pendingBadges, { n: pending })}</span> : null}
+                          <div className="cert-cond">
+                            {typeof reqTotal === 'number' && reqTotal > 0 ? <ProgressRing value={reqDone ?? 0} max={reqTotal} size={36} showValue={false} label={CV.required} /> : <span />}
+                            <div className="cert-cond-txt">
+                              <span>
+                                {tr(CL.required, { done: reqDone ?? '—', total: reqTotal ?? '—' })}
+                                {p?.groups?.length ? tr(CL.groups, { done: groupsDone, total: p.groups.length }) : ''}
+                                {p && p.verifiedRatio != null ? tr(CL.ratio, { ratio: pct(p.verifiedRatio), min: pct(t.completion?.minAutoRatio ?? 0.8) }) : ''}
+                              </span>
+                              {p && p.verifiedRatio != null ? <RatioMeter value={p.verifiedRatio} min={t.completion?.minAutoRatio ?? 0.8} /> : null}
+                              {pending ? <span className="block-line">{tr(CL.pendingBadges, { n: pending })}</span> : null}
+                            </div>
+                          </div>
                         </td>
                         <td data-label={CL.colActions}>
                           {valid ? (
@@ -317,20 +345,35 @@ export default function CertificatesPage() {
             />
           ) : (
             <div className="badgewall">
+              {cards.length ? (
+                <div className="cert-hero" data-visual="badges">
+                  <ProgressRing value={earned} max={cards.length} size={56} label={CV.earned} />
+                </div>
+              ) : null}
               {earned === 0 ? <p className="small muted">{CL.firstBadge}</p> : null}
               {groups.map(([k, list]) => {
                 const shown = list.filter((c) => !onlyEarned || badgeOf(c.id));
                 if (!shown.length) return null;
+                const got = list.filter((c) => badgeOf(c.id)).length;
                 return (
                   <div key={k} className="stack-8" data-category={k}>
-                    <b className="small">{catLabel(k)}</b>
+                    <div className="bw-cat">
+                      <ProgressRing value={got} max={list.length} size={20} label={tr(CV.category, { label: catLabel(k) })} />
+                      <b className="small">{catLabel(k)}</b>
+                      <span className="small faint tnum" aria-hidden="true">
+                        {got}/{list.length}
+                      </span>
+                    </div>
                     <div className="bw-row">
                       {shown.map((c) => {
                         const st = badgeState(badgeOf(c.id));
                         const title = typeof c.badge === 'object' ? c.badge?.title : typeof c.badge === 'string' ? c.badge : c.id;
                         return (
                           <button key={c.id} type="button" className={st === 'none' ? 'bw-item off' : 'bw-item'} onClick={() => setBadge(c.id)} aria-label={tr(CL.badgeLabel, { title: title ?? c.id, state: badgeStateText(st) })} data-badge={c.id}>
-                            <BadgeGlyph labId={c.id} kind={c.kind} category={c.category} state={st} />
+                            <span className="bw-glyph">
+                              <BadgeGlyph labId={c.id} kind={c.kind} category={c.category} state={st} />
+                              {primaryServiceOf(c) ? <ServiceGlyph id={primaryServiceOf(c)!} size={16} tone={st === 'none' ? 'muted' : 'solid'} className="bw-svc" /> : null}
+                            </span>
                             <span className="bw-name">{title}</span>
                             <span className="xs faint">{badgeStateText(st)}</span>
                           </button>

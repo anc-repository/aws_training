@@ -9,201 +9,201 @@ import type zh from '../zh-CN/ui';
 export default {
   semantics: {
     sessionState: {
-      REQUESTED: '', // 正在校验
-      PROVISIONING: '', // 正在准备环境
-      READY: '', // 环境已就绪
-      RUNNING: '', // 实验中
-      EXPIRING: '', // 即将到期
-      OVERDUE: '', // 已到期 · 正在结束
-      ENDING: '', // 正在结束
-      CLEANING: '', // 正在释放资源
-      KEPT: '', // 环境保留中
-      ENDED: '', // 已结束
-      FAILED: '', // 启动失败
-      CLEANUP_FAILED: '', // 释放未完成
+      REQUESTED: 'Validating', // 正在校验
+      PROVISIONING: 'Preparing environment', // 正在准备环境
+      READY: 'Environment ready', // 环境已就绪
+      RUNNING: 'Lab in progress', // 实验中
+      EXPIRING: 'Expiring soon', // 即将到期
+      OVERDUE: 'Expired · ending', // 已到期 · 正在结束
+      ENDING: 'Ending', // 正在结束
+      CLEANING: 'Releasing resources', // 正在释放资源
+      KEPT: 'Environment kept', // 环境保留中
+      ENDED: 'Ended', // 已结束
+      FAILED: 'Start failed', // 启动失败
+      CLEANUP_FAILED: 'Cleanup incomplete', // 释放未完成
     },
     checkResult: {
-      not_run: '', // 未检测
-      queued: '', // 排队中
-      running: '', // 核验中
-      pass: '', // 通过
-      fail: '', // 未通过
-      pending: '', // 等待中
-      error: '', // 检测器出错
-      unavailable: '', // 无法检测
-      skipped: '', // 不适用
-      needs_manual: '', // 待手动确认
-      manual: '', // 已手动确认
-      manual_evidence: '', // 已手动确认（带证据）
+      not_run: 'Not run', // 未检测
+      queued: 'Queued', // 排队中
+      running: 'Checking', // 核验中
+      pass: 'Passed', // 通过
+      fail: 'Failed', // 未通过
+      pending: 'Pending', // 等待中
+      error: 'Checker error', // 检测器出错
+      unavailable: 'Cannot check', // 无法检测
+      skipped: 'Not applicable', // 不适用
+      needs_manual: 'Needs manual confirmation', // 待手动确认
+      manual: 'Confirmed manually', // 已手动确认
+      manual_evidence: 'Confirmed manually (with evidence)', // 已手动确认（带证据）
     },
     source: {
-      LOCAL: '', // 本地
-      PROBE: '', // 探针
-      AWS: '', // AWS
-      EXP: '', // 实验
-      MANUAL: '', // 手动
+      LOCAL: 'Local', // 本地
+      PROBE: 'Probe', // 探针
+      AWS: 'AWS', // AWS
+      EXP: 'Experiment', // 实验
+      MANUAL: 'Manual', // 手动
     },
     stepState: {
-      locked: '', // 未解锁
-      available: '', // 可开始
-      verifying: '', // 核验中
-      failed: '', // 未通过
-      error: '', // 检测器出错
-      needs_manual: '', // 待手动确认
-      done: '', // 已达成
-      done_manual: '', // 已达成（含手动）
-      drifted: '', // 漂移
-      skipped: '', // 已跳过
+      locked: 'Locked', // 未解锁
+      available: 'Available', // 可开始
+      verifying: 'Checking', // 核验中
+      failed: 'Failed', // 未通过
+      error: 'Checker error', // 检测器出错
+      needs_manual: 'Needs manual confirmation', // 待手动确认
+      done: 'Done', // 已达成
+      done_manual: 'Done (includes manual)', // 已达成（含手动）
+      drifted: 'Drifted', // 漂移
+      skipped: 'Skipped', // 已跳过
     },
     attemptStatus: {
-      active: '', // 进行中
-      verifying: '', // 最终复核中
-      completed: '', // 已完成（全自动）
-      completed_manual: '', // 已完成（含手动）
-      incomplete: '', // 未完成
-      unverified: '', // 未能核验
-      void: '', // 不计入
+      active: 'In progress', // 进行中
+      verifying: 'Final check', // 最终复核中
+      completed: 'Completed (fully automatic)', // 已完成（全自动）
+      completed_manual: 'Completed (includes manual)', // 已完成（含手动）
+      incomplete: 'Incomplete', // 未完成
+      unverified: 'Could not verify', // 未能核验
+      void: 'Not counted', // 不计入
     },
     cleanupState: {
-      TRACKED: '', // 跟踪中
-      DELETING: '', // 删除中
-      DELETED: '', // 已删除
-      RETAINED: '', // 保留
-      REVIEW: '', // 需复核
-      MANUAL_REQUIRED: '', // 需人工处理
-      RESOLVED_BY_LEARNER: '', // 你已处理
-      FAILED: '', // 失败
+      TRACKED: 'Tracked', // 跟踪中
+      DELETING: 'Deleting', // 删除中
+      DELETED: 'Deleted', // 已删除
+      RETAINED: 'Kept', // 保留
+      REVIEW: 'Needs review', // 需复核
+      MANUAL_REQUIRED: 'Needs you', // 需人工处理
+      RESOLVED_BY_LEARNER: 'Handled by you', // 你已处理
+      FAILED: 'Failed', // 失败
     },
     severity: {
-      BLOCKING: '', // 阻塞
-      REVIEW: '', // 需复核
-      INFO: '', // 信息
+      BLOCKING: 'Blocking', // 阻塞
+      REVIEW: 'Review', // 需复核
+      INFO: 'Info', // 信息
     },
     validity: {
-      valid: '', // 有效
-      simulated: '', // 模拟基线
-      'pending-crosscheck': '', // 交叉校验中
-      invalid: '', // 无效
+      valid: 'Valid', // 有效
+      simulated: 'Simulated baseline', // 模拟基线
+      'pending-crosscheck': 'Cross-checking', // 交叉校验中
+      invalid: 'Invalid', // 无效
     },
     budget: {
-      OK: '', // 正常
-      WARN: '', // 接近
-      EXCEEDED: '', // 超限
+      OK: 'OK', // 正常
+      WARN: 'Near limit', // 接近
+      EXCEEDED: 'Exceeded', // 超限
     },
     costTier: {
-      low: '', // 低
-      medium: '', // 中
-      high: '', // 高
+      low: 'low', // 低
+      medium: 'medium', // 中
+      high: 'high', // 高
     },
     manualSub: {
-      native: '', // 原生
-      degraded: '', // 降级
-      evidence: '', // 带证据
+      native: 'native', // 原生
+      degraded: 'degraded', // 降级
+      evidence: 'with evidence', // 带证据
     },
     billing: {
-      hourly: '', // 按小时
-      storage: '', // 按存储量
-      monthly: '', // 按月
-      usage: '', // 按用量
-      none: '', // 不计费
+      hourly: 'Hourly', // 按小时
+      storage: 'By storage', // 按存储量
+      monthly: 'Monthly', // 按月
+      usage: 'By usage', // 按用量
+      none: 'Not billed', // 不计费
     },
     urgencyAnnounce: {
-      U1: '', // 实验剩余 15 分钟
-      U2: '', // 实验剩余 5 分钟
-      U3: '', // 实验剩余 1 分钟
-      U4: '', // 实验时间已到，正在结束
+      U1: '15 minutes left in the lab', // 实验剩余 15 分钟
+      U2: '5 minutes left in the lab', // 实验剩余 5 分钟
+      U3: '1 minute left in the lab', // 实验剩余 1 分钟
+      U4: 'Lab time is up; ending now', // 实验时间已到，正在结束
     },
     checkResultSpecial: {
-      ownershipPending: '', // 归属确认中
-      expectedOutage: '', // 预期中断
+      ownershipPending: 'Confirming ownership', // 归属确认中
+      expectedOutage: 'Expected outage', // 预期中断
     },
   },
   command: {
     runsOn: {
-      workstation: '', // 工作台
-      ops: '', // 工作台
-      cloudshell: '', // CloudShell
-      lab: '', // 实验机
-      ec2: '', // 实验机
-      local: '', // 本机
-      browser: '', // 浏览器
+      workstation: 'Workbench', // 工作台
+      ops: 'Workbench', // 工作台
+      cloudshell: 'CloudShell', // CloudShell
+      lab: 'Lab instance', // 实验机
+      ec2: 'Lab instance', // 实验机
+      local: 'This computer', // 本机
+      browser: 'Browser', // 浏览器
     },
     target: {
-      workstation: '', // 工作台
-      lab: '', // 实验机
+      workstation: 'workbench', // 工作台
+      lab: 'lab instance', // 实验机
     },
-    copied: '', // 已复制
-    selected: '', // 已选中命令，按 Ctrl+C 复制
-    useTextarea: '', // 请在文本框中按 Ctrl+C 复制
-    unresolved: '', // 有 {n} 个变量未填写
-    hasSecret: '', // 命令含密钥占位，不能粘贴
-    tooLarge: '', // 命令超过 16KB，只能复制
-    unfilled: '', // 未填写：{name}
-    runsOnLabel: '', // 运行于：{where}
-    observe: '', //  · 观察用，不计入结果
-    masked: '', //  · 显示已打码，复制为完整命令
-    danger: '', // 会删除或停用资源
-    copyLabel: '', // 复制命令：{line}
-    copyLabelUnresolved: '', // 复制命令：{line}（有未填写的变量）
-    copy: '', // 复制
-    copyWarn: '', // 复制 (!)
-    pasteLabel: '', // 粘贴到{target}终端
-    pasteTo: '', // 粘贴到 {target}
-    morePaste: '', // 更多粘贴方式
-    pasteNewTab: '', // 在新的终端子标签中粘贴
-    pasteExecute: '', // 粘贴并执行
-    selectedNote: '', // 已选中命令，按 Ctrl+C 复制。
-    rawLabel: '', // 命令原文（按 Ctrl+C 复制）
-    dangerTitle: '', // 复制危险命令
-    cancel: '', // 取消
-    dangerConfirm: '', // 我了解，复制
-    dangerNote: '', // 这条命令会删除或停用资源，影响无法撤销。确认后才会复制到剪贴板。
+    copied: 'Copied', // 已复制
+    selected: 'Command selected; press Ctrl+C to copy', // 已选中命令，按 Ctrl+C 复制
+    useTextarea: 'Press Ctrl+C in the text box to copy', // 请在文本框中按 Ctrl+C 复制
+    unresolved: '{n, plural, one {# variable is} other {# variables are}} not filled in', // 有 {n} 个变量未填写
+    hasSecret: 'The command contains a secret placeholder and cannot be pasted', // 命令含密钥占位，不能粘贴
+    tooLarge: 'The command exceeds 16 KB and can only be copied', // 命令超过 16KB，只能复制
+    unfilled: 'Not filled in: {name}', // 未填写：{name}
+    runsOnLabel: 'Runs on: {where}', // 运行于：{where}
+    observe: ' · for observation; not counted in results', //  · 观察用，不计入结果
+    masked: ' · shown masked; copies the full command', //  · 显示已打码，复制为完整命令
+    danger: 'Deletes or disables resources', // 会删除或停用资源
+    copyLabel: 'Copy command: {line}', // 复制命令：{line}
+    copyLabelUnresolved: 'Copy command: {line} (variables not filled in)', // 复制命令：{line}（有未填写的变量）
+    copy: 'Copy', // 复制
+    copyWarn: 'Copy (!)', // 复制 (!)
+    pasteLabel: 'Paste into the {target} terminal', // 粘贴到{target}终端
+    pasteTo: 'Paste to {target}', // 粘贴到 {target}
+    morePaste: 'More paste options', // 更多粘贴方式
+    pasteNewTab: 'Paste in a new terminal tab', // 在新的终端子标签中粘贴
+    pasteExecute: 'Paste and run', // 粘贴并执行
+    selectedNote: 'Command selected; press Ctrl+C to copy.', // 已选中命令，按 Ctrl+C 复制。
+    rawLabel: 'Command text (press Ctrl+C to copy)', // 命令原文（按 Ctrl+C 复制）
+    dangerTitle: 'Copy a dangerous command', // 复制危险命令
+    cancel: 'Cancel', // 取消
+    dangerConfirm: 'I understand, copy', // 我了解，复制
+    dangerNote: 'This command deletes or disables resources and cannot be undone. It is copied to the clipboard only after you confirm.', // 这条命令会删除或停用资源，影响无法撤销。确认后才会复制到剪贴板。
   },
   resource: {
-    verifying: '', // 核对中
-    reason: '', // 原因：{v} · 
-    source: '', // 来源：{v} · 
-    creator: '', // 创建者会话名 {name} · 
-    attempts: '', // 已尝试 {n} 次
-    lastAttempt: '', //  · 最后尝试 {t}
-    console: '', // 控制台
-    openConsole: '', // 在 AWS 控制台中打开
-    ownLogin: '', // （以你自己的 AWS 登录打开，平台不签发新的联合登录）
-    cleanupCommand: '', // {type} 的清理命令
-    verifyingBusy: '', // 正在核对…
-    resolveLabel: '', // 我已处理 {name}，重新核对
-    resolve: '', // 我已处理，重新核对
-    retryLabel: '', // 重试回收 {name}
-    retry: '', // 重试回收
+    verifying: 'Checking', // 核对中
+    reason: 'Reason: {v} · ', // 原因：{v} · 
+    source: 'Source: {v} · ', // 来源：{v} · 
+    creator: 'Created by session {name} · ', // 创建者会话名 {name} · 
+    attempts: '{n, plural, one {# attempt} other {# attempts}}', // 已尝试 {n} 次
+    lastAttempt: ' · last tried {t}', //  · 最后尝试 {t}
+    console: 'Console', // 控制台
+    openConsole: 'Open in the AWS console', // 在 AWS 控制台中打开
+    ownLogin: ' (opens with your own AWS sign-in; the platform does not issue a new federated sign-in)', // （以你自己的 AWS 登录打开，平台不签发新的联合登录）
+    cleanupCommand: 'Cleanup command for {type}', // {type} 的清理命令
+    verifyingBusy: 'Checking…', // 正在核对…
+    resolveLabel: 'Handled {name}, recheck', // 我已处理 {name}，重新核对
+    resolve: 'Handled, recheck', // 我已处理，重新核对
+    retryLabel: 'Retry reclaiming {name}', // 重试回收 {name}
+    retry: 'Retry reclaim', // 重试回收
   },
   check: {
-    sourceTitle: '', // 判定来源：{source}
-    sourceTitleSub: '', // 判定来源：{source}（{sub}）
-    trustMedium: '', // ·中可信
-    trustLow: '', // ·低可信
-    stale: '', // ·过期
-    withReason: '', // （{reason}）
-    manual: '', // 手动
-    auto: '', // 自动
-    reviewPending: '', // 等待助教复核
-    reviewApproved: '', // 助教已复核
-    reviewRejected: '', // 助教已打回
-    srResult: '', // ，{text}
+    sourceTitle: 'Judged by: {source}', // 判定来源：{source}
+    sourceTitleSub: 'Judged by: {source} ({sub})', // 判定来源：{source}（{sub}）
+    trustMedium: '·medium confidence', // ·中可信
+    trustLow: '·low confidence', // ·低可信
+    stale: '·stale', // ·过期
+    withReason: ' ({reason})', // （{reason}）
+    manual: 'manual', // 手动
+    auto: 'automatic', // 自动
+    reviewPending: 'Waiting for assistant review', // 等待助教复核
+    reviewApproved: 'Reviewed by an assistant', // 助教已复核
+    reviewRejected: 'Rejected by an assistant', // 助教已打回
+    srResult: ', {text}', // ，{text}
   },
   countdown: {
-    notStarted: '', // 倒计时未开始
-    keepUntil: '', // 至 {t}（剩余 {left}）
-    overdue: '', // 已到期 · 正在结束
-    expiresAt: '', // {t} 到期（本地时间）
-    serverTime: '', // 按服务器时间计算
+    notStarted: 'Countdown not started', // 倒计时未开始
+    keepUntil: 'until {t} ({left} left)', // 至 {t}（剩余 {left}）
+    overdue: 'Expired · ending', // 已到期 · 正在结束
+    expiresAt: 'Expires {t} (local time)', // {t} 到期（本地时间）
+    serverTime: 'Based on server time', // 按服务器时间计算
   },
   costTier: {
-    label: '', // 费用档位{tier}
-    optional: '', // （选做 → {tier}）
-    sources: '', // 主要计费来源：{list}。
-    tip: '', // 具体金额在开始前按当前价格计算。
+    label: 'Cost tier {tier}', // 费用档位{tier}
+    optional: ' (optional → {tier})', // （选做 → {tier}）
+    sources: 'Main cost sources: {list}.', // 主要计费来源：{list}。
+    tip: 'The exact amount is calculated from current prices before you start.', // 具体金额在开始前按当前价格计算。
   },
   button: {
-    busy: '', // 正在处理…
+    busy: 'Working…', // 正在处理…
   },
 } satisfies Dict<typeof zh>;

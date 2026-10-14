@@ -15,7 +15,7 @@ import { neverReady } from '../../app/sessionRouting';
 import { msg, rich, t, withText } from '../../i18n';
 import { formatClock, formatDate, formatUtcTitle } from '../../lib/format';
 import { redact } from '../../lib/redact';
-import { BILLING_TEXT, CLEANUP_STATE_META, ErrorPanel, SessionStatePill, Skeleton, Status } from '../../ui';
+import { BILLING_TEXT, CLEANUP_STATE_META, ErrorPanel, Icon, SessionStatePill, Skeleton, Status, type IconName } from '../../ui';
 import { InlineProblem } from '../errors/InlineProblem';
 import { Missing } from '../errors/NotFoundPage';
 import { normalizeResource } from '../end/resources';
@@ -242,7 +242,12 @@ function TimelineTab({ view }: { view: SessionView }) {
               <span className="t" title={formatUtcTitle(e.at)}>
                 {formatDate(e.at, now)}
               </span>
-              <span className="what">{eventText(e)}</span>
+              <span className="what">
+                <span className="ev-ico" title={CATEGORY_TEXT[categoryOf(e.type)]}>
+                  <Icon name={CATEGORY_ICON[categoryOf(e.type)]} />
+                </span>
+                {eventText(e)}
+              </span>
             </li>
           ))}
         </ol>
@@ -252,6 +257,18 @@ function TimelineTab({ view }: { view: SessionView }) {
     </section>
   );
 }
+
+/** 事件类别的图标（I6 f：时间线每行前的类别图标，类别名在悬停提示中）。 */
+export const CATEGORY_ICON: Readonly<Record<EventCategory, IconName>> = {
+  state: 'clock',
+  phase: 'refresh',
+  ops: 'gear',
+  workspace: 'term',
+  checks: 'check',
+  reclaim: 'cloud',
+  env: 'shield',
+  other: 'dots',
+};
 
 // ---------------------------------------------------------------------------------------------------------------
 // 资源（L A）
