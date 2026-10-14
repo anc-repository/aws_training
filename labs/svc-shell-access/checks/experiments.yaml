@@ -1,0 +1,24 @@
+checks:
+  - id: exp-probe-before
+    title: probe-port 的 before（SSH 基线：22 对工作台开放）有一条有效结果
+    type: experiment
+    module: shell-access
+    experiment: probe-port
+    label: before
+    accept: [valid]
+
+  - id: exp-probe-pair
+    title: probe-port 的 before 与 after 都有效且可比
+    type: experiment
+    module: shell-access
+    experiment: probe-port
+    pair: [before, after]
+    accept: [valid]
+
+  - id: exp-session-audit
+    title: session-audit 的 after 有一条有效结果
+    type: experiment
+    module: shell-access
+    experiment: session-audit
+    label: after
+    accept: [valid]

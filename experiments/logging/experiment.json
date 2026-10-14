@@ -1,0 +1,114 @@
+{
+  "$schema": "../_lib/schema/experiment.schema.json",
+  "module": "logging",
+  "title": "logging：本地文件 vs CloudWatch Logs（docs/modules/05-ops-observability.md#logging 第 5 节）",
+  "default": "query-compare",
+  "experiments": [
+    {
+      "module": "logging",
+      "id": "ingest-lag",
+      "title": "摄取延迟：20 个请求从完成到在 CloudWatch 可查（服务端 ingestionTime − 事件时间，另记客户端可见延迟）",
+      "kind": "functional",
+      "doc": "docs/modules/05-ops-observability.md#logging",
+      "description": "请求带实验头；Nginx 访问日志的 run 字段圈定本次实验，rid = 响应头 X-CloudAlbum-Request-Id。本地一侧立即可见；CloudWatch 一侧每 2 秒经 GET /api/lab/logs?store=cloudwatch 轮询，直到全部出现或 timeoutSec 到期。",
+      "requires": {
+        "after": { "logging.driver": "cloudwatch", "logging.status": ["ok", "degraded"] }
+      },
+      "labels": { "after": { "title": "LOG_DRIVER=cloudwatch", "role": "single" } },
+      "scenario": { "tool": "node", "script": "ingest-lag.ts", "vus": 1, "duration": "180s" },
+      "params": {
+        "requests": { "type": "number", "default": 20, "min": 1, "max": 200, "description": "请求数" },
+        "timeoutSec": { "type": "number", "default": 120, "min": 10, "max": 900, "description": "等待 CloudWatch 出现的上限" }
+      },
+      "metrics": ["scenario.ingestLagP50Ms", "scenario.ingestLagMaxMs", "scenario.visibleP50Ms", "scenario.visibleMaxMs", "scenario.found", "scenario.missing"],
+      "expect": [
+        { "metric": "scenario.missing", "direction": "zero", "note": "超时前全部请求都出现在 CloudWatch 中" },
+        { "metric": "scenario.ingestLagP50Ms", "direction": "nonzero", "note": "有秒级到数十秒的摄取延迟；sdk 方式取决于 LOG_CW_FLUSH_MS（默认 2 秒），agent 方式约 5 秒" }
+      ]
+    },
+    {
+      "module": "logging",
+      "id": "query-compare",
+      "title": "查询对比：error5xx 故障 + 恒定负载，按路由统计 5xx 与按 requestId 查找，本地与 CloudWatch 并排",
+      "kind": "before-after",
+      "doc": "docs/modules/05-ops-observability.md#logging",
+      "description": "before（LOG_DRIVER=file）只能跑本地一侧；after 两侧都跑。本地 = 实例上倒序扫描 nginx-access.json 与 .1（用时、扫描字节）；CloudWatch = Logs Insights（扫描字节是计费依据）与 FilterLogEvents。两侧计数与客户端看到的 503 个数互相印证。故障注入需要 featureFlags['lab.faults']（卡片起始状态已打开）。",
+      "requires": {
+        "before": { "logging.driver": "file" },
+        "after": { "logging.driver": "cloudwatch", "logging.status": ["ok", "degraded"] }
+      },
+      "labels": {
+        "before": { "title": "本地文件（LOG_DRIVER=file）", "role": "baseline" },
+        "after": { "title": "CloudWatch Logs（本地文件照写）", "role": "treatment" }
+      },
+      "scenario": { "tool": "node", "script": "query-compare.ts", "vus": 2, "duration": "60s" },
+      "faults": [
+        { "at": "start", "api": { "type": "error5xx", "rate": 0.2, "durationSec": 120 }, "description": "约 20% 的请求返回 503（共享故障注入接口，120 秒后自动解除）" }
+      ],
+      "params": {
+        "vus": { "type": "number", "default": 2, "min": 1, "max": 20, "description": "恒定负载的 VU 数" },
+        "waitSec": { "type": "number", "default": 120, "min": 0, "max": 900, "description": "CloudWatch 一侧等待摄取的上限" }
+      },
+      "metrics": [
+        "scenario.client5xx", "scenario.local.errors", "scenario.local.tookMs", "scenario.local.scannedBytes",
+        "scenario.cloudwatch.errors", "scenario.cloudwatch.insightsTookMs", "scenario.cloudwatch.bytesScanned",
+        "scenario.cloudwatch.lookupTookMs", "scenario.agreeLocal", "scenario.agreeCloudwatch"
+      ],
+      "expect": [
+        { "metric": "scenario.agreeLocal", "direction": "nonzero", "note": "本机访问日志中的 5xx 条数等于客户端看到的 503 个数" },
+        { "metric": "scenario.cloudwatch.bytesScanned", "direction": "nonzero", "note": "after：Insights 报告扫描字节（按扫描量计费）；单实例小数据量时本地扫描反而更快" }
+      ]
+    },
+    {
+      "module": "logging",
+      "id": "instance-loss",
+      "title": "实例丢失：用旧实例上产生的 requestId 分别查本地与 CloudWatch",
+      "kind": "functional",
+      "doc": "docs/modules/05-ops-observability.md#logging",
+      "description": "先产生请求并记下 X-CloudAlbum-Request-Id，再替换实例（ASG terminate-instance-in-auto-scaling-group，或 scripts/module rebuild-instance）。单实例 rebuild-instance 时数据卷（含 logs/）改挂到新实例，本地日志并不会丢，看不出差别；ASG 实例终止后本机文件随之消失。",
+      "requires": {
+        "before": { "logging.driver": "file" },
+        "after": { "logging.driver": "cloudwatch" }
+      },
+      "scenario": { "tool": "node", "script": "instance-loss.ts", "vus": 1, "duration": "30s" },
+      "params": {
+        "requestId": { "type": "string", "default": "", "description": "旧实例上产生的 X-CloudAlbum-Request-Id" },
+        "hours": { "type": "string", "default": "24", "description": "回溯的小时数" }
+      },
+      "metrics": ["scenario.local.rows", "scenario.cloudwatch.rows", "scenario.cloudwatch.fromOtherInstance"]
+    },
+    {
+      "module": "logging",
+      "id": "overhead",
+      "title": "发送器开销：恒定负载下 api 进程的 CPU p95 与事件循环延迟 p99（切换前后）",
+      "kind": "before-after",
+      "doc": "docs/modules/05-ops-observability.md#logging",
+      "requires": {
+        "before": { "logging.driver": "file" },
+        "after": { "logging.driver": "cloudwatch" }
+      },
+      "labels": {
+        "before": { "title": "本地文件", "role": "baseline" },
+        "after": { "title": "CloudWatch Logs（sdk 方式）", "role": "treatment" }
+      },
+      "scenario": { "tool": "node", "script": "overhead.ts", "vus": 4, "duration": "120s", "warmup": "10s" },
+      "params": {
+        "vus": { "type": "number", "default": 4, "min": 1, "max": 50 }
+      },
+      "metrics": ["host.cpu.p95", "host.event_loop_delay.p99", "client.http_req_duration{route:/api/lab/now}.p95"],
+      "expect": [
+        { "metric": "host.cpu.p95", "direction": "flat", "note": "发送器批量发送，开销在 CPU 曲线上通常看不出差别" }
+      ]
+    },
+    {
+      "module": "logging",
+      "id": "debug-volume",
+      "title": "费用感知（选做）：logLevel 改成 debug 10 分钟，对比日志组的 IncomingBytes",
+      "kind": "functional",
+      "doc": "docs/modules/05-ops-observability.md#logging",
+      "description": "手工步骤见 README：faults/log-level.sh debug（经 ssh / SSM，以 root）→ 正常使用应用 10 分钟 → faults/log-level.sh info；在 CloudWatch 指标 AWS/Logs IncomingBytes（维度 LogGroupName）中比较前后两个 10 分钟。本版应用在请求路径上写的 debug 日志很少，增幅可能不明显。",
+      "requires": { "after": { "logging.driver": "cloudwatch" } },
+      "scenario": { "tool": "manual" }
+    }
+  ]
+}

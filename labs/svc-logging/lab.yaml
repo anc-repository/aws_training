@@ -1,53 +1,235 @@
-# labs/svc-logging/lab.yaml —— 目录占位（status: planned）：只有目录元数据，可在目录中显示但不能开始实验；
-# 取值来自 05 §4 与 cards/ 逐卡文档。步骤、手册、检查与小测在后续批次补齐，届时 status 改为 beta 并提升版本。
+# labs/svc-logging/lab.yaml —— Amazon CloudWatch Logs：集中日志（cards/service-cards-3 svc-logging）
+# 实现核对（docs/implementation-notes.md ## wave1-logs-ssm）：
+# - 本版没有 /lab 日志查看器页面：第 1 步在实验机终端直接看数据卷上的日志文件；两侧的查询经 GET /api/lab/logs
+#   （仅管理员，logging 模块的侧路端点）由对比实验调用，服务端给出用时、扫描字节与 CloudWatch 的 ingestionTime。
+# - 应用不按请求写日志行，5xx 故障只出现在 Nginx 访问日志里：第 5 步看指标过滤器 Nginx5xx（命名空间 CloudAlbum/Logs），
+#   而不是卡片写的 AppErrors（AppErrors 统计应用的 level=error 行，同样由栈创建，最终复核不依赖它）。
+# - logging 不出现在 X-CloudAlbum-Path 中：接入证据是一次真实请求（http-probe）+ 本实例的 access 日志流出现在本会话的日志组里。
 schema: atl.lab/v2
 id: svc-logging
 kind: service
-version: 0.1.0
-status: planned
+version: 1.0.0
+status: beta
 service: Amazon CloudWatch Logs
 function: 集中日志
 title: Amazon CloudWatch Logs：集中日志
+subtitle: EBS 上的日志文件 → CloudWatch Logs（本地文件照写）
 summary: 把只躺在 EBS 文件里的日志批量送进 CloudWatch Logs：跨实例检索、Logs Insights 聚合、指标过滤器把日志变成指标。
+story: |
+  出了 5xx，你登录实验机 grep 日志：只能看到这一台、最近两天的文件；实例一旦被替换，日志跟着消失，Lambda 的日志根本不在本地。
+  这张卡片让应用把同一份结构化日志批量送进 CloudWatch Logs（本地文件照写，回滚没有数据缺口），并亲手量一量摄取延迟与查询的扫描量。
+objectives:
+  - { text: 说清 EC2 上的日志为什么要靠 SDK 或 CloudWatch Agent 才能进入 CloudWatch Logs, domain: resilient, relatesTo: wire }
+  - { text: 测量摄取延迟，理解“本地立即可见、云端秒级延迟”, domain: performance, relatesTo: ingest }
+  - { text: 用指标过滤器把日志变成指标，并知道它不回溯, domain: resilient, relatesTo: insights }
+  - { text: 区分 Logs Insights、订阅过滤器与导出到 S3, domain: cost, relatesTo: after }
 difficulty: beginner
 estimatedMinutes: 45
 timeLimitMinutes: 90
-extensions: {maxCount: 2, minutesEach: 30}
-retain: {allowed: true, maxHours: 24}
+extensions: { maxCount: 2, minutesEach: 30 }
+retain: { allowed: true, maxHours: 24, reason: 只有按量计费的日志摄取、存储与 Insights 扫描；保留后可以继续 svc-monitoring }
 regions:
   supported: [ap-northeast-1]
 services:
-- {id: cloudwatch-logs, name: Amazon CloudWatch Logs, role: primary, module: logging}
-- {id: iam, role: context, module: iam}
-modules:
-  target: [logging]
-  start: [iam]
-  context: []
-  related: [monitoring]
+  - { id: cloudwatch-logs, name: Amazon CloudWatch Logs, role: primary, module: logging }
+  - { id: cloudwatch, name: Amazon CloudWatch（指标过滤器生成的指标）, role: supporting, featureOf: cloudwatch-logs }
+  - { id: ec2, name: Amazon EC2（数据卷上的日志文件）, role: observed, module: ec2 }
+  - { id: iam, name: AWS IAM（实例角色）, role: context, module: iam }
+modules: { target: [logging], start: [iam], context: [], related: [monitoring, autoscaling] }
 prerequisites:
   cards:
-  - {id: svc-iam, kind: soft}
-  - {id: svc-monitoring, kind: soft}
-  - {id: sc-observability, kind: soft}
+    - { id: svc-iam, kind: soft }
+    - { id: svc-monitoring, kind: soft }
+    - { id: sc-observability, kind: soft }
+  learnerInputs: []
+  knowledge: [JSON 日志, 正则或关键字检索]
+
 startProfile:
   provisions:
-  - item: iam
-    kind: module
-    basis: credential
-    set: {IAM_CREDENTIALS: role}
-    reason: 平台约定除 svc-ec2、svc-iam 外起始状态都带实例角色（C3）
-  - {item: featureFlags.lab.faults, kind: runtime, value: true}
-  - {item: preview-direct-https, kind: platform, reason: 预览使用方案 B 的 Let's Encrypt IP 证书（03 §6.2）}
-  platform:
-    preview: {directHttps: 'on'}
+    - { item: iam, kind: module, basis: credential, set: { IAM_CREDENTIALS: role },
+        reason: 平台约定除 svc-ec2、svc-iam 外起始状态都带实例角色（C3）；logging 本身也是 credentials required（CRED-001） }
+    - { item: featureFlags.lab.faults, kind: runtime, value: true,
+        reason: query-compare 先用共享故障注入接口制造 5xx（error5xx），再比较两侧的查询 }
+    - { item: mgmt-channel, kind: platform, reason: 实验机挂只含 AmazonSSMManagedInstanceCore 的 CloudAlbumAppRole，是平台的管理通道，不是应用权限 }
+    - { item: workstation, kind: platform, reason: 每个会话一台工作台，用于运行 scripts/module 与对比实验 }
+    - { item: preview-direct-https, kind: platform, reason: 预览使用方案 B 的 Let's Encrypt IP 证书；本卡不涉及 tls，保持开启 }
+  platform: { preview: { directHttps: 'on' } }
+  reason: logging 的 requires 为空；起始状态是 L0 + 实例角色 + 故障注入开关（档位 atl/svc-logging/default）
 targetModules:
-- {id: logging, driver: cloudwatch}
+  - { id: logging, driver: cloudwatch, fromDriver: file, params: { RetentionInDays: 14 }, wireStep: wire, adoptsExisting: false }
 expectedWarnings: []
-cost: {tier: low}
-provision: {class: A}
-badge: {title: 日志不随实例消失}
+workstation: { required: true, tools: [aws-cli, node, jq], savingsMode: degraded }
+platform:
+  consoleLinks: [logs.group]
+provision: { class: A }
+
+variables:
+  appGroup: { label: 应用日志组, from: derived, fillFrom: stack.logging.EnvLogCwGroupApp }
+  nginxGroup: { label: Nginx 日志组, from: derived, fillFrom: stack.logging.EnvLogCwGroupNginx }
+
+cost:
+  currency: USD
+  tier: low
+  mainDrivers: [日志摄取量（GB）, 日志存储（GB-月）, Logs Insights 扫描量, 指标过滤器生成的自定义指标]
+  basis:
+    - { ref: start-profile, note: 实验机 EC2、EBS（根卷与数据卷）、公网 IPv4 }
+    - { ref: workstation, note: 工作台 EC2、EBS、公网 IPv4 }
+    - { key: logs-ingest, pricingKey: logs.ingestion, billing: usage, quantity: 1, unit: GB, assumedUsagePerHour: 0.01, source: target,
+        whenRetained: true, note: 应用与 Nginx 访问日志；调成 debug 级别会让摄取量上升 }
+    - { key: log-metrics, pricingKey: cloudwatch.metrics, billing: monthly, quantity: 3, unit: Metrics, source: target,
+        whenRetained: true, note: AppErrors、Nginx5xx、AuthLoginFailed 三个自定义指标 }
+  assumptions:
+    - 学习规模的摄取与 Insights 扫描量通常很小，以官方定价为准；CloudWatch Agent 本身免费
+
+steps:
+  - id: orient
+    type: observe
+    title: 观察本地日志：只在数据卷上、只有这一台
+    manual: manual/10-orient.md
+    panel: terminal-lab
+    estMinutes: 5
+    checks: [cap-logging-file, api-log-local]
+
+  - id: baseline
+    type: experiment
+    title: 记录 before：5xx 故障 + 恒定负载，只能查本地
+    manual: manual/20-baseline.md
+    experiment: { module: logging, id: query-compare, label: before }
+    requires: { steps: [orient] }
+    panel: terminal-workstation
+    estMinutes: 6
+    checks: [exp-query-before]
+
+  - id: wire
+    type: script
+    wire: true
+    title: 接入 CloudWatch Logs（保留 14 天）
+    manual: manual/30-wire.md
+    methods: [script]
+    requires: { steps: [baseline] }
+    panel: terminal-workstation
+    estMinutes: 6
+    startsBilling: { class: usage, pricingKeys: [logs.ingestion, cloudwatch.metrics], note: 按摄取量、存储量与扫描量计费 }
+    wait: { typicalMinutes: 3, maxMinutes: 10, text: 部署日志组与指标过滤器、附加策略、重启 api 与 worker }
+    checks: [cap-logging-cloudwatch, module-state-logging, log-traffic, nginx-stream-shipped, log-groups-retention, metric-filters]
+
+  - id: ingest
+    type: experiment
+    title: 记录 after：摄取延迟
+    manual: manual/40-ingest.md
+    experiment: { module: logging, id: ingest-lag, label: after }
+    requires: { steps: [wire] }
+    panel: terminal-workstation
+    estMinutes: 5
+    checks: [exp-ingest-after]
+
+  - id: insights
+    type: console
+    title: Logs Insights 与指标过滤器
+    manual: manual/50-insights.md
+    methods: [console]
+    requires: { steps: [wire] }
+    panel: console
+    estMinutes: 8
+    wait: { typicalMinutes: 5, maxMinutes: 10, text: 指标过滤器生成的指标要等几分钟才出现在指标列表中 }
+    checks: [metric-nginx5xx, insights-read]
+
+  - id: after
+    type: experiment
+    title: 记录 after：同一查询在两侧并排执行
+    manual: manual/60-after.md
+    experiment: { module: logging, id: query-compare, label: after }
+    requires: { steps: [wire] }
+    panel: terminal-workstation
+    estMinutes: 6
+    checks: [exp-query-pair]
+
+  - id: agent
+    type: script
+    title: （选做）改用 CloudWatch Agent 采集
+    manual: manual/70-agent.md
+    methods: [script]
+    optional: { reason: 学习 CloudWatch Agent；sdk 方式已经完成对比 }
+    requires: { steps: [after] }
+    panel: terminal-workstation
+    estMinutes: 8
+    checks: [agent-running, { ref: cap-logging-cloudwatch, as: cap-logging-agent, required: false }]
+
+finalChecks:
+  - no-world-ssh
+  - { ref: cap-logging-cloudwatch, as: final-cap-logging }
+  - { ref: log-groups-retention, as: final-log-groups-retention }
+
+experiments:
+  - module: logging
+    id: query-compare
+    labels:
+      - { id: before, role: baseline, requires: { logging: file } }
+      - { id: after, role: treatment, requires: { logging: cloudwatch } }
+    pairs: [[before, after]]
+    requiredLabels: [before, after]
+    required: true
+    runner: workstation
+    allowSimulatedBaseline: false
+  - module: logging
+    id: ingest-lag
+    labels:
+      - { id: after, role: single, requires: { logging: cloudwatch } }
+    required: true
+    runner: workstation
+
+quiz: { file: quiz.yaml, draw: 3 }
+badge: { title: 日志不随实例消失, icon: assets/badge.svg }
 tracks: [operations, saa-main]
+
+cleanup:
+  summary: 结束后平台删除 logging 栈；两个日志组是 DeletionPolicy Retain，回收器按 RETAINED 来源删除。CloudWatch Agent 片段随 hostSetup revert 移除，实验机随会话删除。
+  autoReclaim: true
+  dataRisk: [日志组中的日志随回收删除；报告中只保留查询的统计与证据摘要]
+  learnerCreatedHints:
+    - { resourceType: 'AWS::Logs::LogGroup', how: 两个日志组 DeletionPolicy=Retain，回收器按 RETAINED 来源删除（02 §7.1） }
+    - { resourceType: 'AWS::KinesisFirehose::DeliveryStream', how: 如果为了归档自己建过订阅过滤器与 Firehose，结束前自己删除 }
+  verify: [logging-stack-gone]
+
 saa:
-  domains: [resilient, secure]
-tags: [logging, cloudwatch-logs]
-certificate: {enabled: false}
+  domains: [resilient, secure, cost]
+  topics:
+    - { id: centralized-logs, title: 集中日志与可替换实例（ASG）, domain: resilient, relatesTo: wire }
+    - { id: agent-vs-sdk, title: EC2 日志需要 CloudWatch Agent 或 SDK；Lambda 日志自动进入, domain: resilient, relatesTo: agent }
+    - { id: metric-filter, title: 指标过滤器 → 指标 → 告警；不回溯历史日志, domain: resilient, relatesTo: insights }
+    - { id: retention, title: 日志组保留期（默认永不过期）与 KMS 加密, domain: cost, relatesTo: wire }
+    - { id: insights-cost, title: Logs Insights 按扫描量计费；订阅过滤器与导出到 S3, domain: cost, relatesTo: after }
+  confusables:
+    - { a: CloudWatch Logs, b: CloudTrail, rule: 前者是应用与系统的运行日志；后者是 AWS API 调用的审计记录 }
+    - { a: 订阅过滤器, b: CreateExportTask, rule: 订阅过滤器近实时投递到 Kinesis / Firehose / Lambda；导出任务是批量、非实时的 }
+    - { a: 指标过滤器, b: Logs Insights, rule: 指标过滤器在摄取时匹配、只对之后的日志生效；Insights 是对已存日志的交互式查询 }
+
+tags: [logging, cloudwatch-logs, logs-insights, metric-filter, observability]
+
+permissions:
+  learner:
+    - cloudformation:CreateChangeSet
+    - cloudformation:DescribeChangeSet
+    - cloudformation:ExecuteChangeSet
+    - cloudformation:DescribeStacks
+    - cloudformation:DescribeStackEvents
+    - logs:CreateLogGroup
+    - logs:PutRetentionPolicy
+    - logs:PutMetricFilter
+    - logs:PutQueryDefinition
+    - logs:DescribeLogGroups
+    - logs:DescribeLogStreams
+    - logs:DescribeMetricFilters
+    - logs:DescribeQueryDefinitions
+    - logs:StartQuery
+    - logs:GetQueryResults
+    - cloudwatch:ListMetrics
+    - cloudwatch:GetMetricData
+    - iam:CreatePolicy
+    - iam:AttachRolePolicy
+    - ssm:SendCommand
+    - ssm:GetCommandInvocation
+  notes: 日志组、指标过滤器与保存的查询由 logging 栈创建；对比实验的查询经应用的 /api/lab/logs 以实例角色执行，学员身份只在控制台查看 Insights
+
+certificate: { enabled: false }
+owners: [cloudalbum-maintainers]

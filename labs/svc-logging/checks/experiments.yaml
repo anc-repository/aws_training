@@ -1,0 +1,24 @@
+checks:
+  - id: exp-query-before
+    title: query-compare 的 before（只有本地一侧）有一条有效结果
+    type: experiment
+    module: logging
+    experiment: query-compare
+    label: before
+    accept: [valid]
+
+  - id: exp-query-pair
+    title: query-compare 的 before 与 after 都有效且可比
+    type: experiment
+    module: logging
+    experiment: query-compare
+    pair: [before, after]
+    accept: [valid]
+
+  - id: exp-ingest-after
+    title: ingest-lag 的 after 有一条有效结果
+    type: experiment
+    module: logging
+    experiment: ingest-lag
+    label: after
+    accept: [valid]

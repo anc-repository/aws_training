@@ -1,0 +1,79 @@
+schema: atl.quiz/v1
+version: 1.0.0
+questions:
+  - id: logging-asg-central
+    domain: resilient
+    type: single
+    kind: scenario
+    services: [cloudwatch-logs, ec2]
+    stem: Auto Scaling 组缩容后，被终止实例上的应用日志再也查不到。要求日志集中存放、实例终止后仍可查询，并能按字段聚合统计，运维开销最小的做法是？
+    options:
+      - { id: a, text: 每台实例定时把日志 rsync 到一个 EFS 文件系统 }
+      - { id: b, text: 用 CloudWatch Agent（或应用内 SDK）把日志发送到 CloudWatch Logs，用 Logs Insights 查询 }
+      - { id: c, text: 启用 CloudTrail 数据事件 }
+      - { id: d, text: 定期为每台实例的 EBS 卷创建快照 }
+    answer: [b]
+    explain: CloudWatch Logs 与实例生命周期解耦，Logs Insights 直接按字段聚合；A 要自己维护同步与检索；C 记录的是 AWS API 调用而不是应用日志；D 快照不便检索，终止前的最后一段日志可能来不及进入快照。
+    relatesTo: wire
+    difficulty: 1
+  - id: logging-metric-filter
+    domain: resilient
+    type: single
+    kind: scenario
+    services: [cloudwatch-logs, cloudwatch]
+    stem: 团队新建了一个指标过滤器统计 level = "error" 的日志行，却发现过去 7 天的错误没有出现在指标中。最可能的原因是？
+    options:
+      - { id: a, text: 日志组没有用 KMS 加密 }
+      - { id: b, text: 指标过滤器只对创建之后摄取的日志生效，不会回溯历史日志 }
+      - { id: c, text: 没有先开启 Logs Insights }
+      - { id: d, text: 日志组保留期太短 }
+    answer: [b]
+    explain: 指标过滤器在摄取时匹配，不回溯；要统计历史数据应使用 Logs Insights 查询。其余选项与指标过滤器的生效范围无关。
+    relatesTo: insights
+    difficulty: 1
+  - id: logging-near-realtime
+    domain: cost
+    type: multi
+    kind: scenario
+    services: [cloudwatch-logs]
+    stem: 需要把 CloudWatch Logs 中的应用日志近实时地投递给下游：一个用于实时处理，一个用于在 S3 中低成本归档。可以实现近实时投递的两项是？
+    options:
+      - { id: a, text: 订阅过滤器 → Amazon Data Firehose → Amazon S3 }
+      - { id: b, text: 每分钟执行一次 CreateExportTask 导出到 S3 }
+      - { id: c, text: 订阅过滤器 → Kinesis Data Streams 或 Lambda 做近实时处理 }
+      - { id: d, text: 把日志组保留期设为“永不过期” }
+      - { id: e, text: 用 Logs Insights 定时查询并把结果保存到本地 }
+    answer: [a, c]
+    explain: 订阅过滤器是近实时投递的方式，目标可以是 Kinesis Data Streams、Firehose、Lambda；导出任务是批量、非实时的（同一时间只能有一个在运行，以官方文档为准）；保留期与投递无关；Insights 是交互式查询，不是投递机制。
+    relatesTo: after
+    difficulty: 2
+  - id: logging-retention
+    domain: cost
+    type: single
+    kind: concept
+    services: [cloudwatch-logs]
+    stem: 新建的 CloudWatch Logs 日志组如果不做任何设置，日志会保留多久？
+    options:
+      - { id: a, text: 永不过期，存储费会一直累积 }
+      - { id: b, text: 30 天 }
+      - { id: c, text: 14 天 }
+      - { id: d, text: 与实例的生命周期相同 }
+    answer: [a]
+    explain: 日志组默认永不过期；所以本模块在栈里用 RetentionInDays 显式设置保留期。
+    relatesTo: wire
+    difficulty: 1
+  - id: logging-ec2-vs-lambda
+    domain: resilient
+    type: single
+    kind: concept
+    services: [cloudwatch-logs, ec2]
+    stem: 关于日志进入 CloudWatch Logs 的方式，正确的是？
+    options:
+      - { id: a, text: EC2 上应用写到本地文件的日志会自动进入 CloudWatch Logs }
+      - { id: b, text: EC2 上的应用日志需要 CloudWatch Agent 或应用内 SDK 发送；Lambda 函数的日志会自动进入 CloudWatch Logs }
+      - { id: c, text: Lambda 的日志需要另外安装 CloudWatch Agent }
+      - { id: d, text: 只有开启 CloudTrail 后应用日志才会进入 CloudWatch Logs }
+    answer: [b]
+    explain: EC2 不会替你上传文件内容；Lambda 运行时自动把输出写进 /aws/lambda/<函数名>。CloudTrail 记录的是 API 调用，与应用日志无关。
+    relatesTo: agent
+    difficulty: 1

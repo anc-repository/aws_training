@@ -1,56 +1,247 @@
-# labs/svc-shell-access/lab.yaml —— 目录占位（status: planned）：只有目录元数据，可在目录中显示但不能开始实验；
-# 取值来自 05 §4 与 cards/ 逐卡文档。步骤、手册、检查与小测在后续批次补齐，届时 status 改为 beta 并提升版本。
+# labs/svc-shell-access/lab.yaml —— AWS Systems Manager Session Manager：运维登录（cards/service-cards-3 svc-shell-access）
+# 实现核对（docs/implementation-notes.md ## wave1-logs-ssm）：
+# - enable 的顺序由 scripts/module 的 shell-access hook 保证：先附加策略、等 Agent Online、做 Run Command 冒烟、备份并写会话首选项，
+#   最后才清空基础栈的 SshIngressCidr。平台模式下 SSM Agent 从 L0 起就在线（平台管理通道），投递通道始终是 SSM。
+# - 运维者策略（cloudalbum-<env>-operator-session）不由栈创建：每个模块栈只拥有一条托管策略（9.1），策略文档随发布包提供
+#   （infra/modules/shell-access/operator-policy.json）；平台模式下学员的会话权限来自 ATLLearnerRole。
+# - probe-port 的私网目标用 --param target=private-ip（运行器经 aws ec2 describe-instances 查私网地址）。
 schema: atl.lab/v2
 id: svc-shell-access
 kind: service
-version: 0.1.0
-status: planned
+version: 1.0.0
+status: beta
 service: AWS Systems Manager Session Manager
 function: 运维登录
 title: AWS Systems Manager Session Manager：运维登录
-summary: 把运维登录从“SSH 22 + 密钥对”换成 Session Manager：安全组零管理端口入站，用 IAM 身份登录和端口转发，会话里的命令写进 CloudWatch Logs。
+subtitle: SSH 22 + 密钥对 → IAM 身份登录、零入站端口、命令级审计
+summary: 把实验机的运维登录从 SSH 22 换成 Session Manager：安全组不再有管理端口入站，用 IAM 身份登录与端口转发，会话命令写进 CloudWatch Logs，并能与 CloudTrail 的 StartSession 对上。
+story: |
+  凌晨三点 CloudAlbum 报错，你得登录 EC2 看日志。安全组里那条“22 ← 运维 IP”因为换网络改了好几次，
+  私钥也拷到过别人的电脑上；事后只能查到“某把钥匙从某个 IP 登录过”，登录后做了什么，没人说得清。
+objectives:
+  - { text: 说出 SSM 托管节点的三个前提, domain: secure, relatesTo: orient }
+  - { text: 在安全组零入站的情况下登录实例并做端口转发, domain: secure, relatesTo: session }
+  - { text: 用 CloudTrail 与会话日志回答“谁在何时执行了什么命令”, domain: secure, relatesTo: audit-chain }
+  - { text: 区分 Session Manager、堡垒机与 EC2 Instance Connect, domain: secure, relatesTo: after }
 difficulty: beginner
 estimatedMinutes: 60
 timeLimitMinutes: 90
-extensions: {maxCount: 2, minutesEach: 30}
-retain: {allowed: true, maxHours: 24}
+extensions: { maxCount: 2, minutesEach: 30 }
+retain: { allowed: false, reason: 会话首选项是区域级单例，保留环境会持续影响同区域其他会话 }
 regions:
   supported: [ap-northeast-1]
 services:
-- {id: ssm-session-manager, name: AWS Systems Manager Session Manager, role: primary, module: shell-access}
-- {id: iam, role: context, module: iam}
-modules:
-  target: [shell-access]
-  start: [iam]
-  context: []
-  related: [logging]
+  - { id: ssm-session-manager, name: AWS Systems Manager Session Manager, role: primary, module: shell-access }
+  - { id: cloudwatch-logs, name: Amazon CloudWatch Logs（会话日志）, role: supporting, featureOf: ssm-session-manager }
+  - { id: ec2, name: Amazon EC2（实验机与安全组）, role: supporting, module: ec2 }
+  - { id: iam, name: AWS IAM（实例角色）, role: context, module: iam }
+  - { id: cloudtrail, name: AWS CloudTrail Event History, role: observed }
+modules: { target: [shell-access], start: [iam], context: [], related: [network, threat-detection, compliance, vuln-scan, logging] }
 prerequisites:
   cards:
-  - {id: svc-ec2, kind: soft}
-  - {id: svc-iam, kind: soft}
+    - { id: svc-ec2, kind: soft }
+    - { id: svc-iam, kind: soft }
+  learnerInputs: []
+  knowledge: [SSH 密钥对登录, 安全组是有状态的]
+
 startProfile:
   provisions:
-  - item: iam
-    kind: module
-    basis: credential
-    set: {IAM_CREDENTIALS: role}
-    reason: 平台约定除 svc-ec2、svc-iam 外起始状态都带实例角色（C3）
-  - {item: preview-direct-https, kind: platform, reason: 预览使用方案 B 的 Let's Encrypt IP 证书（03 §6.2）}
-  - {item: ssh-from-workstation, kind: platform, reason: SSH 只对工作台私网 /32 开放}
-  platform:
-    preview: {directHttps: 'on'}
+    - { item: iam, kind: module, basis: credential, set: { IAM_CREDENTIALS: role },
+        reason: 平台为每张卡片预置实例角色（裁决 C3）；Session Manager 也要求 role（DEP-001），SSM Agent 用实例配置文件凭证，不读应用的访问密钥 }
+    - { item: mgmt-channel, kind: platform,
+        reason: 实验机从 L0 起只挂 AmazonSSMManagedInstanceCore（平台管理通道），SSM Agent 一开始就在线 }
+    - { item: workstation, kind: platform, reason: 每个会话一台工作台：AWS CLI、session-manager-plugin、SSH 私钥、scripts/module 与对比实验 }
+    - { item: ssh-from-workstation, kind: platform,
+        reason: SSH 基线——运行器按 03 §4.8 把 SshIngressCidr 设为工作台私网 IP/32，ssh lab 走私网 }
+    - { item: preview-direct-https, kind: platform, reason: 预览使用 Let's Encrypt IP 证书 }
+  platform: { preview: { directHttps: 'on' } }
+  reason: L0 + iam(role)；shell-access 没有其他硬依赖，不预置软依赖 logging、kms
 targetModules:
-- {id: shell-access, driver: ssm}
+  - { id: shell-access, driver: ssm, fromDriver: ssh, params: { KeepSsh: 'false' }, wireStep: wire, adoptsExisting: false }
 expectedWarnings: []
-workstation: {required: true, sshFromWorkstation: true}
-platform:
-  accountImpact:
-  - {id: ssm-session-prefs, scope: region, resource: SSM-SessionManagerRunShell 会话首选项, revert: restore, note: 备份后修改，回收时还原}
-cost: {tier: low}
-provision: {class: A}
-badge: {title: 零入站运维}
+workstation:
+  required: true
+  sshFromWorkstation: true
+  tools: [aws-cli, node, jq, session-manager-plugin]
+  savingsMode: unsupported
+variables:
+  sessionLogGroup: { label: 会话日志组, from: derived, fillFrom: stack.shell-access.EnvSsmSessionLogGroup }
+
+cost:
+  currency: USD
+  tier: low
+  mainDrivers: [会话日志的 CloudWatch Logs 摄取与存储（量极小）]
+  basis:
+    - { ref: start-profile, note: 实验机 EC2、EBS（根卷与数据卷）、公网 IPv4；iam 不计费 }
+    - { ref: workstation, note: 工作台 EC2、EBS、公网 IPv4 }
+    - { key: session-logs, pricingKey: logs.ingestion, billing: usage, quantity: 1, unit: GB, assumedUsagePerHour: 0.001, source: target,
+        whenRetained: false, note: 会话日志量极小 }
+  assumptions:
+    - Session Manager 对 EC2 实例不额外收费（以官方定价为准）
+    - 本卡不创建 Interface Endpoint；私有子网场景见 sc-private-network
+provision: { class: A }
+
+steps:
+  - id: orient
+    type: observe
+    title: 观察起始状态：22 只对工作台开放，Agent 已因平台通道在线
+    manual: manual/10-orient.md
+    panel: terminal-workstation
+    estMinutes: 5
+    checks: [cap-ssh-baseline, sshd-listening, sg-22-workstation-only]
+
+  - id: baseline
+    type: experiment
+    title: 记录 before：从工作台探测私网地址的 22 端口
+    manual: manual/20-baseline.md
+    experiment: { module: shell-access, id: probe-port, label: before }
+    requires: { steps: [orient] }
+    panel: terminal-workstation
+    estMinutes: 6
+    checks: [exp-probe-before]
+
+  - id: wire
+    type: script
+    wire: true
+    title: 接入：enable shell-access（关闭 22、写会话首选项）
+    manual: manual/30-wire.md
+    methods: [script]
+    requires: { steps: [baseline] }
+    panel: terminal-workstation
+    estMinutes: 10
+    startsBilling: { class: usage, pricingKeys: [logs.ingestion], note: 会话日志按摄取与存储计费（量极小） }
+    wait: { typicalMinutes: 3, maxMinutes: 10, text: 先确认 Agent Online 并做 Run Command 冒烟，再删除 22 规则 }
+    checks: [cap-ssm-ok, module-state-ssm, sg-no-22, session-log-group]
+
+  - id: session
+    type: cli
+    title: 用 Session Manager 登录：runAs 用户与受限 sudo
+    manual: manual/40-session.md
+    requires: { steps: [wire] }
+    panel: terminal-workstation
+    estMinutes: 8
+    checks: [start-session-trailed, runas-ops]
+
+  - id: port-forward
+    type: cli
+    title: 端口转发：不开放 3000 也能在工作台访问应用
+    manual: manual/50-port-forward.md
+    requires: { steps: [wire] }
+    panel: terminal-workstation
+    estMinutes: 5
+    checks: [port-forward-ok]
+
+  - id: after
+    type: experiment
+    title: 记录 after：再次从工作台探测 22 端口
+    manual: manual/60-after.md
+    experiment: { module: shell-access, id: probe-port, label: after }
+    requires: { steps: [wire] }
+    panel: terminal-workstation
+    estMinutes: 5
+    checks: [exp-probe-pair]
+
+  - id: audit-chain
+    type: experiment
+    title: 对齐审计链：会话历史、会话日志与 StartSession
+    manual: manual/70-audit-chain.md
+    experiment: { module: shell-access, id: session-audit, label: after }
+    requires: { steps: [session] }
+    panel: terminal-workstation
+    estMinutes: 8
+    wait: { typicalMinutes: 5, maxMinutes: 20, text: CloudTrail 事件有分钟级延迟，脚本会轮询 }
+    checks: [session-logged, exp-session-audit]
+
+finalChecks:
+  - no-world-ssh
+  - { ref: cap-ssm-ok, as: final-cap-ssm-ok }
+  - { ref: sg-no-22, as: final-sg-no-22 }
+
+experiments:
+  - module: shell-access
+    id: probe-port
+    labels:
+      - { id: before, role: baseline, requires: { shell-access: ssh } }
+      - { id: after, role: treatment, requires: { shell-access: ssm } }
+    pairs: [[before, after]]
+    requiredLabels: [before, after]
+    required: true
+    runner: workstation
+    allowSimulatedBaseline: false
+    validity: functional
+    corroborateWith: [sg-22-workstation-only, sg-no-22]
+  - module: shell-access
+    id: session-audit
+    labels: [ { id: after, role: single, requires: { shell-access: ssm } } ]
+    required: true
+    runner: workstation
+    validity: functional
+    corroborateWith: [session-logged]
+
+quiz: { file: quiz.yaml, draw: 3 }
+badge: { title: 零入站运维, icon: assets/badge.svg }
 tracks: [operations, saa-main, secure]
+certificate: { enabled: false }
+
+cleanup:
+  summary: 结束后平台还原 Session Manager 会话首选项、删除 cloudalbum-ops 用户与 shell-access 栈；会话日志组由回收器删除。会话首选项是区域级单例，请不要在控制台手工修改它。
+  autoReclaim: true
+  dataRisk: [没有业务数据；会话日志随会话删除，报告中保留证据摘要]
+  learnerCreatedHints:
+    - { resourceType: 'AWS::SSM::Document', how: SSM-SessionManagerRunShell 不删除，按环境状态桶 <envName>/backups/ 中的原值还原 }
+    - { resourceType: 'AWS::Logs::LogGroup', how: 会话日志组 DeletionPolicy=Retain，回收器按 RETAINED 来源删除（02 §7.1） }
+  verify: [shell-access-stack-gone]
+
 saa:
   domains: [secure]
-tags: [shell-access, ssm-session-manager]
-certificate: {enabled: false}
+  topics:
+    - { id: ssm-managed-node, title: SSM 托管节点的三个前提, domain: secure, relatesTo: orient }
+    - { id: zero-inbound, title: 零入站规则也能管理实例（出站通道 + 有状态安全组）, domain: secure, relatesTo: wire }
+    - { id: session-audit-chain, title: 会话日志与 StartSession 构成审计链, domain: secure, relatesTo: audit-chain }
+    - { id: port-forward, title: 端口转发访问私有资源，取代堡垒机, domain: secure, relatesTo: port-forward }
+    - { id: managed-vs-least, title: AmazonSSMManagedInstanceCore 与最小权限, domain: secure, relatesTo: wire }
+  confusables:
+    - { a: Session Manager, b: EC2 Instance Connect, rule: 前者不需要入站 22 与公网 IP；后者浏览器方式需要 22 对服务地址段开放 }
+    - { a: Session Manager, b: 堡垒机, rule: 堡垒机本身要开放入站并管理密钥；Session Manager 用 IAM 授权与出站通道 }
+    - { a: CloudTrail StartSession, b: 会话日志, rule: CloudTrail 记录谁开了会话；会话中执行的命令只在会话日志里 }
+tags: [shell-access, ssm, session-manager, least-privilege, audit]
+
+permissions:
+  learner:
+    - ssm:StartSession
+    - ssm:TerminateSession
+    - ssm:ResumeSession
+    - ssm:DescribeSessions
+    - ssm:GetConnectionStatus
+    - ssm:DescribeInstanceInformation
+    - ssm:SendCommand
+    - ssm:GetCommandInvocation
+    - ssm:GetDocument
+    - ssm:DescribeDocument
+    - ssm:UpdateDocument
+    - ssm:UpdateDocumentDefaultVersion
+    - ssm:CreateDocument
+    - logs:CreateLogGroup
+    - logs:PutRetentionPolicy
+    - logs:DescribeLogGroups
+    - logs:DescribeLogStreams
+    - cloudtrail:LookupEvents
+    - ec2:DescribeSecurityGroupRules
+    - ec2:DescribeInstances
+    - cloudformation:CreateChangeSet
+    - cloudformation:ExecuteChangeSet
+    - cloudformation:DescribeChangeSet
+    - cloudformation:DescribeStacks
+    - iam:CreatePolicy
+    - iam:AttachRolePolicy
+    - iam:DetachRolePolicy
+    - iam:ListAttachedRolePolicies
+  notes: 运维者策略文档 infra/modules/shell-access/operator-policy.json 不由栈创建，平台模式下不挂到 ATLLearnerRole；学员身份的会话权限来自 ATLLearnerRole 本身
+
+platform:
+  consoleLinks: [ec2.securityGroup, ssm.sessions, logs.group]
+  accountImpact:
+    - { id: ssm-session-prefs, scope: region, resource: SSM-SessionManagerRunShell, preexisting: not-applicable, revert: restore,
+        note: 模块修改前把原值（或“原本不存在”）备份到环境状态桶的 <envName>/backups/（06 PM-M28），回收时还原 }
+
+owners: [cloudalbum-maintainers]

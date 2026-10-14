@@ -1,0 +1,229 @@
+checks:
+  # ---- 起始状态（before 一律 once）
+  - id: cap-ssh-baseline
+    title: 起始状态：运维通道仍是 SSH，shell-access 未启用
+    type: capability
+    module: shell-access
+    drift: { policy: once }
+    assert:
+      - { path: $.driver, op: eq, value: ssh, label: 驱动（SHELL_ACCESS_MODE） }
+      - { path: $.status, op: eq, value: 'off', label: 模块状态（本地实现） }
+    explain: 纯基础设施型模块没有端口和驱动，capabilities 的 driver 就是声明型开关 SHELL_ACCESS_MODE 的取值。
+    reproduce: { run: 'curl -s http://127.0.0.1/api/capabilities | jq ".modules[\"shell-access\"] | {driver, status}"', runsOn: lab }
+
+  - id: sshd-listening
+    title: sshd 在监听 22，且禁止密码登录（05 §1 的加固片段）
+    type: local
+    on: lab
+    checkId: sshd-state
+    drift: { policy: once }
+    assert:
+      - { path: $.active, op: eq, value: true, label: sshd 运行中 }
+      - { path: $.port22Listening, op: eq, value: true, label: 监听 22 }
+      - { path: $.passwordAuth, op: eq, value: false, label: 密码登录 }
+    explain: 启用 shell-access 后 sshd 默认仍在运行（便于回滚），关掉的是安全组的 22 端口入站规则，所以这一项只描述起始状态。
+
+  - id: sg-22-workstation-only
+    title: 实例安全组的 22 端口只对 /32 开放（工作台私网地址）
+    type: aws-readonly
+    service: ec2
+    action: DescribeSecurityGroupRules
+    region: app
+    params: { Filters: [ { Name: group-id, Values: ['{{ target.sgId }}'] } ] }
+    ownership: { resource: 'arn:aws:ec2:{{ session.region }}:{{ session.accountId }}:security-group/{{ target.sgId }}', mode: session-or-start }
+    drift: { policy: once }
+    assert:
+      - { path: $.SecurityGroupRules, where: { IsEgress: false, FromPort: { op: lte, value: 22 }, ToPort: { op: gte, value: 22 } },
+          op: len_gte, value: 1, label: 存在覆盖 22 的入站规则 }
+      - path: $.SecurityGroupRules
+        where: { IsEgress: false, FromPort: { op: lte, value: 22 }, ToPort: { op: gte, value: 22 } }
+        op: every
+        value: { path: $.CidrIpv4, op: endsWith, value: /32 }
+        label: 覆盖 22 的规则来源都是 /32
+      - { path: '$.SecurityGroupRules[*].CidrIpv4', op: nin, value: ['0.0.0.0/0'], label: 没有对全网开放 }
+    explain: 起始状态的事实，只需成立一次：第 3 步会删除这条规则。
+    reproduce: { run: 'aws ec2 describe-security-group-rules --filters Name=group-id,Values={{ target.sgId }} --query "SecurityGroupRules[?IsEgress==\`false\`].[IpProtocol,FromPort,ToPort,CidrIpv4]" --output table', runsOn: workstation }
+    manualFallback:
+      where: { breadcrumb: [EC2, 安全组, '{{ target.sgId }}', 入站规则], region: app }
+      observed:
+        question: 22 端口的入站规则来源是什么？
+        options:
+          - { value: '32', label: 一个 x.x.x.x/32 地址（工作台）, expected: true }
+          - { value: wide, label: 更宽的网段或 0.0.0.0/0, fixHint: 不要放宽 22 端口；起始状态由平台设置 }
+
+  # ---- 接入
+  - id: cap-ssm-ok
+    title: 应用确认运维通道已是 Session Manager 且无管理端口入站
+    type: capability
+    module: shell-access
+    drift: { policy: must-hold, monitor: true }
+    assert:
+      - { path: $.driver, op: eq, value: ssm, label: 驱动 }
+      - { path: $, op: healthy, label: 状态正常（本卡 expectedWarnings 为空，即必须是 ok） }
+      - { path: $.detail, op: contains, value: 无管理端口入站, label: detail }
+    explain: 感知器查 ssm:DescribeInstanceInformation（PingStatus）、ec2:DescribeSecurityGroups（22 端口入站）与会话首选项的日志组；控制面结果在后台刷新，首个请求较慢时先报 degraded。
+    reproduce: { run: 'curl -s http://127.0.0.1/api/capabilities | jq ".modules[\"shell-access\"] | {driver, status, detail}"', runsOn: lab }
+
+  - id: module-state-ssm
+    title: 实验机上 shell-access 已启用（平台模式下投递通道始终是 SSM，不作为判据）
+    type: local
+    on: lab
+    checkId: module-state
+    args: { module: shell-access }
+    drift: { policy: must-hold }
+    assert:
+      - { path: $.modules.shell-access.enabled, op: eq, value: true, label: 已启用 }
+      - { path: $.modules.shell-access.driver, op: eq, value: ssm, label: 驱动 }
+
+  - id: sg-no-22
+    title: 安全组没有任何覆盖 22 的入站规则
+    type: aws-readonly
+    service: ec2
+    action: DescribeSecurityGroupRules
+    region: app
+    params: { Filters: [ { Name: group-id, Values: ['{{ target.sgId }}'] } ] }
+    ownership: { resource: 'arn:aws:ec2:{{ session.region }}:{{ session.accountId }}:security-group/{{ target.sgId }}', mode: session-or-start }
+    drift: { policy: must-hold, monitor: true }
+    assert:
+      - { path: $.SecurityGroupRules, where: { IsEgress: false, FromPort: { op: lte, value: 22 }, ToPort: { op: gte, value: 22 } },
+          op: len_eq, value: 0, label: 22 端口无入站 }
+      - { path: $.SecurityGroupRules, where: { IsEgress: false, IpProtocol: '-1' }, op: len_eq, value: 0, label: 没有“全部流量”入站规则 }
+    explain: scripts/module 在 SSM 通道验证成功后把基础栈参数 SshIngressCidr 置空，模板的 Condition 删除 22 端口规则；协议为 -1 的规则同样放开了 22。
+    reproduce: { run: 'aws ec2 describe-security-group-rules --filters Name=group-id,Values={{ target.sgId }} --query "SecurityGroupRules[?IsEgress==\`false\`].[IpProtocol,FromPort,ToPort,CidrIpv4]" --output table', runsOn: workstation }
+    manualFallback:
+      where: { breadcrumb: [EC2, 安全组, '{{ target.sgId }}', 入站规则], region: app }
+      observed:
+        question: 入站规则里还有端口 22（或“全部流量”）的规则吗？
+        options:
+          - { value: none, label: 没有, expected: true }
+          - { value: present, label: 有, fixHint: 不要手工加 22 规则；用 KeepSsh=true 启用时 22 会保留，请重新按默认方式 enable }
+
+  - id: session-log-group
+    title: 会话日志组由本会话创建，并设置了保留期
+    type: aws-readonly
+    service: logs
+    action: DescribeLogGroups
+    region: app
+    params: { logGroupNamePrefix: '/cloudalbum/{{ session.env }}/ssm-sessions' }
+    ownership: { resource: 'arn:aws:logs:{{ session.region }}:{{ session.accountId }}:log-group:/cloudalbum/{{ session.env }}/ssm-sessions', mode: session }
+    drift: { policy: must-hold }
+    assert:
+      - { path: $.logGroups, where: { logGroupName: '/cloudalbum/{{ session.env }}/ssm-sessions' }, op: len_eq, value: 1, label: 会话日志组存在 }
+      - path: $.logGroups
+        op: some
+        label: 设置了保留期（不是永不过期）
+        value:
+          - { path: $.logGroupName, op: eq, value: '/cloudalbum/{{ session.env }}/ssm-sessions' }
+          - { path: $.retentionInDays, op: gte, value: 1 }
+    explain: 会话首选项 SSM-SessionManagerRunShell 的 cloudWatchLogGroupName 指向这个日志组，shell 会话的命令与输出边执行边上传。
+    reproduce: { run: 'aws logs describe-log-groups --log-group-name-prefix /cloudalbum/{{ session.env }}/ssm-sessions', runsOn: workstation }
+    manualFallback:
+      where: { breadcrumb: [CloudWatch, 日志组], region: app }
+      observed:
+        question: '/cloudalbum/{{ session.env }}/ssm-sessions 存在吗？保留列显示多少？'
+        options:
+          - { value: ok, label: 存在，保留 1 个月（30 天）, expected: true }
+          - { value: missing, label: 不存在, fixHint: 重新执行 scripts/module enable shell-access }
+
+  # ---- 会话
+  - id: start-session-trailed
+    title: CloudTrail 记录了你从工作台发起的 StartSession
+    type: aws-readonly
+    service: cloudtrail
+    action: LookupEvents
+    region: app
+    params: { LookupAttributes: [ { AttributeKey: EventName, AttributeValue: StartSession } ], MaxResults: 50 }
+    wait: { typicalMinutes: 5, maxMinutes: 20 }
+    drift: { policy: once }
+    pendingIf:
+      - { path: $.Events, where: { Username: { op: startsWith, value: 'atl-{{ session.id }}-ws' } }, op: len_eq, value: 0 }
+    assert:
+      - { path: $.Events, where: { Username: { op: startsWith, value: 'atl-{{ session.id }}-ws' } }, op: len_gte, value: 1, label: 发起者是你的工作台会话 }
+      - path: $.Events
+        op: some
+        label: 目标是本实验机
+        severity: warn
+        value: { path: $.CloudTrailEvent, op: contains, value: '{{ target.instanceId }}' }
+    explain: StartSession 是管理事件，事件历史默认就能查到（不需要 trail）；发起者是 IAM 身份而不是“某一把 SSH 私钥”。实例 ID 在事件的 requestParameters.target 中。
+    reproduce: { run: 'aws cloudtrail lookup-events --lookup-attributes AttributeKey=EventName,AttributeValue=StartSession --max-results 5', runsOn: workstation }
+    pitfalls: [trail-delay]
+    manualFallback:
+      where: { breadcrumb: [CloudTrail, 事件历史, StartSession], region: app }
+      observed:
+        question: 事件历史里能找到用户名以 atl-…-ws 开头的 StartSession 事件吗？
+        options:
+          - { value: present, label: 能, expected: true }
+          - { value: absent, label: 还没有, fixHint: 事件有几分钟到十几分钟的延迟；确认你用 aws ssm start-session 登录过 }
+
+  - id: runas-ops
+    title: 会话以 cloudalbum-ops 身份打开，读取 secrets.env 被拒绝
+    type: manual
+    spec:
+      where: { panel: terminal-workstation }
+      confirm: 在 aws ssm start-session 打开的会话里执行下面的命令，粘贴它输出的一行 JSON
+      evidence:
+        command: { run: 'printf ''{"user":"%s","secretsRc":%d}\n'' "$(id -un)" "$(sudo -n cat /etc/cloudalbum/secrets.env >/dev/null 2>&1; echo $?)"', runsOn: lab }
+        parse: json
+        assert:
+          - { path: $.user, op: eq, value: cloudalbum-ops, label: 会话用户 }
+          - { path: $.secretsRc, op: gte, value: 1, label: 读取机密的返回码（非 0 = 被拒绝） }
+
+  - id: port-forward-ok
+    title: 经端口转发在工作台访问实验机的 /api/health/ready
+    type: manual
+    spec:
+      where: { panel: terminal-workstation }
+      confirm: 端口转发会话保持打开，在另一个工作台终端执行下面的命令，粘贴输出
+      evidence:
+        command: { run: 'curl -s -o /dev/null -w ''{"status":%{http_code}}'' http://localhost:13000/api/health/ready', runsOn: workstation }
+        parse: json
+        assert:
+          - { path: $.status, op: eq, value: 200, label: HTTP 状态码 }
+
+  # ---- 审计链
+  - id: session-logged
+    title: 会话日志组中有你的会话日志流
+    type: aws-readonly
+    service: logs
+    action: DescribeLogStreams
+    region: app
+    params: { logGroupName: '/cloudalbum/{{ session.env }}/ssm-sessions', logStreamNamePrefix: 'atl-{{ session.id }}-ws' }
+    ownership: { resource: 'arn:aws:logs:{{ session.region }}:{{ session.accountId }}:log-group:/cloudalbum/{{ session.env }}/ssm-sessions', mode: session }
+    wait: { typicalMinutes: 1, maxMinutes: 10 }
+    pendingIf:
+      - { path: $.logStreams, op: len_eq, value: 0 }
+    drift: { policy: must-hold }
+    assert:
+      - { path: $.logStreams, op: len_gte, value: 1, label: 至少一个会话日志流 }
+    explain: 日志流名 = 会话 ID，前缀是发起者的会话名（以实测为准）；端口转发会话不记录内容，只有 shell 会话有日志流。
+    reproduce: { run: 'aws logs describe-log-streams --log-group-name /cloudalbum/{{ session.env }}/ssm-sessions --log-stream-name-prefix atl-{{ session.id }}-ws', runsOn: workstation }
+    manualFallback:
+      where: { breadcrumb: [CloudWatch, 日志组, '/cloudalbum/{{ session.env }}/ssm-sessions', 日志流], region: app }
+      observed:
+        question: 有以 atl-…-ws 开头的日志流吗？
+        options:
+          - { value: present, label: 有, expected: true }
+          - { value: absent, label: 没有, fixHint: 用默认文档（不带 --document-name）打开一次 shell 会话，执行几条命令后 exit }
+
+  # ---- 回收验证
+  - id: shell-access-stack-gone
+    title: 本会话的 shell-access 栈已删除
+    type: aws-readonly
+    service: cloudformation
+    action: DescribeStacks
+    region: app
+    params: { StackName: 'cloudalbum-{{ session.env }}-shell-access' }
+    expectError: ValidationError
+    required: false
+    reproduce: { run: 'aws cloudformation describe-stacks --stack-name cloudalbum-{{ session.env }}-shell-access', runsOn: workstation }
+    manualFallback:
+      where: { breadcrumb: [CloudFormation, 堆栈], region: app }
+      observed:
+        question: 还能找到 cloudalbum-{{ session.env }}-shell-access 吗？
+        options:
+          - { value: gone, label: 找不到, expected: true }
+          - { value: present, label: 还在 }
+
+pitfalls:
+  - { id: trail-delay, title: StartSession 事件还没出现, match: [ { checkId: start-session-trailed, result: pending } ],
+      cause: CloudTrail 事件历史有几分钟到十几分钟的投递延迟, fix: 先做端口转发步骤，回来再看；确认登录用的是 aws ssm start-session }

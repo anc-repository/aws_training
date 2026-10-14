@@ -1,0 +1,17 @@
+{
+  "schemaVersion": "1.0",
+  "description": "CloudAlbum session preferences (managed by scripts/module enable shell-access; the previous version is restored on disable)",
+  "sessionType": "Standard_Stream",
+  "inputs": {
+    "cloudWatchLogGroupName": "${SSM_SESSION_LOG_GROUP}",
+    "cloudWatchStreamingEnabled": true,
+    "cloudWatchEncryptionEnabled": false,
+    "s3BucketName": "",
+    "s3EncryptionEnabled": false,
+    "kmsKeyId": "",
+    "runAsEnabled": true,
+    "runAsDefaultUser": "${SSM_SESSION_RUN_AS}",
+    "idleSessionTimeout": "20",
+    "maxSessionDuration": "120"
+  }
+}

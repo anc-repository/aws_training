@@ -1,0 +1,201 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >-
+  CloudAlbum module "logging" - Amazon CloudWatch Logs: application and Nginx log groups (retention, optional KMS),
+  metric filters (namespace CloudAlbum/Logs), saved Logs Insights queries and the application policy (in-process
+  PutLogEvents shipper, or the CloudWatch Agent with Shipper=agent). docs/modules/05-ops-observability.md#logging
+
+Metadata:
+  CloudAlbum:
+    module: logging
+    registryVersion: 1
+    # Injected parameters: KmsKeyArn (kms, target "*"). Provider of LogErrorsNamespace -> monitoring (Out.InfoMetricNamespace).
+    # Log groups are data resources (9.1): DeletionPolicy Retain. Enabling the module again after a disable reuses the
+    # retained groups: the logging hook passes CreateLogGroups=false when /cloudalbum/<env>/app already exists.
+
+Parameters:
+  Env:
+    Type: String
+    Default: lab
+    AllowedPattern: '^[a-z][a-z0-9-]{1,15}$'
+  ModuleVersion:
+    Type: String
+    Default: '1'
+  RetentionInDays:
+    Type: Number
+    Default: 14
+    AllowedValues: [1, 3, 5, 7, 14, 30, 60, 90, 120, 150, 180, 365, 400, 545, 731, 1096, 1827, 2192, 2557, 2922, 3288, 3653]
+    Description: Log group retention (the default "never expire" is never used); also written as LOG_CW_RETENTION_DAYS
+  Shipper:
+    Type: String
+    Default: sdk
+    AllowedValues: [sdk, agent]
+    Description: sdk = in-process batched PutLogEvents (default); agent = CloudWatch Agent collects the files (needs IAM_CREDENTIALS=role)
+  KmsKeyArn:
+    Type: String
+    Default: ''
+    Description: Injected by kms. Empty = CloudWatch Logs default encryption. The key policy must allow logs.<region>.amazonaws.com.
+  CreateLogGroups:
+    Type: String
+    Default: 'true'
+    AllowedValues: ['true', 'false']
+    Description: false = the log groups already exist (retained by an earlier disable) and are reused by name
+
+Conditions:
+  HasKms: !Not [!Equals [!Ref KmsKeyArn, '']]
+  IsAgent: !Equals [!Ref Shipper, agent]
+  CreateGroups: !Equals [!Ref CreateLogGroups, 'true']
+
+Resources:
+  AppLogGroup:
+    Type: AWS::Logs::LogGroup
+    Condition: CreateGroups
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      LogGroupName: !Sub '/cloudalbum/${Env}/app'
+      LogGroupClass: STANDARD            # cannot change after creation; metric filters and Live Tail need Standard
+      RetentionInDays: !Ref RetentionInDays
+      KmsKeyId: !If [HasKms, !Ref KmsKeyArn, !Ref 'AWS::NoValue']
+      Tags:
+        - { Key: DataClass, Value: logs }
+
+  NginxLogGroup:
+    Type: AWS::Logs::LogGroup
+    Condition: CreateGroups
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      LogGroupName: !Sub '/cloudalbum/${Env}/nginx'
+      LogGroupClass: STANDARD
+      RetentionInDays: !Ref RetentionInDays
+      KmsKeyId: !If [HasKms, !Ref KmsKeyArn, !Ref 'AWS::NoValue']
+      Tags:
+        - { Key: DataClass, Value: logs }
+
+  # ---- metric filters: logs -> metrics (only events ingested after creation are counted)
+  AppErrorsFilter:
+    Type: AWS::Logs::MetricFilter
+    Properties:
+      FilterName: !Sub 'cloudalbum-${Env}-app-errors'
+      LogGroupName: !If [CreateGroups, !Ref AppLogGroup, !Sub '/cloudalbum/${Env}/app']
+      FilterPattern: '{ $.level = "error" }'
+      MetricTransformations:
+        - { MetricNamespace: CloudAlbum/Logs, MetricName: AppErrors, MetricValue: '1', DefaultValue: 0 }
+
+  AuthLoginFailedFilter:
+    Type: AWS::Logs::MetricFilter
+    Properties:
+      FilterName: !Sub 'cloudalbum-${Env}-auth-login-failed'
+      LogGroupName: !If [CreateGroups, !Ref AppLogGroup, !Sub '/cloudalbum/${Env}/app']
+      FilterPattern: '{ $.event = "auth.login_failed" }'
+      MetricTransformations:
+        - { MetricNamespace: CloudAlbum/Logs, MetricName: AuthLoginFailed, MetricValue: '1', DefaultValue: 0 }
+
+  Nginx5xxFilter:
+    Type: AWS::Logs::MetricFilter
+    Properties:
+      FilterName: !Sub 'cloudalbum-${Env}-nginx-5xx'
+      LogGroupName: !If [CreateGroups, !Ref NginxLogGroup, !Sub '/cloudalbum/${Env}/nginx']
+      FilterPattern: '{ $.status >= 500 }'
+      MetricTransformations:
+        - { MetricNamespace: CloudAlbum/Logs, MetricName: Nginx5xx, MetricValue: '1', DefaultValue: 0 }
+
+  # ---- saved Logs Insights queries (fields of the pino lines and of the Nginx cloudalbum_json format)
+  QueryErrorsByRoute:
+    Type: AWS::Logs::QueryDefinition
+    Properties:
+      Name: !Sub 'cloudalbum-${Env}/5xx-by-route'
+      LogGroupNames: [!Sub '/cloudalbum/${Env}/nginx']
+      QueryString: |
+        fields @timestamp, uri, status, rid, run
+        | filter status >= 500
+        | stats count(*) as errors by uri
+        | sort errors desc
+
+  QueryP95ByRoute:
+    Type: AWS::Logs::QueryDefinition
+    Properties:
+      Name: !Sub 'cloudalbum-${Env}/p95-by-route'
+      LogGroupNames: [!Sub '/cloudalbum/${Env}/nginx']
+      QueryString: |
+        filter ispresent(rt)
+        | stats pct(rt, 95) as p95_seconds, count(*) as n by uri, bin(5m)
+
+  QueryOneRequest:
+    Type: AWS::Logs::QueryDefinition
+    Properties:
+      Name: !Sub 'cloudalbum-${Env}/one-request'
+      LogGroupNames: [!Sub '/cloudalbum/${Env}/app', !Sub '/cloudalbum/${Env}/nginx']
+      QueryString: |
+        fields @timestamp, @logStream, level, msg, status, uri, path
+        | filter requestId = "REPLACE_ME" or rid = "REPLACE_ME"
+        | sort @timestamp asc
+
+  QueryCacheOutcome:
+    Type: AWS::Logs::QueryDefinition
+    Properties:
+      Name: !Sub 'cloudalbum-${Env}/cache-outcome'
+      LogGroupNames: [!Sub '/cloudalbum/${Env}/nginx']
+      QueryString: |
+        filter ispresent(path) and path like /cache=/
+        | parse path /cache=(?<cache>[^;]+)/
+        | stats count(*) as n by cache
+
+  AppPolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      ManagedPolicyName: !Sub 'cloudalbum-${Env}-logging'   # attached by scripts/module (D2)
+      Description: CloudAlbum logging module - write (PutLogEvents shipper or CloudWatch Agent), read (FilterLogEvents, Logs Insights) and probe permissions
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: WriteOwnGroups
+            Effect: Allow
+            Action: [logs:CreateLogStream, logs:PutLogEvents, logs:DescribeLogStreams]
+            Resource:
+              - !Sub 'arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/cloudalbum/${Env}/app'
+              - !Sub 'arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/cloudalbum/${Env}/app:*'
+              - !Sub 'arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/cloudalbum/${Env}/nginx'
+              - !Sub 'arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/cloudalbum/${Env}/nginx:*'
+          - Sid: ReadOwnAndLambdaGroups
+            Effect: Allow
+            Action: [logs:FilterLogEvents, logs:GetLogEvents, logs:StartQuery]
+            Resource:
+              - !Sub 'arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/cloudalbum/${Env}/app:*'
+              - !Sub 'arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/cloudalbum/${Env}/nginx:*'
+              - !Sub 'arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/cloudalbum-${Env}-*:*'
+          - Sid: InsightsResults
+            Effect: Allow
+            Action: [logs:GetQueryResults, logs:StopQuery, logs:DescribeQueries]   # no resource-level permissions
+            Resource: '*'
+          - !If
+            - IsAgent
+            - Sid: AgentLogs                # the logs part of CloudWatchAgentServerPolicy (no AWS managed policy attached)
+              Effect: Allow
+              Action: [logs:DescribeLogGroups]
+              Resource: '*'
+            - !Ref 'AWS::NoValue'
+
+Outputs:
+  ModuleId:
+    Value: logging
+  ModuleVersion:
+    Value: !Ref ModuleVersion
+  PolicyArn:
+    Value: !Ref AppPolicy
+  EnvLogDriver:
+    Value: cloudwatch
+  EnvLogCwShipper:
+    Value: !Ref Shipper
+  EnvLogCwGroupApp:
+    Value: !Sub '/cloudalbum/${Env}/app'
+  EnvLogCwGroupNginx:
+    Value: !Sub '/cloudalbum/${Env}/nginx'
+  EnvLogCwRetentionDays:
+    Value: !Ref RetentionInDays
+  InfoMetricNamespace:
+    Value: CloudAlbum/Logs
+  InfoInsightsUrl:
+    Value: !Sub 'https://${AWS::Region}.console.aws.amazon.com/cloudwatch/home?region=${AWS::Region}#logsV2:logs-insights'
+  InfoLogGroupsReused:
+    Value: !If [CreateGroups, 'false', 'true']

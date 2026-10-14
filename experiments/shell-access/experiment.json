@@ -1,0 +1,83 @@
+{
+  "$schema": "../_lib/schema/experiment.schema.json",
+  "module": "shell-access",
+  "title": "shell-access：SSH 22 + 密钥对 vs Session Manager（docs/modules/05-ops-observability.md#shell-access 第 5 节）",
+  "default": "probe-port",
+  "experiments": [
+    {
+      "module": "shell-access",
+      "id": "probe-port",
+      "title": "端口探测：从运维机（工作台）对实验机的 22 与 443 各连接 5 次（open / refused / timeout），并读取安全组的 22 端口入站规则",
+      "kind": "before-after",
+      "doc": "docs/modules/05-ops-observability.md#shell-access",
+      "description": "平台模式下 SSH 基线只对工作台私网 /32 开放：用 --param target=private-ip（经 aws ec2 describe-instances 查私网地址）；从公网探测 EIP 的 22 在 before 时就是超时。服务端证据是安全组规则（aws ec2 describe-security-group-rules，只读）与 capabilities 的 shell-access 段。",
+      "requires": {
+        "before": { "shell-access.driver": "ssh" },
+        "after": { "shell-access.driver": "ssm", "shell-access.status": ["ok", "degraded"] }
+      },
+      "labels": {
+        "before": { "title": "SSH 22 + 密钥对", "role": "baseline" },
+        "after": { "title": "Session Manager（22 关闭）", "role": "treatment" }
+      },
+      "scenario": { "tool": "node", "script": "probe-port.ts", "vus": 1, "duration": "60s" },
+      "params": {
+        "target": { "type": "string", "default": "public", "enum": ["public", "private-ip"], "description": "public = EXP_TARGET 的主机；private-ip = 实验机私网地址（平台模式）" },
+        "host": { "type": "string", "default": "", "description": "直接指定探测地址（优先于 target）" },
+        "ports": { "type": "string", "default": "22,443" },
+        "attempts": { "type": "number", "default": 5, "min": 1, "max": 20 },
+        "timeoutMs": { "type": "number", "default": 3000, "min": 500, "max": 15000 }
+      },
+      "metrics": ["scenario.port22.open", "scenario.port22.timeout", "scenario.sgRules22", "scenario.port443.open"],
+      "expect": [
+        { "metric": "scenario.port22.open", "direction": "down", "note": "切换后 22 端口探测从 open 变成超时（filtered）" },
+        { "metric": "scenario.sgRules22", "direction": "down", "note": "安全组不再有任何覆盖 22 的入站规则" },
+        { "metric": "scenario.port443.open", "direction": "flat", "note": "业务端口不受影响" }
+      ]
+    },
+    {
+      "module": "shell-access",
+      "id": "ssh-noise",
+      "title": "爆破噪声（不在卡片中）：24 小时内 sshd 认证失败次数与 fail2ban 封禁数",
+      "kind": "before-after",
+      "doc": "docs/modules/05-ops-observability.md#shell-access",
+      "description": "手工步骤见 README：需要观察 24 小时，并临时把 SshIngressCidr 改为 0.0.0.0/0（只在自己的实验实例上做，做完立即改回）。",
+      "requires": {
+        "before": { "shell-access.driver": "ssh" },
+        "after": { "shell-access.driver": "ssm" }
+      },
+      "scenario": { "tool": "manual" }
+    },
+    {
+      "module": "shell-access",
+      "id": "session-audit",
+      "title": "审计链：会话历史（DescribeSessions）、会话日志流、CloudTrail StartSession 按会话 ID 对齐",
+      "kind": "functional",
+      "doc": "docs/modules/05-ops-observability.md#shell-access",
+      "description": "先在工作台用 aws ssm start-session --target <实验机> 登录、执行几条命令后 exit。脚本以学员身份只读调用 AWS CLI，排除平台终端会话（ATL-SessionShell*、atl-<sid>-term-*），CloudTrail 事件有分钟级延迟，最多轮询 waitMin 分钟。",
+      "requires": {
+        "after": { "shell-access.driver": "ssm", "shell-access.status": ["ok", "degraded"] }
+      },
+      "labels": { "after": { "title": "Session Manager", "role": "single" } },
+      "scenario": { "tool": "node", "script": "session-audit.ts", "vus": 1, "duration": "1200s" },
+      "params": {
+        "waitMin": { "type": "number", "default": 15, "min": 0, "max": 30, "description": "等待 CloudTrail 事件的上限" },
+        "hours": { "type": "number", "default": 2, "min": 1, "max": 24, "description": "只看最近几小时的会话" },
+        "logGroup": { "type": "string", "default": "", "description": "会话日志组（缺省取 capabilities 的 shell-access data.logGroup）" }
+      },
+      "metrics": ["scenario.sessions", "scenario.withLog", "scenario.withTrail", "scenario.aligned"],
+      "expect": [
+        { "metric": "scenario.aligned", "direction": "nonzero", "note": "至少一个 shell 会话同时有会话日志与 StartSession 事件：能回答“谁在什么时间执行了什么命令”" }
+      ]
+    },
+    {
+      "module": "shell-access",
+      "id": "private-subnet",
+      "title": "私有子网（不在卡片中，需要 network）：无公网 IP、零入站的实例照样能登录；删掉 ssmmessages 端点后 Online 但打不开会话",
+      "kind": "functional",
+      "doc": "docs/modules/05-ops-observability.md#shell-access",
+      "description": "手工步骤见 README；组合场景 sc-private-network 中进行。",
+      "requires": { "after": { "shell-access.driver": "ssm" } },
+      "scenario": { "tool": "manual" }
+    }
+  ]
+}

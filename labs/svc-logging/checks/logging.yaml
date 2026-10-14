@@ -1,0 +1,209 @@
+checks:
+  # ---- 起始状态（before 一律 once）
+  - id: cap-logging-file
+    title: 起始状态：日志只写本地文件，logging 未启用
+    type: capability
+    module: logging
+    drift: { policy: once }
+    assert:
+      - { path: $.driver, op: eq, value: file, label: 驱动 }
+      - { path: $.status, op: eq, value: 'off', label: 模块状态（本地实现） }
+    explain: LOG_DRIVER=file：api 与 worker 用 pino 写 JSON 行到数据卷 /var/lib/cloudalbum/logs/，logrotate 每日轮转保留 14 天。
+    reproduce: { run: 'curl -s http://127.0.0.1/api/capabilities | jq ".modules.logging | {driver, status, localHealth}"', runsOn: lab }
+
+  - id: api-log-local
+    title: 本地日志文件在数据卷上（root 以外只有 cloudalbum 组可读）
+    type: local
+    on: lab
+    checkId: file-stat
+    args: { path: /var/lib/cloudalbum/logs/api.log }
+    drift: { policy: must-hold }
+    assert:
+      - { path: $.exists, op: eq, value: true, label: 文件存在 }
+      - { path: $.mode, op: eq, value: '0640', label: 权限 }
+      - { path: $.owner, op: eq, value: 2001, label: 属主 UID（cloudalbum） }
+    explain: cloudwatch 档本地文件照写（它是兜底，也是 fail2ban 的输入），所以这一项在接入之后也一直成立。检查只读元数据，不读内容。
+
+  # ---- 接入 CloudWatch Logs
+  - id: cap-logging-cloudwatch
+    title: logging 已切换到 CloudWatch Logs，且状态正常
+    type: capability
+    module: logging
+    drift: { policy: must-hold, monitor: true }
+    assert:
+      - { path: $.driver, op: eq, value: cloudwatch, label: 驱动 }
+      - { path: $, op: healthy, label: 状态正常（本卡 expectedWarnings 为空，即必须是 ok） }
+      - { path: $.detail, op: contains, value: CloudWatch Logs, label: detail }
+    explain: 常规探针只看进程内发送器的状态（积压、丢弃、最近一次成功发送），不调用 AWS；深度探针另写一条 canary 测摄取延迟。
+    reproduce: { run: 'curl -s http://127.0.0.1/api/capabilities | jq ".modules.logging | {driver, status, detail}"', runsOn: lab }
+
+  - id: module-state-logging
+    title: 实验机上 logging 已启用
+    type: local
+    on: lab
+    checkId: module-state
+    args: { module: logging }
+    drift: { policy: must-hold }
+    assert:
+      - { path: $.modules.logging.enabled, op: eq, value: true, label: 已启用 }
+      - { path: $.modules.logging.driver, op: eq, value: cloudwatch, label: 驱动 }
+
+  - id: log-traffic
+    title: 一次真实请求经过 Nginx（产生一行访问日志）
+    type: local
+    on: lab
+    checkId: http-probe
+    args: { target: self, path: '/api/health/live?atlprobe={{ sample.nonce }}', method: GET }
+    drift: { policy: once }
+    assert:
+      - { path: '$.responses[0].status', op: eq, value: 200, label: 状态码 }
+    explain: logging 不出现在 X-CloudAlbum-Path 中；接入的证据是这行访问日志随后出现在本会话的 Nginx 日志组里（下一项）。
+
+  - id: nginx-stream-shipped
+    title: 本实例的 Nginx 访问日志流出现在本会话的日志组中
+    type: aws-readonly
+    service: logs
+    action: DescribeLogStreams
+    region: app
+    params: { logGroupName: '/cloudalbum/{{ session.env }}/nginx', logStreamNamePrefix: '{{ target.instanceId }}/' }
+    ownership: { resource: 'arn:aws:logs:{{ session.region }}:{{ session.accountId }}:log-group:/cloudalbum/{{ session.env }}/nginx', mode: session }
+    dependsOn: [log-traffic]
+    wait: { typicalMinutes: 1, maxMinutes: 5 }
+    pendingIf:
+      - { path: $.logStreams, where: { logStreamName: '{{ target.instanceId }}/access' }, op: len_eq, value: 0 }
+    drift: { policy: must-hold }
+    assert:
+      - { path: $.logStreams, where: { logStreamName: '{{ target.instanceId }}/access' }, op: len_gte, value: 1, label: '日志流 <实例 ID>/access' }
+    explain: worker 增量读取 nginx-access.json，把新行批量 PutLogEvents 到 /cloudalbum/<env>/nginx 的 <实例 ID>/access；日志流只在第一次发送时创建。
+    reproduce: { run: 'aws logs describe-log-streams --log-group-name /cloudalbum/{{ session.env }}/nginx --log-stream-name-prefix {{ target.instanceId }}/', runsOn: workstation }
+    pitfalls: [shipper-backlog]
+    manualFallback:
+      where: { breadcrumb: [CloudWatch, 日志组, '/cloudalbum/{{ session.env }}/nginx', 日志流], region: app }
+      observed:
+        question: 日志流列表里有以实验机实例 ID 开头、以 /access 结尾的日志流吗？
+        options:
+          - { value: present, label: 有, expected: true }
+          - { value: absent, label: 没有, fixHint: 等一两分钟再看；仍然没有时看 logging 的 detail 是否提示发送积压或权限不足 }
+
+  - id: log-groups-retention
+    title: 两个日志组由本会话创建，并设置了 14 天保留期（不是“永不过期”）
+    type: aws-readonly
+    service: logs
+    action: DescribeLogGroups
+    region: app
+    params: { logGroupNamePrefix: '/cloudalbum/{{ session.env }}/' }
+    ownership: { resource: 'arn:aws:logs:{{ session.region }}:{{ session.accountId }}:log-group:/cloudalbum/{{ session.env }}/app', mode: session }
+    drift: { policy: must-hold }
+    assert:
+      - { path: $.logGroups, where: { logGroupName: '/cloudalbum/{{ session.env }}/app', retentionInDays: 14 }, op: len_eq, value: 1, label: app 日志组保留 14 天 }
+      - { path: $.logGroups, where: { logGroupName: '/cloudalbum/{{ session.env }}/nginx', retentionInDays: 14 }, op: len_eq, value: 1, label: nginx 日志组保留 14 天 }
+    explain: 日志组默认永不过期，存储费只增不减；本模块用栈参数 RetentionInDays 设置保留期，日志组是 DeletionPolicy Retain 的数据资源。
+    reproduce: { run: 'aws logs describe-log-groups --log-group-name-prefix /cloudalbum/{{ session.env }}/ --query "logGroups[].[logGroupName,retentionInDays]" --output table', runsOn: workstation }
+    manualFallback:
+      where: { breadcrumb: [CloudWatch, 日志组], region: app }
+      observed:
+        question: '/cloudalbum/{{ session.env }}/app 与 /nginx 的“保留”列显示什么？'
+        options:
+          - { value: '14', label: 都是 2 周（14 天）, expected: true }
+          - { value: never, label: 永不过期, fixHint: 重新执行 scripts/module enable logging --param RetentionInDays=14 }
+
+  - id: metric-filters
+    title: 指标过滤器 AppErrors 写入命名空间 CloudAlbum/Logs
+    type: aws-readonly
+    service: logs
+    action: DescribeMetricFilters
+    region: app
+    params: { logGroupName: '/cloudalbum/{{ session.env }}/app' }
+    ownership: { resource: 'arn:aws:logs:{{ session.region }}:{{ session.accountId }}:log-group:/cloudalbum/{{ session.env }}/app', mode: session }
+    drift: { policy: must-hold }
+    assert:
+      - { path: $.metricFilters, where: { filterName: 'cloudalbum-{{ session.env }}-app-errors' }, op: len_eq, value: 1, label: AppErrors 过滤器 }
+      - path: $.metricFilters
+        op: some
+        label: 命名空间 CloudAlbum/Logs
+        value:
+          - { path: $.filterPattern, op: contains, value: '$.level = "error"' }
+          - { path: '$.metricTransformations[0].metricNamespace', op: eq, value: CloudAlbum/Logs }
+    explain: 指标过滤器在摄取时匹配，只对创建之后的日志生效，不回溯。Nginx 日志组上还有 Nginx5xx（status ≥ 500）。
+    reproduce: { run: 'aws logs describe-metric-filters --log-group-name /cloudalbum/{{ session.env }}/app --query "metricFilters[].[filterName,filterPattern]" --output table', runsOn: workstation }
+    manualFallback:
+      where: { breadcrumb: [CloudWatch, 日志组, '/cloudalbum/{{ session.env }}/app', 指标筛选条件], region: app }
+      observed:
+        question: 有名为 cloudalbum-{{ session.env }}-app-errors 的指标筛选条件吗？它写入哪个命名空间？
+        options:
+          - { value: ok, label: 有，命名空间 CloudAlbum/Logs, expected: true }
+          - { value: missing, label: 没有, fixHint: 重新执行 scripts/module enable logging }
+
+  # ---- Logs Insights 与指标
+  - id: metric-nginx5xx
+    title: 指标过滤器 Nginx5xx 生成了指标（5xx 进入了 CloudWatch 指标）
+    type: aws-readonly
+    service: cloudwatch
+    action: ListMetrics
+    region: app
+    params: { Namespace: CloudAlbum/Logs, MetricName: Nginx5xx }
+    ownership: { resource: 'arn:aws:logs:{{ session.region }}:{{ session.accountId }}:log-group:/cloudalbum/{{ session.env }}/nginx', mode: session }
+    wait: { typicalMinutes: 5, maxMinutes: 10 }
+    pendingIf:
+      - { path: $.Metrics, op: len_eq, value: 0 }
+    drift: { policy: once }
+    assert:
+      - { path: $.Metrics, op: len_gte, value: 1, label: CloudAlbum/Logs · Nginx5xx }
+    explain: 指标过滤器挂在本会话的 Nginx 日志组上（归属以日志组为准）；第一次匹配到 status ≥ 500 的行之后，指标才出现在列表中。
+    reproduce: { run: 'aws cloudwatch list-metrics --namespace CloudAlbum/Logs', runsOn: workstation }
+    pitfalls: [metric-filter-no-backfill]
+    manualFallback:
+      where: { breadcrumb: [CloudWatch, 指标, 所有指标, CloudAlbum/Logs], region: app }
+      observed:
+        question: 命名空间 CloudAlbum/Logs 下能看到 Nginx5xx 吗？
+        options:
+          - { value: present, label: 能, expected: true }
+          - { value: absent, label: 看不到, fixHint: 先按手册再注入一次 5xx 并制造几次请求；指标过滤器不回溯接入之前的日志 }
+
+  - id: insights-read
+    title: 说出 Logs Insights 的计费依据
+    type: manual
+    spec:
+      observed:
+        question: 运行保存的查询 cloudalbum-{{ session.env }}/5xx-by-route 之后，结果面板下方的统计里，哪一项是 Logs Insights 的计费依据？
+        options:
+          - { value: scanned, label: 扫描的字节数（Bytes scanned）, expected: true }
+          - { value: matched, label: 匹配的记录数, fixHint: Logs Insights 按扫描量计费；缩小时间范围、只选需要的日志组、先 filter 再 stats 都能减少扫描量 }
+          - { value: duration, label: 查询用时, fixHint: 用时不计费；看统计里的扫描字节 }
+
+  # ---- 选做：CloudWatch Agent
+  - id: agent-running
+    title: CloudWatch Agent 在运行（Shipper=agent）
+    type: local
+    on: lab
+    checkId: systemd-unit
+    args: { unit: amazon-cloudwatch-agent }
+    drift: { policy: must-hold }
+    assert:
+      - { path: $.active, op: eq, value: active, label: 状态 }
+    explain: hostSetup 安装 amazon-cloudwatch-agent，把 logging 片段渲染为 cloudalbum-logging.json 后 append-config；应用只写本地文件。
+
+  # ---- 回收验证
+  - id: logging-stack-gone
+    title: 本会话的 logging 栈已删除
+    type: aws-readonly
+    service: cloudformation
+    action: DescribeStacks
+    region: app
+    params: { StackName: 'cloudalbum-{{ session.env }}-logging' }
+    expectError: ValidationError
+    required: false
+    reproduce: { run: 'aws cloudformation describe-stacks --stack-name cloudalbum-{{ session.env }}-logging', runsOn: workstation }
+    manualFallback:
+      where: { breadcrumb: [CloudFormation, 堆栈], region: app }
+      observed:
+        question: 还能找到 cloudalbum-{{ session.env }}-logging 吗？
+        options:
+          - { value: gone, label: 找不到, expected: true }
+          - { value: present, label: 还在 }
+
+pitfalls:
+  - { id: shipper-backlog, title: 日志流迟迟不出现, match: [ { checkId: nginx-stream-shipped, result: pending } ],
+      cause: 发送器每 LOG_CW_FLUSH_MS（默认 2 秒）发送一批；权限尚未生效或日志组名不一致时会积压, fix: 看 logging 的 detail（积压条数、最近一次失败）；IAM 变更是最终一致的，等一两分钟 }
+  - { id: metric-filter-no-backfill, title: 指标还没有出现, match: [ { checkId: metric-nginx5xx, result: pending } ],
+      cause: 指标过滤器只对创建之后摄取的日志生效，接入之前的 5xx 不会被统计, fix: 再注入一次 5xx 并制造几十次请求，等几分钟 }

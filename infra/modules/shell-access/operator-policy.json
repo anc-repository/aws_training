@@ -1,0 +1,37 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "StartOnTaggedInstances",
+      "Effect": "Allow",
+      "Action": "ssm:StartSession",
+      "Resource": "arn:aws:ec2:${Region}:${AccountId}:instance/*",
+      "Condition": {
+        "StringEquals": { "ssm:resourceTag/Project": "CloudAlbum" },
+        "BoolIfExists": { "ssm:SessionDocumentAccessCheck": "true" }
+      }
+    },
+    {
+      "Sid": "AllowedSessionDocuments",
+      "Effect": "Allow",
+      "Action": "ssm:StartSession",
+      "Resource": [
+        "arn:aws:ssm:${Region}:${AccountId}:document/SSM-SessionManagerRunShell",
+        "arn:aws:ssm:${Region}::document/AWS-StartPortForwardingSession",
+        "arn:aws:ssm:${Region}::document/AWS-StartPortForwardingSessionToRemoteHost"
+      ]
+    },
+    {
+      "Sid": "OwnSessionsOnly",
+      "Effect": "Allow",
+      "Action": ["ssm:TerminateSession", "ssm:ResumeSession"],
+      "Resource": "arn:aws:ssm:*:*:session/${aws:userid}-*"
+    },
+    {
+      "Sid": "ReadOnlyForConsoleAndCli",
+      "Effect": "Allow",
+      "Action": ["ssm:DescribeSessions", "ssm:GetConnectionStatus", "ssm:DescribeInstanceInformation", "ec2:DescribeInstances"],
+      "Resource": "*"
+    }
+  ]
+}

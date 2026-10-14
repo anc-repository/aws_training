@@ -59,7 +59,15 @@ export class FileLogger implements LoggerPort {
     this.ensureOpen();
   }
 
-  private ensureOpen(): PinoLogger {
+  /**
+   * 第二个输出（wave1-logs-ssm）：cloudwatch 驱动在这里接入进程内发送器，拿到与本地文件逐字节相同的 JSON 行
+   * （本地文件照写，总纲 4.2）。file 驱动没有第二个输出。
+   */
+  protected tee(): DestinationStream | undefined {
+    return undefined;
+  }
+
+  protected ensureOpen(): PinoLogger {
     if (this.pino) return this.pino;
     mkdirSync(this.logDir, { recursive: true });
     const dest = pino.destination({ dest: this.file, sync: false, mkdir: true }) as SonicLike;
@@ -68,12 +76,16 @@ export class FileLogger implements LoggerPort {
       this.lastError = e.message;
     });
     this.dest = dest;
+    const extra = this.tee();
+    const out: DestinationStream = extra
+      ? pino.multistream([{ level: 'debug', stream: dest }, { level: 'debug', stream: extra }])
+      : dest;
     this.pino = pino({
       level: 'debug',
       base: { role: this.deps.role, pid: process.pid },
       timestamp: pino.stdTimeFunctions.isoTime,
       formatters: { level: (label) => ({ level: label }) },
-    }, dest);
+    }, out);
     return this.pino;
   }
 

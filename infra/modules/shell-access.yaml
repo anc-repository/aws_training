@@ -1,0 +1,144 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >-
+  CloudAlbum module "shell-access" - AWS Systems Manager Session Manager: the instance policy (SSM Agent core
+  permissions, session log writing, detector read-only calls) and the session log group. Port 22 is closed by
+  scripts/module through the base stack parameter SshIngressCidr (registry baseParams), the region-level session
+  preferences document SSM-SessionManagerRunShell is written out of band (backed up first).
+  docs/modules/05-ops-observability.md#shell-access
+
+Metadata:
+  CloudAlbum:
+    module: shell-access
+    registryVersion: 1
+    # Injected parameters: KmsKeyArn (kms, target "*"). This module injects nothing.
+    # The policy is attached to CloudAlbumAppRole by scripts/module (no Roles / Users here, D2). The operator policy of
+    # section 3 is shipped as a policy document (infra/modules/shell-access/operator-policy.json): a module stack owns
+    # exactly one managed policy (9.1), and the operator attaches it to their own identity.
+
+Parameters:
+  Env:
+    Type: String
+    Default: lab
+    AllowedPattern: '^[a-z][a-z0-9-]{1,15}$'
+  ModuleVersion:
+    Type: String
+    Default: '1'
+  RetentionInDays:
+    Type: Number
+    Default: 30
+    AllowedValues: [1, 3, 5, 7, 14, 30, 60, 90, 120, 150, 180, 365, 400, 545, 731, 1096, 1827, 2192, 2557, 2922, 3288, 3653]
+  KmsKeyArn:
+    Type: String
+    Default: ''
+    Description: Injected by kms. Encrypts the session log group (and session data once scripts/module writes kmsKeyId).
+  ManagedCore:
+    Type: String
+    Default: 'false'
+    AllowedValues: ['true', 'false']
+    Description: >-
+      true = comparison option --param ManagedCore=true: scripts/module attaches the AWS managed policy
+      AmazonSSMManagedInstanceCore instead, and this policy keeps only the session-log and detector permissions
+  CreateLogGroup:
+    Type: String
+    Default: 'true'
+    AllowedValues: ['true', 'false']
+    Description: false = the session log group already exists (retained by an earlier disable) and is reused by name
+
+Conditions:
+  HasKms: !Not [!Equals [!Ref KmsKeyArn, '']]
+  LeastPrivilegeCore: !Equals [!Ref ManagedCore, 'false']
+  CreateGroup: !Equals [!Ref CreateLogGroup, 'true']
+
+Resources:
+  SessionLogGroup:
+    Type: AWS::Logs::LogGroup
+    Condition: CreateGroup
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      LogGroupName: !Sub '/cloudalbum/${Env}/ssm-sessions'
+      LogGroupClass: STANDARD
+      RetentionInDays: !Ref RetentionInDays
+      KmsKeyId: !If [HasKms, !Ref KmsKeyArn, !Ref 'AWS::NoValue']
+      Tags:
+        - { Key: DataClass, Value: logs }
+
+  AppPolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      ManagedPolicyName: !Sub 'cloudalbum-${Env}-shell-access'   # attached by scripts/module (D2)
+      Description: CloudAlbum shell-access module - SSM Agent core (sessions, Run Command), session logs and detector permissions
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - !If
+            - LeastPrivilegeCore
+            - Sid: AgentCore                 # what AmazonSSMManagedInstanceCore grants for sessions and Run Command (no Parameter Store reads)
+              Effect: Allow
+              Action:
+                - ssm:UpdateInstanceInformation
+                - ssm:ListAssociations
+                - ssm:ListInstanceAssociations
+                - ssm:DescribeAssociation
+                - ssm:UpdateInstanceAssociationStatus
+                - ssm:DescribeDocument
+                - ssm:GetDocument
+                - ssmmessages:CreateControlChannel
+                - ssmmessages:CreateDataChannel
+                - ssmmessages:OpenControlChannel
+                - ssmmessages:OpenDataChannel
+                - ec2messages:AcknowledgeMessage
+                - ec2messages:DeleteMessage
+                - ec2messages:FailMessage
+                - ec2messages:GetEndpoint
+                - ec2messages:GetMessages
+                - ec2messages:SendReply
+              Resource: '*'
+            - !Ref 'AWS::NoValue'
+          - Sid: SessionLogsWrite
+            Effect: Allow
+            Action: [logs:CreateLogStream, logs:PutLogEvents]
+            Resource: !Sub 'arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/cloudalbum/${Env}/ssm-sessions:*'
+          - Sid: SessionLogsDescribe           # cannot be scoped to one log group: a specific ARN makes session logging fail silently
+            Effect: Allow
+            Action: [logs:DescribeLogGroups, logs:DescribeLogStreams]
+            Resource: '*'
+          - Sid: DetectorReadOnly
+            Effect: Allow
+            Action: [ssm:DescribeInstanceInformation, ssm:DescribeSessions, ec2:DescribeSecurityGroups]
+            Resource: '*'
+          - Sid: SessionPreferencesRead
+            Effect: Allow
+            Action: ssm:GetDocument
+            Resource: !Sub 'arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:document/SSM-SessionManagerRunShell'
+          - !If
+            - HasKms
+            - Sid: SessionKms
+              Effect: Allow
+              Action: [kms:Decrypt, kms:GenerateDataKey]
+              Resource: !Ref KmsKeyArn
+            - !Ref 'AWS::NoValue'
+
+Outputs:
+  ModuleId:
+    Value: shell-access
+  ModuleVersion:
+    Value: !Ref ModuleVersion
+  PolicyArn:
+    Value: !Ref AppPolicy
+  EnvShellAccessMode:
+    Value: ssm
+  EnvSsmSessionLogGroup:
+    Value: !Sub '/cloudalbum/${Env}/ssm-sessions'
+  EnvSsmSessionRunAs:
+    Value: cloudalbum-ops
+  InfoSessionHistoryUrl:
+    Value: !Sub 'https://${AWS::Region}.console.aws.amazon.com/systems-manager/session-manager/sessions?region=${AWS::Region}'
+  InfoSessionLogsUrl:
+    Value: !Sub 'https://${AWS::Region}.console.aws.amazon.com/cloudwatch/home?region=${AWS::Region}#logsV2:log-groups'
+  InfoOperatorPolicyDocument:
+    Value: infra/modules/shell-access/operator-policy.json
+  InfoManagedCore:
+    Value: !Ref ManagedCore
+  InfoLogGroupReused:
+    Value: !If [CreateGroup, 'false', 'true']

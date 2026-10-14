@@ -2842,3 +2842,70 @@ svc-notification / svc-email。全程没有调用真实 AWS API、没有部署�
 | `npm run build` | 通过 |
 | `npm test` | 只有共享测试失败：experiments/test/manifest.test.ts（列表写死 8 个 MVP 模块）、scripts/labs 的 derive / lint / build 测试（写死 10 张完整卡片与 catalog）——第 1 波各模块新增实验目录、卡片改为可开始所致，见第 5 节 |
 | `npm run smoke:l0` / `smoke:selfhost` | 85 通过 0 失败 / 31 通过 0 失败 |
+
+## wave1-logs-ssm
+
+第 1 波：logging（CloudWatch Logs）与 shell-access（SSM Session Manager）。设计依据 05-ops-observability.md#logging、#shell-access，
+卡片依据 cards/service-cards-3 的 svc-logging、svc-shell-access。全程没有调用真实 AWS API；scripts/module 只用 `--dry-run`。
+
+### 1. 实现内容
+
+| 范围 | 文件 | 内容 |
+|---|---|---|
+| logging 写入侧 | `backend/src/adapters/logging/cloudwatch.ts`、`cw-sender.ts`、`nginx-tail.ts`、`file.ts` | `CwLogger` 继承 `FileLogger`：本地文件照写；`file.ts` 新增 `tee()` 钩子，pino multistream 把与文件逐字节相同的 JSON 行交给进程内发送器。发送器：每 `LOG_CW_FLUSH_MS` 或满约 1 MiB / 5000 条发一批（批内按时间排序、跨度小于 23 小时、单条截断到 256 KiB）；第一次发送前 `CreateLogStream`（已存在则忽略），日志流 `{instanceId}/{role}`（实例身份在发送时求值）；失败按 1～60 秒指数退避；积压超过 `LOG_CW_MAX_BACKLOG` 时丢弃最旧的并计入 dropped，`rejectedLogEventsInfo` 也计入 dropped；在途期间按序号出队。worker 进程另外增量读取 `nginx-access.json`（inode 轮转时先读完 `.1`，被截断时从头读，不完整的行留到下一轮，事件时间取行内 `ts`），转发到 `LOG_CW_GROUP_NGINX` 的 `{instanceId}/access`。`LOG_CW_SHIPPER=agent` 时不启动发送器 |
+| logging 探针 | 同上 | 常规探针不调用 AWS，只看发送器状态：日志组不存在、连续 2 次 AccessDenied → error；发送失败、自上次探针有丢弃、积压接近上限、有积压且 2 分钟没有成功 → degraded（瞬时失败带 `transient`）。深度探针先写 canary（`logging.canary`），用 `FilterLogEvents` 查到后以 `ingestionTime − timestamp` 记摄取延迟；2.5 秒内查不到就在后台继续（最多 90 秒），结果写进以后的 detail；再用 `DescribeLogStreams` 数最近 24 小时的实例数（`data.instances`，即徽章的 `{instances}`）。agent 方式：keys 模式 → error；缓存的 `DescribeLogStreams`（后台刷新，60 秒）与本地文件修改时间比较，文件比摄取新 2 分钟以上 → degraded |
+| logging 只读侧 | `backend/src/adapters/logging/readers.ts`、`lab-routes.ts` | `FileLogReader`：倒序扫描当前文件与 `.1`，扫描上限 50 MiB，返回 `truncated`。`CwLogReader`：requestId、traceId 与关键字走 `FilterLogEvents`（应用行用 `requestId`，Nginx 行用 `rid`），Insights 语句走 `StartQuery`，`results()` 取 `statistics.bytesScanned`；行带 `eventTs` 与 `ingestedAt`。`GET /api/lab/logs` 与 `GET /api/lab/logs/results/:queryId`（仅管理员）的路由模块与 monitoring 的 `lab-routes.ts` 形状相同，**尚未挂载**（第 4 节） |
+| shell-access 感知器 | `backend/src/modules/detectors/shell-access.ts` | ssh：读安全快照的 `sshd` 段（未监听 → error；快照超过 5 分钟 → inferred + degraded）。ssm：从 IMDS 取实例 ID 与安全组，在后台刷新（55 秒有效；常规探针最多等 1.5 秒，深度 2.5 秒）`DescribeInstanceInformation`、`DescribeSecurityGroups`（覆盖 22 的规则，含协议 -1）、`GetDocument SSM-SessionManagerRunShell`；还没有结果 → degraded + transient；AccessDenied 或非 Online → error；22 仍开放、会话首选项的日志组不是本模块的或文档不存在 → degraded；ok 时 detail 含“无管理端口入站”。深度探针并行查 `DescribeSessions`（排除 `ATL-SessionShell*` 与 `atl-<sid>-term-*`）和会话日志流。`observations().port22Open` 是 SEC-003 的输入 |
+| 模板 | `infra/modules/logging.yaml`、`infra/modules/shell-access.yaml` | logging：两个日志组（Retain、STANDARD、保留期参数、可选 KMS、`DataClass=logs` 标签）、指标过滤器 AppErrors、AuthLoginFailed、Nginx5xx（命名空间 `CloudAlbum/Logs`）、4 条 QueryDefinition、一条托管策略；Outputs 有 `EnvLogDriver`、`EnvLogCwShipper`（`!Ref Shipper`）、`EnvLogCwGroupApp`、`EnvLogCwGroupNginx`、`EnvLogCwRetentionDays`、`InfoMetricNamespace`（注入 monitoring 的来源）。shell-access：会话日志组（Retain）与一条托管策略（Agent 核心权限受 `ManagedCore` 条件控制、会话日志写入、DescribeLogGroups 与 DescribeLogStreams 用 `*`、感知器只读、可选 KMS）；Outputs 有 `EnvShellAccessMode`、`EnvSsmSessionLogGroup`、`EnvSsmSessionRunAs`。两个模板都有 `CreateLogGroup(s)` 参数，用于复用保留的日志组。cfn-lint 1.57.2 零发现 |
+| 主机侧 | `infra/modules/logging/{cwagent.json,host-setup.sh}`、`infra/modules/shell-access/{host-setup.sh,session-preferences.json,operator-policy.json}` | logging：sdk 方式什么也不装（并移除残留的 agent 片段）；agent 方式拒绝 keys 模式，按需 `dnf install amazon-cloudwatch-agent`，把片段渲染为 `/opt/aws/amazon-cloudwatch-agent/etc/cloudalbum-logging.json` 后 `append-config`；revert 时还有其他片段就 `remove-config -s`，移除最后一个片段后 `-a stop`。shell-access：创建 `cloudalbum-*` 系统用户与 `/etc/sudoers.d/40-cloudalbum-ops`（`visudo -cf` 校验后安装；只读命令带 NOEXEC，防止 pager 逃逸；restart 只列出具体单元，不用通配），revert 时删除。两个脚本都在本机 AL2023 容器中用桩（visudo、agent-ctl）跑过 apply、revert、重复执行与拒绝分支 |
+| scripts/module hook | `scripts/module-cli/src/module-hooks/{logging,shell-access}.ts` | 见第 2 节 |
+| 对比实验 | `experiments/logging/**`、`experiments/shell-access/**` | logging：`ingest-lag`、`query-compare`、`instance-loss`、`overhead` 是 node 场景，`debug-volume` 是手工实验（`faults/log-level.sh`）；服务端证据都经 `/api/lab/logs` 取得。shell-access：`probe-port`、`session-audit` 是 node 场景（控制面证据经工作台 AWS CLI 只读调用），`ssh-noise`、`private-subnet` 是手工实验 |
+| 卡片 | `labs/svc-logging/**`、`labs/svc-shell-access/**` | lab.yaml v2（status beta，1.0.0）、手册、检查、小测与徽章；与卡片文档的差异写在各自 lab.yaml 的文件头 |
+| 测试 | `backend/test/adapters/aws/{logging-cloudwatch.test.ts,fake-cwlogs.ts}`、`backend/test/modules/detector-shell-access.test.ts`、`backend/test/http/lab-logs.test.ts`、`scripts/module-cli/test/module-hooks-{logging,shell-access}.test.ts`、`experiments/test/logs-ssm.test.ts` | LoggerPort 契约（cloudwatch）与内存 CloudWatch Logs（aws-sdk-client-mock）；感知器（桩 IMDS + mock SDK）；路由（supertest）；hook（dry-run 全流程与桩网关）；实验场景（伪造上下文与 AWS CLI） |
+
+### 2. scripts/module hook
+
+- **logging**：`plan` 总是写出 `LOG_CW_SHIPPER`（优先级：`--param Shipper`、`--set LOG_CW_SHIPPER`、当前值、sdk）；`Shipper=agent` 遇到 keys 模式以退出码 2 拒绝（`DEP-AGENT-ROLE`）。`prepare` 发现 `/cloudalbum/<env>/app` 与 `/nginx` 都已存在（上次 disable 保留下来的）时传 `CreateLogGroups=false` 复用；只存在一个时拒绝，并给出删除命令。disable 时提示保留的日志组与删除命令。
+- **shell-access 的 enable（防锁死顺序）**：`plan` 总是写出 `SHELL_ACCESS_KEEP_SSH`（`--param KeepSsh=true` 或 `--set`）。`prepare` 做 preflight `policy-quota`（ListAttachedRolePolicies，平台策略不计）与 `ssm-session-preferences`（只读），并复用保留的会话日志组。`afterDeploy` 在第 4b 步清空 `SshIngressCidr` 之前执行：① 先把 `PolicyArn` 附加到 CloudAlbumAppRole 并记入 `state.attachments`（第 5 步因此不再重复附加）；`--param ManagedCore=true` 时另外附加 `AmazonSSMManagedInstanceCore`（记为带外资源，平台模式不做）。② 独立模式下经**当前的 ssh 通道**重启 `amazon-ssm-agent`；这里单独构造 SshDeliverer，不用 `ctx.deliverer()`，因为它会被缓存，而同一次运行的第 7 步必须走 SSM。③ 轮询 `PingStatus=Online`（最多 5 分钟），再用 Run Command 冒烟（`id; systemctl is-active cloudalbum-api`）；失败时分离已附加的策略并以退出码 5 中止，22 端口不变。④ 备份并写入 `SSM-SessionManagerRunShell`：已存在则 UpdateDocument `$LATEST` 再 UpdateDocumentDefaultVersion，不存在则 CreateDocument（类型 Session）；kms 注入了 `KmsKeyArn` 时打开 `cloudWatchEncryptionEnabled` 并写 `kmsKeyId`。第一次修改之前的状态记入 `outOfBand`（`previousDefaultVersion`、`existed`）。之后由通用流程关闭 22 端口、经 SSM 投递 hostSetup（创建 `cloudalbum-ops`）并重启。
+- **shell-access 的 disable**：独立模式下 22 已经关闭又没有 `--reopen-ssh` → 拒绝，因为分离策略之后不会剩下任何运维通道。`--reopen-ssh` 先把 `SshIngressCidr` 恢复为记录的原值（运维 IP 变了用 `--param SshIngressCidr=<ip>/32`；不接受 `0.0.0.0/0`），**先用 ssh 验证**：失败就重新关闭 22 并中止，模块仍启用、SSM 通道保留；成功后还原会话首选项（默认版本改回原值；原本不存在则删除），再走通用流程。`afterDisable` 分离 hook 附加的托管策略，删除只由本模块贡献的 `baseParams` 记录，把投递通道改回 ssh。平台模式下 SSM 通道与本模块无关：不带 `--reopen-ssh` 时 22 保持关闭（`keepBaseParams`）。
+- **会话首选项的备份**：独立模式写在 state.json 旁边的 `backup/` 目录（默认 `.cloudalbum/backup/`）；平台模式写到状态桶 `<envName>/backups/ssm-document-SSM-SessionManagerRunShell-<UTC>.json`，内容是 PM-27 的 `{existed, defaultVersion, content}`。两种模式都登记到 `state.backups`。
+- **测试接缝**：`shellAccessDeps`（ssh / SSM 投递、时钟、等待）。
+
+### 3. 设计有歧义时的取舍
+
+1. **LogReader 的细化类型放在适配器目录**（`readers.ts`）：ports 是共享文件，总纲的 `LogReader` 形状不变，细化只追加字段。
+2. **/api/lab/logs 的路由放在 `adapters/logging/lab-routes.ts`**，由集成阶段挂载，与 monitoring 的做法相同。对比实验只经这个端点取服务端证据，工作台不需要 `logs:*` 权限。
+3. **Nginx 访问日志由 logging 自带的读取器转发**（在 worker 进程中），不改 worker 的源站卸载统计（共享代码），两者各读一次同一个文件。读取器启动时从文件末尾开始，不回填。
+4. **应用不按请求写日志行，error5xx 故障也不写应用日志**：查询对比、摄取延迟与卡片第 5 步都基于 Nginx 访问日志（`run` 字段圈定本次实验，`rid` 就是 `X-CloudAlbum-Request-Id`）。保存的查询相应改为 Nginx 组上的“按路由统计 5xx”“按路由统计 p95（`rt`）”“缓存命中（`path`）”，以及两组联合的“单个请求”；卡片第 5 步看 `Nginx5xx`，不看 `AppErrors`。
+5. **保留的日志组与再次 enable**：日志组是 Retain，同名重建会失败，所以 hook 先探测，存在时传 `CreateLogGroups=false` 复用（保留期与加密维持原样）。`--purge` 仍未实现，disable 只打印删除命令。
+6. **CloudWatch Agent 片段的合并**：片段只含 `logs.logs_collected.files`（不写 `agent` 段，也不写 logs 的其他顶层键），渲染后的文件名唯一（`cloudalbum-logging.json`，Agent 内部保存为 `file_cloudalbum-logging.json`）。`append-config` 以文件名区分片段，如果两个模块都叫 `cwagent.json` 会互相覆盖。monitoring 的实现（`cloudalbum-monitoring.json`）与此兼容。registry 的 `cwAgentFragment` 指向的是带 `${LOG_CW_GROUP_*}` 占位符的模板。
+7. **PM-M29（Agent 日志组前缀）**：Agent 写入的是栈创建的 `/cloudalbum/<env>/…` 日志组，不会自己建组，所以不产生“派生日志组”，名称沿用模块文档的写法。
+8. **运维者策略不由栈创建**：9.1 与 templates.test 要求每个模块栈只有一条托管策略，所以 `OperatorPolicy` 改为随发布包提供的策略文档 `infra/modules/shell-access/operator-policy.json`（占位符 `${Region}`、`${AccountId}`），栈输出 `InfoOperatorPolicyDocument`。
+9. **`--keep-ssh` 与 `--managed-core`**：HookArgs 没有这两个选项，改用 `--param KeepSsh=true`（只给 hook 看，不是栈参数）与栈参数 `--param ManagedCore=true`。`--stop-sshd` 没有实现（默认保留 sshd，便于回滚）。
+10. **探针预算**：常规探针 2 秒，深度探针 5 秒（`cli probe --deep` 也是 5 秒）。两个模块的控制面读取都按这个预算设置单次超时与重试，并在后台刷新，避免“首个请求慢就报 error”（2026-10-14 的教训）。
+11. **probe-port 的私网目标**：`--param target=private-ip` 由运行器用 `aws ec2 describe-instances` 查私网地址；安全组的 22 端口规则（`describe-security-group-rules`）是服务端证据。`session-audit` 同样经工作台 AWS CLI 只读调用（实验包不含 AWS SDK，并行阶段也不安装依赖）。
+12. **安全快照没有 `sshd.effective`**：00 的快照脚本目前只写 `listening`、`failures24h`、`recentLogins`，感知器把 `effective` 当作可选字段。
+13. **debug-volume 是手工实验**：本版应用在请求路径上几乎不写 debug 日志，自动化的摄取量对比没有意义；README 写明了步骤和这一点。
+
+### 4. 需要集成阶段处理
+
+- `backend/src/http/app.ts`：把 `adapters/logging/lab-routes.ts` 的 `register(app, c)` 加入 `ROUTE_MODULES`（先于 `routes/lab.ts`）。experiments/logging 的四个 node 场景与卡片的对比实验都依赖 `GET /api/lab/logs`。
+- （可选）`container.close()` 目前只调 `loggerPort.flush()`；如果要停掉发送器与读取器的定时器，可以改为调用 `loggerPort.close?.()`。这些定时器都已 unref，不影响进程退出。
+- `experiments/test/manifest.test.ts` 的“exist for all 8 MVP modules”需要接受第 1 波的实验目录。
+- `scripts/labs/test`：
+  - “10 张完整卡片 / 46 个占位”的数量假设需要更新；
+  - `labs/_catalog/catalog.yaml` 需要重新生成（`npm run labs:catalog`，对应 lint C-2）；
+  - labs:build 的参考推导器不读取单服务卡片声明的 `kind: runtime` 预置，svc-logging 与 svc-monitoring 因此报 DRV-1。scripts/module 的 `plan --start-of` 会读取，所以 labs:derive 只给出 DRV-10 的摘要差异警告。二选一：在 registry 的 logging、monitoring 条目加 `singleRuntime: { featureFlags.lab.faults: true }`，或让 `scripts/labs/src/derive/reference.ts` 对 service 卡片也接受声明的 runtime 项。
+- 把 `ALLOW_PENDING_WAVE1_TEMPLATES` 改为 false（本组两个模板已经就位）。
+- 发布包：`scripts/release` 已按 `experiments/<module>/{lab,faults}/*.sh` 打包，`experiments/logging/faults/log-level.sh` 会自动带上。
+
+### 5. 自测（2026-10-14，Windows 11 / Node 22.14 / Docker 28）
+
+| 命令 | 结果 |
+|---|---|
+| `npm run build` / `npm run lint` / `npm run registry:check` | 通过 / 0 个问题 / OK |
+| backend、module-cli、experiments 的 vitest（含本组新增的 5 个测试文件，约 70 个用例） | 只有 `experiments/test/manifest.test.ts` 的 MVP 数量假设失败（第 4 节）；scripts/labs 另有 4 个数量、catalog 与参考推导器相关的失败（第 4 节） |
+| `npm run smoke:l0` / `smoke:selfhost` | 85 通过 0 失败 / 31 通过 0 失败 |
+| `cfn-lint infra/modules/logging.yaml infra/modules/shell-access.yaml`（1.57.2） | 0 个发现 |
+| `scripts/module enable logging` 与 `enable shell-access`（`--dry-run --with-deps`）、`plan <id> --single --dry-run`、`plan --start-of svc-logging` 与 `svc-shell-access`（`--no-rules`）、`disable … --dry-run`（含预置 state.json 与 `--reopen-ssh`） | 全部退出码 0；shell-access 不带 `--reopen-ssh` 的 disable 按设计以退出码 2 拒绝 |
+| `npm run labs:lint` / `labs:derive` | 两张卡 0 错误 0 警告 / svc-shell-access 通过，svc-logging 只有 DRV-10 摘要差异警告（第 4 节）；全仓库的其余问题来自其他模块的进行中卡片与 `_catalog` |
