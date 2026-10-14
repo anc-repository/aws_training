@@ -1,0 +1,238 @@
+# 起始状态（本地清单）、单价抄录、成本分配标签、接入（预算）、订阅、并排对照、预算动作与回收验证。
+# 判定都取服务端证据：capabilities（cost 感知器的本地估算与 Budgets 读数）、modules.state.json、Budgets / Cost Explorer / SNS 控制面。
+checks:
+  # ---- 起始状态（before 一律 once）
+  - id: cost-local-baseline
+    title: 起始状态：cost 是本地估算，清单里有 EC2 实例
+    type: capability
+    module: cost
+    drift: { policy: once }
+    assert:
+      - { path: $.driver, op: eq, value: local, label: 驱动 }
+      - { path: $.status, op: eq, value: 'off', label: 模块状态（本地实现） }
+      - { path: $.detail, op: contains, value: EC2, label: 本地清单含 EC2 }
+    explain: 本地估算按 registry 的计费维度 × 模块启用时长列出“现在有哪些按小时计费的资源”，不写任何价格；它就是 /lab 顶栏左侧的那行字。
+    reproduce: { run: 'curl -s http://127.0.0.1/api/capabilities | jq ".modules.cost | {driver, status, localHealth, detail}"', runsOn: lab }
+
+  - id: local-blind-spots
+    title: 说出本地清单看不到的费用
+    type: manual
+    spec:
+      observed:
+        question: 下面哪一组费用，本地清单（registry 计费维度 × 启用时长）一定看不到？
+        options:
+          - { value: transfer-and-manual, label: 数据传出等按用量计费的部分，以及在控制台手工创建的资源, expected: true }
+          - { value: ec2, label: 实验机本身的 EC2 实例小时, fixHint: EC2 实例与公网 IPv4 就在清单里 }
+          - { value: rds, label: 经 scripts/module 启用的 RDS, fixHint: 经 scripts/module 启用的按小时计费模块启用即出现在清单里 }
+      input: { label: 再写一类你认为它看不到的费用, pattern: '^.{2,60}$' }
+
+  - id: cost-present
+    title: 应用可达，capabilities 中有 cost（实验时间窗的佐证）
+    type: capability
+    module: cost
+    drift: { policy: once }
+    assert:
+      - { path: $.driver, op: in, value: [local, budgets], label: 驱动 }
+
+  # ---- 单价（选做）
+  - id: cost-rates-estimate
+    title: 填写了注明出处的单价后，本地清单显示“估算”金额
+    type: capability
+    module: cost
+    drift: { policy: once }
+    assert:
+      - { path: $.detail, op: contains, value: 估算, label: detail 含估算 }
+    explain: 只有 cost-rates.yaml 中注明 source（官方定价页 URL）与 retrievedAt（抄录日期）、resource 与 registry 逐字一致的按小时条目才参与估算（CFG-010）。
+
+  - id: cfg010-understood
+    title: 理解为什么没有出处的单价不参与估算
+    type: manual
+    spec:
+      observed:
+        question: 你故意删掉某个条目的 source 后，会发生什么？
+        options:
+          - { value: excluded, label: 这个条目不参与估算，detail 提示“未注明出处”，并出现 CFG-010 警告, expected: true }
+          - { value: default, label: 项目会用内置的默认单价补上, fixHint: 本项目不提供任何默认单价（D14） }
+          - { value: crash, label: 应用拒绝启动, fixHint: CFG-010 是 warn 级规则，不阻止启动 }
+
+  # ---- 成本分配标签
+  - id: tag-active
+    title: 成本分配标签 Project 已激活
+    type: aws-readonly
+    service: ce
+    action: ListCostAllocationTags
+    region: global
+    params: { TagKeys: [Project] }
+    ttl: 30m
+    drift: { policy: once }
+    assert:
+      - { path: $.CostAllocationTags, where: { TagKey: Project, Status: Active }, op: len_eq, value: 1, label: Project 为 Active }
+    explain: 未激活也可以继续：项目预算会一直显示 0，这本身就是观察点。Cost Explorer API 可能按请求计费，检查结果缓存 30 分钟。
+    reproduce: { run: 'aws ce list-cost-allocation-tags --tag-keys Project --region us-east-1', runsOn: workstation }
+    pitfalls: [tag-not-active]
+    manualFallback:
+      where: { breadcrumb: [Billing and Cost Management, 成本分配标签, 用户定义的成本分配标签], region: global }
+      observed:
+        question: Project 标签的状态是什么？
+        options:
+          - { value: active, label: 有效（Active）, expected: true }
+          - { value: inactive, label: 无效或找不到, fixHint: 执行平台动作“激活成本分配标签”；新标签键要一段时间才能激活，激活后还要一段时间才生效 }
+
+  # ---- 接入
+  - id: cost-wired
+    title: cost 已切换到 AWS Budgets（订阅确认前可以等待）
+    type: capability
+    module: cost
+    wait: { typicalMinutes: 3, maxMinutes: 15 }
+    pendingIf:
+      - { path: $.status, op: eq, value: degraded }
+      - { path: $.detail, op: contains, value: 订阅未确认 }
+    drift: { policy: must-hold, monitor: true }
+    assert:
+      - { path: $.driver, op: eq, value: budgets, label: 驱动 }
+    anyOf:
+      - [ { path: $, op: healthy, label: 状态正常 } ]
+      - [ { path: $.status, op: eq, value: degraded, label: 状态为 degraded }, { path: $.detail, op: contains, value: 尚未生效, label: 原因是成本分配标签尚未生效 } ]
+    explain: 成本分配标签尚未生效不是规则表中的 warn，会话内通常等不到，这里用 anyOf 显式允许这一种 degraded；订阅未确认是等待型（pendingIf）。
+    reproduce: { run: 'curl -s http://127.0.0.1/api/capabilities | jq ".modules.cost | {driver, status, detail}"', runsOn: lab }
+    pitfalls: [cost-subscription-pending]
+
+  - id: cost-healthy-or-tag-pending
+    title: cost 为 AWS Budgets，正常或只因成本分配标签尚未生效而降级
+    type: capability
+    module: cost
+    drift: { policy: must-hold }
+    assert:
+      - { path: $.driver, op: eq, value: budgets, label: 驱动 }
+    anyOf:
+      - [ { path: $, op: healthy, label: 状态正常 } ]
+      - [ { path: $.status, op: eq, value: degraded, label: 状态为 degraded }, { path: $.detail, op: contains, value: 尚未生效, label: 原因是成本分配标签尚未生效 } ]
+
+  - id: cost-module-state
+    title: modules.state.json 记录 cost 已启用（budgets）
+    type: local
+    on: lab
+    checkId: module-state
+    args: { module: cost }
+    drift: { policy: must-hold }
+    assert:
+      - { path: $.modules.cost.enabled, op: eq, value: true, label: 已启用 }
+      - { path: $.modules.cost.driver, op: eq, value: budgets, label: 驱动 }
+    explain: cost 是纯基础设施型模块，不在请求路径上；接入的证据是模块状态加上控制面中本会话创建的预算（下一项）。
+    reproduce: { run: 'sudo cloudalbum module-state --module cost --json', runsOn: lab }
+
+  - id: budgets-exist
+    title: 本会话的项目预算与账号预算都存在，按月
+    type: aws-readonly
+    service: budgets
+    action: DescribeBudgets
+    region: global
+    params: { AccountId: '{{ session.accountId }}' }
+    ownership: { resource: 'arn:aws:budgets::{{ session.accountId }}:budget/cloudalbum-{{ session.env }}-project-monthly', mode: session, createdAfter: session.readyAt }
+    drift: { policy: must-hold }
+    assert:
+      - { path: $.Budgets, where: { BudgetName: 'cloudalbum-{{ session.env }}-project-monthly', TimeUnit: MONTHLY, BudgetType: COST }, op: len_eq, value: 1, label: 项目预算 }
+      - { path: $.Budgets, where: { BudgetName: 'cloudalbum-{{ session.env }}-account-monthly', TimeUnit: MONTHLY, BudgetType: COST }, op: len_eq, value: 1, label: 账号预算 }
+    explain: 预算是 cost 模块栈的成员（CloudFormation 创建），归属由栈成员关系确认；Budgets 是全局服务，读取走 us-east-1。
+    reproduce: { run: 'aws budgets describe-budgets --account-id {{ session.accountId }} --query "Budgets[].[BudgetName,TimeUnit,BudgetLimit.Amount]"', runsOn: workstation }
+    manualFallback:
+      where: { breadcrumb: [Billing and Cost Management, 预算], region: global }
+      observed:
+        question: 能看到 cloudalbum-{{ session.env }}-project-monthly 与 cloudalbum-{{ session.env }}-account-monthly 两个月度预算吗？
+        options:
+          - { value: both, label: 两个都在, expected: true }
+          - { value: missing, label: 缺少一个或都没有, fixHint: 重新执行 scripts/module enable cost（带上两个金额） }
+
+  # ---- 订阅
+  - id: cost-subscription-confirmed
+    title: cost 主题有已确认的邮件订阅
+    type: aws-readonly
+    service: sns
+    action: ListSubscriptionsByTopic
+    region: app
+    params: { TopicArn: '{{ var.costTopicArn }}' }
+    ownership: { resource: '{{ var.costTopicArn }}', mode: session, createdAfter: session.readyAt }
+    wait: { typicalMinutes: 2, maxMinutes: 15 }
+    pendingIf:
+      - { path: $.Subscriptions, where: { SubscriptionArn: PendingConfirmation }, op: len_gte, value: 1 }
+    drift: { policy: must-hold }
+    assert:
+      - { path: $.Subscriptions, where: { SubscriptionArn: { op: startsWith, value: 'arn:' }, Protocol: email }, op: len_gte, value: 1, label: 已确认的邮件订阅 }
+    explain: 预算通知同时发给邮箱与 cost 主题；主题的邮件订阅要收件人点击确认链接后才投递。
+    reproduce: { run: 'aws sns list-subscriptions-by-topic --topic-arn "{{ var.costTopicArn }}" --query "Subscriptions[].[Protocol,SubscriptionArn]"', runsOn: workstation }
+    pitfalls: [cost-subscription-pending]
+    manualFallback:
+      where: { breadcrumb: [SNS, 主题, 'cloudalbum-{{ session.env }}-cost', 订阅], region: app }
+      observed:
+        question: 邮件订阅的状态是什么？
+        options:
+          - { value: confirmed, label: 已确认, expected: true }
+          - { value: pending, label: 等待确认, fixHint: 到邮箱找 AWS Notification - Subscription Confirmation 邮件，点击确认链接 }
+
+  - id: cost-subscription-manual
+    title: 我已在邮箱中点击了订阅确认链接
+    type: manual
+    spec:
+      confirm: 我已在 {{ learner.inputs.notify-email }} 的邮箱中找到 cost 主题的 “AWS Notification - Subscription Confirmation” 并点击了确认链接
+
+  # ---- 并排对照
+  - id: two-sides-recorded
+    title: 记录同一时刻本地清单与 Budgets 两侧的数值与差异原因
+    type: manual
+    spec:
+      observed:
+        question: 同一时刻两侧不一致，最主要的原因是？
+        options:
+          - { value: lag, label: Budgets 依据的账单数据有数小时到一天的延迟，本地清单启用即出现, expected: true }
+          - { value: broken, label: 预算配置错了, fixHint: 先看 Budgets 的“上次更新”时间；新账号或刚启用的资源通常还没有账单数据 }
+          - { value: price, label: 本地清单用了不同的单价, fixHint: 本地清单默认不显示金额，只有你注明出处抄录的单价才参与估算 }
+      input: { label: 两侧的数值（例如“本地 3 项按小时资源；项目预算实际 0.00”）, pattern: '^.{4,120}$' }
+
+  # ---- 预算动作（选做）
+  - id: budget-action-canary
+    title: 项目预算上有一个只作用于金丝雀角色的“附加 IAM 策略”动作
+    type: aws-readonly
+    service: budgets
+    action: DescribeBudgetActionsForBudget
+    region: global
+    params: { AccountId: '{{ session.accountId }}', BudgetName: 'cloudalbum-{{ session.env }}-project-monthly' }
+    drift: { policy: once }
+    assert:
+      - { path: $.Actions, where: { ActionType: APPLY_IAM_POLICY }, op: len_eq, value: 1, label: 附加 IAM 策略的动作 }
+      - { path: '$.Actions[0].Definition.IamActionDefinition.Roles[0]', op: eq, value: 'cloudalbum-{{ session.env }}-cost-canary', label: 目标是金丝雀角色 }
+      - { path: '$.Actions[0].Definition.IamActionDefinition.PolicyArn', op: endsWith, value: ':policy/AWSDenyAll', label: 拒绝策略 }
+    explain: 预算属于本会话的 cost 栈（budgets-exist 已确认归属）；动作只附加 AWSDenyAll 到一个没有任何组件使用的金丝雀角色，绝不指向应用角色或实验机。
+    reproduce: { run: 'aws budgets describe-budget-actions-for-budget --account-id {{ session.accountId }} --budget-name cloudalbum-{{ session.env }}-project-monthly', runsOn: workstation }
+    manualFallback:
+      where: { breadcrumb: [Billing and Cost Management, 预算, 'cloudalbum-{{ session.env }}-project-monthly', 操作], region: global }
+      observed:
+        question: 预算动作的类型与目标是什么？
+        options:
+          - { value: canary, label: 应用 IAM 策略，目标角色 cloudalbum-…-cost-canary, expected: true }
+          - { value: none, label: 没有动作, fixHint: 以 --param EnableBudgetAction=true 重新执行 scripts/module enable cost }
+
+  # ---- 回收验证
+  - id: cost-stack-gone
+    title: 本会话的 cost 栈已删除
+    type: aws-readonly
+    service: cloudformation
+    action: DescribeStacks
+    region: app
+    params: { StackName: 'cloudalbum-{{ session.env }}-cost' }
+    expectError: ValidationError
+    required: false
+    reproduce: { run: 'aws cloudformation describe-stacks --stack-name cloudalbum-{{ session.env }}-cost', runsOn: workstation }
+    manualFallback:
+      where: { breadcrumb: [CloudFormation, 堆栈], region: app }
+      observed:
+        question: 列表中还能找到 cloudalbum-{{ session.env }}-cost 吗？
+        options:
+          - { value: gone, label: 找不到, expected: true }
+          - { value: present, label: 还在 }
+
+pitfalls:
+  - { id: tag-not-active, title: 成本分配标签还没有生效, match: [ { checkId: tag-active, result: fail } ],
+      cause: 新的标签键要过一段时间才出现在可激活列表，激活后还要一段时间才生效（以官方文档为准）；Organizations 成员账号只能由管理账号激活,
+      fix: 执行平台动作“激活成本分配标签”，最好提前一天；未激活也可以继续，项目预算会显示 0 }
+  - { id: cost-subscription-pending, title: 订阅还没有确认, match: [ { checkId: cost-wired, result: pending }, { checkId: cost-subscription-confirmed, result: pending } ],
+      cause: SNS 的邮件订阅要收件人点击确认链接后才投递, fix: 到邮箱（含垃圾邮件箱）找确认邮件并点击 }

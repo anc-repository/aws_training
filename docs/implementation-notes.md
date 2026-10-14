@@ -2909,3 +2909,77 @@ svc-notification / svc-email。全程没有调用真实 AWS API、没有部署�
 | `cfn-lint infra/modules/logging.yaml infra/modules/shell-access.yaml`（1.57.2） | 0 个发现 |
 | `scripts/module enable logging` 与 `enable shell-access`（`--dry-run --with-deps`）、`plan <id> --single --dry-run`、`plan --start-of svc-logging` 与 `svc-shell-access`（`--no-rules`）、`disable … --dry-run`（含预置 state.json 与 `--reopen-ssh`） | 全部退出码 0；shell-access 不带 `--reopen-ssh` 的 disable 按设计以退出码 2 拒绝 |
 | `npm run labs:lint` / `labs:derive` | 两张卡 0 错误 0 警告 / svc-shell-access 通过，svc-logging 只有 DRV-10 摘要差异警告（第 4 节）；全仓库的其余问题来自其他模块的进行中卡片与 `_catalog` |
+
+## wave1-cw-budgets
+
+第 1 波：monitoring（Amazon CloudWatch：自定义指标、告警、仪表板）与 cost（AWS Budgets + Cost Explorer）。设计依据
+05-ops-observability.md#monitoring、06-governance-cost.md#cost，卡片依据 cards/service-cards-3 的 svc-monitoring、svc-cost。
+全程没有调用真实 AWS API；scripts/module 只用 `--dry-run`；没有安装任何依赖；没有编造任何价格。
+
+### 1. 实现内容
+
+| 范围 | 文件 | 内容 |
+|---|---|---|
+| monitoring 写入侧 | `backend/src/adapters/monitoring/{cloudwatch.ts,cw-buffer.ts,emf.ts}` | `CwMetrics` 继承 `LocalMetrics`：本地 rollup 照写（`/lab` 与本地告警不变），另外缓冲一份按分钟上报。`putmetricdata` 方式：`PutMetricData` 批量（每批 ≤150 个 datum、≤200 KB），延迟类用 `Values/Counts`（CloudWatch 能算 p95/p99）；单个序列超过 150 个不同值后按对数分桶（每个二倍程 4 桶）压缩。`emf` 方式：按 EMF 文档经 TCP 写给 CloudWatch Agent（`METRICS_CW_EMF_ENDPOINT`，默认 `tcp://127.0.0.1:25888`），requestId、pathSig、runId 只作属性不作维度。维度白名单 `Route/Module/Driver/Outcome/Job`，路由最多 50 个，其余归入 `other`（控制基数与费用）。每分钟补写 `AppHeartbeat`（api）与 `WorkerHeartbeat`（worker），供 AWS 侧的“心跳缺失”告警使用。上报失败按 `withAwsRetry`（2 次、5 秒预算）重试，不阻塞请求路径 |
+| monitoring 探针 | `cloudwatch.ts`、`local.ts` | 常规探针不调用 PutMetricData：还没有上报过 → ok + inferred（“等待首次上报”，首个探针不判错）；连续 2 次 AccessDenied → error；积压超过 2 个上报周期 → degraded；keys 模式 → degraded；SNS `GetTopicAttributes`（60 秒缓存）`SubscriptionsPending>0` → degraded“订阅未确认：告警只在控制台可见”。Agent 状态取安全快照 `host.units['amazon-cloudwatch-agent']`，快照没有这个单元时记为 unknown（第 4 节）。深度探针：`DescribeAlarms`（前缀过滤）缺少 `app-heartbeat`/`worker-heartbeat` → error、`INSUFFICIENT_DATA` 超过 10 分钟 → degraded；写 `LabProbe` 并用 `GetMetricData` 读回；查 `CWAgent mem_used_percent` 是否有数据。local 驱动的探针读取本地评估器心跳，超过 2 个周期没有运行 → degraded“本地告警沉默” |
+| 本地告警评估器 | `backend/src/adapters/monitoring/{alert-rules.ts,alert-evaluator.ts}` | L0 的“告警”：`<envDir>/alerts.yaml`（不存在时用内置 6 条：5xx 比例、p95 延迟、数据盘、内存、api 心跳、错误日志），规则类型 ratio/quantile/gauge/absent/sum，数据来自本地 rollup 与 `lab_host_samples`。在 worker 中运行，`LockPort` 单例（`monitoring.alerts`），状态变化写 `alert_events`，并发站内通知（`monitoring.alarm`，事件 ID 取哈希去重）与邮件；心跳写 `system_meta`。第一次评估在一个周期之后。导出 `startAlertEvaluator(c, signal)` 供 worker 挂载 |
+| monitoring 只读侧 | `backend/src/adapters/monitoring/{reader.ts,lab-routes.ts}` | `LocalMetricsReader`（alert_events、rollup、主机采样）与 `CloudWatchMetricsReader`（`DescribeAlarms`、`DescribeAlarmHistory`、`GetMetricData`，60 秒缓存）。`GET /api/lab/monitoring/{alarms,history,series}` 与 `/synthetic`（合成 5xx，见第 3 节）仅管理员可用，**尚未挂载**（第 4 节）。对比实验的服务端证据都经这些端点取得 |
+| cost 本地估算 | `backend/src/adapters/cost/estimate.ts` | `estimateCost()`：EC2 实例按运行时长、已启用模块按 registry `billing` 与 `modules.state.json` 的启停记录累计本月小时；`cost-rates.yaml` 只接受注明 https 出处（`source`）与抄录日期（`retrievedAt`）、`resource` 与 registry 逐字一致的条目，只对 `unit: hour` 计算金额；没有单价时 detail 只列资源与小时数，明确写“不显示金额”。平台模式另列工作台自身的计费项（不估算） |
+| cost 读取与提醒 | `backend/src/adapters/cost/{budgets.ts,idle.ts,lab-routes.ts}` | `BudgetsReader`：Budgets 与 Cost Explorer 客户端固定 us-east-1；`DescribeBudget`（60 秒缓存）、`ListCostAllocationTags`（30 分钟）、订阅状态；`GetCostAndUsage` 不带确认就抛 `ConfirmationRequired`，结果缓存 12 小时，按 `Module` 标签分组并计算无标签占比。空开提醒：按小时计费的模块连续运行超过 `COST_LOCAL_IDLE_HOURS` 且没有实验活动、或超过 `COST_LOCAL_HOURS_BUDGET` 的 80%/100% 时发通知（`cost.idle`，每资源每天、每级每月一次），worker 中 `LockPort` 单例。`GET /api/lab/cost`、`POST /api/lab/cost/refresh`（未带 `{confirm:"ce-charges"}` → 428；local → 409 `COST_MODE_LOCAL`；`COST_CE_QUERY=off` → 409），**尚未挂载** |
+| cost 感知器 | `backend/src/modules/detectors/cost.ts` | local：本地估算作为 detail（输入有问题 → degraded）。budgets：没有凭证 → degraded + inferred（CRED-004）；AccessDenied 或预算不存在 → error；瞬时失败 → degraded + transient；订阅未确认 → degraded；深度探针查成本分配标签，`Project` 未激活 → degraded“尚未生效”；超支只写进 detail（护栏告警由 Budgets 发出，不是模块故障） |
+| 模板 | `infra/modules/monitoring.yaml`、`infra/modules/cost.yaml` | monitoring：模块自带的 SNS 主题 `cloudalbum-<env>-ops-alarms`（主题策略允许 CloudWatch、AWS Backup 发布，带 SourceAccount 条件；可选 KMS；邮件订阅），23 个指标告警与 1 个复合告警（`cloudalbum-<env>-<name>`）（EC2 状态检查含 recover 动作、CPU、CPU 积分、内存、数据盘、5xx 比例（指标数学）、p95、`app-heartbeat`/`worker-heartbeat`（`TreatMissingData: breaching`）、复合告警 `app-unhealthy`、错误日志，以及按注入参数条件创建的 ALB/RDS/ElastiCache/SQS/Lambda/API Gateway/Step Functions 告警），仪表板 `CloudAlbum-<env>-Overview`，emf 方式的日志组，一条托管策略（`PutMetricData` 限定命名空间 `CloudAlbum/App` 与 `CWAgent`）。cost：主题（只允许 `budgets.amazonaws.com`，带 SourceAccount/SourceArn）、项目预算（`TagKeyValue user:Project$CloudAlbum`、`IncludeCredit: false`、实际与预测通知）、账号预算、可选的预算动作（`EnableBudgetAction=true` 时把 `AWSDenyAll` 附加到无人使用的金丝雀角色，支持 `PermissionsBoundaryArn`）、一条只读托管策略。预算金额没有默认值。两个模板 cfn-lint 1.57.2 零发现；没有 Export/ImportValue；Outputs 为 `PolicyArn`、`Env*`、`Info*` |
+| 主机侧 | `infra/modules/monitoring/{cwagent.json,cwagent-emf.json,host-setup.sh}` | 只在 `modules.d/iam.env` 为 `IAM_CREDENTIALS=role` 时安装 Agent；片段渲染为 `cloudalbum-monitoring.json`（与 logging 的 `cloudalbum-logging.json` 文件名不同，`append-config` 不会互相覆盖）；内存、数据盘（`InstanceId+path`）与 ASG 聚合维度；emf 方式另加 `cloudalbum-monitoring-emf.json`。revert 时 `remove-config`，没有其他片段时停止 Agent |
+| scripts/module hook | `scripts/module-cli/src/module-hooks/{monitoring,cost}.ts` | 第 2 节 |
+| 对比实验 | `experiments/monitoring/**`、`experiments/cost/**` | monitoring：`time-to-alert`、`kill-test`、`mem-visibility`、`resolution` 是 node 场景，`notify-path` 是手工实验；故障脚本 `faults/{stop-app,stop-instance,cpu-spike}.sh`。cost：`visibility-lag`、`tag-coverage` 是 node 场景，`threshold-alert`、`idle-reminder`、`budget-action-canary` 是手工实验 |
+| 卡片 | `labs/svc-monitoring/**`、`labs/svc-cost/**` | lab.yaml v2（status beta，1.0.0）、手册、检查、小测与徽章；与卡片文档的差异写在各自 lab.yaml 的文件头 |
+| 测试 | `backend/test/adapters/aws/monitoring-cloudwatch.test.ts`、`backend/test/adapters/monitoring-local-alerts.test.ts`、`backend/test/modules/detector-cost.test.ts`、`backend/test/http/lab-monitoring-cost.test.ts`、`scripts/module-cli/test/module-hooks-{monitoring,cost}.test.ts`、`experiments/test/monitoring-cost.test.ts` | 7 个文件 72 个用例：MetricsPort 契约（aws-sdk-client-mock）、EMF 文档、评估器、感知器状态机、路由（supertest）、hook dry-run 与桩网关、实验场景 |
+
+### 2. scripts/module hook
+
+- **monitoring**：`plan` 校验 `Mode`（putmetricdata|emf）与 `AlertEmail`（不合法 → 退出码 2）；`Mode=emf` 遇到 keys 模式以退出码 2 拒绝（EMF 需要 Agent 与实例角色）；没有 `AlertEmail` 时提示“告警只在控制台与 /lab 可见”；计费提示只说明计费维度，不给金额。`afterDeploy` 用 `GetTopicAttributes` 检查订阅是否待确认，并打印仪表板链接。disable 时提示：已上报的自定义指标不能删除，只能按保留期过期；告警、仪表板与主题随栈删除；`DetailedMonitoring` 随 baseParams 改回 false。
+- **cost**：`plan` 校验 `ProjectBudgetLimit`、`AccountBudgetLimit`（正数，没有默认值）、`AlertEmail` 与 `EnableBudgetAction`；缺少金额时只输出计划并给出提示（不替学员决定预算）。`prepare` 做只读 preflight `ListCostAllocationTags`（只警告）。`afterDeploy` 激活成本分配标签 `Project`、`Module`（`ce:UpdateCostAllocationTagsStatus`，记入 `state.outOfBand`）；平台模式下学员与控制台身份跳过并提示平台动作 `cost-activate-tags`，只有 provisioner 执行。disable 不停用标签（停用会破坏按标签分组的历史）。
+- 两个 hook 都没有 `planHints`：labs:derive 的 DRV-6 会把 hook 的计划警告当作“未声明的 expectedWarnings”，改为 notes 输出。
+
+### 3. 设计有歧义时的取舍
+
+1. **路由放在适配器目录**（`adapters/monitoring/lab-routes.ts`、`adapters/cost/lab-routes.ts`），由集成阶段挂载，与 logging 的做法相同；读取器类型放在 `adapters/monitoring/reader.ts`（ports 是共享文件）。
+2. **成本估算放在 `adapters/cost/estimate.ts`**，不是总纲写的 `services/cost-estimate.ts`（services 是共享目录）。
+3. **CwMetrics 接入 LabMetricsStore 的方式**：共享的 `LabMetricsStore` 没有观察者接口，`CwMetrics.init()` 用 `Symbol.for('cloudalbum.monitoring.cwTap')` 防重复地包装 `recordRequest`/`onCall`，不改共享代码；集成阶段可以换成正式的订阅接口。
+4. **EMF 自己拼文档**，不引入 `aws-embedded-metrics`（并行阶段不安装依赖）；只支持 TCP 端点。
+5. **time-to-alert 的故障源是合成 5xx 端点** `/api/lab/monitoring/synthetic?rate&status`，不用共享的 error5xx 故障：后者作用于所有路由，`healthcheck.sh` 看到 `/api/health/*` 失败会重启 api，实验因此测不到告警。判定只看服务端记录的告警状态变化（本地 `alert_events`、CloudWatch `DescribeAlarmHistory`），不看客户端响应头。
+6. **长时间的故障脱离运行器执行**：运行器对故障脚本有 300 秒超时，`stop-app.sh` 用 `systemd-run --on-active` 安排自动恢复，`stop-instance.sh` 用 `nohup` 后台执行并 `trap` 恢复（实例 ID 自动发现或 `--param instanceId`）。
+7. **kill-test 的 phase 约束在场景内检查**（平台模式 before/after 只接受 `phase=service`，`--label stop-instance` 只接受 `phase=instance`）：experiment.json 的参数模式无法表达随 label 变化的约束，所以违反时场景以错误退出（退出码 1，不是参数校验的 2）。
+8. **探针“首次不判错”**：还没有上报、SNS 查询失败、Budgets 瞬时失败都给 degraded（transient）或 ok + inferred，不给 error；控制面读取都有超时与缓存（2026-10-14 的教训）。
+9. **Agent 状态未知**：安全快照的单元列表没有 `amazon-cloudwatch-agent`，探针记为 unknown，只在深度探针里用 `CWAgent` 指标是否有数据来判断；卡片的 `agent-active` 检查用本机 `systemd-unit` 检查。
+10. **Cost Explorer 必须显式确认**：应用不轮询；`POST /api/lab/cost/refresh` 需要确认词 `ce-charges`；实验 `tag-coverage` 需要 `--param confirmCharges=yes`。
+11. **cost-rates.yaml 采用文档格式** `{currency, region, entries: [...]}`，同时兼容 `rates: [...]` 与顶层数组；共享的 `load-env.ts`（CFG-010 的输入）目前只读 `rates` 与顶层数组（第 4 节）。
+12. **预算动作只指向金丝雀角色**（`AWSDenyAll`），默认关闭；卡片第 8 步只核对配置（`DescribeBudgetActionsForBudget`），不等待触发。
+13. **卡片步骤拆分**：svc-monitoring 第 2、6 步各含两个实验，拆成 `baseline-alert`/`baseline-kill`/`after-alert`/`after-kill`；“停实例”是单独的选做步骤并声明 `expectedOutage`。svc-cost 的 visibility-lag 改为“同一时刻两侧快照”。
+14. **学员输入变量不写 `fillFrom`**（`projectBudgetLimit`、`accountBudgetLimit`）：labs:lint 遇到带 `fillFrom` 的变量会崩溃（第 4 节）。
+
+### 4. 需要集成阶段处理
+
+- `backend/src/http/app.ts`：把 `adapters/monitoring/lab-routes.ts` 与 `adapters/cost/lab-routes.ts` 的 `register(app, c)` 加入 `ROUTE_MODULES`（先于 `routes/lab.ts`）。monitoring 的四个 node 实验与 cost 的两个实验都依赖这些端点。
+- `backend/src/worker.ts`：调用 `startAlertEvaluator(c, signal)`（`adapters/monitoring/alert-evaluator.ts`）与 `startCostIdle(c, signal)`（`adapters/cost/lab-routes.ts`）。不挂载时 local 驱动的探针会报“本地告警沉默”（degraded）。
+- `backend/src/container.ts`：cost 的感知器只在 `COST_MODE=budgets` 时被 capabilities 调用（`sourceFor` 要求 enabled）。卡片检查 `cost-local-baseline` 需要 local 模式下也有估算 detail：请在创建感知器之后加 `caps.registerProbe('cost', (o) => costDet.detect(o))`（`costDet` 即 `costDetectorOf(container)` 取到的实例），或让 capabilities 对 `type: infra` 的模块在 local 时也调用感知器。
+- `infra/host/security-snapshot.sh`：单元列表加入 `amazon-cloudwatch-agent`（探针与 `/lab` 才能看到 Agent 状态）。
+- （建议）error5xx 故障豁免 `/api/health/*` 与 `/api/lab/*`，否则与 `healthcheck.sh` 的自动重启冲突。
+- `backend/src/config/load-env.ts`：cost-rates 解析同时接受文档格式的 `entries`，并尊重 `COST_RATES_FILE`（否则 CFG-010 看不到 `entries` 格式的条目）。
+- scripts/module 公共部分：增加 `cost activate-allocation-tags --keys …` 子命令（调用 `module-hooks/cost.ts` 的 `activateCostAllocationTags`），作为平台动作 `cost-activate-tags` 的执行体。
+- `scripts/labs/src/lint/card.ts` 第 608 行：`lintVariables` 在声明 `const inputs` 之前调用 `checkExpr`，任何带 `fillFrom` 的变量都会触发 TDZ 错误。
+- `scripts/labs/src/derive/cli.ts` 第 63 行把 runtime 项的 `value` 转成字符串，scripts/module 的摘要用的是布尔值 `true`，所以带 `featureFlags.lab.faults` 的卡片（svc-logging、svc-monitoring）报 DRV-10 摘要差异警告。
+- 数量假设：`experiments/test/manifest.test.ts`（8 个 MVP 模块）、`scripts/labs/test`（10 张完整卡片 / 46 个占位）；`labs/_catalog/catalog.yaml` 需要 `npm run labs:catalog`（C-2）。
+- `scripts/module-cli/test/helpers.ts`：`ALLOW_PENDING_WAVE1_TEMPLATES` 可以改为 false（本组两个模板已经就位）。
+- git 可执行位：`infra/modules/monitoring/host-setup.sh` 与 `experiments/monitoring/faults/*.sh` 已用 `git update-index --chmod=+x` 登记。
+
+### 5. 自测（2026-10-14，Windows 11 / Node 22.14）
+
+| 命令 | 结果 |
+|---|---|
+| `npm run build` / `npm run lint` / `npm run registry:check` | 通过 / 0 个问题 / OK（2 个既有警告） |
+| backend vitest | 61 个文件 798 个用例全部通过 |
+| module-cli、experiments、atl-labs-tools 的 vitest | 本组 7 个测试文件 72 个用例全部通过；失败的只有第 4 节列出的数量假设、catalog 与 DRV-10 相关的 5 个共享用例 |
+| `npm run smoke:l0` / `smoke:selfhost` | 85 通过 0 失败 / 31 通过 0 失败 |
+| `cfn-lint infra/modules/monitoring.yaml infra/modules/cost.yaml`（1.57.2） | 0 个发现 |
+| `scripts/module enable monitoring --with-deps --dry-run`、`enable cost --dry-run`、`disable … --dry-run`、`plan <id> --single --dry-run`、`plan --start-of svc-monitoring`/`svc-cost` | 全部退出码 0（monitoring 不带 `--with-deps` 时按设计以 CRED-001 退出码 2 拒绝） |
+| `npm run labs:lint` / `labs:derive` | 全仓库只剩 `_catalog` 的 C-2；svc-cost 通过，svc-monitoring 只有 DRV-10 摘要差异警告（第 4 节） |

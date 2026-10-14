@@ -1,0 +1,59 @@
+checks:
+  - id: exp-tta-before
+    title: time-to-alert 的 before（只有本地评估器）有一条有效结果
+    type: experiment
+    module: monitoring
+    experiment: time-to-alert
+    label: before
+    accept: [valid]
+
+  - id: exp-kill-before
+    title: kill-test 的 before（停服务，本地评估器）有一条有效结果
+    type: experiment
+    module: monitoring
+    experiment: kill-test
+    label: before
+    accept: [valid]
+
+  - id: exp-tta-pair
+    title: time-to-alert 的 before 与 after 都有效且可比
+    type: experiment
+    module: monitoring
+    experiment: time-to-alert
+    pair: [before, after]
+    accept: [valid]
+
+  - id: exp-kill-pair
+    title: kill-test 的 before 与 after（都只停服务）都有效且可比
+    type: experiment
+    module: monitoring
+    experiment: kill-test
+    pair: [before, after]
+    accept: [valid]
+
+  - id: exp-stop-instance
+    title: kill-test 的一次性变体 stop-instance（停实例）有一条有效结果
+    type: experiment
+    module: monitoring
+    experiment: kill-test
+    label: stop-instance
+    required: false
+    accept: [valid]
+
+  - id: exp-mem-visibility
+    title: mem-visibility 的 after 有一条有效结果
+    type: experiment
+    module: monitoring
+    experiment: mem-visibility
+    label: after
+    required: false
+    accept: [valid]
+
+  - id: exp-resolution
+    title: resolution 的 after 有一条有效结果
+    type: experiment
+    module: monitoring
+    experiment: resolution
+    label: after
+    required: false
+    accept: [valid]

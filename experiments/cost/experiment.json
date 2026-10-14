@@ -1,0 +1,81 @@
+{
+  "$schema": "../_lib/schema/experiment.schema.json",
+  "module": "cost",
+  "title": "cost：本地估算（快而粗）vs AWS Budgets / Cost Explorer（准而慢）（docs/modules/06-governance-cost.md#cost 第 5 节）",
+  "default": "visibility-lag",
+  "experiments": [
+    {
+      "module": "cost",
+      "id": "visibility-lag",
+      "title": "可见性时延（同一时刻的快照）：计费资源在本地清单中“启用即出现”，在 Budgets / Cost Explorer 中滞后",
+      "kind": "functional",
+      "doc": "docs/modules/06-governance-cost.md#cost",
+      "description": "读取 GET /api/lab/cost：本地清单（registry 计费维度 × 启用时长）与两个预算的实际 / 预测 / 上限。--param refreshCe=true 且 --param confirmCharges=yes 时再调用一次 POST /api/lab/cost/refresh（ce:GetCostAndUsage，按请求计费，12 小时内复用缓存），看本地清单里的每个模块在 Cost Explorer 中是否已经有费用。不写任何价格。",
+      "requires": {
+        "before": { "cost.driver": "local" },
+        "after": { "cost.driver": "budgets", "cost.status": ["ok", "degraded"] }
+      },
+      "labels": {
+        "before": { "title": "本地估算", "role": "baseline" },
+        "after": { "title": "本地估算 + AWS Budgets", "role": "treatment" }
+      },
+      "scenario": { "tool": "node", "script": "visibility-lag.ts", "vus": 1, "duration": "2m" },
+      "params": {
+        "refreshCe": { "type": "boolean", "default": false, "description": "是否调用一次 Cost Explorer（按请求计费）" },
+        "confirmCharges": { "type": "string", "default": "", "enum": ["", "yes"], "description": "refreshCe=true 时必须为 yes：确认这次调用按请求计费" }
+      },
+      "metrics": ["biz.local_hourly_items", "biz.local_module_items", "biz.budgets_project_actual", "biz.ce_modules_with_cost", "biz.modules_not_yet_in_ce"],
+      "expect": [
+        { "metric": "biz.local_module_items", "direction": "flat", "note": "本地清单启用即出现，切换前后都在（budgets 档本地估算继续运行）" }
+      ]
+    },
+    {
+      "module": "cost",
+      "id": "tag-coverage",
+      "title": "标签覆盖：Cost Explorer 按 Module 标签分组，“无标签”一组的占比；项目预算与账号预算的差额",
+      "kind": "functional",
+      "doc": "docs/modules/06-governance-cost.md#cost",
+      "description": "调用一次 POST /api/lab/cost/refresh（ce:GetCostAndUsage，本月按天、按 Module 标签分组；按请求计费，必须 --param confirmCharges=yes；12 小时内复用缓存），并读取两个预算。",
+      "requires": {
+        "after": { "cost.driver": "budgets", "cost.status": ["ok", "degraded"] }
+      },
+      "labels": { "after": { "title": "AWS Budgets + Cost Explorer", "role": "single" } },
+      "scenario": { "tool": "node", "script": "tag-coverage.ts", "vus": 1, "duration": "2m" },
+      "params": {
+        "confirmCharges": { "type": "string", "default": "", "enum": ["", "yes"], "description": "必须为 yes：确认这次调用按请求计费" },
+        "force": { "type": "boolean", "default": false, "description": "忽略 12 小时缓存再调用一次（同样按请求计费）" }
+      },
+      "metrics": ["biz.untagged_share_pct", "biz.ce_groups", "biz.project_account_gap"],
+      "expect": [
+        { "metric": "biz.untagged_share_pct", "direction": "up-or-flat", "note": "不带标签的费用只进入账号预算；标签激活之前的费用不按标签分组" }
+      ]
+    },
+    {
+      "module": "cost",
+      "id": "threshold-alert",
+      "title": "阈值告警：把项目预算设得很小，等待“实际花费超过 80%”的邮件与 SNS 消息（受账单数据刷新节奏影响，可能要到第二天）",
+      "kind": "functional",
+      "doc": "docs/modules/06-governance-cost.md#cost",
+      "description": "手工实验（见 README）：账单数据至少每天更新一次，会话内通常等不到。",
+      "scenario": { "tool": "manual" }
+    },
+    {
+      "module": "cost",
+      "id": "idle-reminder",
+      "title": "空开提醒：按小时计费的模块连续启用超过 COST_LOCAL_IDLE_HOURS 且没有实验时，站内信与邮件提醒",
+      "kind": "functional",
+      "doc": "docs/modules/06-governance-cost.md#cost",
+      "description": "手工实验（见 README）：需要一个按小时计费的模块空开 1 小时以上（local.override.env 中临时设 COST_LOCAL_IDLE_HOURS=1）。",
+      "scenario": { "tool": "manual" }
+    },
+    {
+      "module": "cost",
+      "id": "budget-action-canary",
+      "title": "预算动作：超过阈值时把 AWSDenyAll 附加到金丝雀角色（只看配置；触发同样受账单数据延迟影响）",
+      "kind": "functional",
+      "doc": "docs/modules/06-governance-cost.md#cost",
+      "description": "手工实验（见 README）：scripts/module enable cost --param EnableBudgetAction=true，再用 AWS CLI 查看动作配置。",
+      "scenario": { "tool": "manual" }
+    }
+  ]
+}

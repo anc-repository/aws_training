@@ -1,0 +1,310 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >-
+  CloudAlbum module "cost" - AWS Budgets guardrails: a monthly project budget filtered by the Project cost allocation tag and a
+  monthly account budget, actual / forecasted threshold notifications to e-mail and the module's own SNS topic, and an optional
+  Budgets Action that only touches a canary role. docs/modules/06-governance-cost.md#cost
+
+Metadata:
+  CloudAlbum:
+    module: cost
+    registryVersion: 1
+    # Budgets are global resources; this stack is deployed in AWS_REGION (CRED-003 exception for cost). The application reads the
+    # budgets (budgets:ViewBudget) and, only on an explicitly confirmed manual refresh, Cost Explorer (billed per request).
+    # Out of band (scripts/module, deployer identity): cost allocation tags Project and Module are activated
+    # (ce:UpdateCostAllocationTagsStatus; a platform action in platform mode) and are never deactivated on disable.
+    # Amounts: ProjectBudgetLimit / AccountBudgetLimit have NO default - the learner chooses them; this project quotes no price.
+    # Injected parameter: KmsKeyArn (kms; the key policy must allow budgets.amazonaws.com to use it).
+
+Parameters:
+  Env:
+    Type: String
+    Default: lab
+    AllowedPattern: '^[a-z][a-z0-9-]{1,15}$'
+  ModuleVersion:
+    Type: String
+    Default: '1'
+  ProjectBudgetLimit:
+    Type: String
+    AllowedPattern: '^[0-9]{1,6}(\.[0-9]{1,2})?$'
+    Description: Monthly limit of the project budget (Project=CloudAlbum) in the billing currency. No default - choose it yourself.
+  AccountBudgetLimit:
+    Type: String
+    AllowedPattern: '^[0-9]{1,6}(\.[0-9]{1,2})?$'
+    Description: Monthly limit of the account budget (no filter; catches untagged costs). No default - choose it yourself.
+  BudgetCurrency:
+    Type: String
+    Default: USD
+    AllowedPattern: '^[A-Z]{3}$'
+  AlertEmail:
+    Type: String
+    Default: ''
+    Description: E-mail subscriber of both budgets and of the cost topic (the topic subscription must be confirmed). Empty = SNS only.
+  ActualThresholdPercent:
+    Type: Number
+    Default: 80
+    MinValue: 1
+    MaxValue: 1000
+  ForecastThresholdPercent:
+    Type: Number
+    Default: 100
+    MinValue: 1
+    MaxValue: 1000
+  EnableBudgetAction:
+    Type: String
+    Default: 'false'
+    AllowedValues: ['true', 'false']
+    Description: Demonstrates Budgets Actions on a canary role that nothing uses (never on CloudAlbumAppRole or the instance)
+  ActionThresholdPercent:
+    Type: Number
+    Default: 100
+    MinValue: 1
+    MaxValue: 1000
+  TagKey:
+    Type: String
+    Default: Project
+  TagValue:
+    Type: String
+    Default: CloudAlbum
+  KmsKeyArn:
+    Type: String
+    Default: ''
+    Description: Injected by kms. Empty = the cost topic is not encrypted with a CMK.
+  PermissionsBoundaryArn:
+    Type: String
+    Default: ''
+    Description: Platform mode (06 PM-29) - workload boundary of the roles created here; empty in standalone mode.
+
+Conditions:
+  HasEmail: !Not [!Equals [!Ref AlertEmail, '']]
+  HasKms: !Not [!Equals [!Ref KmsKeyArn, '']]
+  EnableAction: !Equals [!Ref EnableBudgetAction, 'true']
+  HasBoundary: !Not [!Equals [!Ref PermissionsBoundaryArn, '']]
+
+Resources:
+  # ------------------------------------------------------------------------------------------------ SNS (module-owned)
+  CostTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: !Sub 'cloudalbum-${Env}-cost'
+      DisplayName: CloudAlbum cost guardrails
+      KmsMasterKeyId: !If [HasKms, !Ref KmsKeyArn, !Ref 'AWS::NoValue']
+
+  CostTopicPolicy:
+    Type: AWS::SNS::TopicPolicy
+    Properties:
+      Topics: [!Ref CostTopic]
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: AllowBudgets                       # without it budget notifications to the topic fail silently
+            Effect: Allow
+            Principal: { Service: budgets.amazonaws.com }
+            Action: sns:Publish
+            Resource: !Ref CostTopic
+            Condition:
+              StringEquals: { 'aws:SourceAccount': !Ref 'AWS::AccountId' }
+              ArnLike: { 'aws:SourceArn': !Sub 'arn:${AWS::Partition}:budgets::${AWS::AccountId}:*' }
+          - Sid: AccountOwner
+            Effect: Allow
+            Principal: { AWS: !Sub 'arn:${AWS::Partition}:iam::${AWS::AccountId}:root' }
+            Action: [sns:GetTopicAttributes, sns:Subscribe, sns:ListSubscriptionsByTopic]
+            Resource: !Ref CostTopic
+
+  CostEmailSubscription:
+    Type: AWS::SNS::Subscription
+    Condition: HasEmail
+    Properties:
+      TopicArn: !Ref CostTopic
+      Protocol: email
+      Endpoint: !Ref AlertEmail
+
+  # ------------------------------------------------------------------------------------------------ budgets
+  ProjectBudget:
+    Type: AWS::Budgets::Budget
+    DependsOn: CostTopicPolicy
+    Properties:
+      Budget:
+        BudgetName: !Sub 'cloudalbum-${Env}-project-monthly'
+        BudgetType: COST
+        TimeUnit: MONTHLY
+        BudgetLimit:
+          Amount: !Ref ProjectBudgetLimit
+          Unit: !Ref BudgetCurrency
+        # cost allocation tag filter (user-defined tags: user:<key>$<value>; the tag must be activated - see Metadata)
+        CostFilters:
+          TagKeyValue:
+            - !Sub 'user:${TagKey}$${TagValue}'
+        # credits would hide the real usage of new accounts (credit-based free plan): never count them
+        CostTypes:
+          IncludeCredit: false
+      NotificationsWithSubscribers:
+        - Notification:
+            NotificationType: ACTUAL
+            ComparisonOperator: GREATER_THAN
+            Threshold: !Ref ActualThresholdPercent
+            ThresholdType: PERCENTAGE
+          Subscribers:
+            - { SubscriptionType: SNS, Address: !Ref CostTopic }
+            - !If [HasEmail, { SubscriptionType: EMAIL, Address: !Ref AlertEmail }, !Ref 'AWS::NoValue']
+        - Notification:
+            NotificationType: FORECASTED
+            ComparisonOperator: GREATER_THAN
+            Threshold: !Ref ForecastThresholdPercent
+            ThresholdType: PERCENTAGE
+          Subscribers:
+            - { SubscriptionType: SNS, Address: !Ref CostTopic }
+            - !If [HasEmail, { SubscriptionType: EMAIL, Address: !Ref AlertEmail }, !Ref 'AWS::NoValue']
+      ResourceTags:
+        - { Key: Project, Value: CloudAlbum }
+        - { Key: Module, Value: cost }
+        - { Key: Env, Value: !Ref Env }
+
+  AccountBudget:
+    Type: AWS::Budgets::Budget
+    DependsOn: CostTopicPolicy
+    Properties:
+      Budget:
+        BudgetName: !Sub 'cloudalbum-${Env}-account-monthly'
+        BudgetType: COST
+        TimeUnit: MONTHLY
+        BudgetLimit:
+          Amount: !Ref AccountBudgetLimit
+          Unit: !Ref BudgetCurrency
+        CostTypes:
+          IncludeCredit: false
+      NotificationsWithSubscribers:
+        - Notification:
+            NotificationType: ACTUAL
+            ComparisonOperator: GREATER_THAN
+            Threshold: !Ref ActualThresholdPercent
+            ThresholdType: PERCENTAGE
+          Subscribers:
+            - { SubscriptionType: SNS, Address: !Ref CostTopic }
+            - !If [HasEmail, { SubscriptionType: EMAIL, Address: !Ref AlertEmail }, !Ref 'AWS::NoValue']
+        - Notification:
+            NotificationType: FORECASTED
+            ComparisonOperator: GREATER_THAN
+            Threshold: !Ref ForecastThresholdPercent
+            ThresholdType: PERCENTAGE
+          Subscribers:
+            - { SubscriptionType: SNS, Address: !Ref CostTopic }
+            - !If [HasEmail, { SubscriptionType: EMAIL, Address: !Ref AlertEmail }, !Ref 'AWS::NoValue']
+      ResourceTags:
+        - { Key: Project, Value: CloudAlbum }
+        - { Key: Module, Value: cost }
+        - { Key: Env, Value: !Ref Env }
+
+  # ------------------------------------------------------------------------------------------------ optional Budgets Action (canary only)
+  # A role that nothing uses: no instance profile, nobody can assume it. The action attaches the AWS managed AWSDenyAll policy
+  # to it when the project budget crosses ActionThresholdPercent - the guardrail never points at CloudAlbumAppRole or the instance.
+  CanaryRole:
+    Type: AWS::IAM::Role
+    Condition: EnableAction
+    Properties:
+      RoleName: !Sub 'cloudalbum-${Env}-cost-canary'
+      Description: CloudAlbum cost module - Budgets Actions canary (used by nothing)
+      PermissionsBoundary: !If [HasBoundary, !Ref PermissionsBoundaryArn, !Ref 'AWS::NoValue']
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal: { Service: ec2.amazonaws.com }   # no instance profile is ever created for it
+            Action: sts:AssumeRole
+
+  BudgetsActionRole:
+    Type: AWS::IAM::Role
+    Condition: EnableAction
+    Properties:
+      RoleName: !Sub 'cloudalbum-${Env}-cost-budgets-action'
+      Description: CloudAlbum cost module - execution role of the Budgets Action (may only attach / detach AWSDenyAll on the canary role)
+      PermissionsBoundary: !If [HasBoundary, !Ref PermissionsBoundaryArn, !Ref 'AWS::NoValue']
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal: { Service: budgets.amazonaws.com }
+            Action: sts:AssumeRole
+            Condition:
+              StringEquals: { 'aws:SourceAccount': !Ref 'AWS::AccountId' }
+      Policies:
+        - PolicyName: canary-only
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: [iam:AttachRolePolicy, iam:DetachRolePolicy]
+                Resource: !GetAtt CanaryRole.Arn
+                Condition:
+                  ArnEquals: { 'iam:PolicyARN': !Sub 'arn:${AWS::Partition}:iam::aws:policy/AWSDenyAll' }
+
+  CanaryBudgetAction:
+    Type: AWS::Budgets::BudgetsAction
+    Condition: EnableAction
+    Properties:
+      BudgetName: !Ref ProjectBudget
+      NotificationType: ACTUAL
+      ActionType: APPLY_IAM_POLICY
+      ActionThreshold:
+        Type: PERCENTAGE
+        Value: !Ref ActionThresholdPercent
+      ExecutionRoleArn: !GetAtt BudgetsActionRole.Arn
+      ApprovalModel: AUTOMATIC
+      Definition:
+        IamActionDefinition:
+          PolicyArn: !Sub 'arn:${AWS::Partition}:iam::aws:policy/AWSDenyAll'
+          Roles: [!Ref CanaryRole]
+      Subscribers:
+        - { Type: SNS, Address: !Ref CostTopic }
+
+  # ------------------------------------------------------------------------------------------------ application policy (attached by scripts/module, D2)
+  AppPolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      ManagedPolicyName: !Sub 'cloudalbum-${Env}-cost'
+      Description: CloudAlbum cost module - read the two budgets, cost allocation tag status, Cost Explorer (manual refresh only), probe
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: ViewOwnBudgets                    # actual / forecast / limit (DescribeBudget)
+            Effect: Allow
+            Action: budgets:ViewBudget
+            Resource: !Sub 'arn:${AWS::Partition}:budgets::${AWS::AccountId}:budget/cloudalbum-${Env}-*'
+          - Sid: CostExplorerRead                  # GetCostAndUsage is billed per request: only after an explicit confirmation
+            Effect: Allow
+            Action: [ce:GetCostAndUsage, ce:GetCostForecast, ce:ListCostAllocationTags]
+            Resource: '*'
+          - Sid: ProbeTopic
+            Effect: Allow
+            Action: sns:GetTopicAttributes
+            Resource: !Ref CostTopic
+
+Outputs:
+  ModuleId:
+    Value: cost
+  ModuleVersion:
+    Value: !Ref ModuleVersion
+  PolicyArn:
+    Value: !Ref AppPolicy
+  EnvCostMode:
+    Value: budgets
+  EnvCostBudgetNames:
+    Value: !Sub '${ProjectBudget},${AccountBudget}'
+  EnvCostTopicArn:
+    Value: !Ref CostTopic
+  EnvCostTagKey:
+    Value: !Ref TagKey
+  EnvCostTagValue:
+    Value: !Ref TagValue
+  EnvCostCeQuery:
+    Value: manual
+  InfoProjectBudgetName:
+    Value: !Ref ProjectBudget
+  InfoAccountBudgetName:
+    Value: !Ref AccountBudget
+  InfoBudgetsConsoleUrl:
+    Value: https://console.aws.amazon.com/billing/home#/budgets
+  InfoCostTopicName:
+    Value: !GetAtt CostTopic.TopicName
+  InfoCanaryRoleName:
+    Condition: EnableAction
+    Value: !Ref CanaryRole

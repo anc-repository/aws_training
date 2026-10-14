@@ -7,6 +7,7 @@ import type { AdapterDeps } from '../types.js';
 import type { AdapterMeta, ProbeResult } from '../../ports/common.js';
 import type { Dims, MetricsPort } from '../../ports/metrics.js';
 import { LogHistogram } from '../../observability/lab-metrics.js';
+import { readEvaluatorHeartbeat } from './alert-evaluator.js';
 
 const DIM_KEYS = ['route', 'module', 'driver', 'outcome', 'job'] as const;
 const MAX_SERIES = 2000;
@@ -77,10 +78,22 @@ export class LocalMetrics implements MetricsPort {
 
   async probe(_opts?: { deep?: boolean }): Promise<ProbeResult> {
     const lab = this.deps.labMetrics?.status();
-    const data = { series: this.seriesCount(), droppedSeries: this.droppedSeries, ...(lab ? { labMetrics: lab } : {}) };
+    // 本地告警评估器（worker 内循环）的最近一次评估：评估器把心跳写进 system_meta，api 进程的探针在这里读取。
+    // 评估器从未运行过（例如开发机只起了 api）时不降级；运行过、但超过 2 个周期没有再评估（worker 停了或拿不到锁）→ degraded。
+    const ev = this.deps.db ? await readEvaluatorHeartbeat(this.deps.db).catch(() => null) : null;
+    const data = {
+      series: this.seriesCount(), droppedSeries: this.droppedSeries, ...(lab ? { labMetrics: lab } : {}), ...(ev ? { localEvaluator: ev } : {}),
+    };
     if (lab?.lastFlushError) {
       return { status: 'degraded', detail: `本地指标库落库失败：${lab.lastFlushError}`, data };
     }
-    return { status: 'ok', detail: `本地指标库（LabMetricsStore，始终开启）+ /lab 图表 · 自定义指标 ${this.seriesCount()} 条序列`, data };
+    if (ev) {
+      const ageSec = Math.round((Date.now() - Date.parse(ev.at)) / 1000);
+      if (ageSec > 2 * ev.intervalSec + 5) {
+        return { status: 'degraded', detail: `本地告警评估器已 ${ageSec} 秒没有运行（worker 停了或拿不到锁）：本地告警沉默`, data };
+      }
+    }
+    const evText = ev ? ` · 本地评估器 ${ev.rules} 条规则，最近评估 ${ev.at}` : '';
+    return { status: 'ok', detail: `本地指标库（LabMetricsStore，始终开启）+ /lab 图表 · 自定义指标 ${this.seriesCount()} 条序列${evText}`, data };
   }
 }

@@ -1,0 +1,79 @@
+# 小测（atl.quiz/v1，04 §3.2.11）：答案只保存在平台端；成绩只记录在徽章上，不影响完成
+schema: atl.quiz/v1
+version: 1.0.0
+questions:
+  - id: cost-forecast-by-tag
+    domain: cost
+    type: single
+    kind: scenario
+    services: [budgets]
+    stem: 财务要求在某个项目的月度费用“预计”将超出预算时提前收到邮件，并能按项目区分费用。最合适的做法是？
+    options:
+      - { id: a, text: 在 us-east-1 创建 CloudWatch EstimatedCharges 告警 }
+      - { id: b, text: 激活项目的成本分配标签，用 AWS Budgets 按该标签建成本预算，并配置“预测花费超过 100%”的通知 }
+      - { id: c, text: 每天在 Cost Explorer 中手工查看 }
+      - { id: d, text: 使用 AWS Trusted Advisor 的成本检查 }
+    answer: [b]
+    explain: Budgets 支持按成本分配标签筛选，并能基于预测发出告警（需要足够的用量历史才会生成预测）；EstimatedCharges 不能按标签区分，也不做预测；Trusted Advisor 只给优化建议。
+    relatesTo: enable
+    difficulty: 1
+  - id: cost-tag-missing
+    domain: cost
+    type: single
+    kind: scenario
+    services: [cost-explorer]
+    stem: 给资源打上 Project 标签后，在 Cost Explorer 中按 Project 分组却看不到任何费用。最可能的原因是？
+    options:
+      - { id: a, text: 标签值里含有中文 }
+      - { id: b, text: 用户定义的标签必须先在 Billing 中激活为成本分配标签，激活有延迟，且不追溯激活前的费用 }
+      - { id: c, text: 需要为实例开启详细监控 }
+      - { id: d, text: 资源必须部署在 us-east-1 }
+    answer: [b]
+    explain: 只有激活后的成本分配标签才会出现在成本数据的分组中，并且从激活生效之后开始累计。
+    relatesTo: tags
+    difficulty: 1
+  - id: cost-budget-action
+    domain: cost
+    type: single
+    kind: scenario
+    services: [budgets]
+    stem: 一个开发账号要求在月度花费超过阈值时，自动阻止开发者继续创建资源，而不仅仅是发通知。最合适的是？
+    options:
+      - { id: a, text: 配置 AWS Budgets Actions，在超过阈值时附加拒绝策略（IAM 策略或 SCP） }
+      - { id: b, text: 创建 CloudWatch 告警并配置 terminate 动作 }
+      - { id: c, text: 启用 Cost Anomaly Detection }
+      - { id: d, text: 购买预留实例 }
+    answer: [a]
+    explain: Budgets Actions 可以附加 IAM 策略或 SCP、停止 EC2 / RDS 实例；它依据的账单数据有延迟，适合作为月度护栏。B 只能作用于单个实例；C 只做异常检测与通知；D 与阻止创建无关。
+    relatesTo: budget-action
+    difficulty: 2
+  - id: cost-credits
+    domain: cost
+    type: single
+    kind: concept
+    services: [budgets]
+    stem: 一个使用抵扣额度的新账号设置了月度成本预算，几周来净花费一直接近 0、从未告警，但额度在快速减少。应如何调整预算？
+    options:
+      - { id: a, text: 把预算类型改为用量预算 }
+      - { id: b, text: 在预算的成本类型中不计入抵扣额度（credits） }
+      - { id: c, text: 把告警阈值改为 1% }
+      - { id: d, text: 改用 CloudWatch 账单告警 }
+    answer: [b]
+    explain: 计入抵扣额度时，额度会把费用抵成 0，预算看到的是净额；不计入抵扣额度，才能看到真实用量。阈值再低也看不到被抵掉的部分。
+    relatesTo: enable
+    difficulty: 2
+  - id: cost-hourly-resources
+    domain: cost
+    type: multi
+    kind: concept
+    services: [budgets]
+    stem: 实验结束后哪两类资源即使“没有流量”也会继续按小时计费，最需要记得关掉？
+    options:
+      - { id: a, text: 未关联也未释放的公网 IPv4（弹性 IP） }
+      - { id: b, text: NAT Gateway }
+      - { id: c, text: 没有对象的 S3 桶 }
+      - { id: d, text: 没有订阅的 SNS 主题 }
+    answer: [a, b]
+    explain: 公网 IPv4 与 NAT Gateway 都按小时计费，与流量无关；空桶与空主题没有按小时费用。本地清单正是按“哪些资源按小时计费”列出的。
+    relatesTo: orient
+    difficulty: 1

@@ -1,0 +1,80 @@
+# 小测（atl.quiz/v1，04 §3.2.11）：答案只保存在平台端；成绩只记录在徽章上，不影响完成
+schema: atl.quiz/v1
+version: 1.0.0
+questions:
+  - id: monitoring-memory-metric
+    domain: performance
+    type: single
+    kind: scenario
+    services: [cloudwatch]
+    stem: 运维希望 EC2 实例内存使用率超过 90% 时告警，却在 CloudWatch 控制台的 AWS/EC2 命名空间里找不到内存指标。应该怎么做？
+    options:
+      - { id: a, text: 为实例开启详细监控 }
+      - { id: b, text: 在实例上安装 CloudWatch Agent 采集 mem_used_percent，再对该指标创建告警 }
+      - { id: c, text: 启用 CloudTrail 并创建指标过滤器 }
+      - { id: d, text: 使用 AWS Compute Optimizer }
+    answer: [b]
+    explain: EC2 只提供虚拟化层可见的指标（CPU、网络、磁盘 I/O、状态检查），内存与文件系统使用率必须由操作系统内的 Agent 上报；详细监控只提高粒度，不增加内存指标。
+    relatesTo: mem-visibility
+    difficulty: 1
+  - id: monitoring-heartbeat-missing
+    domain: resilient
+    type: single
+    kind: scenario
+    services: [cloudwatch]
+    stem: 应用每分钟上报一次心跳自定义指标。实例停止后，心跳告警一直停留在 INSUFFICIENT_DATA，没有发出通知。应如何修改？
+    options:
+      - { id: a, text: 改为 10 秒的高分辨率指标 }
+      - { id: b, text: 把告警的 TreatMissingData 设为 breaching }
+      - { id: c, text: 改用复合告警 }
+      - { id: d, text: 为实例开启详细监控 }
+    answer: [b]
+    explain: TreatMissingData 默认是 missing，数据缺失时告警不会进入 ALARM；心跳类告警要把“缺数据”视为违规。其他选项都不改变缺数据时的判定。
+    relatesTo: after-kill
+    difficulty: 1
+  - id: monitoring-recover-action
+    domain: resilient
+    type: multi
+    kind: scenario
+    services: [cloudwatch, ec2]
+    stem: 一台只使用 EBS 的 t3 实例偶发底层硬件故障。要求自动恢复实例并通知运维，同时不希望应用 5xx 升高触发恢复动作。应选择哪两项？
+    options:
+      - { id: a, text: 在 StatusCheckFailed_System 告警上配置 EC2 recover 动作 }
+      - { id: b, text: 让同一个告警同时通知 SNS 主题 }
+      - { id: c, text: 在复合告警上配置 recover 动作 }
+      - { id: d, text: 在 Http5xx 告警上配置 reboot 动作 }
+      - { id: e, text: 在 CPUUtilization 告警上配置 terminate 动作 }
+    answer: [a, b]
+    explain: 系统状态检查失败对应 AWS 侧的硬件或宿主问题，recover 会在新硬件上恢复同一实例；复合告警只能执行通知类动作；D、E 会被应用层问题误触发。
+    relatesTo: enable
+    difficulty: 2
+  - id: monitoring-cardinality
+    domain: cost
+    type: single
+    kind: concept
+    services: [cloudwatch]
+    stem: 开发者把 userId 作为自定义指标的维度上报请求耗时，月底 CloudWatch 费用明显上涨。最主要的原因是？
+    options:
+      - { id: a, text: PutMetricData 请求次数增加 }
+      - { id: b, text: 每个不同的维度组合都是一个单独计费的自定义指标，高基数维度让指标数暴涨 }
+      - { id: c, text: 指标保留期变长 }
+      - { id: d, text: 告警的评估频率提高 }
+    answer: [b]
+    explain: 自定义指标按“指标名 + 维度组合”计数计费；userId、requestId 这类高基数字段只能放在日志或 EMF 属性里，不能当维度。
+    relatesTo: enable
+    difficulty: 2
+  - id: monitoring-percentile
+    domain: performance
+    type: single
+    kind: concept
+    services: [cloudwatch]
+    stem: 应用以统计集（StatisticValues：SampleCount、Sum、Min、Max）上报请求耗时，却无法对它创建 p95 告警。应该怎么改？
+    options:
+      - { id: a, text: 把告警周期改为 1 分钟 }
+      - { id: b, text: 改为上报原始值（Values / Counts 数组）或逐条上报，CloudWatch 才能计算百分位 }
+      - { id: c, text: 开启详细监控 }
+      - { id: d, text: 改用复合告警 }
+    answer: [b]
+    explain: 统计集只保留汇总量，丢失了分布，算不出百分位；上报原始分布（Values / Counts）或 EMF 逐条记录才能用 p95、p99 这类扩展统计。
+    relatesTo: after-alert
+    difficulty: 2

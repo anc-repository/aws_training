@@ -1,0 +1,765 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >-
+  CloudAlbum module "monitoring" - Amazon CloudWatch custom metrics (PutMetricData or EMF), alarms evaluated on the AWS side,
+  the module's own SNS topic cloudalbum-<env>-ops-alarms and the CloudAlbum-<env>-Overview dashboard.
+  docs/modules/05-ops-observability.md#monitoring
+
+Metadata:
+  CloudAlbum:
+    module: monitoring
+    registryVersion: 1
+    # Base context: InstanceId (ec2 base stack outputs). Empty = no EC2 status / CPU / CWAgent alarms (e.g. DEPLOY_MODE=asg,
+    # where AsgName is injected instead).
+    # Injected parameters (all optional, default ''; D2 - only the providers declare injects):
+    #   KmsKeyArn (kms), LogErrorsNamespace (logging), AlbFullName / TargetGroupFullName (load-balancer), AsgName (autoscaling),
+    #   DbInstanceId (database), CacheReplicationGroupId (cache), QueueName / DlqName (queue), ThumbFunctionName (image-processing),
+    #   SocialApiId (social-api), StateMachineArn (workflow).
+    # This module injects EnvMetricsCwAlarmTopicArn into audit and backup (AlarmTopicArn).
+    # The CloudWatch Agent fragment (memory, disk; EMF listener) is delivered by infra/modules/monitoring/host-setup.sh.
+
+Parameters:
+  Env:
+    Type: String
+    Default: lab
+    AllowedPattern: '^[a-z][a-z0-9-]{1,15}$'
+  ModuleVersion:
+    Type: String
+    Default: '1'
+  InstanceId:
+    Type: String
+    Default: ''
+    Description: Base context (ec2 stack output). Empty = no per-instance alarms.
+  AlertEmail:
+    Type: String
+    Default: ''
+    Description: E-mail subscription of the ops-alarms topic (the recipient must confirm it). Empty = no subscription.
+  Mode:
+    Type: String
+    Default: putmetricdata
+    AllowedValues: [putmetricdata, emf]
+    Description: putmetricdata = batched PutMetricData; emf = Embedded Metric Format through the local CloudWatch Agent (needs role)
+  DetailedMonitoring:
+    Type: String
+    Default: 'false'
+    AllowedValues: ['true', 'false']
+    Description: Mirrors the base stack parameter (registry baseParams); 1-minute EC2 metrics, billed separately
+  CpuHighThreshold:
+    Type: Number
+    Default: 80
+    MinValue: 1
+    MaxValue: 100
+  CpuCreditsLowThreshold:
+    Type: Number
+    Default: 20
+    MinValue: 0
+  MemHighThreshold:
+    Type: Number
+    Default: 90
+    MinValue: 1
+    MaxValue: 100
+  DiskHighThreshold:
+    Type: Number
+    Default: 85
+    MinValue: 1
+    MaxValue: 100
+  ErrorRateThreshold:
+    Type: Number
+    Default: 0.05
+    MinValue: 0
+    MaxValue: 1
+    Description: app-5xx-rate (Http5xx / Requests per minute, 3 of 5 datapoints)
+  P95LatencyThresholdMs:
+    Type: Number
+    Default: 1000
+    MinValue: 1
+  KmsKeyArn:
+    Type: String
+    Default: ''
+    Description: Injected by kms. Customer managed key only (aws/sns cannot be used by CloudWatch alarms); the key policy must allow cloudwatch.amazonaws.com.
+  LogErrorsNamespace:
+    Type: String
+    Default: ''
+    Description: Injected by logging (metric filter namespace, e.g. CloudAlbum/Logs).
+  AlbFullName:
+    Type: String
+    Default: ''
+    Description: Injected by load-balancer (app/<name>/<id>).
+  TargetGroupFullName:
+    Type: String
+    Default: ''
+    Description: Injected by load-balancer (targetgroup/<name>/<id>).
+  AsgName:
+    Type: String
+    Default: ''
+    Description: Injected by autoscaling.
+  DbInstanceId:
+    Type: String
+    Default: ''
+    Description: Injected by database (RDS instance identifier).
+  CacheReplicationGroupId:
+    Type: String
+    Default: ''
+    Description: Injected by cache (the primary node is <id>-001; see the official ElastiCache metric dimensions).
+  QueueName:
+    Type: String
+    Default: ''
+    Description: Injected by queue.
+  DlqName:
+    Type: String
+    Default: ''
+    Description: Injected by queue.
+  ThumbFunctionName:
+    Type: String
+    Default: ''
+    Description: Injected by image-processing.
+  SocialApiId:
+    Type: String
+    Default: ''
+    Description: Injected by social-api (HTTP API id).
+  StateMachineArn:
+    Type: String
+    Default: ''
+    Description: Injected by workflow.
+
+Conditions:
+  HasInstance: !Not [!Equals [!Ref InstanceId, '']]
+  HasEmail: !Not [!Equals [!Ref AlertEmail, '']]
+  HasKms: !Not [!Equals [!Ref KmsKeyArn, '']]
+  IsEmf: !Equals [!Ref Mode, emf]
+  IsDetailed: !Equals [!Ref DetailedMonitoring, 'true']
+  HasLogErrors: !Not [!Equals [!Ref LogErrorsNamespace, '']]
+  HasAlb: !Not [!Equals [!Ref AlbFullName, '']]
+  HasTargetGroup: !And [!Condition HasAlb, !Not [!Equals [!Ref TargetGroupFullName, '']]]
+  HasAsg: !Not [!Equals [!Ref AsgName, '']]
+  HasDb: !Not [!Equals [!Ref DbInstanceId, '']]
+  HasCache: !Not [!Equals [!Ref CacheReplicationGroupId, '']]
+  HasQueue: !Not [!Equals [!Ref QueueName, '']]
+  HasDlq: !Not [!Equals [!Ref DlqName, '']]
+  HasThumb: !Not [!Equals [!Ref ThumbFunctionName, '']]
+  HasSocialApi: !Not [!Equals [!Ref SocialApiId, '']]
+  HasWorkflow: !Not [!Equals [!Ref StateMachineArn, '']]
+
+Resources:
+  # ------------------------------------------------------------------------------------------------ SNS (module-owned)
+  OpsAlarmTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: !Sub 'cloudalbum-${Env}-ops-alarms'
+      DisplayName: CloudAlbum ops alarms
+      KmsMasterKeyId: !If [HasKms, !Ref KmsKeyArn, !Ref 'AWS::NoValue']
+
+  OpsAlarmTopicPolicy:
+    Type: AWS::SNS::TopicPolicy
+    Properties:
+      Topics: [!Ref OpsAlarmTopic]
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: CloudWatchAlarms           # alarm actions of this stack and of audit (injected AlarmTopicArn)
+            Effect: Allow
+            Principal: { Service: cloudwatch.amazonaws.com }
+            Action: sns:Publish
+            Resource: !Ref OpsAlarmTopic
+            Condition:
+              StringEquals: { 'aws:SourceAccount': !Ref 'AWS::AccountId' }
+          - Sid: BackupNotifications        # backup / copy job failures (backup is injected AlarmTopicArn)
+            Effect: Allow
+            Principal: { Service: backup.amazonaws.com }
+            Action: sns:Publish
+            Resource: !Ref OpsAlarmTopic
+            Condition:
+              StringEquals: { 'aws:SourceAccount': !Ref 'AWS::AccountId' }
+          - Sid: AccountOwner               # same-account principals keep using IAM permissions (subscribe, experiments)
+            Effect: Allow
+            Principal: { AWS: !Sub 'arn:${AWS::Partition}:iam::${AWS::AccountId}:root' }
+            Action: [sns:GetTopicAttributes, sns:Subscribe, sns:ListSubscriptionsByTopic, sns:Publish]
+            Resource: !Ref OpsAlarmTopic
+
+  AlertEmailSubscription:
+    Type: AWS::SNS::Subscription
+    Condition: HasEmail
+    Properties:
+      TopicArn: !Ref OpsAlarmTopic
+      Protocol: email
+      Endpoint: !Ref AlertEmail
+
+  # EMF mode: the agent writes the documents to this group (_aws.LogGroupName); CloudWatch extracts the metrics.
+  # Deletion: the group only carries a by-product of the metrics (they are already extracted), so it is deleted with the stack.
+  MetricsEmfLogGroup:
+    Type: AWS::Logs::LogGroup
+    Condition: IsEmf
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Delete
+    Properties:
+      LogGroupName: !Sub '/cloudalbum/${Env}/metrics-emf'
+      RetentionInDays: 7
+      Tags:
+        - { Key: DataClass, Value: logs }
+
+  # ------------------------------------------------------------------------------------------------ EC2 alarms
+  Ec2StatusSystemAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Condition: HasInstance
+    Properties:
+      AlarmName: !Sub 'cloudalbum-${Env}-ec2-status-system'
+      AlarmDescription: System status check failed -> EC2 recover (EBS-only instance types such as t3 / t4g) + SNS
+      Namespace: AWS/EC2
+      MetricName: StatusCheckFailed_System
+      Dimensions: [{ Name: InstanceId, Value: !Ref InstanceId }]
+      Statistic: Maximum
+      Period: 60
+      EvaluationPeriods: 2
+      DatapointsToAlarm: 2
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: missing
+      AlarmActions:
+        - !Ref OpsAlarmTopic
+        - !Sub 'arn:${AWS::Partition}:automate:${AWS::Region}:ec2:recover'
+      OKActions: [!Ref OpsAlarmTopic]
+
+  Ec2StatusInstanceAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Condition: HasInstance
+    Properties:
+      AlarmName: !Sub 'cloudalbum-${Env}-ec2-status-instance'
+      AlarmDescription: Instance status check failed (notification only; a reboot action is optional)
+      Namespace: AWS/EC2
+      MetricName: StatusCheckFailed_Instance
+      Dimensions: [{ Name: InstanceId, Value: !Ref InstanceId }]
+      Statistic: Maximum
+      Period: 60
+      EvaluationPeriods: 3
+      DatapointsToAlarm: 3
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: missing
+      AlarmActions: [!Ref OpsAlarmTopic]
+      OKActions: [!Ref OpsAlarmTopic]
+
+  CpuHighAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Condition: HasInstance
+    Properties:
+      AlarmName: !Sub 'cloudalbum-${Env}-cpu-high'
+      AlarmDescription: EC2 CPUUtilization (basic monitoring = one point every 5 minutes, detailed = every minute)
+      Namespace: AWS/EC2
+      MetricName: CPUUtilization
+      Dimensions: [{ Name: InstanceId, Value: !Ref InstanceId }]
+      Statistic: Average
+      Period: !If [IsDetailed, 60, 300]
+      EvaluationPeriods: 3
+      DatapointsToAlarm: 3
+      Threshold: !Ref CpuHighThreshold
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: missing
+      AlarmActions: [!Ref OpsAlarmTopic]
+      OKActions: [!Ref OpsAlarmTopic]
+
+  CpuCreditsLowAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Condition: HasInstance
+    Properties:
+      AlarmName: !Sub 'cloudalbum-${Env}-cpu-credits-low'
+      AlarmDescription: T-family CPU credit balance (5-minute metric; other families have no data -> notBreaching)
+      Namespace: AWS/EC2
+      MetricName: CPUCreditBalance
+      Dimensions: [{ Name: InstanceId, Value: !Ref InstanceId }]
+      Statistic: Minimum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: !Ref CpuCreditsLowThreshold
+      ComparisonOperator: LessThanThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: [!Ref OpsAlarmTopic]
+      OKActions: [!Ref OpsAlarmTopic]
+
+  # CWAgent metrics (need the agent; without it the alarms stay INSUFFICIENT_DATA, which the deep probe reports)
+  MemHighAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Condition: HasInstance
+    Properties:
+      AlarmName: !Sub 'cloudalbum-${Env}-mem-high'
+      AlarmDescription: CWAgent mem_used_percent (EC2 itself has no memory metric)
+      Namespace: CWAgent
+      MetricName: mem_used_percent
+      Dimensions: [{ Name: InstanceId, Value: !Ref InstanceId }]
+      Statistic: Average
+      Period: 60
+      EvaluationPeriods: 5
+      DatapointsToAlarm: 3
+      Threshold: !Ref MemHighThreshold
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: missing
+      AlarmActions: [!Ref OpsAlarmTopic]
+      OKActions: [!Ref OpsAlarmTopic]
+
+  DataDiskHighAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Condition: HasInstance
+    Properties:
+      AlarmName: !Sub 'cloudalbum-${Env}-data-disk-high'
+      AlarmDescription: CWAgent disk_used_percent of the data volume (SQLite and uploads live there); dimensions InstanceId + path (aggregation_dimensions of the fragment)
+      Namespace: CWAgent
+      MetricName: disk_used_percent
+      Dimensions:
+        - { Name: InstanceId, Value: !Ref InstanceId }
+        - { Name: path, Value: /var/lib/cloudalbum }
+      Statistic: Maximum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: !Ref DiskHighThreshold
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: missing
+      AlarmActions: [!Ref OpsAlarmTopic]
+      OKActions: [!Ref OpsAlarmTopic]
+
+  # ------------------------------------------------------------------------------------------------ application alarms (CloudAlbum/App)
+  App5xxRateAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub 'cloudalbum-${Env}-app-5xx-rate'
+      AlarmDescription: Metric math Http5xx / Requests per minute; 3 of 5 datapoints above the threshold
+      Metrics:
+        - Id: errors
+          ReturnData: false
+          MetricStat:
+            Metric: { Namespace: CloudAlbum/App, MetricName: Http5xx }
+            Period: 60
+            Stat: Sum
+        - Id: requests
+          ReturnData: false
+          MetricStat:
+            Metric: { Namespace: CloudAlbum/App, MetricName: Requests }
+            Period: 60
+            Stat: Sum
+        - Id: rate
+          Label: 5xx ratio
+          Expression: IF(requests > 0, errors / requests, 0)
+          ReturnData: true
+      EvaluationPeriods: 5
+      DatapointsToAlarm: 3
+      Threshold: !Ref ErrorRateThreshold
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: [!Ref OpsAlarmTopic]
+      OKActions: [!Ref OpsAlarmTopic]
+
+  AppP95LatencyAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub 'cloudalbum-${Env}-app-p95-latency'
+      AlarmDescription: p95 of Latency (published as Values / Counts so that percentiles can be computed)
+      Namespace: CloudAlbum/App
+      MetricName: Latency
+      ExtendedStatistic: p95
+      Period: 60
+      EvaluationPeriods: 5
+      DatapointsToAlarm: 3
+      Threshold: !Ref P95LatencyThresholdMs
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: [!Ref OpsAlarmTopic]
+      OKActions: [!Ref OpsAlarmTopic]
+
+  AppHeartbeatAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub 'cloudalbum-${Env}-app-heartbeat'
+      AlarmDescription: One AppHeartbeat point per api process per minute; missing data is breaching (process dead or instance stopped)
+      Namespace: CloudAlbum/App
+      MetricName: AppHeartbeat
+      Statistic: SampleCount
+      Period: 60
+      EvaluationPeriods: 3
+      DatapointsToAlarm: 3
+      Threshold: 1
+      ComparisonOperator: LessThanThreshold
+      TreatMissingData: breaching
+      AlarmActions: [!Ref OpsAlarmTopic]
+      OKActions: [!Ref OpsAlarmTopic]
+
+  WorkerHeartbeatAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub 'cloudalbum-${Env}-worker-heartbeat'
+      AlarmDescription: One WorkerHeartbeat point per worker process per minute; missing data is breaching
+      Namespace: CloudAlbum/App
+      MetricName: WorkerHeartbeat
+      Statistic: SampleCount
+      Period: 60
+      EvaluationPeriods: 3
+      DatapointsToAlarm: 3
+      Threshold: 1
+      ComparisonOperator: LessThanThreshold
+      TreatMissingData: breaching
+      AlarmActions: [!Ref OpsAlarmTopic]
+      OKActions: [!Ref OpsAlarmTopic]
+
+  # Composite alarms can only notify (no EC2 actions); recover stays on ec2-status-system.
+  AppUnhealthyAlarm:
+    Type: AWS::CloudWatch::CompositeAlarm
+    Properties:
+      AlarmName: !Sub 'cloudalbum-${Env}-app-unhealthy'
+      AlarmDescription: app-heartbeat OR ec2-status-system OR (app-5xx-rate AND app-p95-latency)
+      AlarmRule: !If
+        - HasInstance
+        - !Sub 'ALARM("${AppHeartbeatAlarm}") OR ALARM("${Ec2StatusSystemAlarm}") OR (ALARM("${App5xxRateAlarm}") AND ALARM("${AppP95LatencyAlarm}"))'
+        - !Sub 'ALARM("${AppHeartbeatAlarm}") OR (ALARM("${App5xxRateAlarm}") AND ALARM("${AppP95LatencyAlarm}"))'
+      AlarmActions: [!Ref OpsAlarmTopic]
+      OKActions: [!Ref OpsAlarmTopic]
+
+  LogErrorsAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Condition: HasLogErrors
+    Properties:
+      AlarmName: !Sub 'cloudalbum-${Env}-log-errors'
+      AlarmDescription: logging metric filter AppErrors (only when logging is enabled)
+      Namespace: !Ref LogErrorsNamespace
+      MetricName: AppErrors
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 20
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: [!Ref OpsAlarmTopic]
+      OKActions: [!Ref OpsAlarmTopic]
+
+  # ------------------------------------------------------------------------------------------------ provider alarms (injected dimensions)
+  AlbTarget5xxAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Condition: HasAlb
+    Properties:
+      AlarmName: !Sub 'cloudalbum-${Env}-alb-target-5xx'
+      Namespace: AWS/ApplicationELB
+      MetricName: HTTPCode_Target_5XX_Count
+      Dimensions: [{ Name: LoadBalancer, Value: !Ref AlbFullName }]
+      Statistic: Sum
+      Period: 60
+      EvaluationPeriods: 5
+      DatapointsToAlarm: 3
+      Threshold: 10
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: [!Ref OpsAlarmTopic]
+      OKActions: [!Ref OpsAlarmTopic]
+
+  AlbTargetLatencyAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Condition: HasTargetGroup
+    Properties:
+      AlarmName: !Sub 'cloudalbum-${Env}-alb-target-latency'
+      Namespace: AWS/ApplicationELB
+      MetricName: TargetResponseTime
+      Dimensions:
+        - { Name: LoadBalancer, Value: !Ref AlbFullName }
+        - { Name: TargetGroup, Value: !Ref TargetGroupFullName }
+      ExtendedStatistic: p95
+      Period: 60
+      EvaluationPeriods: 5
+      DatapointsToAlarm: 3
+      Threshold: 1
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: [!Ref OpsAlarmTopic]
+      OKActions: [!Ref OpsAlarmTopic]
+
+  SqsOldestAgeAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Condition: HasQueue
+    Properties:
+      AlarmName: !Sub 'cloudalbum-${Env}-sqs-oldest-age'
+      Namespace: AWS/SQS
+      MetricName: ApproximateAgeOfOldestMessage
+      Dimensions: [{ Name: QueueName, Value: !Ref QueueName }]
+      Statistic: Maximum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 600
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: [!Ref OpsAlarmTopic]
+      OKActions: [!Ref OpsAlarmTopic]
+
+  SqsDlqDepthAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Condition: HasDlq
+    Properties:
+      AlarmName: !Sub 'cloudalbum-${Env}-sqs-dlq-depth'
+      Namespace: AWS/SQS
+      MetricName: ApproximateNumberOfMessagesVisible
+      Dimensions: [{ Name: QueueName, Value: !Ref DlqName }]
+      Statistic: Maximum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 0
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: [!Ref OpsAlarmTopic]
+      OKActions: [!Ref OpsAlarmTopic]
+
+  RdsCpuHighAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Condition: HasDb
+    Properties:
+      AlarmName: !Sub 'cloudalbum-${Env}-rds-cpu-high'
+      Namespace: AWS/RDS
+      MetricName: CPUUtilization
+      Dimensions: [{ Name: DBInstanceIdentifier, Value: !Ref DbInstanceId }]
+      Statistic: Average
+      Period: 300
+      EvaluationPeriods: 3
+      Threshold: !Ref CpuHighThreshold
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: missing
+      AlarmActions: [!Ref OpsAlarmTopic]
+      OKActions: [!Ref OpsAlarmTopic]
+
+  RdsFreeStorageLowAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Condition: HasDb
+    Properties:
+      AlarmName: !Sub 'cloudalbum-${Env}-rds-free-storage-low'
+      Namespace: AWS/RDS
+      MetricName: FreeStorageSpace
+      Dimensions: [{ Name: DBInstanceIdentifier, Value: !Ref DbInstanceId }]
+      Statistic: Minimum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 2147483648
+      ComparisonOperator: LessThanThreshold
+      TreatMissingData: missing
+      AlarmActions: [!Ref OpsAlarmTopic]
+      OKActions: [!Ref OpsAlarmTopic]
+
+  CacheCpuHighAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Condition: HasCache
+    Properties:
+      AlarmName: !Sub 'cloudalbum-${Env}-cache-cpu-high'
+      Namespace: AWS/ElastiCache
+      MetricName: CPUUtilization
+      Dimensions: [{ Name: CacheClusterId, Value: !Sub '${CacheReplicationGroupId}-001' }]
+      Statistic: Average
+      Period: 300
+      EvaluationPeriods: 3
+      Threshold: !Ref CpuHighThreshold
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: missing
+      AlarmActions: [!Ref OpsAlarmTopic]
+      OKActions: [!Ref OpsAlarmTopic]
+
+  CacheEvictionsAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Condition: HasCache
+    Properties:
+      AlarmName: !Sub 'cloudalbum-${Env}-cache-evictions'
+      Namespace: AWS/ElastiCache
+      MetricName: Evictions
+      Dimensions: [{ Name: CacheClusterId, Value: !Sub '${CacheReplicationGroupId}-001' }]
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 0
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: [!Ref OpsAlarmTopic]
+      OKActions: [!Ref OpsAlarmTopic]
+
+  ThumbLambdaErrorsAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Condition: HasThumb
+    Properties:
+      AlarmName: !Sub 'cloudalbum-${Env}-thumb-lambda-errors'
+      Namespace: AWS/Lambda
+      MetricName: Errors
+      Dimensions: [{ Name: FunctionName, Value: !Ref ThumbFunctionName }]
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 0
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: [!Ref OpsAlarmTopic]
+      OKActions: [!Ref OpsAlarmTopic]
+
+  ThumbLambdaThrottlesAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Condition: HasThumb
+    Properties:
+      AlarmName: !Sub 'cloudalbum-${Env}-thumb-lambda-throttles'
+      Namespace: AWS/Lambda
+      MetricName: Throttles
+      Dimensions: [{ Name: FunctionName, Value: !Ref ThumbFunctionName }]
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 0
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: [!Ref OpsAlarmTopic]
+      OKActions: [!Ref OpsAlarmTopic]
+
+  SocialApi5xxAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Condition: HasSocialApi
+    Properties:
+      AlarmName: !Sub 'cloudalbum-${Env}-social-api-5xx'
+      AlarmDescription: API Gateway HTTP API 5xx (metric name and dimension per the official API Gateway documentation)
+      Namespace: AWS/ApiGateway
+      MetricName: 5xx
+      Dimensions: [{ Name: ApiId, Value: !Ref SocialApiId }]
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 0
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: [!Ref OpsAlarmTopic]
+      OKActions: [!Ref OpsAlarmTopic]
+
+  WorkflowFailedAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Condition: HasWorkflow
+    Properties:
+      AlarmName: !Sub 'cloudalbum-${Env}-workflow-failed'
+      Namespace: AWS/States
+      MetricName: ExecutionsFailed
+      Dimensions: [{ Name: StateMachineArn, Value: !Ref StateMachineArn }]
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 0
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: [!Ref OpsAlarmTopic]
+      OKActions: [!Ref OpsAlarmTopic]
+
+  # ------------------------------------------------------------------------------------------------ dashboard
+  Dashboard:
+    Type: AWS::CloudWatch::Dashboard
+    Properties:
+      DashboardName: !Sub 'CloudAlbum-${Env}-Overview'
+      DashboardBody: !Join
+        - ''
+        - - '{"widgets":['
+          - !Sub '{"type":"metric","width":12,"height":6,"properties":{"title":"Application: requests / 5xx","region":"${AWS::Region}","stat":"Sum","period":60,"metrics":[["CloudAlbum/App","Requests"],["CloudAlbum/App","Http5xx"]]}},'
+          - !Sub '{"type":"metric","width":12,"height":6,"properties":{"title":"Application: latency p50 / p95 (ms)","region":"${AWS::Region}","period":60,"metrics":[["CloudAlbum/App","Latency",{"stat":"p50"}],["CloudAlbum/App","Latency",{"stat":"p95"}]]}},'
+          - !Sub '{"type":"metric","width":12,"height":6,"properties":{"title":"Heartbeats (points per minute)","region":"${AWS::Region}","stat":"SampleCount","period":60,"metrics":[["CloudAlbum/App","AppHeartbeat"],["CloudAlbum/App","WorkerHeartbeat"]]}},'
+          - !If
+            - HasInstance
+            - !Sub '{"type":"metric","width":12,"height":6,"properties":{"title":"EC2: CPU / CPU credits","region":"${AWS::Region}","period":300,"metrics":[["AWS/EC2","CPUUtilization","InstanceId","${InstanceId}",{"stat":"Average"}],["AWS/EC2","CPUCreditBalance","InstanceId","${InstanceId}",{"stat":"Minimum","yAxis":"right"}]]}},{"type":"metric","width":12,"height":6,"properties":{"title":"EC2: status checks","region":"${AWS::Region}","stat":"Maximum","period":60,"metrics":[["AWS/EC2","StatusCheckFailed_System","InstanceId","${InstanceId}"],["AWS/EC2","StatusCheckFailed_Instance","InstanceId","${InstanceId}"]]}},{"type":"metric","width":12,"height":6,"properties":{"title":"CWAgent: memory / data volume used %","region":"${AWS::Region}","stat":"Average","period":60,"metrics":[["CWAgent","mem_used_percent","InstanceId","${InstanceId}"],["CWAgent","disk_used_percent","InstanceId","${InstanceId}","path","/var/lib/cloudalbum"]]}},'
+            - ''
+          - !If
+            - HasAlb
+            - !Sub '{"type":"metric","width":12,"height":6,"properties":{"title":"ALB: target 5xx / response time","region":"${AWS::Region}","period":60,"metrics":[["AWS/ApplicationELB","HTTPCode_Target_5XX_Count","LoadBalancer","${AlbFullName}",{"stat":"Sum"}],["AWS/ApplicationELB","TargetResponseTime","LoadBalancer","${AlbFullName}",{"stat":"p95","yAxis":"right"}]]}},'
+            - ''
+          - !If
+            - HasDb
+            - !Sub '{"type":"metric","width":12,"height":6,"properties":{"title":"RDS: CPU / free storage","region":"${AWS::Region}","period":300,"metrics":[["AWS/RDS","CPUUtilization","DBInstanceIdentifier","${DbInstanceId}",{"stat":"Average"}],["AWS/RDS","FreeStorageSpace","DBInstanceIdentifier","${DbInstanceId}",{"stat":"Minimum","yAxis":"right"}]]}},'
+            - ''
+          - !If
+            - HasQueue
+            - !Sub '{"type":"metric","width":12,"height":6,"properties":{"title":"SQS: oldest message age (s)","region":"${AWS::Region}","stat":"Maximum","period":300,"metrics":[["AWS/SQS","ApproximateAgeOfOldestMessage","QueueName","${QueueName}"]]}},'
+            - ''
+          - !If
+            - HasCache
+            - !Sub '{"type":"metric","width":12,"height":6,"properties":{"title":"ElastiCache: CPU / evictions","region":"${AWS::Region}","period":300,"metrics":[["AWS/ElastiCache","CPUUtilization","CacheClusterId","${CacheReplicationGroupId}-001",{"stat":"Average"}],["AWS/ElastiCache","Evictions","CacheClusterId","${CacheReplicationGroupId}-001",{"stat":"Sum","yAxis":"right"}]]}},'
+            - ''
+          - !If
+            - HasThumb
+            - !Sub '{"type":"metric","width":12,"height":6,"properties":{"title":"Lambda (thumbnails): errors / throttles","region":"${AWS::Region}","stat":"Sum","period":300,"metrics":[["AWS/Lambda","Errors","FunctionName","${ThumbFunctionName}"],["AWS/Lambda","Throttles","FunctionName","${ThumbFunctionName}"]]}},'
+            - ''
+          - !If
+            - HasSocialApi
+            - !Sub '{"type":"metric","width":12,"height":6,"properties":{"title":"API Gateway (social-api): 5xx","region":"${AWS::Region}","stat":"Sum","period":300,"metrics":[["AWS/ApiGateway","5xx","ApiId","${SocialApiId}"]]}},'
+            - ''
+          - !If
+            - HasWorkflow
+            - !Sub '{"type":"metric","width":12,"height":6,"properties":{"title":"Step Functions: failed executions","region":"${AWS::Region}","stat":"Sum","period":300,"metrics":[["AWS/States","ExecutionsFailed","StateMachineArn","${StateMachineArn}"]]}},'
+            - ''
+          - !If
+            - HasAsg
+            - !Sub '{"type":"metric","width":12,"height":6,"properties":{"title":"Auto Scaling group: CPU / memory","region":"${AWS::Region}","stat":"Average","period":60,"metrics":[["AWS/EC2","CPUUtilization","AutoScalingGroupName","${AsgName}"],["CWAgent","mem_used_percent","AutoScalingGroupName","${AsgName}",{"yAxis":"right"}]]}},'
+            - ''
+          - !Sub '{"type":"alarm","width":24,"height":4,"properties":{"title":"Alarms","alarms":["arn:${AWS::Partition}:cloudwatch:${AWS::Region}:${AWS::AccountId}:alarm:cloudalbum-${Env}-app-heartbeat","arn:${AWS::Partition}:cloudwatch:${AWS::Region}:${AWS::AccountId}:alarm:cloudalbum-${Env}-worker-heartbeat","arn:${AWS::Partition}:cloudwatch:${AWS::Region}:${AWS::AccountId}:alarm:cloudalbum-${Env}-app-5xx-rate","arn:${AWS::Partition}:cloudwatch:${AWS::Region}:${AWS::AccountId}:alarm:cloudalbum-${Env}-app-p95-latency"]}}'
+          - ']}'
+
+  # ------------------------------------------------------------------------------------------------ application policy (attached by scripts/module, D2)
+  AppPolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      ManagedPolicyName: !Sub 'cloudalbum-${Env}-monitoring'
+      Description: CloudAlbum monitoring module - PutMetricData (CloudAlbum/App and CWAgent only), alarm / metric reads, agent tags, probe
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: PutMetricDataOwnNamespaces       # the application (CloudAlbum/App) and the CloudWatch Agent (CWAgent)
+            Effect: Allow
+            Action: cloudwatch:PutMetricData
+            Resource: '*'
+            Condition:
+              StringEquals:
+                'cloudwatch:namespace': [CloudAlbum/App, CWAgent]
+          - Sid: ReadMetricsAndAlarms              # /lab side-by-side charts, alarm panel, deep probe
+            Effect: Allow
+            Action:
+              - cloudwatch:GetMetricData
+              - cloudwatch:ListMetrics
+              - cloudwatch:DescribeAlarms
+              - cloudwatch:DescribeAlarmHistory
+            Resource: '*'
+          - Sid: AgentInstanceFacts                # append_dimensions (AutoScalingGroupName) and disk facts of the agent
+            Effect: Allow
+            Action: [ec2:DescribeTags, ec2:DescribeVolumes]
+            Resource: '*'
+          - Sid: ProbeTopic                        # subscriptions pending / confirmed
+            Effect: Allow
+            Action: sns:GetTopicAttributes
+            Resource: !Ref OpsAlarmTopic
+          - !If
+            - IsEmf
+            - Sid: EmfLogs
+              Effect: Allow
+              Action: [logs:CreateLogStream, logs:PutLogEvents, logs:DescribeLogStreams]
+              Resource:
+                - !GetAtt MetricsEmfLogGroup.Arn
+                - !Sub '${MetricsEmfLogGroup.Arn}:log-stream:*'
+            - !Ref 'AWS::NoValue'
+
+Outputs:
+  ModuleId:
+    Value: monitoring
+  ModuleVersion:
+    Value: !Ref ModuleVersion
+  PolicyArn:
+    Value: !Ref AppPolicy
+  EnvMetricsDriver:
+    Value: cloudwatch
+  EnvMetricsCwMode:
+    Value: !Ref Mode
+  EnvMetricsCwNamespace:
+    Value: CloudAlbum/App
+  EnvMetricsCwFlushSec:
+    Value: '60'
+  EnvMetricsCwEmfEndpoint:
+    Condition: IsEmf
+    Value: tcp://127.0.0.1:25888
+  EnvMetricsCwAlarmTopicArn:
+    Value: !Ref OpsAlarmTopic
+  EnvMetricsCwAlarmPrefix:
+    Value: !Sub 'cloudalbum-${Env}-'
+  EnvMetricsCwDashboard:
+    Value: !Ref Dashboard
+  InfoDashboardUrl:
+    Value: !Sub 'https://${AWS::Region}.console.aws.amazon.com/cloudwatch/home?region=${AWS::Region}#dashboards/dashboard/${Dashboard}'
+  InfoAlarmsUrl:
+    Value: !Sub 'https://${AWS::Region}.console.aws.amazon.com/cloudwatch/home?region=${AWS::Region}#alarmsV2:?search=cloudalbum-${Env}-'
+  InfoAlarmTopicName:
+    Value: !GetAtt OpsAlarmTopic.TopicName
+  InfoHeartbeatAlarmName:
+    Value: !Ref AppHeartbeatAlarm
+  InfoEmfLogGroup:
+    Condition: IsEmf
+    Value: !Ref MetricsEmfLogGroup

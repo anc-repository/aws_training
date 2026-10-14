@@ -1,55 +1,294 @@
-# labs/svc-monitoring/lab.yaml —— 目录占位（status: planned）：只有目录元数据，可在目录中显示但不能开始实验；
-# 取值来自 05 §4 与 cards/ 逐卡文档。步骤、手册、检查与小测在后续批次补齐，届时 status 改为 beta 并提升版本。
+# labs/svc-monitoring/lab.yaml —— Amazon CloudWatch：指标、告警与仪表板（cards/service-cards-3 svc-monitoring）
+# 实现核对（implementation-notes wave1-cw-budgets）：
+#   - 卡片第 2、6 步各含两个对比实验：拆成 baseline-alert / baseline-kill 与 after-alert / after-kill 四个实验步骤
+#     （一个实验步骤只登记一个实验）；“停实例”拆成单独的选做步骤 stop-instance，并声明 expectedOutage；
+#   - time-to-alert 的故障源是合成 5xx 端点 /api/lab/monitoring/synthetic（共享 error5xx 故障会让 healthcheck.sh 重启 api，
+#     见 experiments/monitoring/README.md）；判定取服务端记录的告警状态变化（本地 alert_events、CloudWatch DescribeAlarmHistory）；
+#   - kill-test 的平台模式参数一律显式写 --param phase=…（06 PM-M30），故障经 SSM 投递（--fault-via ssm），停实例由工作台的 AWS CLI 执行；
+#   - 订阅未确认时探针为 degraded（detail 含“订阅未确认”），wire 检查用 pendingIf 等待，最终复核要求 healthy。
 schema: atl.lab/v2
 id: svc-monitoring
 kind: service
-version: 0.1.0
-status: planned
+version: 1.0.0
+status: beta
 service: Amazon CloudWatch
 function: 指标、告警与仪表板
 title: Amazon CloudWatch：指标、告警与仪表板
+subtitle: worker 内的本地评估器 → AWS 侧评估的告警 + SNS
 summary: 让告警与实例解耦：指标双写到 CloudWatch，Agent 补上内存与磁盘，告警在 AWS 侧评估并经 SNS 送达——实例停了也能报警。
+story: |
+  L0 的告警由 worker 进程里的评估器判断，通知走站内信与 outbox：评估器和被监控的应用在同一台机器上，进程或实例一挂，告警也跟着沉默；
+  EC2 默认也没有内存指标。这张卡片让同样的指标再批量上报一份到 CloudWatch，Agent 补上内存与磁盘，告警由 AWS 侧评估、经模块自带的
+  SNS 主题发邮件——停掉服务甚至停掉实例，心跳告警照样会响。
+objectives:
+  - { text: 用心跳缺失告警（TreatMissingData=breaching）发现进程与实例死亡, domain: resilient, relatesTo: after-kill }
+  - { text: 说清 EC2 默认指标与 CloudWatch Agent 指标的边界, domain: performance, relatesTo: mem-visibility }
+  - { text: 看懂告警的周期、M of N、指标数学与复合告警, domain: resilient, relatesTo: after-alert }
+  - { text: 理解自定义指标的维度基数决定费用, domain: cost, relatesTo: enable }
 difficulty: beginner
 estimatedMinutes: 75
 timeLimitMinutes: 120
-extensions: {maxCount: 2, minutesEach: 30}
-retain: {allowed: true, maxHours: 24}
+extensions: { maxCount: 2, minutesEach: 30 }
+retain: { allowed: true, maxHours: 24, reason: 告警与仪表板按月折算、指标按用量计费；保留后可以在 sc-observability 中继续 }
 regions:
   supported: [ap-northeast-1]
 services:
-- {id: cloudwatch, name: Amazon CloudWatch, role: primary, module: monitoring}
-- {id: iam, role: context, module: iam}
-modules:
-  target: [monitoring]
-  start: [iam]
-  context: []
-  related: [logging, tracing]
+  - { id: cloudwatch, name: Amazon CloudWatch, role: primary, module: monitoring }
+  - { id: sns, name: Amazon SNS（模块自带 ops-alarms 主题）, role: supporting, module: monitoring }
+  - { id: iam, name: AWS IAM（实例角色）, role: context, module: iam }
+  - { id: ec2, name: Amazon EC2（状态检查、CPU 积分）, role: observed, module: ec2 }
+  - { id: ssm-session-manager, name: AWS Systems Manager Session Manager（平台管理通道）, role: observed }
+modules: { target: [monitoring], start: [iam], context: [], related: [logging, tracing] }
 prerequisites:
   cards:
-  - {id: svc-iam, kind: soft}
-  - {id: svc-logging, kind: soft}
-  - {id: sc-observability, kind: soft}
+    - { id: svc-iam, kind: soft }
+    - { id: svc-logging, kind: soft }
+    - { id: sc-observability, kind: soft }
   learnerInputs:
-  - {id: notify-email}
+    - { id: notify-email }
+  knowledge: [告警阈值与百分位（p95）的含义, systemd 服务]
+
 startProfile:
   provisions:
-  - item: iam
-    kind: module
-    basis: credential
-    set: {IAM_CREDENTIALS: role}
-    reason: 平台约定除 svc-ec2、svc-iam 外起始状态都带实例角色（C3）
-  - {item: featureFlags.lab.faults, kind: runtime, value: true}
-  - {item: preview-direct-https, kind: platform, reason: 预览使用方案 B 的 Let's Encrypt IP 证书（03 §6.2）}
-  platform:
-    preview: {directHttps: 'on'}
+    - { item: iam, kind: module, basis: credential, set: { IAM_CREDENTIALS: role },
+        reason: 平台约定除 svc-ec2、svc-iam 外起始状态都带实例角色（C3）；monitoring 本身也是 credentials required，Agent 只用实例角色 }
+    - { item: featureFlags.lab.faults, kind: runtime, value: true, reason: mem-visibility 要经共享故障注入占用内存（type mem） }
+    - { item: mgmt-channel, kind: platform, reason: 实验机挂只含 AmazonSSMManagedInstanceCore 的 CloudAlbumAppRole，是平台的管理通道，不是应用权限 }
+    - { item: workstation, kind: platform, reason: 每个会话一台工作台，用于运行 scripts/module、AWS CLI 与对比实验 }
+    - { item: check-bundle, kind: platform, reason: 检查包随 CloudAlbum 发布包安装在实验机的 /opt/atl（06 PM-04） }
+    - { item: preview-direct-https, kind: platform, reason: 预览使用方案 B 的 Let's Encrypt IP 证书（03 §6.2）；本卡不涉及 tls，保持开启 }
+  platform: { preview: { directHttps: 'on' } }
+  reason: monitoring 的 requires 为空；起始状态是 L0 + 实例角色 + 故障注入热键（档位 atl/svc-monitoring/default）。LabMetricsStore 与本地评估器在 L0 就在运行
 targetModules:
-- {id: monitoring, driver: cloudwatch}
+  - { id: monitoring, driver: cloudwatch, fromDriver: local, params: { AlertEmail: '{{ learner.inputs.notify-email }}', Mode: putmetricdata, DetailedMonitoring: 'false' },
+      wireStep: enable, adoptsExisting: false }
 expectedWarnings: []
-cost: {tier: low}
-provision: {class: A}
-badge: {title: 实例倒下也报警}
+workstation: { required: true, tools: [aws-cli, node, jq], savingsMode: degraded }
+platform:
+  consoleLinks: [ec2.instance, iam.role]
+provision: { class: A }
+
+variables:
+  alarmTopicArn: { label: ops-alarms 主题 ARN, from: derived, fillFrom: stack.monitoring.EnvMetricsCwAlarmTopicArn }
+  dashboardName: { label: 仪表板名称, from: derived, fillFrom: stack.monitoring.EnvMetricsCwDashboard }
+  heartbeatAlarm: { label: 心跳告警名称, from: derived, fillFrom: stack.monitoring.InfoHeartbeatAlarmName }
+
+cost:
+  currency: USD
+  tier: low
+  mainDrivers: [自定义指标数（维度组合）, 告警数, GetMetricData 等 API 调用]
+  basis:
+    - { ref: start-profile, note: 实验机 EC2、EBS（根卷与数据卷）、公网 IPv4 }
+    - { ref: workstation, note: 工作台 EC2、EBS、公网 IPv4 }
+    - { key: cw-metrics, pricingKey: cloudwatch.metrics, billing: monthly, quantity: 30, unit: Metrics, source: target, whenRetained: true,
+        note: 白名单维度下约几十个自定义指标（CloudAlbum/App 与 CWAgent），按月折算到小时 }
+    - { key: cw-alarms, pricingKey: cloudwatch.alarms, billing: monthly, quantity: 11, unit: Alarms, source: target, whenRetained: true,
+        note: 标准告警约 10 个 + 1 个复合告警（复合告警单价不同） }
+    - { key: sns-requests, pricingKey: sns.requests, billing: usage, quantity: 1, unit: requests, assumedUsagePerHour: 20, source: target,
+        whenRetained: true, note: 告警通知邮件；学习规模通常在免费额度内 }
+  assumptions:
+    - 基础监控与状态检查指标免费；选做的详细监控按实例另计；Agent 本身免费；单价以官方定价为准
+    - 已上报的自定义指标无法删除，停止上报后按保留策略自然过期，不再计费
+
+steps:
+  - id: orient
+    type: observe
+    title: 起始状态：本地评估器与 10 秒样本，没有 Agent
+    manual: manual/10-orient.md
+    panel: preview
+    estMinutes: 5
+    checks: [monitoring-local-baseline, agent-absent-baseline]
+
+  - id: baseline-alert
+    type: experiment
+    title: 记录 before：同一批 5xx，本地评估器多久告警
+    manual: manual/20-baseline-alert.md
+    experiment: { module: monitoring, id: time-to-alert, label: before }
+    panel: terminal-workstation
+    estMinutes: 8
+    checks: [exp-tta-before]
+
+  - id: baseline-kill
+    type: experiment
+    title: 记录 before：停掉 api 与 worker，本地评估器随之沉默
+    manual: manual/25-baseline-kill.md
+    experiment: { module: monitoring, id: kill-test, label: before }
+    requires: { steps: [baseline-alert] }
+    panel: terminal-workstation
+    estMinutes: 10
+    checks: [exp-kill-before]
+
+  - id: enable
+    type: script
+    wire: true
+    title: 接入 CloudWatch：告警、仪表板、ops-alarms 主题与 Agent
+    manual: manual/30-enable.md
+    methods: [script]
+    requires: { steps: [baseline-kill] }
+    panel: terminal-workstation
+    estMinutes: 12
+    startsBilling: { class: usage, pricingKeys: [cloudwatch.metrics, cloudwatch.alarms, sns.requests], note: 自定义指标与告警按月折算，API 调用按量 }
+    wait: { typicalMinutes: 5, maxMinutes: 15, text: 部署栈、安装 Agent、重启 api 与 worker；然后到邮箱确认 SNS 订阅 }
+    checks: [monitoring-wired, metric-traffic, app-metrics-published, agent-active, monitoring-module-state, heartbeat-alarm]
+
+  - id: confirm-subscription
+    type: observe
+    title: 在邮箱中确认 SNS 订阅
+    manual: manual/35-confirm-subscription.md
+    requires: { steps: [enable] }
+    panel: preview
+    estMinutes: 5
+    wait: { typicalMinutes: 2, maxMinutes: 15, text: 确认邮件可能落在垃圾邮件箱 }
+    checks: [subscription-confirmed, subscription-confirmed-manual]
+
+  - id: after-alert
+    type: experiment
+    title: 记录 after：本地与 CloudWatch 并排计时
+    manual: manual/40-after-alert.md
+    experiment: { module: monitoring, id: time-to-alert, label: after }
+    requires: { steps: [confirm-subscription] }
+    panel: terminal-workstation
+    estMinutes: 10
+    checks: [exp-tta-pair]
+
+  - id: after-kill
+    type: experiment
+    title: 记录 after：停服务后心跳告警进入 ALARM 并经 SNS 送达
+    manual: manual/45-after-kill.md
+    experiment: { module: monitoring, id: kill-test, label: after }
+    requires: { steps: [after-alert] }
+    panel: terminal-workstation
+    estMinutes: 10
+    checks: [exp-kill-pair, alarm-mail-received]
+
+  - id: stop-instance
+    type: experiment
+    title: （选做）停止实验机：状态检查与心跳告警照样触发
+    manual: manual/50-stop-instance.md
+    optional: { reason: 停实例会让管理通道暂时离线，作为附加观察 }
+    experiment: { module: monitoring, id: kill-test, label: stop-instance }
+    requires: { steps: [after-kill] }
+    panel: terminal-workstation
+    estMinutes: 12
+    expectedOutage: { channel: lab, maxMinutes: 10, reason: kill-test 的停实例阶段会停止并重新启动实验机 }
+    checks: [ { ref: exp-stop-instance, required: false } ]
+
+  - id: mem-visibility
+    type: observe
+    title: 内存可见性：AWS/EC2 没有内存指标，CWAgent 有
+    manual: manual/60-mem-visibility.md
+    requires: { steps: [enable] }
+    panel: terminal-workstation
+    estMinutes: 10
+    checks: [cwagent-mem-metric, { ref: exp-mem-visibility, required: false }]
+
+  - id: resolution
+    type: experiment
+    title: （选做）粒度：基础监控与详细监控下的同一段 CPU 尖峰
+    manual: manual/70-resolution.md
+    optional: { reason: 详细监控按实例另计费用 }
+    experiment: { module: monitoring, id: resolution, label: after }
+    requires: { steps: [enable] }
+    panel: terminal-workstation
+    estMinutes: 15
+    checks: [ { ref: exp-resolution, required: false } ]
+
+finalChecks:
+  - no-world-ssh
+  - { ref: monitoring-healthy, as: final-monitoring-healthy }
+  - { ref: heartbeat-alarm, as: final-heartbeat-alarm }
+
+experiments:
+  - module: monitoring
+    id: time-to-alert
+    labels:
+      - { id: before, role: baseline, requires: { monitoring: local } }
+      - { id: after, role: treatment, requires: { monitoring: cloudwatch } }
+    pairs: [[before, after]]
+    requiredLabels: [before, after]
+    required: true
+    runner: workstation
+    allowSimulatedBaseline: false
+    corroboration: { minServerRatio: 0.9 }
+  - module: monitoring
+    id: kill-test
+    labels:
+      - { id: before, role: baseline, requires: { monitoring: local } }
+      - { id: after, role: treatment, requires: { monitoring: cloudwatch } }
+      - { id: stop-instance, role: single, title: 停止实验机, requires: { monitoring: cloudwatch } }
+    pairs: [[before, after]]
+    requiredLabels: [before, after]
+    required: true
+    runner: workstation
+    allowSimulatedBaseline: false
+    validity: functional
+    corroborateWith: [monitoring-present]
+  - module: monitoring
+    id: mem-visibility
+    labels: [ { id: after, role: single } ]
+    required: false
+    runner: workstation
+    validity: functional
+    corroborateWith: [monitoring-wired]
+  - module: monitoring
+    id: resolution
+    labels: [ { id: after, role: single } ]
+    required: false
+    runner: workstation
+    validity: functional
+    corroborateWith: [monitoring-wired]
+
+quiz: { file: quiz.yaml, draw: 3 }
+badge: { title: 实例倒下也报警, icon: assets/badge.svg }
 tracks: [operations, resilient, saa-main]
+
+cleanup:
+  summary: 结束实验后，平台删除本次会话的 monitoring 栈（告警、仪表板、ops-alarms 主题与订阅随之删除）并移除 Agent 片段。已经上报的自定义指标无法删除，停止上报后按保留策略自然过期。
+  autoReclaim: true
+  dataRisk: [没有业务数据；告警邮件留在你的邮箱中，无需处理]
+  learnerCreatedHints: []
+  verify:
+    - monitoring-topic-gone
+
 saa:
   domains: [resilient, performance, cost]
-tags: [monitoring, cloudwatch]
-certificate: {enabled: false}
+  topics:
+    - { id: heartbeat-breaching, title: 心跳缺失告警与 TreatMissingData=breaching, domain: resilient, relatesTo: after-kill }
+    - { id: agent-metrics, title: EC2 没有内存与磁盘使用率，需要 CloudWatch Agent, domain: performance, relatesTo: mem-visibility }
+    - { id: alarm-actions, title: 告警动作：SNS、EC2 recover / reboot、Auto Scaling, domain: resilient, relatesTo: enable }
+    - { id: metric-cardinality, title: 自定义指标的维度与基数决定指标数与费用, domain: cost, relatesTo: enable }
+  confusables:
+    - { a: CloudWatch, b: CloudTrail, rule: CloudWatch 回答“系统现在健康吗”（性能与告警）；CloudTrail 回答“谁调用了哪个 AWS API”（审计） }
+    - { a: 基础监控, b: 详细监控, rule: 基础监控 5 分钟一个点且免费；详细监控 1 分钟一个点、按实例计费；两者都没有内存指标 }
+    - { a: 指标告警, b: 复合告警, rule: 只有指标告警能执行 EC2 动作（recover / reboot）；复合告警只能发通知 }
+
+tags: [monitoring, cloudwatch, alarms, sns, observability]
+
+permissions:
+  learner:
+    - cloudformation:CreateChangeSet
+    - cloudformation:DescribeChangeSet
+    - cloudformation:ExecuteChangeSet
+    - cloudformation:DescribeStacks
+    - cloudformation:DescribeStackEvents
+    - cloudwatch:PutMetricAlarm
+    - cloudwatch:PutCompositeAlarm
+    - cloudwatch:PutDashboard
+    - cloudwatch:DescribeAlarms
+    - cloudwatch:DescribeAlarmHistory
+    - cloudwatch:SetAlarmState
+    - cloudwatch:TagResource
+    - sns:CreateTopic
+    - sns:SetTopicAttributes
+    - sns:Subscribe
+    - sns:TagResource
+    - ec2:StopInstances
+    - ec2:StartInstances
+    - iam:CreatePolicy
+    - iam:AttachRolePolicy
+    - ssm:SendCommand
+    - ssm:GetCommandInvocation
+  notes: 平台模式下 scripts/module 给栈打 atl:component=env、atl:session-id、atl:lab-id 标签（C4(d)）；kill-test 的停服务故障经 SSM 投递，停实例由工作台上的学员身份执行（06 PM-M30）
+
+certificate: { enabled: false }
+owners: [cloudalbum-maintainers]

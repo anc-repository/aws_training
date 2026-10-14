@@ -1,0 +1,136 @@
+{
+  "$schema": "../_lib/schema/experiment.schema.json",
+  "module": "monitoring",
+  "title": "monitoring：本地评估器 vs CloudWatch 告警（docs/modules/05-ops-observability.md#monitoring 第 5、12 节）",
+  "default": "time-to-alert",
+  "experiments": [
+    {
+      "module": "monitoring",
+      "id": "time-to-alert",
+      "title": "告警时延：同一批 5xx，本地评估器与 CloudWatch 告警各多久进入 ALARM",
+      "kind": "fault",
+      "doc": "docs/modules/05-ops-observability.md#monitoring",
+      "description": "以恒定速率请求 /api/lab/monitoring/synthetic（按 rate 返回 503），同时轮询 /api/lab/monitoring/history 取服务端记录的状态变化时间（本地 alert_events、CloudWatch DescribeAlarmHistory）。source=fault-api 时改用共享故障注入 POST /api/lab/faults error5xx（需要集成阶段让 /api/health/* 与 /api/lab/* 豁免，否则 healthcheck.sh 会重启 api）。before 只测本地一侧。",
+      "requires": {
+        "before": {"monitoring.driver": "local"},
+        "after": {"monitoring.driver": "cloudwatch", "monitoring.status": ["ok", "degraded"]}
+      },
+      "labels": {
+        "before": {"title": "本地评估器（worker 内，30 秒一次）", "role": "baseline"},
+        "after": {"title": "CloudWatch 告警（AWS 侧评估，SNS 送达）", "role": "treatment"}
+      },
+      "scenario": {"tool": "node", "script": "time-to-alert.ts", "vus": 1, "duration": "15m"},
+      "params": {
+        "rate": {"type": "number", "default": 0.5, "min": 0.05, "max": 1, "description": "5xx 比例（告警阈值是 0.05）"},
+        "rps": {"type": "number", "default": 5, "min": 1, "max": 50, "description": "合成负载的请求速率"},
+        "pollSec": {"type": "number", "default": 15, "min": 1, "max": 120, "description": "轮询状态变化历史的间隔"},
+        "maxWaitSec": {"type": "number", "default": 720, "min": 5, "max": 1800, "description": "等待告警的上限"},
+        "source": {"type": "string", "default": "synthetic", "enum": ["synthetic", "fault-api"], "description": "故障源"}
+      },
+      "metrics": ["biz.local_detect_sec", "biz.cw_detect_sec", "biz.local_alarm", "biz.cw_alarm", "client.errors"],
+      "expect": [
+        {"metric": "biz.local_detect_sec", "direction": "flat", "note": "本地评估器每 30 秒一次，秒级到数十秒；切换前后都在运行（cloudwatch = local + 批量）"},
+        {"metric": "biz.cw_alarm", "direction": "nonzero", "note": "after：CloudWatch 告警进入 ALARM（3 of 5 个 1 分钟数据点），时延为分钟级"}
+      ],
+      "cleanup": "DELETE /api/lab/faults"
+    },
+    {
+      "module": "monitoring",
+      "id": "kill-test",
+      "title": "宕机实验：停服务（service）/ 停实例（instance）时谁还能告警",
+      "kind": "fault",
+      "doc": "docs/modules/05-ops-observability.md#monitoring",
+      "description": "--param phase=service|instance|all（auto：平台模式为 service，独立模式为 all，06 PM-M30）。service：faults/stop-app.sh 经投递通道停 api 与 worker、downSec 秒后恢复；instance：faults/stop-instance.sh 在运维机上用 AWS CLI 停止实验机、等待、启动（finally 中保证启动）。恢复后读取服务端记录：本地 alert_events（宕机期间应为 0 条——评估器也停了）与 CloudWatch 的 app-heartbeat 状态变化（TreatMissingData=breaching）。平台模式下 stop-instance 只接受 phase=instance，before / after 只接受 phase=service。",
+      "requires": {
+        "before": {"monitoring.driver": "local"},
+        "after": {"monitoring.driver": "cloudwatch", "monitoring.status": ["ok", "degraded"]},
+        "stop-instance": {"monitoring.driver": "cloudwatch", "monitoring.status": ["ok", "degraded"]}
+      },
+      "labels": {
+        "before": {"title": "本地评估器", "role": "baseline"},
+        "after": {"title": "CloudWatch 心跳告警", "role": "treatment"},
+        "stop-instance": {"title": "停止实验机", "role": "single"}
+      },
+      "pair": ["before", "after"],
+      "scenario": {"tool": "node", "script": "kill-test.ts", "vus": 1, "duration": "30m"},
+      "params": {
+        "phase": {"type": "string", "default": "auto", "enum": ["auto", "service", "instance", "all"], "description": "宕机阶段（PM-M30）"},
+        "downSec": {"type": "number", "default": 300, "min": 60, "max": 900, "description": "停服务的时长（心跳告警 3 个 1 分钟周期 + 指标出现延迟）"},
+        "instanceDownSec": {"type": "number", "default": 360, "min": 120, "max": 900, "description": "实例保持停止的时长"},
+        "instanceId": {"type": "string", "default": "", "description": "停实例阶段的实例 ID（缺省：EXP_INSTANCE_ID、.cloudalbum/state.json，或平台标签发现）"},
+        "pollSec": {"type": "number", "default": 10, "min": 1, "max": 60}
+      },
+      "faults": [
+        {"at": "5s", "script": "faults/stop-app.sh", "args": ["{phase}", "{downSec}"], "description": "service / all：停 api 与 worker，downSec 秒后启动（经投递通道，root）"},
+        {"at": "5s", "script": "faults/stop-instance.sh", "args": ["{phase}", "{downSec}", "{instanceDownSec}", "{instanceId}"], "via": "local", "description": "instance / all：运维机上用 AWS CLI 停止实验机、等待、启动（all 时等服务阶段结束后再停）"}
+      ],
+      "metrics": ["biz.local_alerts_during_outage", "biz.cw_heartbeat_alarm", "biz.cw_detect_sec", "biz.outage_sec"],
+      "expect": [
+        {"metric": "biz.local_alerts_during_outage", "direction": "zero", "note": "worker 与 api 一起停了：本地评估器完全沉默"},
+        {"metric": "biz.cw_heartbeat_alarm", "direction": "up", "note": "after：app-heartbeat 因数据缺失（breaching）进入 ALARM，经 SNS 送达"}
+      ]
+    },
+    {
+      "module": "monitoring",
+      "id": "mem-visibility",
+      "title": "内存可见性：AWS/EC2 没有内存指标，CWAgent mem_used_percent 与本地 host.memUsedRatio 可见",
+      "kind": "functional",
+      "doc": "docs/modules/05-ops-observability.md#monitoring",
+      "description": "POST /api/lab/faults {type:mem} 若干次（每次 64 MiB，上限 512 MiB）占用内存，保持 holdSec 秒后释放；读取三条曲线：本地 host.memUsedRatio、CWAgent mem_used_percent（InstanceId 维度）、AWS/EC2 MemoryUtilization（不存在）。",
+      "requires": {
+        "after": {"monitoring.driver": "cloudwatch", "monitoring.status": ["ok", "degraded"]}
+      },
+      "labels": {
+        "after": {"title": "CloudWatch + Agent", "role": "single"}
+      },
+      "scenario": {"tool": "node", "script": "mem-visibility.ts", "vus": 1, "duration": "12m"},
+      "params": {
+        "mib": {"type": "number", "default": 256, "min": 64, "max": 512, "description": "占用的内存（64 MiB 的整数倍）"},
+        "holdSec": {"type": "number", "default": 300, "min": 1, "max": 900},
+        "settleSec": {"type": "number", "default": 120, "min": 0, "max": 600, "description": "释放后再等多久读取 CloudWatch（指标出现延迟）"}
+      },
+      "metrics": ["biz.local_mem_delta_pct", "biz.cwagent_mem_points", "biz.ec2_mem_points"],
+      "expect": [
+        {"metric": "biz.ec2_mem_points", "direction": "zero", "note": "EC2 只提供虚拟化层可见的指标，没有内存使用率"},
+        {"metric": "biz.cwagent_mem_points", "direction": "nonzero", "note": "Agent 上报 mem_used_percent"}
+      ],
+      "cleanup": "DELETE /api/lab/faults"
+    },
+    {
+      "module": "monitoring",
+      "id": "resolution",
+      "title": "粒度：同一段 3 分钟 CPU 尖峰在本地 10 秒样本、EC2 基础监控（5 分钟）与详细监控（1 分钟）下的样子",
+      "kind": "functional",
+      "doc": "docs/modules/05-ops-observability.md#monitoring",
+      "description": "第 30 秒经投递通道执行 faults/cpu-spike.sh（占满一个核 spikeSec 秒），之后等待 waitSec 秒让 EC2 指标出现，再读取本地 host.loadavg1 与 AWS/EC2 CPUUtilization（period 60 与 300）。--param DetailedMonitoring=true 后重做一次对比。",
+      "requires": {
+        "after": {"monitoring.driver": "cloudwatch", "monitoring.status": ["ok", "degraded"]}
+      },
+      "labels": {
+        "after": {"title": "CloudWatch", "role": "single"}
+      },
+      "scenario": {"tool": "node", "script": "resolution.ts", "vus": 1, "duration": "15m"},
+      "params": {
+        "spikeSec": {"type": "number", "default": 180, "min": 10, "max": 600},
+        "waitSec": {"type": "number", "default": 420, "min": 0, "max": 900}
+      },
+      "faults": [
+        {"at": "30s", "script": "faults/cpu-spike.sh", "args": ["{spikeSec}"], "description": "占满一个核（root，经投递通道）"}
+      ],
+      "metrics": ["biz.local_points_in_spike", "biz.ec2_points_60", "biz.ec2_points_300", "biz.ec2_max_300", "biz.ec2_max_60"],
+      "expect": [
+        {"metric": "biz.local_points_in_spike", "direction": "nonzero", "note": "本地 10 秒一个样本，尖峰清晰"},
+        {"metric": "biz.ec2_points_300", "direction": "nonzero", "note": "基础监控 5 分钟一个点：3 分钟尖峰被平均成小坡"}
+      ]
+    },
+    {
+      "module": "monitoring",
+      "id": "notify-path",
+      "title": "通知链路：set-alarm-state 验证 SNS 邮件送达（下一次评估按真实数据改回）",
+      "kind": "functional",
+      "doc": "docs/modules/05-ops-observability.md#monitoring",
+      "description": "手工实验：需要部署者凭证调用 cloudwatch:SetAlarmState（应用角色没有这个权限），并在邮箱中确认收到邮件。见 README。",
+      "scenario": {"tool": "manual"}
+    }
+  ]
+}

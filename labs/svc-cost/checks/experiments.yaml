@@ -1,0 +1,18 @@
+checks:
+  - id: exp-visibility-lag
+    title: visibility-lag 的 after（同一时刻两侧快照）有一条有效结果
+    type: experiment
+    module: cost
+    experiment: visibility-lag
+    label: after
+    required: false
+    accept: [valid]
+
+  - id: exp-tag-coverage
+    title: tag-coverage 的 after（Cost Explorer 按 Module 分组）有一条有效结果
+    type: experiment
+    module: cost
+    experiment: tag-coverage
+    label: after
+    required: false
+    accept: [valid]

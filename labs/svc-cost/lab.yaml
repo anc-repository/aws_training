@@ -1,66 +1,262 @@
-# labs/svc-cost/lab.yaml —— 目录占位（status: planned）：只有目录元数据，可在目录中显示但不能开始实验；
-# 取值来自 05 §4 与 cards/ 逐卡文档。步骤、手册、检查与小测在后续批次补齐，届时 status 改为 beta 并提升版本。
+# labs/svc-cost/lab.yaml —— AWS Budgets：费用护栏与告警（cards/service-cards-3 svc-cost）
+# 实现核对（implementation-notes wave1-cw-budgets）：
+#   - 本地清单的 detail 来自 cost 感知器的本地估算（detectors/cost.ts）；COST_MODE=local 时它作为 capabilities.cost 的
+#     localHealth / detail 出现，需要集成阶段在 container 中为 cost 登记探针（registerProbe），见 implementation-notes；
+#   - Cost Explorer 只经 POST /api/lab/cost/refresh 调用，必须带确认词（按请求计费）；实验 tag-coverage 必须 --param confirmCharges=yes；
+#   - 卡片第 6 步的 visibility-lag 适配为“同一时刻两侧快照”，第 8 步的预算动作只核对配置（DescribeBudgetActionsForBudget）；
+#   - 成本分配标签的激活在平台模式下是平台动作 cost-activate-tags（学员身份执行 enable cost 时跳过并提示，06 PM-30）。
 schema: atl.lab/v2
 id: svc-cost
 kind: service
-version: 0.1.0
-status: planned
+version: 1.0.0
+status: beta
 service: AWS Budgets
 function: 费用护栏与告警
 title: AWS Budgets：费用护栏与告警
+subtitle: 本地计费资源清单 → AWS Budgets 月度预算 + Cost Explorer
 summary: 给项目装上费用护栏：本地计费资源清单“快而粗”，AWS Budgets 与 Cost Explorer“准而慢”，把两者并排看清。
+story: |
+  本地估算启用即出现（“RDS 刚被打开”），但它只知道经 scripts/module 启用的本项目模块，看不到真实账单、数据传输与请求类费用。
+  这张卡片用 AWS Budgets 按 Project 标签与账号总额各建一个月度预算，实际花费超过阈值或预测会超支时发邮件与 SNS 通知；
+  Cost Explorer 按 Module 标签给出真实的费用分布——但它们比本地清单晚了数小时到一天。
+objectives:
+  - { text: 用成本分配标签 + 预算把“项目的钱”与“账号的钱”分开看, domain: cost, relatesTo: enable }
+  - { text: 说清 Budgets、Cost Explorer、账单告警各自的时效与用途, domain: cost, relatesTo: side-by-side }
+  - { text: 理解抵扣额度为什么会掩盖真实用量, domain: cost, relatesTo: enable }
+  - { text: 识别按小时计费的资源（公网 IPv4、NAT、RDS…）, domain: cost, relatesTo: orient }
 difficulty: beginner
 estimatedMinutes: 45
 timeLimitMinutes: 90
-extensions: {maxCount: 2, minutesEach: 30}
-retain: {allowed: true, maxHours: 24}
+extensions: { maxCount: 1, minutesEach: 30 }
+retain: { allowed: true, maxHours: 24, reason: 普通预算的监控与通知免费；保留后可以在第二天看到账单数据与可能的预算告警 }
 regions:
   supported: [ap-northeast-1]
+  alsoUses: [global, us-east-1]
 services:
-- {id: budgets, name: AWS Budgets, role: primary, module: cost}
-- {id: iam, role: context, module: iam}
-modules:
-  target: [cost]
-  start: [iam]
-  context: []
-  related: []
+  - { id: budgets, name: AWS Budgets, role: primary, module: cost }
+  - { id: cost-explorer, name: AWS Cost Explorer, role: supporting, module: cost }
+  - { id: sns, name: Amazon SNS（模块自带 cost 主题）, role: supporting, module: cost }
+  - { id: iam, name: AWS IAM（实例角色）, role: context, module: iam }
+modules: { target: [cost], start: [iam], context: [], related: [] }
 prerequisites:
   cards:
-  - {id: svc-ec2, kind: soft}
-  - {id: sc-cost-optimization, kind: soft}
+    - { id: svc-ec2, kind: soft }
+    - { id: sc-cost-optimization, kind: soft }
   learnerInputs:
-  - {id: cost-tags-active}
-  - {id: notify-email}
-  - {id: budget-amounts}
+    - { id: cost-tags-active }
+    - { id: notify-email }
+    - { id: budget-amounts }
+  knowledge: [成本分配标签, 月度账单与预测]
+
 startProfile:
   provisions:
-  - item: iam
-    kind: module
-    basis: credential
-    set: {IAM_CREDENTIALS: role}
-    reason: 平台约定除 svc-ec2、svc-iam 外起始状态都带实例角色（C3）
-  - {item: preview-direct-https, kind: platform, reason: 预览使用方案 B 的 Let's Encrypt IP 证书（03 §6.2）}
-  platform:
-    preview: {directHttps: 'on'}
+    - { item: iam, kind: module, basis: credential, set: { IAM_CREDENTIALS: role },
+        reason: 平台约定除 svc-ec2、svc-iam 外起始状态都带实例角色（C3）；cost 是 credentials optional，启用后顶栏直接并排显示本地清单与 Budgets }
+    - { item: mgmt-channel, kind: platform, reason: 实验机挂只含 AmazonSSMManagedInstanceCore 的 CloudAlbumAppRole，是平台的管理通道，不是应用权限 }
+    - { item: workstation, kind: platform, reason: 每个会话一台工作台，用于运行 scripts/module、AWS CLI 与对比实验 }
+    - { item: check-bundle, kind: platform, reason: 检查包随 CloudAlbum 发布包安装在实验机的 /opt/atl（06 PM-04） }
+    - { item: preview-direct-https, kind: platform, reason: 预览使用方案 B 的 Let's Encrypt IP 证书（03 §6.2）；本卡不涉及 tls，保持开启 }
+  platform: { preview: { directHttps: 'on' } }
+  reason: cost 的 requires 为空；起始状态是 L0 + 实例角色（档位 atl/svc-cost/default）。本地估算在 L0 就在运行
 targetModules:
-- {id: cost, driver: budgets}
+  - { id: cost, driver: budgets, fromDriver: local,
+      params: { ProjectBudgetLimit: '{{ var.projectBudgetLimit }}', AccountBudgetLimit: '{{ var.accountBudgetLimit }}', AlertEmail: '{{ learner.inputs.notify-email }}', EnableBudgetAction: 'false' },
+      wireStep: enable, adoptsExisting: false }
 expectedWarnings: []
+workstation: { required: true, tools: [aws-cli, node, jq], savingsMode: ok }
 platform:
+  consoleLinks: [budgets.home, iam.role]
   accountImpact:
-  - {id: budgets, scope: account, resource: 预算, revert: delete}
-  - {id: cost-allocation-tags, scope: account, resource: 成本分配标签激活状态, revert: keep, note: 不撤销}
-cost: {tier: low}
-provision: {class: A}
+    - { id: budgets, scope: account, resource: 预算, revert: delete }
+    - { id: cost-allocation-tags, scope: account, resource: 成本分配标签激活状态, revert: keep, note: 不撤销（停用会让按标签的历史分组出现断档） }
+provision: { class: A }
+
 platformOps:
-- id: cost-activate-tags
-  op: enable
-  module: cost
-  args: {activateCostAllocationTags: true}
-  title: 激活成本分配标签
-  optional: true
-badge: {title: 费用护栏}
+  - id: cost-activate-tags
+    op: enable
+    module: cost
+    args: { activateCostAllocationTags: true }
+    title: 激活成本分配标签
+    optional: true
+
+variables:
+  projectBudgetLimit:
+    label: 项目预算金额
+    from: input
+    pattern: '^[0-9]{1,6}(\.[0-9]{1,2})?$'
+    help: 账单币种的月度金额，由你根据自己的承受能力决定（与前置输入 budget-amounts 相同）；本项目不提供参考价格
+  accountBudgetLimit:
+    label: 账号预算金额
+    from: input
+    pattern: '^[0-9]{1,6}(\.[0-9]{1,2})?$'
+    help: 兜住没有标签的费用与账号里的其他花费；同样由你决定
+  costTopicArn: { label: cost 主题 ARN, from: derived, fillFrom: stack.cost.EnvCostTopicArn }
+
+cost:
+  currency: USD
+  tier: low
+  mainDrivers: [Cost Explorer API 请求（本卡最多一次）, 启用了 Actions 的预算（选做）]
+  basis:
+    - { ref: start-profile, note: 实验机 EC2、EBS（根卷与数据卷）、公网 IPv4 }
+    - { ref: workstation, note: 工作台 EC2、EBS、公网 IPv4 }
+    - { key: budget-action, pricingKey: budgets.actions, billing: usage, quantity: 1, unit: Budget-Days, assumedUsagePerHour: 0.04, source: target,
+        optional: true, whenRetained: true, note: 只有选做步骤开启预算动作时才有；每月前两个启用了 Actions 的预算免费（以官方定价为准） }
+  assumptions:
+    - 普通预算的监控与通知免费；Cost Explorer API 按请求计费，本卡只在步骤 7 手动刷新一次；单价以官方定价为准
+
+steps:
+  - id: orient
+    type: observe
+    title: 起始状态：本地计费资源清单（启用即出现，不是账单）
+    manual: manual/10-orient.md
+    panel: preview
+    estMinutes: 5
+    checks: [cost-local-baseline, local-blind-spots]
+
+  - id: rates
+    type: code
+    title: （选做）抄录单价：注明出处与日期才参与估算
+    manual: manual/20-rates.md
+    optional: { reason: 本项目不提供任何默认单价，金额只来自你注明出处的抄录 }
+    requires: { steps: [orient] }
+    panel: terminal-lab
+    estMinutes: 10
+    checks: [ { ref: cost-rates-estimate, required: false }, { ref: cfg010-understood, required: false } ]
+
+  - id: tags
+    type: cli
+    title: 检查成本分配标签是否已激活
+    manual: manual/30-tags.md
+    requires: { steps: [orient] }
+    panel: terminal-workstation
+    estMinutes: 5
+    checks: [ { ref: tag-active, required: false } ]
+
+  - id: enable
+    type: script
+    wire: true
+    title: 接入 Budgets：项目预算、账号预算与 cost 主题
+    manual: manual/40-enable.md
+    methods: [script]
+    requires: { steps: [tags] }
+    panel: terminal-workstation
+    estMinutes: 10
+    wait: { typicalMinutes: 3, maxMinutes: 15, text: 部署预算与主题，然后到邮箱确认订阅 }
+    checks: [cost-wired, cost-module-state, budgets-exist]
+
+  - id: confirm-subscription
+    type: observe
+    title: 在邮箱中确认 cost 主题的订阅
+    manual: manual/50-confirm-subscription.md
+    requires: { steps: [enable] }
+    panel: preview
+    estMinutes: 5
+    wait: { typicalMinutes: 2, maxMinutes: 15, text: 确认邮件可能落在垃圾邮件箱 }
+    checks: [cost-subscription-confirmed, cost-subscription-manual]
+
+  - id: side-by-side
+    type: observe
+    title: 并排对照：本地清单（立即）与 Budgets（滞后）
+    manual: manual/60-side-by-side.md
+    requires: { steps: [enable] }
+    panel: preview
+    estMinutes: 8
+    checks: [two-sides-recorded, { ref: exp-visibility-lag, required: false }]
+
+  - id: tag-coverage
+    type: experiment
+    title: （选做）Cost Explorer：按 Module 标签看“无标签”费用
+    manual: manual/70-tag-coverage.md
+    optional: { reason: Cost Explorer API 按请求计费 }
+    experiment: { module: cost, id: tag-coverage, label: after }
+    requires: { steps: [enable] }
+    panel: terminal-workstation
+    estMinutes: 5
+    checks: [ { ref: exp-tag-coverage, required: false } ]
+
+  - id: budget-action
+    type: script
+    title: （选做）预算动作：只作用于金丝雀角色
+    manual: manual/80-budget-action.md
+    methods: [script]
+    optional: { reason: 启用了 Actions 的预算超出免费数量后按天计费 }
+    requires: { steps: [enable] }
+    panel: terminal-workstation
+    estMinutes: 8
+    startsBilling: { class: usage, pricingKeys: [budgets.actions], note: 每月前两个启用了 Actions 的预算免费（以官方定价为准） }
+    checks: [ { ref: budget-action-canary, required: false } ]
+
+finalChecks:
+  - no-world-ssh
+  - { ref: cost-healthy-or-tag-pending, as: final-cost-wired }
+
+experiments:
+  - module: cost
+    id: visibility-lag
+    labels:
+      - { id: before, role: baseline, requires: { cost: local } }
+      - { id: after, role: treatment, requires: { cost: budgets } }
+    pairs: [[before, after]]
+    required: false
+    runner: workstation
+    validity: functional
+    corroborateWith: [cost-present]
+  - module: cost
+    id: tag-coverage
+    labels: [ { id: after, role: single } ]
+    required: false
+    runner: workstation
+    validity: functional
+    corroborateWith: [cost-healthy-or-tag-pending]
+
+quiz: { file: quiz.yaml, draw: 3 }
+badge: { title: 费用护栏, icon: assets/badge.svg }
 tracks: [cost-optimized, saa-main]
+
+cleanup:
+  summary: 结束实验后，平台删除本次会话的 cost 栈：两个预算、预算动作、金丝雀角色与 cost 主题（预算是全局资源，回收器在 us-east-1 侧核对）。成本分配标签保持激活，不随卡片停用。平台的 atl-platform-guard 预算不属于本卡，不要修改。
+  autoReclaim: true
+  dataRisk: [实验机上的 cost-rates.yaml 随实验机删除；想保留抄录的单价，结束前自己复制一份]
+  learnerCreatedHints: []
+  verify:
+    - cost-stack-gone
+
 saa:
   domains: [cost]
-tags: [cost, budgets]
-certificate: {enabled: false}
+  topics:
+    - { id: budgets-vs-explorer, title: Budgets、Cost Explorer 与 Cost Anomaly Detection 的分工, domain: cost, relatesTo: side-by-side }
+    - { id: allocation-tags, title: 成本分配标签必须激活、有延迟、不追溯；组织中由管理账号激活, domain: cost, relatesTo: tags }
+    - { id: budget-actions, title: Budgets Actions 可以附加 IAM 策略或 SCP、停止 EC2 / RDS, domain: cost, relatesTo: budget-action }
+    - { id: hourly-resources, title: 识别按小时计费的资源（公网 IPv4、NAT Gateway、Interface Endpoint、RDS）, domain: cost, relatesTo: orient }
+  confusables:
+    - { a: AWS Budgets, b: CloudWatch 账单告警, rule: Budgets 能按标签筛选、支持预测告警与 Actions；EstimatedCharges 账单告警只在 us-east-1、只看总额与按服务的估算值 }
+    - { a: 实际花费告警, b: 预测花费告警, rule: 预测需要约 5 周的用量历史才会生成（以官方为准）；新账号前几周只能靠实际花费阈值 }
+
+tags: [cost, budgets, cost-explorer, tags, governance]
+
+permissions:
+  learner:
+    - cloudformation:CreateChangeSet
+    - cloudformation:DescribeChangeSet
+    - cloudformation:ExecuteChangeSet
+    - cloudformation:DescribeStacks
+    - cloudformation:DescribeStackEvents
+    - budgets:ModifyBudget
+    - budgets:ViewBudget
+    - budgets:CreateBudgetAction
+    - budgets:DescribeBudgetActionsForBudget
+    - sns:CreateTopic
+    - sns:SetTopicAttributes
+    - sns:Subscribe
+    - sns:TagResource
+    - iam:CreateRole
+    - iam:PutRolePolicy
+    - iam:PassRole
+    - iam:CreatePolicy
+    - iam:AttachRolePolicy
+    - ssm:SendCommand
+    - ssm:GetCommandInvocation
+  notes: 学员边界只有 ce:Get*/List*/Describe*；成本分配标签的激活（ce:UpdateCostAllocationTagsStatus）只能经平台动作 cost-activate-tags。预算由 cost 模块栈创建（CloudFormation），平台模式下栈带 atl:component=env 等标签（C4(d)）
+
+certificate: { enabled: false }
+owners: [cloudalbum-maintainers]
