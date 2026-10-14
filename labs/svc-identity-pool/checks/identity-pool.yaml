@@ -1,0 +1,212 @@
+checks:
+  # ---- 起始状态（before 一律 once）
+  - id: identity-pool-none-baseline
+    title: 起始状态：F14 由应用自签的前缀令牌授权（none 驱动）
+    type: capability
+    module: identity-pool
+    drift: { policy: once }
+    assert:
+      - { path: $.driver, op: eq, value: none, label: 驱动 }
+      - { path: $.status, op: eq, value: 'off', label: 模块状态（本地实现） }
+    explain: IDENTITY_POOL_ID 为空时，POST /api/uploads/session 返回 HMAC 前缀令牌（raw/<userId>/），storage=s3 下每一片都要先 POST /api/uploads/parts:sign。
+
+  - id: f14-path-seen
+    title: 服务端记录到真实的 F14 上传请求（前缀令牌或 STS 凭证）
+    type: local
+    on: lab
+    checkId: path-seen
+    args: { segment: identity-pool, pattern: '^(none:token|cognito:sts)$', window: 15m, minCount: 1, excludeProbe: true }
+    drift: { policy: once }
+    assert:
+      - { path: $.count, op: gte, value: 1, label: 出现 identity-pool=none:token 或 cognito:sts 的请求数 }
+    explain: 对比实验由测试用户发起（不带实验头），这一项是服务端证据：应用按实际调用的驱动生成路径签名，探测请求不计入。
+
+  # ---- 启用 Identity Pool
+  - id: identity-pool-wired
+    title: identity-pool 已切换到 Cognito，只允许预期的 DEP-030 警告
+    type: capability
+    module: identity-pool
+    expectedWarnings: [DEP-030]
+    drift: { policy: must-hold, monitor: true }
+    wait: { typicalMinutes: 3, maxMinutes: 15 }
+    assert:
+      - { path: $.driver, op: eq, value: cognito, label: 驱动 }
+      - { path: $, op: healthy, label: 状态正常（APP_BASE_URL 仍是 http 时 DEP-030 使其为 degraded，这是预期的） }
+    explain: 探针调用 DescribeIdentityPool 并对暂存桶 HeadBucket。DEP-030：在 http 站点上下发临时凭证等于明文传输；平台预览方案 B 让浏览器走 https://<EIP>。
+    reproduce: { run: 'curl -s http://127.0.0.1/api/capabilities | jq ".modules[\"identity-pool\"] | {driver, status, detail}"', runsOn: lab }
+
+  - id: identity-pool-probe
+    title: 平台探测端点经 Identity Pool 驱动（identity-pool=cognito:probe）
+    type: http-header
+    from: lab
+    target: self
+    path: /api/lab/probe/identity-pool
+    method: GET
+    dependsOn: [identity-pool-wired]
+    drift: { policy: must-hold }
+    assert:
+      - { path: $.status, op: eq, value: 200, label: 状态码 }
+      - { path: $.json.driver, op: eq, value: cognito, label: 驱动 }
+      - { path: $.json.identityPoolId, op: eq, value: '{{ var.identityPoolId }}', label: 身份池是本会话栈的输出 }
+      - { path: $.json.allowUnauthenticated, op: eq, value: false, label: 不允许访客身份 }
+      - { path: $.pathSegments.identity-pool, op: eq, value: 'cognito:probe', label: 路径段 identity-pool }
+    explain: 探测主体没有终端用户的 ID 令牌，端点只调用 DescribeIdentityPool 与 HeadBucket，不签发 STS 凭证（06 PM-11）；“真的走了 STS”的证据见 sts-path-seen。
+
+  - id: sts-path-seen
+    title: 真实上传经 Identity Pool 换取了 STS 临时凭证
+    type: local
+    on: lab
+    checkId: path-seen
+    args: { segment: identity-pool, pattern: '^cognito:sts$', window: 15m, minCount: 1, excludeProbe: true }
+    dependsOn: [identity-pool-wired]
+    drift: { policy: once }
+    assert:
+      - { path: $.count, op: gte, value: 1, label: 出现 identity-pool=cognito:sts 的请求数 }
+    explain: 在应用预览里一次选两张照片上传（多文件走 F14）即可满足：/api/uploads/session、/api/uploads/credentials 与 complete 都带这个路径段。
+
+  - id: identity-pool-no-guests
+    title: 身份池由本会话创建，不允许未认证（访客）身份，身份提供方是本会话的 User Pool
+    type: aws-readonly
+    service: cognito-identity
+    action: DescribeIdentityPool
+    region: app
+    params: { IdentityPoolId: '{{ var.identityPoolId }}' }
+    ownership: { resource: 'arn:aws:cognito-identity:{{ session.region }}:{{ session.accountId }}:identitypool/{{ var.identityPoolId }}', mode: session, createdAfter: session.readyAt }
+    dependsOn: [identity-pool-wired]
+    drift: { policy: must-hold }
+    assert:
+      - { path: $.AllowUnauthenticatedIdentities, op: eq, value: false, label: 不允许访客身份 }
+      - { path: '$.CognitoIdentityProviders[0].ProviderName', op: endsWith, value: '/{{ var.userPoolId }}', label: 身份提供方是本会话的 User Pool }
+    explain: 访客身份会让任何人都能换到凭证；身份提供方的 ClientId 由 auth 的 injects 传入（不使用 ImportValue）。
+    reproduce: { run: 'aws cognito-identity describe-identity-pool --identity-pool-id "{{ var.identityPoolId }}" --query "{guests:AllowUnauthenticatedIdentities,providers:CognitoIdentityProviders}"', runsOn: workstation }
+    manualFallback:
+      where: { breadcrumb: [Amazon Cognito, 身份池, 'cloudalbum_{{ session.env }}_uploads', 用户访问权限], region: app }
+      observed:
+        question: “访客访问”是什么状态？
+        options:
+          - { value: inactive, label: 未激活, expected: true }
+          - { value: active, label: 已激活, fixHint: 不要在控制台修改栈管理的身份池；重新执行 scripts/module enable identity-pool }
+
+  - id: identity-pool-roles
+    title: 已认证身份的默认角色是 Uploader 角色，没有未认证角色
+    type: aws-readonly
+    service: cognito-identity
+    action: GetIdentityPoolRoles
+    region: app
+    params: { IdentityPoolId: '{{ var.identityPoolId }}' }
+    dependsOn: [identity-pool-no-guests]
+    drift: { policy: must-hold }
+    assert:
+      - { path: $.Roles.authenticated, op: eq, value: '{{ var.uploaderRoleArn }}', label: 已认证角色 }
+      - { path: $.Roles.unauthenticated, op: absent, label: 没有未认证角色 }
+    explain: 身份池的归属已由 identity-pool-no-guests 确认；角色映射是 IdentityPoolRoleAttachment 资源。
+    reproduce: { run: 'aws cognito-identity get-identity-pool-roles --identity-pool-id "{{ var.identityPoolId }}"', runsOn: workstation }
+    manualFallback:
+      where: { breadcrumb: [Amazon Cognito, 身份池, 'cloudalbum_{{ session.env }}_uploads', 用户访问权限], region: app }
+      observed:
+        question: “已经过身份验证的角色”是哪一个？
+        options:
+          - { value: uploader, label: 'cloudalbum-{{ session.env }}-identity-pool-uploader', expected: true }
+          - { value: other, label: 其他角色或为空, fixHint: 重新执行 scripts/module enable identity-pool }
+
+  # ---- 读策略
+  - id: uploader-trust
+    title: Uploader 角色的信任策略同时限定 aud（本身份池）与 amr（authenticated）
+    type: aws-readonly
+    service: iam
+    action: GetRole
+    region: global
+    params: { RoleName: '{{ var.uploaderRoleName }}' }
+    ownership: { resource: '{{ var.uploaderRoleArn }}', mode: session, createdAfter: session.readyAt }
+    drift: { policy: must-hold }
+    assert:
+      - { path: $.Role.AssumeRolePolicyDocument, op: contains, value: AssumeRoleWithWebIdentity, label: Web 身份联合 }
+      - { path: $.Role.AssumeRolePolicyDocument, op: matches, value: 'cognito-identity\.amazonaws\.com(:|%3A)aud', label: 有 aud 条件 }
+      - { path: $.Role.AssumeRolePolicyDocument, op: matches, value: 'cognito-identity\.amazonaws\.com(:|%3A)amr', label: 有 amr 条件 }
+      - { path: $.Role.AssumeRolePolicyDocument, op: contains, value: authenticated, label: amr 为 authenticated }
+    explain: 缺少 aud 条件时，任何身份池（包括别人账号里的）都可能扮演这个角色。IAM 返回的策略文档是 URL 编码的，所以冒号可能显示为 %3A。
+    reproduce: { run: 'aws iam get-role --role-name "{{ var.uploaderRoleName }}" --query Role.AssumeRolePolicyDocument', runsOn: workstation }
+    manualFallback:
+      where: { breadcrumb: [IAM, 角色, '{{ var.uploaderRoleName }}', 信任关系], region: global }
+      observed:
+        question: 信任策略的 Condition 里有哪些条件键？
+        options:
+          - { value: both, label: 'cognito-identity.amazonaws.com:aud 与 cognito-identity.amazonaws.com:amr', expected: true }
+          - { value: aud-only, label: 只有 aud, fixHint: 缺少 amr 条件时未认证身份也可能扮演；不要在控制台修改栈管理的角色 }
+
+  - id: uploader-permissions
+    title: 看懂 Uploader 角色的权限：只能写 private/${cognito-identity.amazonaws.com:sub}/
+    type: manual
+    spec:
+      where: { breadcrumb: [IAM, 角色, '{{ var.uploaderRoleName }}', 权限, staging-own-prefix], region: global }
+      observed:
+        question: s3:PutObject 的资源是哪一种？
+        options:
+          - { value: variable, label: 'arn:aws:s3:::<暂存桶>/private/${cognito-identity.amazonaws.com:sub}/*', expected: true }
+          - { value: bucket, label: 'arn:aws:s3:::<暂存桶>/*', fixHint: 这样每个用户都能写别人的前缀；不要在控制台修改栈管理的角色 }
+          - { value: user-pool-sub, label: 'private/${cognito-idp…:sub}/*（User Pool 的 sub）', fixHint: 策略变量取的是 Identity ID（形如 ap-northeast-1:uuid），不是 User Pool 的 sub }
+
+  - id: staging-cors
+    title: 暂存桶的 CORS 暴露 ETag，允许 PUT / POST / DELETE / GET
+    type: aws-readonly
+    service: s3
+    action: GetBucketCors
+    region: app
+    params: { Bucket: '{{ var.stagingBucket }}' }
+    ownership: { resource: '{{ var.stagingBucketArn }}', mode: session, createdAfter: session.readyAt }
+    drift: { policy: must-hold }
+    assert:
+      - { path: '$.CORSRules[0].ExposeHeaders', op: contains, value: ETag, label: 暴露 ETag（分片上传必需） }
+      - { path: '$.CORSRules[0].AllowedMethods', op: contains, value: PUT, label: 允许 PUT（UploadPart） }
+      - { path: '$.CORSRules[0].AllowedMethods', op: contains, value: POST, label: 允许 POST（创建 / 完成分片上传） }
+      - { path: '$.CORSRules[0].AllowedMethods', op: contains, value: DELETE, label: 允许 DELETE（中止分片上传） }
+    explain: 浏览器读不到每一片的 ETag 就无法完成合并；没有 DELETE 时取消上传会失败。
+    reproduce: { run: 'aws s3api get-bucket-cors --bucket "{{ var.stagingBucket }}"', runsOn: workstation }
+    manualFallback:
+      where: { breadcrumb: [Amazon S3, 存储桶, '{{ var.stagingBucket }}', 权限, 跨源资源共享 (CORS)], region: app }
+      observed:
+        question: ExposeHeaders 里有什么？
+        options:
+          - { value: etag, label: ETag, expected: true }
+          - { value: none, label: 空, fixHint: 重新执行 scripts/module enable identity-pool }
+
+  - id: policy-sim-result
+    title: 记录 Policy Simulator 的模拟结果
+    type: manual
+    spec:
+      observed:
+        question: 对 Uploader 角色模拟 s3:PutObject，资源是“别人的 identityId”前缀时，结果是什么？
+        options:
+          - { value: implicit-deny, label: implicitDeny（被隐式拒绝）, expected: true }
+          - { value: allowed, label: allowed, fixHint: 检查上下文键 cognito-identity.amazonaws.com:sub 是否填了你自己的 identityId，资源是否换成了别人的前缀 }
+
+  # ---- 选做：运行时 A/B
+  - id: bypass-paths
+    title: 记录两种会话的路径头
+    type: manual
+    required: false
+    spec:
+      observed:
+        question: '管理员带 X-Compare-Bypass: identity-pool 开会话时，响应头 X-CloudAlbum-Path 的 identity-pool 段是什么？'
+        options:
+          - { value: bypass, label: 'cognito:bypass（本次改由前缀令牌上传）', expected: true }
+          - { value: sts, label: 'cognito:sts', fixHint: 旁路头只对管理员有效，且只在 POST /api/uploads/session 上生效 }
+
+  # ---- 清理核对
+  - id: identity-pool-gone
+    title: 本会话的身份池已删除
+    type: aws-readonly
+    service: cognito-identity
+    action: DescribeIdentityPool
+    region: app
+    params: { IdentityPoolId: '{{ var.identityPoolId }}' }
+    expectError: ResourceNotFoundException
+    required: false
+    reproduce: { run: 'aws cognito-identity describe-identity-pool --identity-pool-id "{{ var.identityPoolId }}"', runsOn: workstation }
+    manualFallback:
+      where: { breadcrumb: [Amazon Cognito, 身份池], region: app }
+      observed:
+        question: 列表中还能找到 cloudalbum_{{ session.env }}_uploads 吗？
+        options:
+          - { value: gone, label: 找不到, expected: true }
+          - { value: present, label: 还在 }

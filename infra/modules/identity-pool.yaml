@@ -1,0 +1,260 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >-
+  CloudAlbum module "identity-pool" - Amazon Cognito Identity Pool: authenticated users exchange the User Pool ID token for
+  STS credentials that can only write private/<identityId>/ of the module's own staging bucket (F14 direct multipart upload).
+  docs/modules/02-identity-security.md#identity-pool
+
+Metadata:
+  cfn-lint:
+    config:
+      # W1030 only: IdentityPool.CognitoIdentityProviders[].ClientId is used only when HasUserPool holds, and the rule
+      # UserPoolNeedsClient asserts a non-empty UserPoolClientId in that case; cfn-lint resolves the injected parameter's
+      # default '' regardless of the condition and reports it at the parameter (a resource-level ignore cannot reach it).
+      ignore_checks: [W1030]
+  CloudAlbum:
+    module: identity-pool
+    registryVersion: 1
+    # Injected parameters (registry injects, never ImportValue): UserPoolId / UserPoolClientId (auth), KmsKeyArn (kms, target "*"),
+    # AppOrigins (dns / cdn / load-balancer, "+" appended; first enable: http://<EIP> computed by scripts/module, plus the
+    # platform preview origin https://<EIP> added by the identity-pool hook).
+    # Tags: stack-level tags from scripts/module (Project, Env, Module, ModuleVersion, ManagedBy; platform mode adds atl:*).
+    # The staging bucket holds no authoritative data (objects expire after 1 day, complete() copies them to the storage
+    # bucket): DeletionPolicy Delete; `scripts/module disable identity-pool` empties it and aborts unfinished multipart
+    # uploads before the stack is deleted. No NotificationConfiguration at all: staged objects never trigger processing.
+
+Parameters:
+  Env:
+    Type: String
+    Default: lab
+    AllowedPattern: '^[a-z][a-z0-9-]{1,15}$'
+  ModuleVersion:
+    Type: String
+    Default: '1'
+  UserPoolId:
+    Type: String
+    Default: ''
+    AllowedPattern: '^$|^[\w-]+_[0-9A-Za-z]+$'
+    Description: Injected by auth (InfoUserPoolId). Empty = no User Pool provider (developer authenticated identities only).
+  UserPoolClientId:
+    Type: String
+    Default: ''
+    AllowedPattern: '^$|^[\w]+$'
+    Description: Injected by auth (EnvCognitoClientId). Required together with UserPoolId (Rules UserPoolNeedsClient).
+  DeveloperProviderName:
+    Type: String
+    Default: ''
+    AllowedPattern: '^$|^[\w._-]{1,128}$'
+    Description: Developer provider name for auth=local (e.g. login.cloudalbum); written to IDENTITY_DEV_PROVIDER. Empty = not used.
+  AppOrigins:
+    Type: CommaDelimitedList
+    Description: CORS origins of the staging bucket (union of all entry origins, e.g. http://<EIP>,https://<EIP>,https://dxxx.cloudfront.net)
+  KmsKeyArn:
+    Type: String
+    Default: ''
+    Description: Injected by kms. Empty = SSE-S3; non-empty = SSE-KMS (uploader and application need kms:GenerateDataKey / kms:Decrypt).
+  PermissionsBoundaryArn:
+    Type: String
+    Default: ''
+    Description: Platform mode (06 PM-29) - workload boundary of the uploader role. Empty in standalone mode.
+
+Rules:
+  NeedsAnIdentityProvider:
+    Assertions:
+      - Assert: !Or [!Not [!Equals [!Ref UserPoolId, '']], !Not [!Equals [!Ref DeveloperProviderName, '']]]
+        AssertDescription: >-
+          identity-pool needs auth=cognito (UserPoolId / UserPoolClientId injected by auth) or a developer provider for
+          auth=local (--param DeveloperProviderName=login.cloudalbum); DEP-002
+  UserPoolNeedsClient:
+    RuleCondition: !Not [!Equals [!Ref UserPoolId, '']]
+    Assertions:
+      - Assert: !Not [!Equals [!Ref UserPoolClientId, '']]
+        AssertDescription: UserPoolClientId must be injected together with UserPoolId (auth injects)
+
+Conditions:
+  HasUserPool: !Not [!Equals [!Ref UserPoolId, '']]
+  HasDevProvider: !Not [!Equals [!Ref DeveloperProviderName, '']]
+  HasKms: !Not [!Equals [!Ref KmsKeyArn, '']]
+  HasBoundary: !Not [!Equals [!Ref PermissionsBoundaryArn, '']]
+
+Resources:
+  IdentityPool:
+    Type: AWS::Cognito::IdentityPool
+    Properties:
+      # IdentityPoolName allows only letters, digits, underscore and space: cloudalbum-lab-uploads -> cloudalbum_lab_uploads
+      IdentityPoolName: !Join ['_', !Split ['-', !Sub 'cloudalbum-${Env}-uploads']]
+      AllowUnauthenticatedIdentities: false        # no guest identities
+      AllowClassicFlow: false                      # enhanced (simplified) authflow only
+      CognitoIdentityProviders: !If
+        - HasUserPool
+        - - ProviderName: !Sub 'cognito-idp.${AWS::Region}.amazonaws.com/${UserPoolId}'
+            ClientId: !Ref UserPoolClientId
+            ServerSideTokenCheck: false
+        - !Ref 'AWS::NoValue'
+      DeveloperProviderName: !If [HasDevProvider, !Ref DeveloperProviderName, !Ref 'AWS::NoValue']
+
+  StagingBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Delete            # transient objects only (1-day expiration); emptied by scripts/module disable first
+    UpdateReplacePolicy: Delete
+    Properties:
+      BucketName: !Sub 'cloudalbum-${Env}-upload-staging-${AWS::AccountId}'
+      OwnershipControls:
+        Rules: [{ ObjectOwnership: BucketOwnerEnforced }]
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: !If [HasKms, 'aws:kms', AES256]
+              KMSMasterKeyID: !If [HasKms, !Ref KmsKeyArn, !Ref 'AWS::NoValue']
+            BucketKeyEnabled: !If [HasKms, true, false]
+      CorsConfiguration:
+        CorsRules:
+          - Id: direct-multipart-upload
+            AllowedOrigins: !Ref AppOrigins
+            # PUT: UploadPart; POST: CreateMultipartUpload / CompleteMultipartUpload; DELETE: AbortMultipartUpload; GET: ListParts
+            AllowedMethods: [PUT, POST, DELETE, GET, HEAD]
+            AllowedHeaders: ['authorization', 'x-amz-*', 'content-type']
+            ExposedHeaders: [ETag]                 # the browser must read every part's ETag to complete the upload
+            MaxAge: 3000
+      LifecycleConfiguration:
+        Rules:
+          - Id: expire-private
+            Status: Enabled
+            Prefix: private/
+            ExpirationInDays: 1                    # never completed / never imported objects are removed after a day
+          - Id: abort-mpu
+            Status: Enabled
+            AbortIncompleteMultipartUpload: { DaysAfterInitiation: 1 }
+      Tags:
+        - { Key: Name, Value: !Sub 'cloudalbum-${Env}-upload-staging' }
+        - { Key: DataClass, Value: user-content }
+
+  StagingBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref StagingBucket
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: DenyInsecureTransport
+            Effect: Deny
+            Principal: '*'
+            Action: 's3:*'
+            Resource: [!GetAtt StagingBucket.Arn, !Sub '${StagingBucket.Arn}/*']
+            Condition: { Bool: { 'aws:SecureTransport': 'false' } }
+
+  UploaderRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub 'cloudalbum-${Env}-identity-pool-uploader'   # "CloudAlbumUploaderRole" of the module document
+      Description: CloudAlbum identity-pool - authenticated identities write only their own staging prefix
+      MaxSessionDuration: 3600
+      PermissionsBoundary: !If [HasBoundary, !Ref PermissionsBoundaryArn, !Ref 'AWS::NoValue']
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: AuthenticatedIdentitiesOfThisPoolOnly
+            Effect: Allow
+            Principal: { Federated: cognito-identity.amazonaws.com }
+            Action: sts:AssumeRoleWithWebIdentity
+            Condition:
+              StringEquals: { 'cognito-identity.amazonaws.com:aud': !Ref IdentityPool }      # without aud ANY identity pool could use this role
+              'ForAnyValue:StringLike': { 'cognito-identity.amazonaws.com:amr': authenticated }
+      Policies:
+        - PolicyName: staging-own-prefix
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: WriteOwnPrefix
+                Effect: Allow
+                Action: [s3:PutObject, s3:AbortMultipartUpload, s3:ListMultipartUploadParts]
+                # ${cognito-identity.amazonaws.com:sub} is the Identity ID (region:uuid), not the User Pool sub
+                Resource: !Sub '${StagingBucket.Arn}/private/${!cognito-identity.amazonaws.com:sub}/*'
+              - Sid: ListOwnPrefix
+                Effect: Allow
+                Action: s3:ListBucket
+                Resource: !GetAtt StagingBucket.Arn
+                Condition:
+                  StringLike: { 's3:prefix': 'private/${cognito-identity.amazonaws.com:sub}/*' }   # plain string: IAM resolves the variable
+              - !If
+                - HasKms
+                - Sid: KmsForMultipartUpload            # multipart upload needs Decrypt as well (S3 decrypts the parts to assemble them)
+                  Effect: Allow
+                  Action: [kms:GenerateDataKey, kms:Decrypt]
+                  Resource: !Ref KmsKeyArn
+                - !Ref 'AWS::NoValue'
+      Tags:
+        - { Key: Name, Value: !Sub 'cloudalbum-${Env}-identity-pool-uploader' }
+
+  RoleAttachment:
+    Type: AWS::Cognito::IdentityPoolRoleAttachment
+    Properties:
+      IdentityPoolId: !Ref IdentityPool
+      Roles:
+        authenticated: !GetAtt UploaderRole.Arn   # default role of authenticated identities; no unauthenticated role
+
+  AppPolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      ManagedPolicyName: !Sub 'cloudalbum-${Env}-identity-pool'   # no Roles / Users: attached by scripts/module (D2)
+      Description: CloudAlbum identity-pool module - application (complete / import) and probe permissions
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: StagingObjects                       # HeadObject + Range GetObject (validation), CopyObject source, delete after import
+            Effect: Allow
+            Action: [s3:GetObject, s3:DeleteObject]
+            Resource: !Sub '${StagingBucket.Arn}/*'
+          - Sid: StagingBucketProbe                   # HeadBucket / ListObjectsV2 (probe)
+            Effect: Allow
+            Action: s3:ListBucket
+            Resource: !GetAtt StagingBucket.Arn
+          - Sid: IdentityPoolProbe
+            Effect: Allow
+            Action: cognito-identity:DescribeIdentityPool
+            Resource: !Sub 'arn:${AWS::Partition}:cognito-identity:${AWS::Region}:${AWS::AccountId}:identitypool/${IdentityPool}'
+          - !If
+            - HasDevProvider
+            - Sid: DeveloperAuthenticatedIdentities   # auth=local only
+              Effect: Allow
+              Action: cognito-identity:GetOpenIdTokenForDeveloperIdentity
+              Resource: !Sub 'arn:${AWS::Partition}:cognito-identity:${AWS::Region}:${AWS::AccountId}:identitypool/${IdentityPool}'
+            - !Ref 'AWS::NoValue'
+          - !If
+            - HasKms
+            - Sid: KmsReadStaged
+              Effect: Allow
+              Action: kms:Decrypt
+              Resource: !Ref KmsKeyArn
+            - !Ref 'AWS::NoValue'
+
+Outputs:
+  ModuleId:
+    Value: identity-pool
+  ModuleVersion:
+    Value: !Ref ModuleVersion
+  PolicyArn:
+    Value: !Ref AppPolicy
+  EnvIdentityPoolId:
+    Description: The switch (IDENTITY_POOL_ID non-empty = cognito driver)
+    Value: !Ref IdentityPool
+  EnvIdentityStagingBucket:
+    Value: !Ref StagingBucket
+  EnvIdentityUploadPrefix:
+    Value: private/
+  EnvIdentityDevProvider:
+    Description: Developer provider name (auth=local); '' = User Pool identities only
+    Value: !Ref DeveloperProviderName
+  InfoUploaderRoleArn:
+    Value: !GetAtt UploaderRole.Arn
+  InfoUploaderRoleName:
+    Value: !Ref UploaderRole
+  InfoStagingBucketArn:
+    Value: !GetAtt StagingBucket.Arn
+  InfoUploaderResource:
+    Description: The IAM policy variable that confines every identity to its own prefix
+    Value: !Sub '${StagingBucket.Arn}/private/${!cognito-identity.amazonaws.com:sub}/*'

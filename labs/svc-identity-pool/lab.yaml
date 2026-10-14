@@ -1,64 +1,271 @@
-# labs/svc-identity-pool/lab.yaml —— 目录占位（status: planned）：只有目录元数据，可在目录中显示但不能开始实验；
-# 取值来自 05 §4 与 cards/ 逐卡文档。步骤、手册、检查与小测在后续批次补齐，届时 status 改为 beta 并提升版本。
+# labs/svc-identity-pool/lab.yaml —— Amazon Cognito Identity Pool：终端用户直传 S3（cards/service-cards-1 第 12 节）
+# 实现核对（implementation-notes wave1-identity-pool）：
+#   - Uploader 角色名为 cloudalbum-<env>-identity-pool-uploader（模块文档中的 “CloudAlbumUploaderRole”；带环境名，平台一个账号里多个会话不冲突），
+#     检查用栈输出 InfoUploaderRoleName / InfoUploaderRoleArn；
+#   - 对比实验由测试用户（种子 cognito-test-users）发起，用户请求不能带实验头，所以 upload-bench / cross-prefix / resume 用
+#     validity: functional，由服务端的 path-seen 检查 f14-path-seen 佐证；场景另以管理员身份读取服务端证据（暂存桶对象、照片状态）；
+#   - 平台探测端点 /api/lab/probe/identity-pool 与 /api/lab/identity-pool/* 由集成阶段登记（adapters/identity-pool/lab-routes.ts）。
 schema: atl.lab/v2
 id: svc-identity-pool
 kind: service
-version: 0.1.0
-status: planned
+version: 1.0.0
+status: beta
 service: Amazon Cognito Identity Pool
 function: 终端用户直传 S3
 title: Amazon Cognito Identity Pool：终端用户直传 S3
+subtitle: 应用自签前缀令牌 → STS 临时凭证 + IAM 策略变量
 summary: 已登录用户换取一组只能写自己前缀的 STS 临时凭证，浏览器直接分片上传到 S3：授权从“应用代码”搬到“IAM 策略变量”。
+story: |
+  F14 是“多文件、可续传、按前缀授权的直传”。起始状态（none 驱动）由 EC2 签发一个应用自定义的前缀令牌：浏览器持有一个令牌，
+  但每一片都要先问一次 EC2（storage=s3 时先换一个预签名 UploadPart URL），授权逻辑写在应用代码里。
+  启用 Identity Pool 后，已登录用户用 User Pool 的 ID 令牌换取一组 ASIA 开头的 STS 临时凭证，只能写暂存桶的
+  private/<identityId>/；浏览器自己签名直传，complete 时后端校验大小、类型与文件头，再用服务端 CopyObject 导入原图位置。
+objectives:
+  - { text: 区分 User Pool（认证）与 Identity Pool（换 AWS 临时凭证）, domain: secure, relatesTo: enable }
+  - { text: '读懂已认证角色的信任策略（aud、amr 条件）与策略变量 ${cognito-identity.amazonaws.com:sub}', domain: secure, relatesTo: read-policy }
+  - { text: 用越权实验说明“由谁拒绝”：应用 403 vs S3 AccessDenied, domain: secure, relatesTo: after-cross }
+  - { text: 比较应用自签令牌、预签名 URL、临时凭证三者对后端请求数与服务端控制力的取舍, domain: performance, relatesTo: after-bench }
 difficulty: intermediate
 estimatedMinutes: 90
 timeLimitMinutes: 150
-extensions: {maxCount: 2, minutesEach: 30}
-retain: {allowed: true, maxHours: 24}
+extensions: { maxCount: 2, minutesEach: 30 }
+retain: { allowed: true, maxHours: 24, reason: 身份池不单独收费，暂存对象 1 天过期；User Pool 按月活跃用户计费 }
 regions:
   supported: [ap-northeast-1]
 services:
-- {id: cognito-identity-pool, name: Amazon Cognito Identity Pool, role: primary, module: identity-pool}
-- {id: iam, role: context, module: iam}
-- {id: s3, role: context, module: storage}
-- {id: cognito-user-pool, role: context, module: auth}
-modules:
-  target: [identity-pool]
-  start: [iam, storage, auth]
-  context: []
-  related: [auth, storage]
+  - { id: cognito-identity-pool, name: Amazon Cognito Identity Pool, role: primary, module: identity-pool }
+  - { id: iam, name: AWS IAM（Uploader 角色、实例角色）, role: context, module: iam }
+  - { id: sts, name: AWS STS（AssumeRoleWithWebIdentity）, role: observed }
+  - { id: s3, name: Amazon S3（模块自带暂存桶、storage 的原图桶）, role: context, module: storage }
+  - { id: cognito-user-pool, name: Amazon Cognito User Pool, role: context, module: auth }
+modules: { target: [identity-pool], start: [iam, storage, auth], context: [], related: [auth, storage, kms, tls] }
 prerequisites:
   cards:
-  - {id: svc-auth, kind: soft}
-  - {id: svc-storage, kind: soft}
+    - { id: svc-auth, kind: soft }
+    - { id: svc-storage, kind: soft }
+  knowledge: [S3 分片上传（CreateMultipartUpload / UploadPart / Complete）, JWT 的基本结构, 浏览器 DevTools 的网络面板]
+
 startProfile:
   provisions:
-  - item: iam
-    kind: module
-    basis: credential
-    set: {IAM_CREDENTIALS: role}
-    reason: 平台约定除 svc-ec2、svc-iam 外起始状态都带实例角色（C3）
-  - item: storage
-    kind: module
-    basis: closure
-    rule: DEP-002
-    set: {STORAGE_DRIVER: s3}
-  - item: auth
-    kind: module
-    basis: closure
-    rule: DEP-002
-    set: {AUTH_DRIVER: cognito, COGNITO_LOGIN_MODE: sdk, AUTH_MIGRATION: bulk}
-  - {item: cognito-test-users, kind: seed, reason: 已确认、密码已知的 Cognito 测试用户（06 种子登记表）}
-  - {item: preview-direct-https, kind: platform, reason: 预览使用方案 B 的 Let's Encrypt IP 证书（03 §6.2）}
-  platform:
-    preview: {directHttps: 'on'}
+    - { item: iam, kind: module, basis: credential, set: { IAM_CREDENTIALS: role },
+        reason: 平台约定除 svc-ec2、svc-iam 外起始状态都带实例角色（C3）；identity-pool、storage、auth 也都是 credentials required（CRED-001） }
+    - { item: storage, kind: module, basis: closure, rule: DEP-002, set: { STORAGE_DRIVER: s3 },
+        reason: 原图位置必须在 S3（本地磁盘无法用 IAM 凭证访问），从本地迁移 }
+    - { item: auth, kind: module, basis: closure, rule: DEP-002, set: { AUTH_DRIVER: cognito },
+        reason: DEP-002 的第二个条件二选一时选 auth=cognito（IDENTITY_DEV_PROVIDER 为空时直接要求 auth；User Pool + Identity Pool 是 SAA 的标准组合） }
+    - { item: cognito-test-users, kind: seed, reason: 越权实验需要两个已确认、密码已知的 Cognito 测试用户（06 种子登记表，PM-44） }
+    - { item: mgmt-channel, kind: platform, reason: 实验机挂只含 AmazonSSMManagedInstanceCore 的 CloudAlbumAppRole，是平台的管理通道，不是应用权限 }
+    - { item: workstation, kind: platform, reason: 每个会话一台工作台，用于运行 scripts/module、AWS CLI 与对比实验 }
+    - { item: preview-direct-https, kind: platform, reason: 预览使用方案 B 的 Let's Encrypt IP 证书（03 §6.2）：临时凭证经 https 下发，暂存桶 CORS 另允许 https://<EIP> }
+  platform: { preview: { directHttps: 'on' } }
+  reason: identity-pool 的硬依赖闭包是 storage=s3 + auth=cognito（DEP-002），加上 iam(role)（档位 atl/svc-identity-pool/default）
 targetModules:
-- {id: identity-pool, driver: cognito}
+  - { id: identity-pool, driver: cognito, fromDriver: none, wireStep: enable, adoptsExisting: false }
 expectedWarnings: [DEP-013, DEP-030]
-cost: {tier: low}
-provision: {class: B}
-badge: {title: 直传 S3}
+workstation: { required: true, tools: [aws-cli, node, jq], savingsMode: degraded }
+platform:
+  consoleLinks: [iam.role, s3.bucket]
+provision: { class: B }
+
+variables:
+  identityPoolId: { label: 身份池 ID, from: derived, fillFrom: stack.identity-pool.EnvIdentityPoolId }
+  stagingBucket: { label: 暂存桶, from: derived, fillFrom: stack.identity-pool.EnvIdentityStagingBucket }
+  stagingBucketArn: { label: 暂存桶 ARN, from: derived, fillFrom: stack.identity-pool.InfoStagingBucketArn }
+  uploaderRoleName: { label: Uploader 角色名, from: derived, fillFrom: stack.identity-pool.InfoUploaderRoleName }
+  uploaderRoleArn: { label: Uploader 角色 ARN, from: derived, fillFrom: stack.identity-pool.InfoUploaderRoleArn }
+  userPoolId: { label: User Pool ID, from: derived, fillFrom: stack.auth.InfoUserPoolId }
+
+cost:
+  currency: USD
+  tier: low
+  mainDrivers: [S3 请求（每张照片多一次 CopyObject 与 DeleteObject）, 暂存对象的短暂存储（1 天过期）, Cognito 月活跃用户（起始状态的 auth）]
+  basis:
+    - { ref: start-profile, note: 实验机 EC2、EBS（根卷与数据卷）、公网 IPv4；storage 的原图桶与 auth 的 User Pool }
+    - { ref: workstation, note: 工作台 EC2、EBS、公网 IPv4 }
+    - { key: staging-requests, pricingKey: s3.requests.put, billing: usage, quantity: 1, unit: requests, assumedUsagePerHour: 500, source: target, whenRetained: false,
+        note: 浏览器的 CreateMultipartUpload / UploadPart / Complete 与服务端 CopyObject（Identity Pool 本身不单独收费） }
+  assumptions:
+    - 学习规模的请求与存储通常在免费额度内；暂存对象 1 天后由生命周期规则删除；单价以官方定价为准
+
+steps:
+  - id: before-bench
+    type: experiment
+    title: before：前缀令牌，每一片都先问 EC2
+    manual: manual/10-before-bench.md
+    experiment: { module: identity-pool, id: upload-bench, label: before }
+    panel: terminal-workstation
+    estMinutes: 10
+    checks: [identity-pool-none-baseline, exp-bench-before, f14-path-seen]
+
+  - id: before-cross
+    type: experiment
+    title: before：越权由谁拒绝（应用 403）
+    manual: manual/20-before-cross.md
+    experiment: { module: identity-pool, id: cross-prefix, label: before }
+    requires: { steps: [before-bench] }
+    panel: terminal-workstation
+    estMinutes: 8
+    checks: [exp-cross-before]
+
+  - id: enable
+    type: script
+    wire: true
+    title: 启用 Identity Pool：身份池、Uploader 角色、暂存桶
+    manual: manual/30-enable.md
+    methods: [script]
+    requires: { steps: [before-cross] }
+    panel: terminal-workstation
+    estMinutes: 12
+    startsBilling: { class: usage, pricingKeys: [s3.requests.put], note: 按请求计费；身份池本身不单独收费 }
+    wait: { typicalMinutes: 3, maxMinutes: 15, text: 部署身份池、角色与暂存桶，写 identity-pool.env 并重启，然后在应用预览里上传一张照片 }
+    checks: [identity-pool-wired, identity-pool-probe, sts-path-seen, identity-pool-no-guests, identity-pool-roles]
+
+  - id: read-policy
+    type: console
+    title: 读策略：信任策略的 aud / amr 与策略变量
+    manual: manual/40-read-policy.md
+    methods: [console, cli]
+    requires: { steps: [enable] }
+    panel: console
+    estMinutes: 12
+    checks: [uploader-trust, uploader-permissions, staging-cors, policy-sim-result]
+
+  - id: after-bench
+    type: experiment
+    title: after：STS 凭证直传，中间没有发往 EC2 的分片请求
+    manual: manual/50-after-bench.md
+    experiment: { module: identity-pool, id: upload-bench, label: after }
+    requires: { steps: [enable] }
+    panel: terminal-workstation
+    estMinutes: 10
+    checks: [exp-bench-pair, f14-path-seen]
+
+  - id: after-cross
+    type: experiment
+    title: after：越权由 S3 返回 AccessDenied
+    manual: manual/55-after-cross.md
+    experiment: { module: identity-pool, id: cross-prefix, label: after }
+    requires: { steps: [enable] }
+    panel: terminal-workstation
+    estMinutes: 8
+    checks: [exp-cross-pair]
+
+  - id: resume
+    type: experiment
+    title: 断点续传：只重传缺失的分片
+    manual: manual/60-resume.md
+    experiment: { module: identity-pool, id: resume, label: after }
+    requires: { steps: [enable] }
+    panel: terminal-workstation
+    estMinutes: 8
+    checks: [exp-resume-after]
+
+  - id: ab
+    type: observe
+    title: （选做）同一部署内 A/B：管理员旁路开前缀令牌会话
+    manual: manual/70-ab.md
+    optional: { reason: 运行时 A/B 只是同一结论的另一种观察方式 }
+    requires: { steps: [enable] }
+    panel: terminal-lab
+    estMinutes: 6
+    checks: [ { ref: bypass-paths, required: false } ]
+
+finalChecks:
+  - no-world-ssh
+  - { ref: identity-pool-wired, as: final-identity-pool-wired }
+  - { ref: identity-pool-no-guests, as: final-identity-pool-no-guests }
+
+experiments:
+  - module: identity-pool
+    id: upload-bench
+    labels:
+      - { id: before, role: baseline, requires: { identity-pool: none } }
+      - { id: after, role: treatment, requires: { identity-pool: cognito } }
+    pairs: [[before, after]]
+    requiredLabels: [before, after]
+    required: true
+    runner: workstation
+    allowSimulatedBaseline: false
+    validity: functional
+    corroborateWith: [f14-path-seen]
+  - module: identity-pool
+    id: cross-prefix
+    labels:
+      - { id: before, role: baseline, requires: { identity-pool: none } }
+      - { id: after, role: treatment, requires: { identity-pool: cognito } }
+    pairs: [[before, after]]
+    requiredLabels: [before, after]
+    required: true
+    runner: workstation
+    allowSimulatedBaseline: false
+    validity: functional
+    corroborateWith: [f14-path-seen]
+  - module: identity-pool
+    id: resume
+    labels: [ { id: after, role: single, requires: { identity-pool: cognito } } ]
+    required: true
+    runner: workstation
+    validity: functional
+    corroborateWith: [sts-path-seen]
+
+quiz: { file: quiz.yaml, draw: 3 }
+badge: { title: 直传 S3, icon: assets/badge.svg }
 tracks: [saa-main, secure]
+
+cleanup:
+  summary: 结束实验后，平台删除本次会话的 identity-pool 栈（身份池、Uploader 角色、暂存桶），以及起始状态的 storage、auth 栈；暂存桶先清空、中止未完成的分片上传再删除。
+  autoReclaim: true
+  dataRisk:
+    - 暂存桶里未完成导入的对象随回收删除（本来 1 天后也会过期）；已导入原图桶的照片随 storage 的桶一起回收
+    - 浏览器拿到的临时凭证在约一小时内过期；角色删除后立即失效
+  learnerCreatedHints: []
+  verify:
+    - identity-pool-gone
+
 saa:
   domains: [secure, performance]
-tags: [identity-pool, cognito-identity-pool]
-certificate: {enabled: false}
+  topics:
+    - { id: pools, title: User Pool 与 Identity Pool 的分工；Web 身份联合, domain: secure, relatesTo: enable }
+    - { id: policy-variable, title: 'IAM 策略变量 ${cognito-identity.amazonaws.com:sub}', domain: secure, relatesTo: read-policy }
+    - { id: trust-conditions, title: 信任策略中的 aud、amr 条件；访客（未认证）身份的风险, domain: secure, relatesTo: read-policy }
+    - { id: direct-upload, title: 预签名 URL、应用自签令牌与临时凭证的取舍, domain: performance, relatesTo: after-bench }
+    - { id: multipart, title: S3 分片上传、CORS 暴露 ETag、生命周期规则清理未完成的分片, domain: performance, relatesTo: resume }
+    - { id: sse-kms, title: SSE-KMS 下分片上传还需要 kms:Decrypt, domain: secure, relatesTo: read-policy }
+  confusables:
+    - { a: Cognito User Pool, b: Cognito Identity Pool, rule: User Pool 负责认证（你是谁，签发 JWT）；Identity Pool 把已认证身份换成 AWS 临时凭证（能做什么由 IAM 角色决定） }
+    - { a: 预签名 URL, b: STS 临时凭证, rule: 预签名 URL 是一次请求的授权（后端逐个签发）；临时凭证在有效期内可以发任意多次请求，范围由角色策略限定 }
+    - { a: User Pool 的 sub, b: '${cognito-identity.amazonaws.com:sub}', rule: 前者是用户池里的用户 ID；策略变量是 Identity Pool 的 Identity ID（形如 ap-northeast-1:uuid），前缀必须用它 }
+
+tags: [identity-pool, cognito-identity-pool, sts, s3-multipart, iam-policy-variables]
+
+permissions:
+  learner:
+    - cloudformation:CreateChangeSet
+    - cloudformation:DescribeChangeSet
+    - cloudformation:ExecuteChangeSet
+    - cloudformation:DescribeStacks
+    - cloudformation:DescribeStackEvents
+    - cognito-identity:CreateIdentityPool
+    - cognito-identity:DescribeIdentityPool
+    - cognito-identity:SetIdentityPoolRoles
+    - cognito-identity:GetIdentityPoolRoles
+    - iam:CreateRole
+    - iam:PutRolePolicy
+    - iam:GetRole
+    - iam:PassRole
+    - iam:CreatePolicy
+    - iam:AttachRolePolicy
+    - s3:CreateBucket
+    - s3:PutBucketCORS
+    - s3:PutBucketPolicy
+    - s3:PutLifecycleConfiguration
+    - s3:PutEncryptionConfiguration
+    - s3:PutBucketPublicAccessBlock
+    - s3:PutBucketOwnershipControls
+    - s3:PutBucketTagging
+    - ssm:SendCommand
+    - ssm:GetCommandInvocation
+  notes: Uploader 角色带 ATLWorkloadBoundary（PermissionsBoundaryArn）；测试用户密码由工作台从 CLOUDALBUM_TEST_USERS_PARAM 读取，只在本地进程内存中使用，不进入手册与证据
+
+certificate: { enabled: false }
+owners: [cloudalbum-maintainers]

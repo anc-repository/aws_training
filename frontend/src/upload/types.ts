@@ -23,6 +23,8 @@ export interface ResumeState {
   uploadId: string;
   /** part → ETag（storage=s3 时合并需要；local 为空字符串） */
   done: Record<number, string>;
+  /** identity-pool=cognito：暂存键 private/<identityId>/<photoId>.<ext>（此时 uploadId 是 S3 的 UploadId） */
+  stagingKey?: string;
 }
 
 export interface MultipartContext extends UploadContext {

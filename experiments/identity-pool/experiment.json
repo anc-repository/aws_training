@@ -1,0 +1,112 @@
+{
+  "$schema": "../_lib/schema/experiment.schema.json",
+  "module": "identity-pool",
+  "title": "identity-pool：应用自签前缀令牌 vs Cognito Identity Pool 临时凭证（docs/modules/02-identity-security.md#identity-pool 第 5 节）",
+  "default": "cross-prefix",
+  "experiments": [
+    {
+      "module": "identity-pool",
+      "id": "cross-prefix",
+      "title": "越权测试：用户 A 写自己的前缀、写 B 的前缀、列出整个桶、删除 B 的对象——由谁拒绝",
+      "kind": "before-after",
+      "doc": "docs/modules/02-identity-security.md#identity-pool",
+      "description": "需要两个测试用户（--param users=<文件>，或平台工作台的 CLOUDALBUM_TEST_USERS_PARAM）。token 模式（none 驱动）：A 的前缀令牌对 B 的原图键申请分片授权，由应用返回 403 UPLOAD_PREFIX_DENIED；sts 模式（cognito 驱动）：A 的 ASIA 临时凭证直接写 private/<B 的 identityId>/、列出桶根、删除 B 的对象，由 S3 按 IAM 策略变量返回 AccessDenied。服务端证据：管理员经 /api/lab/identity-pool/staging-object 确认 A 写自己前缀的对象存在、写 B 前缀的对象不存在、B 的对象没被删；token 模式确认 B 的照片仍是 UPLOADING。",
+      "requires": {
+        "before": { "identity-pool.driver": "none" },
+        "after": { "identity-pool.driver": "cognito", "identity-pool.status": ["ok", "degraded"] }
+      },
+      "labels": {
+        "before": { "title": "应用自签前缀令牌（拒绝逻辑在应用代码里）", "role": "baseline" },
+        "after": { "title": "Identity Pool 临时凭证（拒绝逻辑在 IAM 策略里）", "role": "treatment" }
+      },
+      "scenario": { "tool": "node", "script": "cross-prefix.ts", "vus": 1, "duration": "60s" },
+      "params": {
+        "users": { "type": "string", "default": "", "description": "测试用户文件（JSON：[{email,password}] 或 CSV：email,password），至少两个" },
+        "mode": { "type": "string", "default": "auto", "enum": ["auto", "token", "sts"], "description": "auto = 按 identity-pool 驱动（cognito → sts，否则 token）" },
+        "s3Endpoint": { "type": "string", "default": "", "description": "路径式 S3 端点（LocalStack / 测试替身）；缺省为 https://<暂存桶>.s3.<区域>.amazonaws.com" }
+      },
+      "metrics": ["scenario.deniedByApplication", "scenario.deniedByS3", "scenario.unexpected", "biz.denied_by_s3", "biz.denied_by_app"],
+      "expect": [
+        { "metric": "scenario.unexpected", "direction": "zero", "note": "两种方式都拒绝越权、允许写自己的前缀；不一致即为配置错误" },
+        { "metric": "scenario.deniedByS3", "direction": "up", "note": "before 由应用返回 403；after 由 S3 返回 AccessDenied，应用代码完全不参与" }
+      ],
+      "cleanup": "DELETE /api/lab/runs/{runId}/photos"
+    },
+    {
+      "module": "identity-pool",
+      "id": "upload-bench",
+      "title": "批量分片上传：对后端的请求数、总耗时与 EC2 入站流量",
+      "kind": "before-after",
+      "doc": "docs/modules/02-identity-security.md#identity-pool",
+      "description": "同一个测试用户上传 files 个 fileMb 的 JPEG（分片大小取会话的 partSize，默认 8 MB）。token 模式每一片都先问 EC2（storage=local 是分片本身，storage=s3 是 parts:sign）；sts 模式换一次凭证后直传 S3 暂存桶，对后端只有建档与 complete。服务端证据：管理员读取每张照片在服务端的状态，sts 模式另确认暂存对象在导入后已被删除；EC2 入站流量看 host.net_rx_bytes（monitoring 启用时也可在 CloudWatch 查看 NetworkIn）。",
+      "requires": {
+        "before": { "identity-pool.driver": "none" },
+        "after": { "identity-pool.driver": "cognito", "identity-pool.status": ["ok", "degraded"] }
+      },
+      "labels": {
+        "before": { "title": "前缀令牌：每片先问 EC2", "role": "baseline" },
+        "after": { "title": "STS 凭证：浏览器直传 S3", "role": "treatment" }
+      },
+      "scenario": { "tool": "node", "script": "upload-bench.ts", "vus": 1, "duration": "300s" },
+      "params": {
+        "users": { "type": "string", "default": "", "description": "测试用户文件（取第一个用户）" },
+        "mode": { "type": "string", "default": "auto", "enum": ["auto", "token", "sts"] },
+        "files": { "type": "number", "default": 10, "min": 1, "max": 200, "description": "文件数（文档示例 --files 50）" },
+        "fileMb": { "type": "number", "default": 12, "min": 0.1, "max": 30, "description": "每个文件的大小（MB，原图上限 maxUploadMb）" },
+        "concurrency": { "type": "number", "default": 2, "min": 1, "max": 8 },
+        "s3Endpoint": { "type": "string", "default": "" }
+      },
+      "metrics": [
+        "scenario.backendRequestsPerFile", "scenario.s3RequestsPerFile", "scenario.totalMs", "scenario.perFileMsP95",
+        "host.net_rx_bytes", "host.cpu.p95", "biz.backend_requests_per_file"
+      ],
+      "expect": [
+        { "metric": "scenario.backendRequestsPerFile", "direction": "down", "note": "token 模式随分片数线性增长；sts 模式与分片数无关（建档 + complete，凭证在会话内只换一次）" },
+        { "metric": "host.net_rx_bytes", "direction": "down-or-flat", "note": "storage=local 的 token 模式下 EC2 收到全部上传字节；storage=s3 的 token 模式与 sts 模式下只有元数据" }
+      ],
+      "cleanup": "DELETE /api/lab/runs/{runId}/photos"
+    },
+    {
+      "module": "identity-pool",
+      "id": "resume",
+      "title": "断点续传：上传途中断开，恢复后只重传缺失的分片",
+      "kind": "before-after",
+      "doc": "docs/modules/02-identity-security.md#identity-pool",
+      "description": "上传一个 fileMb 的大文件，在第 failAtPart 片之前模拟断网（停止发送，可用 pauseSec 等你真的断开再恢复网络），然后续传：token 模式向服务端查询已收到的分片（storage=local：GET /api/storage/upload/parts；storage=s3：客户端记录的已完成分片），sts 模式用 ListParts 直接问 S3。服务端证据：续传前服务端（或 S3）报告的已收分片数、complete 之后照片在服务端的状态。",
+      "requires": {
+        "before": { "identity-pool.driver": "none" },
+        "after": { "identity-pool.driver": "cognito", "identity-pool.status": ["ok", "degraded"] }
+      },
+      "labels": {
+        "before": { "title": "前缀令牌续传", "role": "baseline" },
+        "after": { "title": "STS 分片上传续传（ListParts）", "role": "treatment" }
+      },
+      "scenario": { "tool": "node", "script": "resume.ts", "vus": 1, "duration": "300s" },
+      "params": {
+        "users": { "type": "string", "default": "", "description": "测试用户文件（取第一个用户）" },
+        "mode": { "type": "string", "default": "auto", "enum": ["auto", "token", "sts"] },
+        "fileMb": { "type": "number", "default": 24, "min": 1, "max": 30, "description": "文件大小（MB），至少要有 2 片" },
+        "failAtPart": { "type": "number", "default": 2, "min": 2, "max": 100, "description": "在这一片之前中断" },
+        "pauseSec": { "type": "number", "default": 0, "min": 0, "max": 600, "description": "中断后等待的秒数（可在这段时间里断开再恢复网络）" },
+        "s3Endpoint": { "type": "string", "default": "" }
+      },
+      "metrics": ["scenario.totalParts", "scenario.partsBeforeInterruption", "scenario.partsResent", "scenario.onlyMissingResent"],
+      "expect": [
+        { "metric": "scenario.partsResent", "direction": "flat", "note": "两种方式都只补传缺失的分片（总分片数 − 中断前已完成的分片数）" }
+      ],
+      "cleanup": "DELETE /api/lab/runs/{runId}/photos"
+    },
+    {
+      "module": "identity-pool",
+      "id": "policy-sim",
+      "title": "策略模拟：在 IAM Policy Simulator 中对 Uploader 角色模拟不同前缀与操作",
+      "kind": "functional",
+      "doc": "docs/modules/02-identity-security.md#identity-pool",
+      "description": "控制台操作（见 README）：IAM → 角色 cloudalbum-<env>-identity-pool-uploader → 模拟；对 s3:PutObject 分别填写自己的 identityId 前缀与别人的前缀（策略变量 ${cognito-identity.amazonaws.com:sub} 在模拟器的上下文键中填写），再模拟 s3:DeleteObject、s3:ListBucket（不带 / 带 s3:prefix）。",
+      "requires": {
+        "after": { "identity-pool.driver": "cognito" }
+      },
+      "scenario": { "tool": "manual" }
+    }
+  ]
+}

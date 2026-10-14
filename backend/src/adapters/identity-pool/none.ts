@@ -155,6 +155,19 @@ export class PrefixTokenUpload implements DirectUploadPort {
     };
   }
 
+  /** /api/lab/probe/identity-pool（06 PM-11）：为保留前缀 _probe/ 签发一个前缀令牌后丢弃（路径段 identity-pool=none:token） */
+  async labProbe(): Promise<Record<string, unknown>> {
+    const ttl = this.deps.cfg.identity.IDENTITY_TOKEN_TTL_SEC;
+    const exp = Math.floor(Date.now() / 1000) + Math.min(ttl, 60);
+    const t = await this.sign({ v: 1, uid: '_probe', prefix: '_probe/', exp, maxFiles: 1, maxBytesPerFile: 1, jti: randomUUID() });
+    await this.verify(t);
+    markPath('identity-pool', 'none:token');
+    return {
+      driver: 'none', prefix: '_probe/', ttlSec: ttl, partSize: this.partSize(),
+      partUrl: this.deps.cfg.storage.STORAGE_DRIVER === 's3' ? '/api/uploads/parts:sign' : '/api/storage/upload',
+    };
+  }
+
   async openSession(who: Principal, _opts?: { bypass?: boolean }): Promise<DirectUploadSession> {
     const uid = currentContext()?.userId ?? who.subject;
     const ttl = this.deps.cfg.identity.IDENTITY_TOKEN_TTL_SEC;

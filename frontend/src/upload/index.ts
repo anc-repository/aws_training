@@ -1,11 +1,12 @@
 // 上传入口：按 capabilities 自动选择策略（总纲 12.2）。
 //   - F6.upload（任何 storage 驱动）：逐文件签名 URL —— local 签名直传与 S3 预签名是同一条前端流程，只有徽章不同；
-//   - F14.directUpload：via=identity-pool:none → 前缀令牌分片（多文件、可续传）；via=identity-pool:cognito → STS 直传（本轮只留接口）。
+//   - F14.directUpload：via=identity-pool:none → 前缀令牌分片（多文件、可续传）；via=identity-pool:cognito → STS 临时凭证直传暂存桶
+//     （浏览器自己签名，见 identityPoolUpload.ts）；后端退回前缀令牌（cognito:error-fallback / bypass）时照常走前缀令牌。
 // 自动规则：一次选了多个文件、或单个文件大于两个分片时走 F14；否则走 F6。用户也可以手动指定。
 import type { CapabilitiesResponse } from '@cloudalbum/contracts';
 import { photosApi, uploadsApi } from '../api/endpoints';
 import type { Photo } from '../api/types';
-import { identityPoolUpload } from './identityPoolUpload';
+import { fetchUploadCredentials, identityPoolUpload, isCredentialsUnavailable } from './identityPoolUpload';
 import { DEFAULT_PART_SIZE, prefixTokenUpload } from './prefixTokenUpload';
 import { signedUrlUpload } from './signedUrlUpload';
 import {
@@ -57,17 +58,27 @@ export function chooseStrategy(
   };
 }
 
-/** 执行一个文件的上传；STS 策略不可用时退回 F6 */
+/** 执行一个文件的上传；STS 凭证不可用时退回前缀令牌（F14 仍可用，授权改由应用执行），策略本身不可用时退回 F6 */
 export async function uploadFile(file: File, strategy: UploadStrategyId, ctx: MultipartContext = {}): Promise<Photo> {
   if (strategy === 'prefix-token') return prefixTokenUpload(file, ctx);
   if (strategy === 'identity-pool') {
     try {
       const session = await uploadsApi.openSession();
       if (session.mode === 'sts') {
-        return await identityPoolUpload(file, { ...ctx, session, credentials: uploadsApi.credentials });
+        try {
+          return await identityPoolUpload(file, { ...ctx, session, credentials: fetchUploadCredentials });
+        } catch (e) {
+          // 换取凭证失败（503）：凭证在建档之前换取，还没有留下照片；重新开会话，后端此时发放前缀令牌（cognito:error-fallback）
+          if (!isCredentialsUnavailable(e)) throw e;
+          const again = await uploadsApi.openSession();
+          if (again.mode !== 'token') throw e;
+          const { resume: _drop, ...rest } = ctx;
+          return await prefixTokenUpload(file, { ...rest, session: again });
+        }
       }
-      // 后端退回了前缀令牌（identity-pool=cognito:error-fallback）
-      return await prefixTokenUpload(file, { ...ctx, session });
+      // 后端退回了前缀令牌（identity-pool=cognito:error-fallback 或管理员旁路 cognito:bypass）
+      const { resume, ...rest } = ctx;
+      return await prefixTokenUpload(file, { ...rest, session, ...(resume && !resume.stagingKey ? { resume } : {}) });
     } catch (e) {
       if (!(e instanceof UploadStrategyUnavailableError)) throw e;
       return signedUrlUpload(file, ctx);

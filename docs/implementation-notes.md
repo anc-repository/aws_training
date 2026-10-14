@@ -3035,3 +3035,95 @@ svc-notification / svc-email。全程没有调用真实 AWS API、没有部署�
 | `npm run build` | 通过（gen:registry up to date） |
 | `npm run labs:lint` / `labs:derive --card svc-waf` | svc-waf 0 错误 0 警告 / derive 0 错误（digest 复现）。全仓库剩余问题来自 `_catalog` 与其他 wave1 进行中卡片 |
 | `npm run smoke:l0` / `smoke:selfhost` | 85 通过 0 失败 / 31 通过 0 失败 |
+
+## wave1-identity-pool
+
+第 1 波模块补齐中的 identity-pool（Amazon Cognito Identity Pool，F14 的 AWS 实现：STS 临时凭证直传暂存桶 + 服务端 CopyObject 导入）。
+只修改了本组负责的路径；没有调用任何真实 AWS API，`scripts/module` 只用 `--dry-run`。
+
+### 1. 完成的内容
+
+| 范围 | 文件 | 内容 |
+|---|---|---|
+| cognito 驱动 | `backend/src/adapters/identity-pool/cognito.ts` | `openSession`：`{mode:'sts', region, bucket, prefix, partSize, credentialsUrl}`（`identity-pool=cognito:sts`；已有 `users.identity_id` 时前缀带 identityId）；管理员旁路 → none 驱动的前缀令牌（`cognito:bypass`）；故障回退（最近一次探针 error、连续 3 次探针失败、或 60 秒内换取凭证失败）→ 前缀令牌 `fallback:true`（`cognito:error-fallback`）。`credentials`：先本地核对 ID 令牌声明（`token_use=id`、iss = 本站 User Pool、aud = 客户端、sub = 当前登录者、未过期；签名由 Cognito 校验）→ `GetId(Logins)` → `GetCredentialsForIdentity`（两者不签名；各经 `withAwsRetry` 单次 5 秒、最多 2 次）→ 写 `users.identity_id`；auth=local + `IDENTITY_DEV_PROVIDER` 走 `GetOpenIdTokenForDeveloperIdentity` → `Logins['cognito-identity.amazonaws.com']`。Cognito 拒绝过期令牌 → 401（不计失败）；其余失败 → 503 `IDENTITY_POOL_UNAVAILABLE`。`complete`：暂存对象 `private/<identityId>/<photoId>.<ext>` → HeadObject（≤ maxUploadMb、Content-Type 在白名单）→ Range GetObject 读文件头 → 不合规删除暂存对象、照片 FAILED、抛 413 / 415；合规 `StoragePort.importObject`（CopyObject，`storage=s3:import`）→ 删除暂存对象；暂存桶没有对象时交给 none 驱动（令牌会话）。`authorizePart` 委托 none 驱动。另有 `labProbe()`、`stagingObject(key)`、`lastIssued(userId)`、`exchangeStats()` |
+| none 驱动 | `backend/src/adapters/identity-pool/none.ts` | 只加 `labProbe()`：为 `_probe/` 签发并校验一个前缀令牌（`identity-pool=none:token`），L0 行为不变 |
+| /lab 侧路 | `backend/src/adapters/identity-pool/lab-routes.ts` | `GET /api/lab/identity-pool/whoami`（none：令牌前缀与有效期；cognito：identityId、暂存前缀、最近一次 ASIA 凭证的剩余秒数、策略资源模板、是否在回退）、`GET /api/lab/identity-pool/staging-object?key=`（服务端证据：暂存对象是否存在，只限暂存前缀）；导出 `identityPoolLabProbe(c)`（/api/lab/probe/identity-pool 的处理函数）与 `idTokenOf(req)`（Cookie `ca_it`，没有时取请求头 `X-CloudAlbum-Id-Token`）。注册见第 5 节 |
+| 模板 | `infra/modules/identity-pool.yaml` | 身份池（`AllowUnauthenticatedIdentities: false`、`AllowClassicFlow: false`；`UserPoolId` 非空时 User Pool 提供方，`DeveloperProviderName` 非空时开发者提供方，Rules 断言二者至少一个）；Uploader 角色 `cloudalbum-<env>-identity-pool-uploader`（信任 `cognito-identity.amazonaws.com`，`StringEquals aud = 本池` + `ForAnyValue:StringLike amr = authenticated`；`PutObject / AbortMultipartUpload / ListMultipartUploadParts` 限 `private/${cognito-identity.amazonaws.com:sub}/*`，`ListBucket` 限同一 `s3:prefix`；`KmsKeyArn` 非空时 `kms:GenerateDataKey` + `kms:Decrypt`；`PermissionsBoundaryArn`）；`IdentityPoolRoleAttachment`（只有 authenticated）；暂存桶 `cloudalbum-<env>-upload-staging-<acct>`（BPA、BucketOwnerEnforced、SSE-S3 / SSE-KMS、拒绝非 TLS、CORS = `AppOrigins` 的 PUT/POST/DELETE/GET/HEAD + 暴露 ETag、`private/` 1 天过期、未完成分片 1 天中止、**没有任何 NotificationConfiguration**）；`AppPolicy` `cloudalbum-<env>-identity-pool`（暂存对象 Get/Delete、ListBucket、DescribeIdentityPool；开发者提供方时 GetOpenIdTokenForDeveloperIdentity；kms 时 Decrypt）。Outputs：`EnvIdentityPoolId / StagingBucket / UploadPrefix / DevProvider`、`InfoUploaderRoleArn / RoleName / StagingBucketArn / UploaderResource`。cfn-lint 0 发现 |
+| hook | `scripts/module-cli/src/module-hooks/identity-pool.ts` | 见第 2 节 |
+| 前端 | `frontend/src/upload/identityPoolUpload.ts`、`sigv4.ts`、`index.ts`、`types.ts`、`auth/CognitoAuthProvider.tsx` | 浏览器内 SigV4（WebCrypto，UNSIGNED-PAYLOAD，x-amz-security-token）直接调用 CreateMultipartUpload / UploadPart / ListParts / Complete / Abort；凭证缓存（剩余 < 5 分钟刷新，一批文件共用），分片 `ExpiredToken` 时刷新重试一次；续传（`ResumeState.stagingKey` + ListParts）；凭证接口 503 时重新开会话走前缀令牌；读不到 ETag 时提示 CORS。Amplify 子模式由 `setIdTokenProvider` 提供 ID 令牌（请求头 `X-CloudAlbum-Id-Token`） |
+| 实验 | `experiments/identity-pool/**` | `cross-prefix`、`upload-bench`、`resume`（Node）、`policy-sim`（手工，README）；见第 3 节 |
+| 卡片 | `labs/svc-identity-pool/**` | lab.yaml v2（planned → beta，1.0.0）、11 页手册、13 + 5 项检查、6 道小测、徽章；labs:lint 本卡 0 错误 0 警告 |
+| 测试 | `backend/test/adapters/aws/identity-pool-cognito.test.ts`（16）、`scripts/module-cli/test/module-hooks-identity-pool.test.ts`（6）、`experiments/test/identity-pool.test.ts`（11）、`frontend/src/upload/identityPool.test.ts`（11） | aws-sdk-client-mock（Cognito Identity）+ 内存 S3（FakeS3，CopyObject 真实复制字节）；hook 全部在 dry-run / 脚本化网关上运行；实验对一个本地替身（两种授权 + 按策略变量判定的路径式假 S3）完整运行三个场景；前端 SigV4 用 AWS 文档的 4 个 S3 示例签名核对 |
+
+### 2. scripts/module hook
+
+- `plan()`：`--param DeveloperProviderName=<name>` 校验后写入 `IDENTITY_DEV_PROVIDER`（于是 DEP-002 接受 auth=local）；APP_BASE_URL 为 http 时打印 DEP-030 说明；
+  说明重启后 F14 从 `none:token` 切到 `cognito:sts`。没有 `planHints()`（不给 `plan --start-of` 增加自由文本警告）。
+- `prepare()`：平台预览方案 B 开启（`state.platform.preview` issued / pending）时，把 `https://<EIP>` 并入暂存桶 CORS（在通用注入的 AppOrigins 之上取并集）；
+  重新 enable 时沿用已部署的 `DeveloperProviderName`。UserPoolId / UserPoolClientId 完全来自 auth 的 injects。
+- `beforeDisable()`：中止暂存桶里所有未完成的分片上传、分页删除全部对象（`ListMultipartUploads` / `AbortMultipartUpload` / `ListObjectsV2` / `DeleteObjects`，部署者身份），
+  然后才分离 PolicyArn、删除栈；提醒 `users.identity_id` 保留、两步之间若有新上传导致删除失败就再执行一次 disable。
+- 自测：`enable identity-pool --dry-run`（依赖已启用）退回码 0；只有基础栈时 CRED-001 + 两条 DEP-002，退出码 2；`--with-deps` 依次 iam、auth、storage；
+  `disable` 先清空暂存桶再 DeleteStack；`plan identity-pool --single --dry-run`、`plan --start-of svc-identity-pool --no-rules` 均退出码 0（起始状态 iam + auth(cognito) + storage(s3)，preview on）。
+
+### 3. 实验
+
+- 测试用户：`--param users=<文件>`（平台种子的 JSON 或 CSV）→ 环境变量 `CLOUDALBUM_TEST_USERS_PARAM`（AWS CLI 读 SecureString）→ `EXP_USERS_FILE`。
+  auth=local 用 `/api/auth/login`；auth=cognito 用 **USER_SRP_AUTH**（`cognito-srp.ts`，按 amazon-cognito-identity-js 的算法；N 为 RFC 3526 3072 位素数，已按 RFC 公式核对）——
+  SPA 客户端只允许 SRP，auth 实验用的 USER_PASSWORD_AUTH 在这里不可用。
+- 服务端证据：用户请求不能带实验头（非管理员 403），所以三个实验在卡片中是 `validity: functional`，以服务端 path-seen 检查（`f14-path-seen`、`sts-path-seen`）佐证；
+  场景另以管理员身份读服务端证据：`cross-prefix` 用 `/api/lab/identity-pool/staging-object` 确认自己的对象存在、写到别人前缀的对象不存在、别人的对象没被删（token 模式确认 B 的照片仍是 UPLOADING）；
+  `upload-bench` 读每张照片的服务端状态并抽查暂存对象已在导入后删除；`resume` 记录续传前服务端（`/api/storage/upload/parts`）或 S3（ListParts）报告的已收分片。
+- `--param s3Endpoint=` 改用路径式 S3（LocalStack / 测试替身）；S3 请求用 Node 版 SigV4（`s3.ts`）。
+
+### 4. 设计有歧义时的取舍
+
+1. **Uploader 角色名**：文档写 `CloudAlbumUploaderRole`；IAM 角色名在账号内全局唯一，平台一个账号里有多个会话，因此用 `cloudalbum-<env>-identity-pool-uploader`
+   （templates.test 的命名约定），卡片与手册写明它就是文档中的 CloudAlbumUploaderRole，检查用栈输出 `InfoUploaderRoleName`。
+2. **前端不引入 `@aws-sdk/client-s3` + `lib-storage`**：并行阶段不能 `npm install`；只需要 5 个 S3 REST 调用，手写 SigV4（WebCrypto）没有新依赖、不增加首屏包，
+   用 AWS 文档的 4 个签名示例核对。
+3. **ID 令牌的来源**：auth=cognito 的实现是 Amplify 子模式（`flows = null`，令牌在浏览器内存里），后端没有 `ca_it` Cookie，现有路由会 401。
+   前端改为在请求头 `X-CloudAlbum-Id-Token` 里带 ID 令牌，`idTokenOf(req)` 兼容两种来源；路由的改动见第 5 节。驱动在本地核对声明（sub 必须是当前登录者），防止把别人的 identityId 写进 `users.identity_id`。
+4. **故障回退的判据**：文档只说“不可用时退回”。为避免每次开会话都同步调用 Cognito，取：最近一次探针 error、连续 3 次探针失败（含瞬时，与状态机一致）、或 60 秒内换取凭证失败。
+   单次慢探针（重启后 IMDS / SDK 首个请求慢）只记 degraded + transient，不触发回退。
+5. **深度探针**：文档写“用测试身份走一遍 GetId + GetCredentialsForIdentity，写-删 `private/_probe/`”——探测主体没有 ID 令牌，Uploader 角色也写不了 `private/_probe/`。
+   改为列出暂存前缀（ListObjectsV2），真实换取凭证的证据由 path-seen（`cognito:sts`）给出（与 06 PM-11 的做法一致）。
+6. **暂存桶 DeletionPolicy: Delete**：只存放 1 天过期的临时对象，不是权威数据；disable 先清空再删栈（文档第 6 节）。
+7. **没有感知器**：identity-pool 是带端口的参数型模块，状态由适配器探针给出，不加 `detectors/identity-pool.ts`。
+8. **令牌会话在 cognito 驱动下的路径段**：会话请求记 `cognito:bypass` / `cognito:error-fallback`，其后的 `parts:sign` 与 complete 由 none 驱动处理，记 `none:token`。
+9. **模板级 cfn-lint 忽略 W1030**：`ClientId` 只在 HasUserPool 时使用且 Rules 断言非空，但 cfn-lint 按参数默认值 '' 解析并把警告挂在参数上，资源级 Metadata 忽略不到，只能放在模板级并写明理由。
+10. **卡片**：第 5 步拆为 after-bench 与 after-cross 两个实验步骤；resume 只登记 `after`（卡片设计为 `resume --mode sts`）；auth 起始状态的 `set` 按 `plan --start-of` 的输出只写 `AUTH_DRIVER`。
+
+### 5. 需要集成阶段处理（共享文件）
+
+1. `backend/src/http/app.ts`：把 `adapters/identity-pool/lab-routes.ts` 加入 ROUTE_MODULES（先于 routes/lab.ts）。
+2. `backend/src/http/routes/lab-probe.ts`：在 404 兜底之前登记 `app.get('/api/lab/probe/identity-pool', (_req, res) => guarded(res, () => identityPoolLabProbe(c)))`，并把 PROBE_UNKNOWN 的端点列表补上 identity-pool。
+   卡片检查 `identity-pool-probe` 依赖它。
+3. `backend/src/http/routes/uploads.ts` 的 `GET /api/uploads/credentials`：ID 令牌改用 `idTokenOf(req)`（Cookie `ca_it` 或请求头 `X-CloudAlbum-Id-Token`）；
+   `IDENTITY_DEV_PROVIDER` 非空且登录者是本地账号时允许空令牌（驱动走开发者认证身份），否则现在一律 401 `ID_TOKEN_REQUIRED`。
+   在此之前：BFF 子模式可用；Amplify 子模式的浏览器拿不到凭证，会话会停在 STS（实验脚本同时带 Cookie 与请求头，不受影响）。
+4. `modules/registry.yaml`：identity-pool 的 `lab.badges.degraded` 是“已退回逐文件上传”，与实现（以及文档第 11 节“临时凭证不可用，已改用应用自签令牌（EC2）”）不符：
+   回退的是 F14 的前缀令牌，不是 F6。改后 `npm run gen:registry`、`labs:catalog`。
+5. `labs/_catalog/catalog.yaml`（`npm run labs:catalog`）；`experiments/test/manifest.test.ts` 的 “exactly 8 MVP modules”；`scripts/labs/test/{lint,derive,build}.test.ts` 的完整卡片数。
+6. `scripts/labs` 的 DRV-6：`plan --start-of` 对起始状态的规则警告输出 `rules: DEP-013`（带前缀），derive 按原字符串比较 expectedWarnings，svc-identity-pool（起始状态含 auth=cognito）因此报
+   “warning rules: DEP-013 … not in expectedWarnings”。建议 derive 去掉 `rules: ` 前缀再比较（或 plan-start 只输出规则 ID）。
+7. `scripts/module-cli/src/ops.ts`（可选）：平台预览方案 B 下浏览器的源是 `https://<EIP>`，通用的 AppOrigins 只含 `http://<EIP>`。本 hook 在 identity-pool 首次部署时补上，
+   但之后其他模块的 injects 重算 AppOrigins 会去掉它；storage 原图桶的 CORS 同样缺这个源。建议 `injectedParams` 的 baseLists 在 preview 开启时同时包含两者。
+8. `scripts/module-cli/test/helpers.ts` 的 `ALLOW_PENDING_WAVE1_TEMPLATES`：identity-pool.yaml 已就位。
+9. （可选）前端 `/lab` 的 identity-pool 卡片（显示 whoami、四个越权按钮）没有做：越权测试由实验脚本完成，服务端数据已由 `/api/lab/identity-pool/whoami` 提供。
+
+### 6. 自测（2026-10-14，Windows 11 / Node 22.14.0；没有调用 AWS）
+
+| 命令 | 结果 |
+|---|---|
+| `cfn-lint --regions ap-northeast-1 us-east-1 -- infra/modules/identity-pool.yaml`（1.57.2，D 盘 venv） | 0 发现（模板级忽略 W1030，理由见第 4 节第 9 条） |
+| `npm run build`；`tsc` backend / module-cli / experiments / frontend | 通过 |
+| `npx eslint .` | 0 个问题 |
+| `vitest`：identity-pool-cognito（16）、module-hooks-identity-pool（6）、templates + templates-platform（97）、experiments identity-pool（11）、frontend upload（21） | 全部通过 |
+| `scripts/module enable identity-pool --dry-run`（scratchpad 中的模拟 state.json：iam + auth + storage 已启用） | 退出码 0；只有基础栈时 CRED-001 + DEP-002 ×2，退出码 2 |
+| `scripts/module disable identity-pool --dry-run`、`plan identity-pool --single --dry-run`、`plan --start-of svc-identity-pool --no-rules` | 退出码 0；disable 先清空暂存桶再 DeleteStack |
+| `npm run labs:lint` | 本卡 0 错误 0 警告；全仓库只剩 `_catalog` 的 C-2（第 5 节第 5 条） |
+| `npm run labs:derive -- --card svc-identity-pool` | 起始状态 iam + auth(cognito) + storage(s3)、preview on、部署等级 B；只剩 DRV-6 的 `rules: DEP-013`（第 5 节第 6 条）；参考推导器（labs build 测试）对本卡无错误 |
+| `npm test` | 2630 通过、18 跳过、5 失败——全部是第 5 节第 5 条的共享数量假设（experiments manifest、labs lint ×2 / derive / build） |
+| `npm run smoke:l0` / `smoke:selfhost` | 85 通过 0 失败 / 31 通过 0 失败 |
+| `npm run registry:check` | OK（2 个已有警告） |

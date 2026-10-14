@@ -1,0 +1,40 @@
+checks:
+  - id: exp-bench-before
+    title: upload-bench 的 before（前缀令牌）有一条有效结果
+    type: experiment
+    module: identity-pool
+    experiment: upload-bench
+    label: before
+    accept: [valid]
+
+  - id: exp-bench-pair
+    title: upload-bench 的 before 与 after 都有效且可比
+    type: experiment
+    module: identity-pool
+    experiment: upload-bench
+    pair: [before, after]
+    accept: [valid]
+
+  - id: exp-cross-before
+    title: cross-prefix 的 before（应用 403）有一条有效结果
+    type: experiment
+    module: identity-pool
+    experiment: cross-prefix
+    label: before
+    accept: [valid]
+
+  - id: exp-cross-pair
+    title: cross-prefix 的 before 与 after 都有效且可比
+    type: experiment
+    module: identity-pool
+    experiment: cross-prefix
+    pair: [before, after]
+    accept: [valid]
+
+  - id: exp-resume-after
+    title: resume（STS 分片上传续传）有一条有效结果
+    type: experiment
+    module: identity-pool
+    experiment: resume
+    label: after
+    accept: [valid]

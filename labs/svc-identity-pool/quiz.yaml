@@ -1,0 +1,93 @@
+schema: atl.quiz/v1
+version: 1.0.0
+questions:
+  - id: idp-own-prefix
+    domain: secure
+    type: single
+    kind: scenario
+    services: [cognito-identity-pool, iam, s3]
+    stem: 已登录用户需要直接把照片上传到 S3 中“只属于自己”的前缀，且授权由 IAM 而不是应用代码执行。应该怎么做？
+    options:
+      - { id: a, text: '使用 Cognito Identity Pool 的已认证角色，资源写成 private/${cognito-identity.amazonaws.com:sub}/*' }
+      - { id: b, text: 把用户加入 User Pool 的组 }
+      - { id: c, text: 把桶设为公共可写 }
+      - { id: d, text: '在桶策略中允许 Principal: * 的 PutObject' }
+    answer: [a]
+    explain: Identity Pool 把 User Pool 的 ID 令牌换成 STS 临时凭证，策略变量把每个身份限制在自己的前缀；User Pool 的组本身不产生 AWS 凭证。
+    relatesTo: enable
+    difficulty: 1
+  - id: idp-trust-aud
+    domain: secure
+    type: single
+    kind: concept
+    services: [cognito-identity-pool, iam]
+    stem: Identity Pool 已认证角色的信任策略中，为防止被其他身份池扮演，必须加入的条件是？
+    options:
+      - { id: a, text: cognito-identity.amazonaws.com:aud 等于本身份池 ID }
+      - { id: b, text: aws:SourceIp }
+      - { id: c, text: s3:prefix }
+      - { id: d, text: kms:ViaService }
+    answer: [a]
+    explain: 同时要求 cognito-identity.amazonaws.com:amr 包含 authenticated。缺少 aud 条件时，任何身份池都可能扮演这个角色。
+    relatesTo: read-policy
+    difficulty: 1
+  - id: idp-multipart-fail
+    domain: performance
+    type: multi
+    kind: scenario
+    services: [s3, kms]
+    stem: 浏览器用临时凭证向 S3 分片上传，CreateMultipartUpload 成功但整体上传失败。可能的原因是？（选 2 项）
+    options:
+      - { id: a, text: 桶的 CORS 没有暴露 ETag 响应头 }
+      - { id: b, text: 桶使用 SSE-KMS，而上传角色缺少 kms:Decrypt }
+      - { id: c, text: 桶没有开启版本控制 }
+      - { id: d, text: 没有开启 S3 Transfer Acceleration }
+    answer: [a, b]
+    explain: 浏览器需要读到每一片的 ETag 才能完成合并；SSE-KMS 下分片上传除 kms:GenerateDataKey 外还需要 kms:Decrypt。
+    relatesTo: resume
+    difficulty: 2
+  - id: idp-sub-variable
+    domain: secure
+    type: single
+    kind: concept
+    services: [cognito-identity-pool, iam]
+    stem: 策略变量 ${cognito-identity.amazonaws.com:sub} 在请求时被替换成什么？
+    options:
+      - { id: a, text: Identity Pool 的 Identity ID（形如 ap-northeast-1:uuid） }
+      - { id: b, text: User Pool 中用户的 sub }
+      - { id: c, text: 用户的邮箱 }
+      - { id: d, text: IAM 角色的 ARN }
+    answer: [a]
+    explain: 前缀必须用 Identity ID（应用把它保存到 users.identity_id）；用 User Pool 的 sub 拼前缀会与策略变量对不上，所有写入都会被拒绝。
+    relatesTo: read-policy
+    difficulty: 2
+  - id: idp-guest
+    domain: secure
+    type: single
+    kind: scenario
+    services: [cognito-identity-pool]
+    stem: 一个身份池开启了“允许未认证身份”，并给未认证角色授予了上传桶的 s3:PutObject。主要风险是？
+    options:
+      - { id: a, text: 任何人不登录就能换到可以写桶的临时凭证 }
+      - { id: b, text: 已登录用户的令牌会过期得更快 }
+      - { id: c, text: 桶的加密会被关闭 }
+      - { id: d, text: User Pool 会被删除 }
+    answer: [a]
+    explain: 访客身份同样换得到 STS 凭证；只有确实需要匿名访问时才开启，并把未认证角色的权限收得极窄。
+    relatesTo: enable
+    difficulty: 1
+  - id: idp-vs-presign
+    domain: performance
+    type: single
+    kind: concept
+    services: [s3, cognito-identity-pool]
+    stem: 与“后端为每一片签发预签名 URL”相比，“浏览器持有临时凭证直传”的主要代价是？
+    options:
+      - { id: a, text: 服务端控制力变弱：IAM 管不了对象大小与类型，凭证到期前无法单独撤销 }
+      - { id: b, text: 上传的字节必须经过 EC2 }
+      - { id: c, text: 不再支持分片上传 }
+      - { id: d, text: 每一片都要先请求后端 }
+    answer: [a]
+    explain: 后端请求数下降了，但大小、类型只能在 complete 时校验，没导入的对象靠暂存桶的生命周期规则兜底。
+    relatesTo: after-bench
+    difficulty: 2

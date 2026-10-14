@@ -7,6 +7,7 @@
 //     发给 API。需要一个“不带密钥”的公开 App Client（auth.public.publicClientId）——BFF 客户端带密钥，浏览器不能用。
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { setBearerTokenProvider } from '../api/client';
+import { setIdTokenProvider } from '../upload/identityPoolUpload';
 import { authApi } from '../api/endpoints';
 import type { Me } from '../api/types';
 import { useCapabilities, useCaps } from '../capabilities/useCapability';
@@ -61,10 +62,13 @@ function AmplifyAuth({ pub, children }: { pub: AuthPublic; children: ReactNode }
       const session = await auth.fetchAuthSession();
       if (!session.tokens?.accessToken) {
         setBearerTokenProvider(null);
+        setIdTokenProvider(null);
         setUser(null);
         return;
       }
       setBearerTokenProvider(async () => (await auth.fetchAuthSession()).tokens?.accessToken?.toString() ?? null);
+      // identity-pool=cognito：/api/uploads/credentials 需要 ID 令牌（Amplify 子模式下它不在 Cookie 里）
+      setIdTokenProvider(async () => (await auth.fetchAuthSession()).tokens?.idToken?.toString() ?? null);
       setUser(await authApi.me());
     } catch {
       setUser(null);
@@ -75,7 +79,10 @@ function AmplifyAuth({ pub, children }: { pub: AuthPublic; children: ReactNode }
 
   useEffect(() => {
     void reload();
-    return () => setBearerTokenProvider(null);
+    return () => {
+      setBearerTokenProvider(null);
+      setIdTokenProvider(null);
+    };
   }, [reload]);
 
   const afterSignIn = useCallback(async () => {
@@ -133,6 +140,7 @@ function AmplifyAuth({ pub, children }: { pub: AuthPublic; children: ReactNode }
         await auth.signOut();
       } finally {
         setBearerTokenProvider(null);
+        setIdTokenProvider(null);
         setUser(null);
         void refreshCaps();
       }
