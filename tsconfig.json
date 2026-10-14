@@ -11,7 +11,9 @@
       "@cloudalbum/image-core": ["./packages/image-core/src/index.ts"],
       "@atl/shared": ["./platform/shared/src/index.ts"],
       "@atl/shared/node": ["./platform/shared/src/node.ts"],
-      "@atl/workflows": ["./platform/workflows/src/index.ts"]
+      "@atl/workflows": ["./platform/workflows/src/index.ts"],
+      "@atl/ssm-client": ["./platform/ssm-client/src/index.ts"],
+      "@atl/ssm-client/mock": ["./platform/ssm-client/src/mock/index.ts"]
     }
   },
   "files": [],
@@ -26,6 +28,8 @@
     { "path": "platform/workflows" },
     { "path": "platform/api" },
     { "path": "platform/workstation" },
+    { "path": "platform/ssm-client/tsconfig.json" },
+    { "path": "platform/ssm-client/tsconfig.mock.json" },
     { "path": "scripts/labs" }
   ]
 }

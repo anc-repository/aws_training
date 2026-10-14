@@ -17,7 +17,7 @@ import { loadPlatformEnv } from '../src/runtime/env.js';
 import { CERT_TYP, decodeJws, verifySignature, type PublicJwk } from '../src/services/certificates/jws.js';
 import { CertError, issueCertificate, latestRevocationList, listSigningKeys, publishRevocations, revokeCertificate, type CertContext, type CertificateItem } from '../src/services/certificates/service.js';
 import { VERIFY_CORE_JS } from '../src/services/certificates/verify-core.js';
-import { verifyPageHtml } from '../src/services/certificates/static-site.js';
+import { setVerifyPageAssets, verifyPageHtml, verifyPageJs } from '../src/services/certificates/static-site.js';
 import { MemoryItemStore, MemoryObjects, RecordingEvents, TestClock } from './checks-support/memory.js';
 import { httpEvent, NO_DB, tmpDir } from './helpers.js';
 
@@ -162,6 +162,25 @@ describe('JWS ES256 over RFC 8785 (04 §10.3, §10.4)', () => {
     expect(html).not.toMatch(/<script>[^<]/);
     expect(html).not.toMatch(/https?:\/\/(?!docs)/);
     expect(html).toContain('不是 AWS 官方认证');
+  });
+});
+
+describe('verify page assets (P09-V or the fallback page)', () => {
+  it('publishes the P09-V build when it is embedded / set, else the fallback page; ensureVerification republishes on change', async () => {
+    const { publishVerifyPage } = await import('../src/services/certificates/service.js');
+    const c = { deps, store, nowIso: new Date().toISOString(), invalidate: async () => undefined } as unknown as CertContext;
+    setVerifyPageAssets(null);
+    await publishVerifyPage(c);
+    expect(objects.text(deps.env.buckets.web, 'verify/verify.js')).toBe(verifyPageJs());
+    setVerifyPageAssets({ 'index.html': '<!doctype html><title>P09-V</title>', 'verify.js': '/* p09-v */', 'verify.css': 'body{}' });
+    try {
+      await publishVerifyPage(c);
+      expect(objects.text(deps.env.buckets.web, 'verify/index.html')).toContain('P09-V');
+      expect(objects.text(deps.env.buckets.web, 'verify/verify.js')).toBe('/* p09-v */');
+      expect(objects.text(deps.env.buckets.web, 'verify/verify.css')).toBe('body{}');
+    } finally {
+      setVerifyPageAssets(null);
+    }
   });
 });
 

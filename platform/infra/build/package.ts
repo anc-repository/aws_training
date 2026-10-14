@@ -587,6 +587,10 @@ export async function packageRelease(opts: Options): Promise<PackageResult> {
   files.push({ name: 'atl-lambdas.zip', data: await lambdasZip() });
   const web = webZip(opts.webDir);
   if (web.placeholder) warnings.push('platform/web is not built: atl-web.zip carries a placeholder page');
+  // atl-certs publishes P09-V when platform/api/build.mjs could embed it (platform-web-integration)
+  if (!fs.existsSync(path.join(PLATFORM_DIR, 'web', 'public-pages', 'dist', 'verify', 'verify.js'))) {
+    warnings.push('the certificate verification page P09-V is not built (npm run build -w @atl/web): atl-certs publishes its fallback page');
+  }
   files.push({ name: 'atl-web.zip', data: web.zip });
   const content = contentZip(findContentDir(opts.contentDir), version);
   if (content.placeholder) warnings.push('no content release (npm run labs:build): atl-content.zip carries an empty catalog');

@@ -80,7 +80,7 @@ export interface DevRuntimeOptions {
   gates?: 'engine' | 'simulated';
   /** Install the lifecycle dev clouds (default true). */
   lifecycle?: boolean;
-  /** Table names (default atl-main / cloudalbum-lab-locks); smoke:platform uses per-run tables in DynamoDB Local. */
+  /** Table names (default `cfg.tables`, else atl-main / cloudalbum-lab-locks); smoke:platform uses per-run tables in DynamoDB Local. */
   tables?: { main: string; locks: string };
 }
 
@@ -156,7 +156,7 @@ export async function createDevRuntime(cfg: DevConfig = loadDevConfig(), opts: D
   const env: PlatformEnv = {
     ...loadPlatformEnv({ AWS_REGION: cfg.region, ATL_ACCOUNT_ID: cfg.accountId, ATL_DEV_MODE: '1' }),
     signingKeyId: cfg.signingKeyId,
-    ...(opts.tables ? { tableName: opts.tables.main, locksTableName: opts.tables.locks } : {}),
+    ...((opts.tables ?? cfg.tables) ? { tableName: (opts.tables ?? cfg.tables)!.main, locksTableName: (opts.tables ?? cfg.tables)!.locks } : {}),
   };
   const clock = opts.clock ?? new ScaledClock(cfg.timeScale);
   const invoker = new InProcessInvoker();

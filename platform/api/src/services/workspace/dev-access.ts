@@ -8,12 +8,13 @@
  * - STS: fake learner credentials (`ASIADEV…`), valid for the requested duration (1 h without one).
  * - Federation: the local stub `dev-federation.ts` served by the dev server at `/__dev/federation`.
  * - Instances: the dev environment's stand-in ids (`i-dev-<envName>-lab` / `-ws`) with the tags the real discovery
- *   checks; always `Online`.
+ *   checks; always `Online`. They are shown to the API (and the browser) as EC2-shaped aliases (`i-0` + 16 hex digits of
+ *   their SHA-256), because the terminal request validates `instanceId` like a real one (e2e:platform found this).
  * - CloudAlbum admin: the local L0's `etc/atl/app-admin-password` (`local-l0` runner mode), else a dev password kept in
  *   `<dataDir>/workspace/` (stand-in for the SSM parameter the runner writes).
  * Only the dev runtime imports this module.
  */
-import { randomBytes } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { AtlError, StackNames } from '@atl/shared';
@@ -29,6 +30,11 @@ export interface DevWorkspaceAccessOptions {
   /** Dev environment registry (local L0 directory, stand-in instance ids). */
   envs?: { get(envId: string): { envName: string; root: string | null; instances: { lab: string; workstation: string } } | null };
   fetch?: typeof fetch;
+}
+
+/** EC2-shaped alias of a dev stand-in instance id (`^i-[0-9a-f]{8,17}$`, what the API validates). */
+export function devInstanceAlias(id: string): string {
+  return /^i-[0-9a-f]{8,17}$/.test(id) ? id : `i-0${createHash('sha256').update(id).digest('hex').slice(0, 16)}`;
 }
 
 function named(name: string, message: string): Error {
@@ -67,7 +73,8 @@ export function createDevWorkspaceAccess(o: DevWorkspaceAccessOptions): Workspac
 
     async describeInstances(_creds, q): Promise<InstanceFacts[]> {
       const rec = o.envs?.get(q.envId) ?? null;
-      const ids = rec?.instances ?? { lab: `i-dev-${q.envName}-lab`, workstation: `i-dev-${q.envName}-ws` };
+      const dev = rec?.instances ?? { lab: `i-dev-${q.envName}-lab`, workstation: `i-dev-${q.envName}-ws` };
+      const ids = { lab: devInstanceAlias(dev.lab), workstation: devInstanceAlias(dev.workstation) };
       const out: InstanceFacts[] = [];
       const launch = new Date(o.nowMs() - 600_000).toISOString();
       if (q.roles.includes('lab-app')) {

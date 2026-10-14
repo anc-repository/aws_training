@@ -5,7 +5,8 @@
  *   1. DynamoDB Local：127.0.0.1:58000 不可达时执行 `docker compose -f docker-compose.platform.yml up -d --wait`
  *   2. 建表（atl-main、cloudalbum-lab-locks；幂等，不覆盖已有的 PlatformConfig）
  *   3. platform/api 的 dev-server（--dev-mode --seed-catalog，默认 127.0.0.1:8787），等 /api/v1/public/health 就绪
- *   4. platform/web 的 Vite dev server（默认 http://127.0.0.1:5174），把 /api、/content、/__dev 代理到 dev-server
+ *   4. platform/web 的 Vite dev server（默认 http://127.0.0.1:5174），把 /api、/content、/__dev 与公开文件（/verify、/.well-known、
+ *      /public/、/share/）代理到 dev-server；dev-server 的 PlatformConfig.platformUrl 设为 Vite 的地址（ATL_DEV_PLATFORM_URL）
  *
  * 选项：--no-db（不碰 Docker）、--api-only、--web-only、--api-port <n>、--web-port <n>、--no-seed-catalog
  * 环境变量照常传给 dev-server（ATL_DEV_RUNNER_MODE、ATL_DEV_TIME_SCALE、ATL_DEV_DDB_ENDPOINT …，见 platform/api/src/dev/config.ts）。
@@ -119,7 +120,9 @@ async function main() {
     const args = [TSX, 'platform/api/src/dev-server.ts', '--dev-mode', '--port', String(apiPort)];
     if (!flag('--no-seed-catalog')) args.push('--seed-catalog');
     log(`starting the API dev server on ${apiUrl}`);
-    const api = start('dev-server', args, { env: { ATL_DEV_MODE: '1', ATL_DEV_DDB_ENDPOINT: ddbEndpoint } });
+    // certificates, share links and the console Issuer point at the page the browser uses (the Vite origin)
+    const platformUrl = apiOnly ? {} : { ATL_DEV_PLATFORM_URL: process.env.ATL_DEV_PLATFORM_URL ?? `http://127.0.0.1:${webPort}` };
+    const api = start('dev-server', args, { env: { ATL_DEV_MODE: '1', ATL_DEV_DDB_ENDPOINT: ddbEndpoint, ...platformUrl } });
     if (!(await waitFor(`${apiUrl}/api/v1/public/health`, api, 180_000))) throw new Error(`the API dev server did not become ready on ${apiUrl}`);
     log(`API ready: ${apiUrl}/api/v1 (Authorization: Bearer dev.learner.u1)`);
   }

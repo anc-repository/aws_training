@@ -13,7 +13,8 @@
     "sourceMap": false,
     "types": ["vite/client"],
     "paths": {
-      "@atl/shared": ["../shared/src/index.ts"]
+      "@atl/shared": ["../shared/src/index.ts"],
+      "@atl/ssm-client": ["../ssm-client/src/index.ts"]
     }
   },
   "include": ["src/**/*.ts", "src/**/*.tsx"]

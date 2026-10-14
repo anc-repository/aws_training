@@ -26,7 +26,7 @@ import {
 } from '../../services/certificates/service.js';
 import { WebKeys } from '@atl/shared';
 import { decodeJws } from '../../services/certificates/jws.js';
-import { verifyPageJs } from '../../services/certificates/static-site.js';
+import { verifyPageAssets } from '../../services/certificates/static-site.js';
 import { emitEvents } from '../../services/progress/events.js';
 import { DynamoItemStore, type ItemStore } from '../../services/progress/store.js';
 import { createShare, exportMask, exportReport, generateReport, removeShare, type ReportsContext } from '../../services/reports/publish.js';
@@ -68,7 +68,7 @@ type CertsAction = (p: Record<string, unknown>, c: CertContext & ReportsContext)
  */
 async function ensureVerification(c: CertContext): Promise<void> {
   const cur = await c.deps.ports.objects.get(c.deps.env.buckets.web, `${WebKeys.verify}verify.js`).catch(() => null);
-  if (!cur || Buffer.from(cur).toString('utf8') !== verifyPageJs()) await publishVerifyPage(c);
+  if (!cur || Buffer.from(cur).toString('utf8') !== verifyPageAssets()['verify.js']) await publishVerifyPage(c);
   if (!(await c.store.query(Keys.revocationList(1).PK, { skPrefix: SkPrefix.revocation, limit: 1 })).length) await publishRevocations(c, []);
 }
 

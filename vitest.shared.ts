@@ -15,4 +15,6 @@ export const workspaceAlias = [
   { find: /^@atl\/shared\/node$/, replacement: path.join(REPO_ROOT, 'platform/shared/src/node.ts') },
   { find: /^@atl\/shared$/, replacement: path.join(REPO_ROOT, 'platform/shared/src/index.ts') },
   { find: /^@atl\/workflows$/, replacement: path.join(REPO_ROOT, 'platform/workflows/src/index.ts') },
+  { find: /^@atl\/ssm-client\/mock$/, replacement: path.join(REPO_ROOT, 'platform/ssm-client/src/mock/index.ts') },
+  { find: /^@atl\/ssm-client$/, replacement: path.join(REPO_ROOT, 'platform/ssm-client/src/index.ts') },
 ];

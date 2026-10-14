@@ -2,15 +2,17 @@
  * 全局顶栏 GlobalBar（08 §3.1、§3.2）：平台标志与“非 AWS 官方”、一级导航（卡片目录 / 学习路径 / 我的学习 / 我的实验）、
  * 当前会话胶囊、学习进度入口、账号与区域；< 1024px 一级导航收进 ≡ 抽屉。
  * 实际高度由 ResizeObserver 写入 --topbar-h（吸顶元素的偏移都用它）。
- * 学习进度入口 ProgressDisclosure 的内容（GET /me/progress、GET /tracks/{id}、recommendNext）由 P10 的实现者补齐，脚手架只放入口。
+ * 学习进度入口 ProgressDisclosure 的内容（当前路径进度、recommendNext）是 `pages/labs/components/ProgressPanel`，展开时按需加载。
  */
-import { useEffect, useRef, useState } from 'react';
+import { lazy, Suspense, useEffect, useRef, useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { useGlobalStatus } from '../app/globalStatus';
 import { zhCN } from '../i18n/zh-CN';
-import { BrandMark, Disclosure, Drawer, Icon } from '../ui';
+import { BrandMark, Disclosure, Drawer, Icon, Skeleton } from '../ui';
 import { AccountMenu } from './AccountMenu';
 import { SessionPill } from './SessionPill';
+
+const ProgressPanel = lazy(() => import('../pages/labs/components/ProgressPanel'));
 
 interface NavItem {
   to: string;
@@ -51,7 +53,9 @@ function ProgressDisclosure() {
     <Disclosure className="hide-md" label={<>进度 <Icon name="chev" /></>} buttonClassName="btn sm">
       {(close) => (
         <>
-          <p className="small muted">{zhCN.app.todo}</p>
+          <Suspense fallback={<Skeleton lines={2} />}>
+            <ProgressPanel onNavigate={close} />
+          </Suspense>
           <div className="row">
             <Link className="btn sm" to="/learning" onClick={close}>
               我的学习 →

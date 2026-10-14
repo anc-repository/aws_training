@@ -42,6 +42,8 @@ export default tseslint.config(
       'platform/infra/dist/**',
       'packages/contracts/src/generated/**',
       'docs/**',
+      // git worktrees of other agent sessions (.git/info/exclude) — not part of this checkout
+      '.claude/**',
     ],
   },
   js.configs.recommended,
@@ -100,5 +102,14 @@ export default tseslint.config(
     languageOptions: { globals: { ...globals.browser } },
     plugins: { 'react-hooks': reactHooks },
     rules: { ...reactHooks.configs.recommended.rules },
+  },
+  // @atl/ssm-client: the protocol layer runs in the browser (no node:* imports); only src/mock/** is Node (platform-ssm-client)
+  {
+    files: ['platform/ssm-client/src/**/*.ts'],
+    ignores: ['platform/ssm-client/src/mock/**'],
+    languageOptions: { globals: { ...globals.browser } },
+    rules: {
+      'no-restricted-imports': ['error', { patterns: [{ group: ['node:*', 'ws', '@aws-sdk/*'], message: 'ATL: the ssm-client protocol layer is browser code (Node-only code belongs in src/mock/).' }] }],
+    },
   },
 );

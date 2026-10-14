@@ -9,7 +9,8 @@ import { OFFLINE_VERIFY_MJS, VERIFY_PAGE_JS } from './verify-core.js';
 export const CERT_DISCLAIMER =
   '本证明由部署在学员自己 AWS 账号中的自托管 AWS Training Lab 实例自动签发，表示该实例记录到持有人完成了所列实验，签名可用于确认内容未被篡改、且出自该实例的签名密钥。它不是 AWS 官方认证，也不代表 AWS Certified Solutions Architect – Associate 或任何 AWS 认证资格；签发者与持有人可能是同一人，平台的数据与密钥由账号所有者控制。验证结果只说明“该实例签发了此内容”，不说明签发过程的独立性。';
 
-export const VERIFY_CSP = "default-src 'self'; connect-src 'self'; img-src 'self' data:; script-src 'self'; style-src 'self' 'unsafe-inline'; frame-ancestors 'none'";
+/** The page's own <meta> CSP (frame-ancestors only works as a header: the atl-web-verify policy of CloudFront sends it). */
+export const VERIFY_CSP = "default-src 'self'; connect-src 'self'; img-src 'self' data:; script-src 'self'; style-src 'self' 'unsafe-inline'";
 
 export function verifyPageHtml(): string {
   return `<!doctype html>
@@ -58,6 +59,33 @@ h2 { font-size: 16px; margin-top: 28px; }
 
 export function verifyPageJs(): string {
   return VERIFY_PAGE_JS;
+}
+
+/**
+ * The files of `verify/` that atl-certs publishes. The designed page P09-V (08; platform/web/public-pages, built by
+ * `npm run build -w @atl/web`) is embedded into the Lambda bundle by platform/api/build.mjs (`__ATL_VERIFY_PAGE__`) and set by
+ * the dev server from its build output; without it the minimal page above is published (same URLs, same public files).
+ */
+export interface VerifyPageAssets {
+  'index.html': string;
+  'verify.js': string;
+  'verify.css'?: string;
+}
+
+declare const __ATL_VERIFY_PAGE__: VerifyPageAssets | null | undefined;
+
+let verifyAssetsOverride: VerifyPageAssets | null = null;
+
+/** Dev / tests: publish these files instead (null = back to the bundled page or the fallback). */
+export function setVerifyPageAssets(a: VerifyPageAssets | null): void {
+  verifyAssetsOverride = a;
+}
+
+export function verifyPageAssets(): VerifyPageAssets {
+  if (verifyAssetsOverride) return verifyAssetsOverride;
+  const bundled = typeof __ATL_VERIFY_PAGE__ === 'undefined' ? null : __ATL_VERIFY_PAGE__;
+  if (bundled && bundled['index.html'] && bundled['verify.js']) return bundled;
+  return { 'index.html': verifyPageHtml(), 'verify.js': verifyPageJs() };
 }
 
 export interface JwksKeyEntry {

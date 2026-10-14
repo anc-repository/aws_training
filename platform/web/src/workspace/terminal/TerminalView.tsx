@@ -1,10 +1,10 @@
 /**
- * TerminalView（08 §5.3；03 §3.7）：xterm.js 6 + ssm-client。按需加载 xterm（不进入首屏包，scaffold 的 `features/workspace/terminal/xterm.ts`），
+ * TerminalView（08 §5.3；03 §3.7）：xterm.js 6 + ssm-client。按需加载 xterm（不进入首屏包，`./xterm.ts`），
  * Fit 插件按容器计算 cols × rows：ResizeObserver 去抖 150ms，分隔条拖动中不发送、拖动结束后发一次（03 §3.5.6）。
  * 容器 `role="region"` + `aria-label="实验机终端 #1，i-0abc…，labuser"`；获得焦点时 2px 焦点环（--term-cursor）。
  */
 import { useEffect, useRef, useState } from 'react';
-import { createXterm, terminalOptions } from '../../features/workspace/terminal/xterm';
+import { createXterm, terminalOptions } from './xterm';
 import type { TerminalController, XtermLike } from './controller';
 
 export interface TermHandle {

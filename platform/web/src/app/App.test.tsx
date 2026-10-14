@@ -95,8 +95,10 @@ describe('App routing and global frame', () => {
   it('`/` redirects to the workspace of the running session; the workspace has no global bar and sends a heartbeat', async () => {
     const { loc, f } = setup('/');
     await waitFor(() => expect(loc()).toBe('/workspace/s1'));
-    expect(await screen.findByRole('heading', { level: 1, name: '工作台' })).toBeTruthy();
-    expect(screen.queryByRole('banner')).toBeNull();
+    expect(await screen.findByRole('heading', { level: 1, name: /^工作台/ })).toBeTruthy();
+    // 工作台没有全局顶栏（主导航）；它自己的会话栏（header.wsbar）是本画面的 banner
+    expect(screen.queryByRole('navigation', { name: '主导航' })).toBeNull();
+    expect(screen.getByRole('banner').classList.contains('wsbar')).toBe(true);
     await waitFor(() => expect(f.calls.some((c) => c.method === 'POST' && c.url.endsWith('/sessions/s1/heartbeat'))).toBe(true));
     expect(f.calls.find((c) => c.url.endsWith('/heartbeat'))!.body).toEqual({ workbench: true });
   });

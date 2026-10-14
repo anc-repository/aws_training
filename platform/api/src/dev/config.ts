@@ -30,6 +30,10 @@ export interface DevConfig {
   region: string;
   accountId: string;
   signingKeyId: string;
+  /** Per-run table names (ATL_DEV_TABLE_MAIN / ATL_DEV_TABLE_LOCKS, e.g. e2e:platform); null → atl-main / cloudalbum-lab-locks. */
+  tables: { main: string; locks: string } | null;
+  /** `PlatformConfig.platformUrl` of the dev PlatformConfig (ATL_DEV_PLATFORM_URL, e.g. the Vite origin); null → the dev server. */
+  platformUrl: string | null;
 }
 
 export function loadDevConfig(env: NodeJS.ProcessEnv = process.env): DevConfig {
@@ -52,5 +56,7 @@ export function loadDevConfig(env: NodeJS.ProcessEnv = process.env): DevConfig {
     region: env.AWS_REGION ?? 'ap-northeast-1',
     accountId: '000000000000',
     signingKeyId: env.ATL_DEV_SIGNING_KEY_ID ?? 'dev-signing-key',
+    tables: env.ATL_DEV_TABLE_MAIN ? { main: env.ATL_DEV_TABLE_MAIN, locks: env.ATL_DEV_TABLE_LOCKS ?? `${env.ATL_DEV_TABLE_MAIN}-locks` } : null,
+    platformUrl: env.ATL_DEV_PLATFORM_URL ?? null,
   };
 }

@@ -13,7 +13,7 @@ import { mutate, type ItemStore } from '../progress/store.js';
 import { trackProgress, type TrackDef } from '../progress/tracks.js';
 import type { LabAttemptItem, LabProgressItem } from '../progress/types.js';
 import { CERT_TYP, decodeJws, REVOCATIONS_TYP, signJws } from './jws.js';
-import { CERT_DISCLAIMER, jwksDocument, offlineBundle, verifyPageHtml, verifyPageJs, type JwksKeyEntry } from './static-site.js';
+import { CERT_DISCLAIMER, jwksDocument, offlineBundle, verifyPageAssets, type JwksKeyEntry } from './static-site.js';
 
 export const ISSUER_NAME = 'AWS Training Lab（自托管实例）';
 export const SHORT_DISCLAIMER = '本证明由部署在学员自己 AWS 账号中的自托管 AWS Training Lab 实例自动签发，不是 AWS 官方认证。';
@@ -136,11 +136,17 @@ export async function publishJwks(c: CertContext): Promise<Record<string, unknow
   return doc;
 }
 
-/** verify/index.html + verify/verify.js (the platform's static verification entry, §10.6). */
+const VERIFY_TYPES: Record<string, string> = { 'index.html': 'text/html; charset=utf-8', 'verify.js': 'text/javascript; charset=utf-8', 'verify.css': 'text/css; charset=utf-8' };
+
+/** verify/index.html + verify/verify.js (+ verify.css of P09-V): the platform's static verification entry (§10.6). */
 export async function publishVerifyPage(c: CertContext): Promise<void> {
   const web = c.deps.env.buckets.web;
-  await c.deps.ports.objects.put(web, `${WebKeys.verify}index.html`, verifyPageHtml(), { contentType: 'text/html; charset=utf-8' });
-  await c.deps.ports.objects.put(web, `${WebKeys.verify}verify.js`, verifyPageJs(), { contentType: 'text/javascript; charset=utf-8' });
+  const assets = verifyPageAssets();
+  // the script last: ensureVerification compares verify.js, so a half-published page is completed on the next call
+  for (const name of ['verify.css', 'index.html', 'verify.js'] as const) {
+    const body = assets[name];
+    if (body !== undefined) await c.deps.ports.objects.put(web, `${WebKeys.verify}${name}`, body, { contentType: VERIFY_TYPES[name]! });
+  }
   await c.invalidate([`/${WebKeys.verify}*`]);
 }
 

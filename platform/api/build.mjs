@@ -36,6 +36,20 @@ const workspaceSources = {
   },
 };
 
+/**
+ * P09-V, the designed certificate verification page (platform/web/public-pages → `npm run build -w @atl/web`): embedded
+ * into the bundles as `__ATL_VERIFY_PAGE__` so that atl-certs publishes it to verify/ (static-site.ts verifyPageAssets);
+ * null when it is not built (atl-certs then publishes its minimal fallback page).
+ */
+export function verifyPageBuild() {
+  const dir = path.join(HERE, '../web/public-pages/dist/verify');
+  const read = (f) => (fs.existsSync(path.join(dir, f)) ? fs.readFileSync(path.join(dir, f), 'utf8') : null);
+  const html = read('index.html');
+  const js = read('verify.js');
+  const css = read('verify.css');
+  return html && js ? { 'index.html': html, 'verify.js': js, ...(css ? { 'verify.css': css } : {}) } : null;
+}
+
 /** Inputs that must never reach a production bundle. */
 export function forbiddenInputs(metafile) {
   return Object.keys(metafile.inputs).filter((p) => /(^|[\\/])src[\\/]dev[\\/]/.test(p) || /platform[\\/]workflows[\\/]/.test(p));
@@ -57,6 +71,7 @@ export async function bundleFunction(name, { write = true } = {}) {
     logLevel: 'warning',
     plugins: [workspaceSources],
     external: ['@aws-sdk/*'],
+    define: { __ATL_VERIFY_PAGE__: JSON.stringify(verifyPageBuild()) },
     banner: { js: "import { createRequire as __cr } from 'node:module'; const require = __cr(import.meta.url);" },
   });
   const bad = forbiddenInputs(r.metafile);
@@ -70,4 +85,5 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.a
     await bundleFunction(name);
     console.log(`bundled ${name} → platform/api/dist-lambda/${name}/index.mjs`);
   }
+  if (!verifyPageBuild()) console.warn('platform/web/public-pages/dist/verify is not built (npm run build -w @atl/web): atl-certs publishes its fallback verification page');
 }

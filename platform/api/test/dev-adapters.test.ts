@@ -52,6 +52,22 @@ describe('ScaledClock (ATL_DEV_TIME_SCALE)', () => {
     await new Promise((r) => setTimeout(r, 20));
     expect(fired).toEqual(['a', 'b']);
   });
+
+  it('setScale() changes the speed from now on and re-arms the pending timers (e2e:platform /__dev/clock/scale)', async () => {
+    const c = new ScaledClock(1, Date.UTC(2026, 0, 1));
+    const fired: string[] = [];
+    c.setTimer(5_000, () => fired.push('t'));
+    const before = c.nowMs();
+    c.setScale(1000);
+    expect(c.scale).toBe(1000);
+    // no jump: platform time continues from where it was (1 wall ms = 1 platform s from now on)
+    expect(c.nowMs() - before).toBeGreaterThanOrEqual(0);
+    expect(c.nowMs() - before).toBeLessThan(30_000);
+    await new Promise((r) => setTimeout(r, 60));
+    expect(fired).toEqual(['t']);
+    expect(c.nowMs() - before).toBeGreaterThanOrEqual(5_000);
+    expect(() => c.setScale(0)).toThrow(RangeError);
+  });
 });
 
 describe('InProcessScheduler', () => {

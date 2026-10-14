@@ -78,7 +78,7 @@ export async function createTables(
 }
 
 /** A minimal PlatformConfig so that dev code paths that read `PLATFORM / CONFIG` work (values are dev placeholders). */
-export function devPlatformConfig(nowIso: string, region: string, accountId: string, port: number): Record<string, unknown> {
+export function devPlatformConfig(nowIso: string, region: string, accountId: string, port: number, platformUrl: string | null = null): Record<string, unknown> {
   return {
     ...Keys.platformConfig(),
     type: 'PlatformConfig',
@@ -89,7 +89,7 @@ export function devPlatformConfig(nowIso: string, region: string, accountId: str
     installationId: '00000000-0000-4000-8000-000000000000',
     region,
     drRegion: INSTALL_DEFAULTS.DrRegion,
-    platformUrl: `http://127.0.0.1:${port}`,
+    platformUrl: platformUrl ?? `http://127.0.0.1:${port}`,
     agentApiEndpoint: `http://127.0.0.1:${port}`,
     workloadBoundaryArn: `arn:aws:iam::${accountId}:policy/ATLWorkloadBoundary`,
     maintenance: false,
@@ -112,11 +112,24 @@ async function main(): Promise<void> {
   const cfg = loadDevConfig();
   assertLocalEndpoint(cfg.ddbEndpoint);
   const ddb = new DynamoDBClient({ region: cfg.region, endpoint: cfg.ddbEndpoint, credentials: { accessKeyId: 'dev', secretAccessKey: 'dev' } });
-  const args = new Set(process.argv.slice(2));
-  await createTables(ddb, { reset: args.has('--reset'), log: (s) => console.log(s) });
+  const argv = process.argv.slice(2);
+  const args = new Set(argv);
+  // per-run tables (e2e:platform): ATL_DEV_TABLE_MAIN / ATL_DEV_TABLE_LOCKS; --drop deletes them again
+  const names = cfg.tables ? { 'atl-main': cfg.tables.main, 'cloudalbum-lab-locks': cfg.tables.locks } : undefined;
+  if (args.has('--drop')) {
+    if (!names) throw new Error('--drop only deletes per-run tables (set ATL_DEV_TABLE_MAIN)');
+    for (const t of Object.values(names)) {
+      await ddb.send(new DeleteTableCommand({ TableName: t })).then(
+        () => console.log(`deleted ${t}`),
+        (e: unknown) => console.log(`could not delete ${t}: ${e instanceof Error ? e.message : String(e)}`),
+      );
+    }
+    return;
+  }
+  await createTables(ddb, { reset: args.has('--reset'), log: (s) => console.log(s), ...(names ? { names } : {}) });
   if (args.has('--seed')) {
     const db = createDocumentClient(ddb);
-    await db.send(new PutCommand({ TableName: 'atl-main', Item: devPlatformConfig(new Date().toISOString(), cfg.region, cfg.accountId, cfg.port) }));
+    await db.send(new PutCommand({ TableName: cfg.tables?.main ?? 'atl-main', Item: devPlatformConfig(new Date().toISOString(), cfg.region, cfg.accountId, cfg.port, cfg.platformUrl) }));
     console.log('seeded  PLATFORM / CONFIG');
   }
 }

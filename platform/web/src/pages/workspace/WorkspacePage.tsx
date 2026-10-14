@@ -1,8 +1,6 @@
 /**
  * `/workspace/:sid`（08 §2.3；P04 开始实验进度页 / P05 分屏工作台）：订阅会话视图（SessionSync），视图到达前显示骨架，
  * 读取失败（404 / 403）时显示区块错误；之后交给 `workspace/Workspace` 按会话状态渲染（§2.4 表 2）。
- *
- * 路由表目前仍指向 `features/workspace/WorkspacePage`（脚手架的桩）；接入时把 `/workspace/:sid` 的组件改为本文件的默认导出。
  */
 import { useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';

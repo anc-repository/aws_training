@@ -3,9 +3,9 @@
  * POST …/terminals 拿到的 StreamUrl / TokenValue 直连、OpenDataChannel、握手、序列号与重传、改尺寸、channel_closed、
  * 断线续连（POST …/resume）；dev 模式下它连接 ssm-client 提供的本地模拟服务器（ws://127.0.0.1，需 allowLoopback）。
  *
- * 加载方式：`@atl/ssm-client` 还不是 platform/web 的依赖（根 package.json 的 workspaces、web 的 tsconfig paths 与 vite alias
- * 都未登记），这里用 `import.meta.glob` 按相对路径按需加载它的源码入口——包不存在时得到空表，构建不受影响，终端显示
- * “终端组件不可用”。类型只按结构声明用到的部分（与 ssm-client 的 `XtermLike` 做法相同），不在 web 的 tsc 中检查它的源码。
+ * 加载方式：`@atl/ssm-client` 是 platform/web 的依赖（vite alias 与 tsconfig paths 指向它的源码），这里用动态 `import()` 按需加载，
+ * 只进工作台的分块、不进首屏包；加载失败时终端显示“终端组件不可用”。下面的接口按结构声明用到的部分（与 ssm-client 的
+ * `XtermLike` 做法相同），测试可以用 `setSsmClient` 注入替身。
  */
 
 /** `SsmTerminalConnection` 的状态（ssm-client connection.ts）。 */
@@ -55,8 +55,6 @@ export interface SsmClientModule {
   getTabClientId?: () => string;
 }
 
-const SSM_CLIENT = import.meta.glob('../../../../ssm-client/src/index.ts');
-
 let override: SsmClientModule | null | undefined;
 let loading: Promise<SsmClientModule | null> | null = null;
 
@@ -73,12 +71,9 @@ function isModule(m: unknown): m is SsmClientModule {
 export function loadSsmClient(): Promise<SsmClientModule | null> {
   if (override !== undefined) return Promise.resolve(override);
   if (!loading) {
-    const load = Object.values(SSM_CLIENT)[0];
-    loading = load
-      ? load()
-          .then((m) => (isModule(m) ? m : null))
-          .catch(() => null)
-      : Promise.resolve(null);
+    loading = import('@atl/ssm-client')
+      .then((m: unknown) => (isModule(m) ? m : null))
+      .catch(() => null);
   }
   return loading;
 }

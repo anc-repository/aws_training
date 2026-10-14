@@ -10,6 +10,8 @@ import type { DiscoveredInstance, LifecycleCloud, PingStatus, RevocationState } 
 /** The parts of the dev environment registry this cloud reads (structural: no import of src/dev). */
 export interface DevEnvSource {
   get(envId: string): { envId: string; envName: string; baseUrl: string | null; instances: { lab: string; workstation: string } } | null;
+  /** All dev environments (DevEnvRegistry); used to answer stack outputs with the local L0 URL. */
+  list?(): { envName: string; baseUrl: string | null }[];
 }
 
 export interface DevBuildSource {
@@ -85,7 +87,9 @@ export class DevLifecycleCloud implements LifecycleCloud {
   async stackOutputs(q: { stackName: string }): Promise<Record<string, string> | null> {
     const m = /^cloudalbum-(e[0-9a-z]{7})-ec2$/.exec(q.stackName);
     if (!m) return null;
-    return { AppBaseUrl: `http://${m[1]}.dev.invalid` };
+    // local-l0 runner mode: the environment's CloudAlbum runs on this machine, so the app preview can open it
+    const local = this.envs.list?.().find((r) => r.envName === m[1] && r.baseUrl)?.baseUrl ?? null;
+    return { AppBaseUrl: local ?? `http://${m[1]}.dev.invalid` };
   }
 
   async listActiveBuilds(q: { envId: string; sessionIds?: string[] }): Promise<string[]> {

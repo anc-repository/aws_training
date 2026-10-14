@@ -2396,3 +2396,135 @@ bash scripts/release-docker/drill.sh [--archive dist/release/app/cloudalbum-<ver
 
 没有在仓库中运行 npm install，lockfile 未变；新脚本只用 Node 内置模块（测试用已有的 tsx 加载 TypeScript）。Docker 镜像：`amazonlinux:2023`（本机已有，arm64 变体为本次拉取）。
 可选：cfn-lint（本机没有，预检对此告警）。
+
+## platform-web-integration
+
+把 web-catalog、web-workspace、web-results、ssm-client、backend-gaps、release 六份实现接到一起：补齐依赖与根目录登记，路由接入真实画面，
+新增浏览器端到端自测 `npm run e2e:platform`，并修复联调中发现的问题。全程没有调用真实的 AWS API，没有部署任何东西；浏览器只访问 127.0.0.1。
+
+### 1. 如何本地运行平台
+
+```bash
+npm install --before=2026-09-29 && npm run build      # 一次即可（local-l0 运行器要用 backend/dist）
+npm run platform:dev        # 一条命令：DynamoDB Local（Docker）+ 建表 + dev-server(:8787) + Vite(:5174)；浏览器打开 http://127.0.0.1:5174/ ，开发模式登录 learner / u1
+npm run e2e:platform        # 浏览器端到端自测（约 4 分钟）；-- --keep 保留表与数据，--serve-only 只起服务供手动探索，--headed 显示浏览器，--no-build 复用构建产物
+```
+
+`platform:dev` 默认是 noop 运行器、×1 时钟；要像 e2e 一样跑真实检查，设 `ATL_DEV_RUNNER_MODE=local-l0`、`ATL_DEV_CHECK_RUNNER=platform/checks/dist/atl/bin/atl-check.mjs`
+（先 `node platform/checks/build.mjs`）、`ATL_DEV_TIME_SCALE=5`。dev-server 现在把 `PlatformConfig.platformUrl` 设为 Vite 的地址（`ATL_DEV_PLATFORM_URL`），
+证书签发者来源、分享链接与验证页在浏览器里是同源的。
+
+`e2e:platform`（`scripts/e2e/platform.mjs` + `scripts/e2e/platform_e2e.py`）：每次一套表（`atl-main-e2e-<时间>`）；`vite build` 与 P09-V 公开页构建；
+dev-server（`local-l0`、dev 检查引擎、ssm-client 模拟服务器、联合登录桩、×5 时钟）；Vite dev（主流程）；另起 `vite preview`，以 70-web.yaml 的
+atl-web-spa CSP 头提供生产构建（CSP 检查）。Python Playwright 用系统 Chrome（`channel="chrome"`，无头）。结果在 `.atl-dev/e2e/run-<时间>/`（截图、
+`results.json`、各服务日志）与 `.atl-dev/e2e/last.json`；全部通过时删表、删数据目录与本地 L0 目录，失败时保留数据（表照常删除，`--keep` 全部保留）。
+
+新增的 dev 控制端点（只在 ATL_DEV_MODE=1 的 dev-server）：`POST /__dev/clock/scale {scale}`（改变时钟倍速）、`POST /__dev/fixtures/completions {sub, trackId|labIds}`
+（路径必修卡片的完成记录与 verified 徽章，标 `fixture: dev`）、`POST /__dev/reclaim/protected-resource {sessionId}`（学员在控制台建了删除保护无法解除的 RDS 实例：
+假账号资源 + CloudTrail，与 smoke 第 8 阶段相同）、`POST /__dev/reclaim/delete-resource`（学员手动删除）。dev-server 还按 CloudFront 的规则提供 `/verify/*`（改写到
+`verify/index.html`）、`/.well-known/`、`/public/`、`/share/`，带 atl-web-verify / atl-web-share 的 CSP 头，缺失对象回 403（与 OAC 下的 S3 一致）；Vite 代理这些路径。
+
+### 2. 自测结果（2026-10-14，Windows 11 / Node 22.14.0 / Docker 28 / 系统 Chrome）
+
+| 自测 | 命令 | 结果 |
+|---|---|---|
+| 依赖 | `npm install --before=2026-09-29` | 新增 2 项：`@aws-sdk/client-pricing` 3.1142.0（@atl/api）与 `@atl/ssm-client` 的 workspace 链接；`ws` 不再标为 dev |
+| 构建 | `npm run build`（含 web 两份 tsc 与 ssm-client 两个工程）、`npm run build -w @atl/web`（现在也构建 public-pages） | 通过 |
+| 检查 | `npm run lint` | 0 个问题 |
+| 单元 / 组件测试 | `npm test` | 179 个文件、2169 个测试通过，18 个跳过（需外部服务）；新纳入 atl-ssm-client 项目（88 个）；`pricing.test.ts` 的 aws-sdk-client-mock 用例现在运行 |
+| 发布工具测试 | `npm run test:release` | 21 / 21 |
+| CloudAlbum | `npm run smoke:l0`、`npm run smoke:selfhost` | 85 / 85、31 / 31 |
+| 平台端到端（API） | `npm run smoke:platform` | 120 / 120，128 秒 |
+| 浏览器端到端 | `npm run e2e:platform` | **49 / 49**，241 秒；无控制台错误、无 5xx / 429 / 意外 4xx |
+
+`e2e:platform` 的内容（都经页面操作；括号内是 dev 替身）：
+
+| 阶段 | 验证内容 |
+|---|---|
+| 1 登录 | 未登录 `/labs` → `/login?next=`；dev 令牌登录 → P00 七步首次设置（勾选“我已了解”、选 quick-compare）→ 目录 |
+| 2 目录 | 56 张（40 + 16）；筛选“场景”→ 16 / 56 且写入查询串；搜索“Lab 4”命中 svc-storage；planned 标“即将推出”；服务地图（40 格）与路径视图；顶栏“进度”浮层 |
+| 3 开始 | P03 简介 → P03-D 报价（dev 夹具，标“不是 AWS 价格”）→ 勾选费用确认才可开始 → 202 进入 P04（阶段、计费说明、倒计时未开始）→ READY 进入 P05 → 心跳 RUNNING（本地 L0、工作台、健康门） |
+| 4 工作台 | 左：第 1 步“检测”→ 两项检查 pass（dev 检查引擎对本地 L0）；右：实验机终端经 ssm-client ↔ 模拟数据通道输入输出、`stty size`；控制台按钮先开命名空白页再 POST 表单到 dev 联合登录桩（不留空白页）；应用预览在新标签页打开本地 CloudAlbum |
+| 5 延长与到期 | 延长对话框（报价、勾选）→ 截止 +30 分钟（deadlineVersion 2）；时钟跳到截止前 16 分钟 → EXPIRING 与 T-15 琥珀横幅；截止前 4.5 分钟 → 一次性 T-5 对话框；切 ×1 后越过截止 → 覆盖层（alertdialog）→ P07 回收进度（阶段列表）→ ENDED |
+| 6 报告与分享 | P08 定稿报告；创建分享链接 → 无需登录可打开 `/share/<id>/index.html` → 撤销 → 列表“已撤销”、副本 403 |
+| 7 证书 | dev 夹具补齐 quick-compare 必修卡片 → P09“领取…”并公开 → P09-C；公开验证页 P09-V（WebCrypto + jwks + 签名吊销列表）“签名有效”→ P09-C 吊销 → 验证页“已吊销” |
+| 8 清理失败 | 第二个会话；注入删除保护的 RDS 实例 → 在目录页经顶栏会话菜单“结束实验…”（真实 EndDialog）释放 → CLEANUP_FAILED → P07-M 清单（控制台链接、CLI）→ 学员删除 →“我已处理，重新核对”→ ENDED |
+| 9 截图 | 400px 与 1280px 下 16 个主要画面（目录两视图、简介、路径、工作台存档、会话列表与详情、回收、报告、待人工处理、证书两页、我的学习、设置、验证页、404）无横向滚动，全页截图 |
+| 9b CSP | `vite preview` 的生产构建在 atl-web-spa CSP（`script-src 'self'; style-src 'self'` 等）下打开 9 个画面，没有 `securitypolicyviolation` |
+| 10 控制台 | 全程（含验证页、分享副本、生产构建）无 console error / pageerror；4xx 只允许白名单（本次为空），5xx 与 429 一律失败 |
+
+### 3. 集成与修复
+
+**登记与接线**
+
+1. `@atl/ssm-client` 登记为 workspace：根 `workspaces`、`tsconfig.json`（references 两个工程 + paths）、`vitest.config.ts`（项目）、`vitest.shared.ts`（别名）、`platform:test`、
+   `platform:build`；`eslint.config.js` 给 `platform/ssm-client/src/**`（不含 mock）浏览器全局，并禁止导入 `node:*`、`ws`、`@aws-sdk/*`。web 增加依赖、vite alias 与 tsconfig paths，
+   `terminal/channel.ts` 由 `import.meta.glob` 改为按需 `import('@atl/ssm-client')`。
+2. `routeTable.ts` 全部指向 `pages/*` 的默认导出，`*` → `pages/errors/NotFoundPage`；删除 `features/*` 桩与 `PageStub`，`features/workspace/terminal/xterm.ts` 移到 `workspace/terminal/xterm.ts`。
+3. 会话动作对话框：`app/sessionActionDialogs.tsx` 按需加载 `workspace/timer/StandaloneDialogs.tsx`（在工作台之外为 Cancel / Extend / EndDialog 准备 WorkspaceContext），
+   `AppRoutes` 默认注册；顶栏会话菜单与目录环境条不再弹“这个画面将在后续实现”。
+4. 顶栏“进度”浮层原来只有占位文字：新增 `pages/labs/components/ProgressPanel.tsx`（当前路径的必修、已核验、分段条、recommendNext 与链接），展开时按需加载。
+5. P09-V（web-results 的设计版验证页）由 atl-certs 发布：`platform/api/build.mjs` 把 `public-pages/dist/verify/*` 以 `__ATL_VERIFY_PAGE__` 嵌入函数包；`static-site.ts` 的
+   `verifyPageAssets()` 在没有构建产物时退回原来的简版页；`publishVerifyPage` 发布 index.html、verify.js、verify.css；dev-server 从构建目录设置；`npm run build -w @atl/web`
+   现在同时构建 public-pages；`package.ts` 在未构建时告警。分享副本仍由 api 的 `renderReportHtml` 生成（web 的 `render-share.mjs` 暂不使用）。
+6. 根脚本：`e2e:platform`、`build:web:public`，以及 release 提出的 `release:docker`、`preflight`、`test:release`。dev 运行时：`ATL_DEV_TABLE_MAIN` / `ATL_DEV_TABLE_LOCKS`
+   （每次一套表，`create-tables.ts --drop`）、`ATL_DEV_PLATFORM_URL`、`ScaledClock.setScale`；`npm run platform:dev` 把 Vite 地址作为 platformUrl 传给 dev-server。
+
+**联调发现并修复的问题**
+
+1. **dev-server 一调用 `/__dev/*` 就崩溃**（`EADDRINUSE`）：`dev/server.ts` 的入口判断只看文件名后缀 `server.ts`，`dev-server.ts` 也满足，按需导入时会再起一个运行时监听同一端口。
+   改为只匹配 `dev/server.ts` 这个路径。
+2. **dev 模式终端 400**：dev 实例 ID（`i-dev-<env>-lab`）不符合 `POST …/terminals` 对 `instanceId` 的校验，而浏览器会带上 `/workspace` 返回的 ID。dev 的 WorkspaceAccess 改为给出
+   EC2 形式的别名（`i-0` 加 16 位十六进制）；`dev-workspace.test.ts` 增加断言。
+3. **会随时间失效的测试**：`dev-workspace.test.ts` 用固定虚拟时钟（2026-10-14T01:00Z）签发 `connectBy`，客户端按墙钟判断，01:00:30Z 之后必然失败。测试开头把虚拟时钟推到真实时间。
+4. 分享副本与简版验证页的 `<meta>` CSP 含 `frame-ancestors`，浏览器每次打开都报控制台错误（它只能由响应头生效，CloudFront 已经发送）。从 meta 中去掉。
+5. 工作台没有 `h1`（08 §8.2 要求每个画面一个）：会话栏加只给读屏的 `h1`“工作台 · <卡片标题>”。1280px 下卡片 id 在连字符处折行：`.wsbar .ttl .mono` 不折行。
+6. dev 的应用预览入口是 `http://<env>.dev.invalid`：`local-l0` 模式下 `stackOutputs` 改为返回本地 L0 的地址，新标签页能打开。
+7. ESLint 会扫描 `.claude/worktrees/`（其他代理会话的 git worktree），报 53 个错误：加入 ignores。
+8. App 测试按真实工作台更新（会话栏是本画面的 banner，断言改为“没有主导航”）。
+
+### 4. 设计有歧义时的取舍
+
+1. **到期覆盖层与 ×5 时钟**：×5 下 ENDING → ENDED 只有约 9 秒，客户端 5～10 秒的轮询会直接看到 ENDED（只读存档），覆盖层不出现。生产中 ENDING / CLEANING 持续数分钟，
+   前端不改；e2e 在越过截止前把时钟切回 ×1（`/__dev/clock/scale`）。时钟跳跃后页脚提示“本机时钟与服务器相差约 n 分钟”，是 dev 时钟的预期表现。
+2. **P09-V 的发布者**：04 §10.6 规定由 atl-certs 发布验证页，所以不放进 atl-web.zip，而是嵌入 atl-certs 的函数包（同一份构建产物）；构建缺失时退回简版页，验证逻辑一致。
+3. **证书夹具**：路径必修卡片的完成记录用 dev 夹具补齐（任务允许）；签发、公开、验证、吊销全部走真实代码。
+4. **CSP 检查不含终端**：生产 CSP 的 `connect-src` 只允许 `wss://ssmmessages.<region>`，dev 的 `ws://127.0.0.1` 模拟服务器在 CSP 下本来就连不上，所以 CSP 检查只覆盖不开终端的画面；
+   xterm 6 运行时注入 `<style>` 与 `style-src 'self'` 的冲突（03 §3.7.6）仍待 07 V2-3 决定。
+
+### 5. 与 07 验证计划的对应
+
+| 07 条目 | 本地已覆盖（本节） | 仍须在真实 AWS 上验证 |
+|---|---|---|
+| V0-6 代码就绪 | build、lint、test、三项 smoke、e2e:platform | — |
+| V1-5 控制台联合登录 | 浏览器侧：同步打开命名窗口 + POST 表单（dev 桩），不留空白页 | 角色链、区域端点、`SessionDuration` |
+| V2-2 / V2-3 浏览器终端 | 浏览器里 ssm-client ↔ 模拟数据通道（握手、输入输出、尺寸）；生产构建在 CSP 下无违规（不含终端） | 真实 `ssmmessages`、Origin、xterm 在 `style-src 'self'` 下（V2-3 第 4 步）、输入法与前导键 |
+| V3-3 平台模式自检 | 本地 L0 平台模式下的检查（经 UI 触发） | 实例上的 Nginx、CSP、探测 |
+| V5-1 安装与首次登录 | P00 首次设置、dev 令牌登录 | Cognito 托管登录、CloudFront 回源、WebDeploy 发布真实 SPA，atl-certs 发布 P09-V |
+| V5-3 / V5-4 主路径 | 目录 → 报价 → 开始 → P04 → P05（检查、终端、控制台、预览）→ 结束 → 回收 → 报告 | 真实运行器、SSM、kms:Sign、Price List 价格 |
+| V5-6 延长与到期 | 延长对话框、T-15 横幅、T-5 对话框、到期覆盖层、自动回收 | 真实 EventBridge Scheduler 时序 |
+| 证书（V5-3 收尾） | 领取、公开、P09-V 验证、吊销后“已吊销” | CloudFront 改写 `/verify/*`、缓存失效、KMS 签名 |
+| 清理失败（V5-7、V6） | CLEANUP_FAILED → P07-M →“我已处理”→ ENDED | 真实不可删资源、CloudTrail 投递延迟 |
+| V5-9 卸载 | 只在 smoke:platform 第 9 阶段（API） | 全部 |
+
+### 6. 明天真实验证前需要人工准备的事项
+
+1. **凭证与区域**：本机没有 `~/.aws/config` 与凭证（`npm run preflight` 报 2 个 FAIL）。按 07 §1 用 IAM Identity Center 配置 profile 与默认区域（`ap-northeast-1`，
+   `release.config.json` 只验证了这个区域），并先设好预算告警（V0-2）。
+2. **重新构建发布包**：`dist/release/` 是 ef0726e 构建的，那时路由还是桩，也没有本节的修复。提交本节后在新提交上运行 `npm run release:docker`，再
+   `npm run preflight -- --artifacts-only --release-dir dist/release/v0.1.0-dev` 核对；确认 `atl-web.zip` 是接入后的 SPA，`package-report.json` 中没有“P09-V 未构建”的告警。
+3. **固定 session-manager-plugin**：`bash scripts/release-docker/pin-ssm-plugin.sh` → 提交 `workstation-tools.json` → 重建；`SSM_AGENT_MIN_VERSION` 确认后再设置。
+4. `release.config.json` 的 `templateBucket` 仍是 `<release-bucket>` 占位；`githubRepository` 能否公开下载需确认（atl-copy-artifacts 从 GitHub Release 取资产）。
+5. **cfn-lint**：本机没有；安装后运行 `ATL_CFN_LINT=<路径> npm run cfn-lint -w @atl/infra`。
+6. **浏览器**：控制台联合登录用单独的浏览器配置文件（会替换已登录的 AWS 身份）；准备 Edge / Firefox 与中文输入法，做 V2-3 第 5、7 步。
+7. **需要用户在场确认的操作**：07 §12 列出的建栈、删除与费用相关操作；助教邮箱（Cognito 邀请会真实发信）。
+
+### 7. 仍然存在的问题
+
+- **web 尚未使用的 API 细化**（backend-gaps 已实现）：报告 `?version=`、`/resources/manual` 条目的 `labId` 与会话时间（P07-M 仍逐个读会话）、`GET …/terminals` 的 `clientId` 清理、
+  步骤级预期中断入口（§9.2 #25）、运行器日志与证据路由；会话列表的 `attemptStatus` 与费用 API 仍未提供。
+- 顶栏“进度”按钮只显示“进度”，没有 `进度 23/40` 计数，也没有“切换当前路径”；服务格侧栏不拆分数（API 不给分项）。
+- web 的 `render-share.mjs` 与 api 的 `renderReportHtml` 两份分享渲染并存，生产只用后者。
+- xterm 的 CSP 冲突、终端在生产 CSP 下的表现、真实 `ssmmessages` 都未验证；缺 Storybook、axe-core、xterm 插件（web-links、search、unicode11、webgl、clipboard）、cfn-lint、Go 工具链。
+- dev 替身：价格是夹具；实验机终端是模拟 shell（没有 `aws`）；控制台是本地登录桩；回收在内存账号中，`/__dev/reclaim/*` 注入资源的 CLI 提示是注释，不是可执行命令。
+- `docs/` 下其他文件的未提交改动与未跟踪的 `docs/platform/` 不是本节的改动，没有提交。

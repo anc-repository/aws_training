@@ -100,6 +100,12 @@ function sendResult(res: express.Response, r: HttpResult): void {
   res.end(r.isBase64Encoded && r.body ? Buffer.from(r.body, 'base64') : (r.body ?? ''));
 }
 
+const PUBLIC_TYPES: Record<string, string> = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.json': 'application/json', '.jws': 'application/jose', '.svg': 'image/svg+xml' };
+
+function publicContentType(key: string): string {
+  return PUBLIC_TYPES[path.extname(key)] ?? 'application/octet-stream';
+}
+
 const DEV_ORIGIN = /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/;
 
 function cors(req: express.Request, res: express.Response): void {
@@ -175,6 +181,32 @@ export function createDevApp(rt: DevRuntime, opts: DevAppOptions = {}): express.
       .then((b) => {
         if (!b) return res.status(404).end();
         res.setHeader('content-type', key.endsWith('.json') ? 'application/json; charset=utf-8' : 'application/octet-stream');
+        return res.end(Buffer.from(b));
+      })
+      .catch(() => res.status(400).end());
+  });
+  // what CloudFront serves from atl-web outside the SPA (01 §3.8, 70-web.yaml): the static verification entry, the JWKS,
+  // the public certificate files and the share copies, with the atl-spa-rewrite rule for /verify/<certId> and the
+  // response-header policies atl-web-verify / atl-web-share (CSP), so a browser sees what production would serve.
+  app.get(/^\/(verify|\.well-known|public|share)(\/|$)/, (req, res) => {
+    let uri = decodeURIComponent(new URL(req.originalUrl, 'http://x').pathname);
+    if (uri === '/verify' || uri === '/verify/' || /^\/verify\/[^/.]+\/?$/.test(uri)) uri = '/verify/index.html';
+    else if (uri.endsWith('/')) uri += 'index.html';
+    const key = uri.slice(1);
+    if (key.split('/').some((seg) => seg === '..' || seg === '')) return void res.status(400).end();
+    rt.objects
+      .get(rt.env.buckets.web, key)
+      .then((b) => {
+        // S3 behind CloudFront (OAC, no s3:ListBucket) answers a missing object with 403
+        if (!b) return res.status(403).end();
+        res.setHeader('content-type', publicContentType(key));
+        res.setHeader('cache-control', 'no-cache');
+        res.setHeader('x-content-type-options', 'nosniff');
+        if (key.startsWith('share/')) {
+          res.setHeader('content-security-policy', "default-src 'none'; style-src 'unsafe-inline'; img-src data:; frame-ancestors 'none'");
+          res.setHeader('referrer-policy', 'no-referrer');
+          res.setHeader('x-robots-tag', 'noindex, nofollow');
+        } else res.setHeader('content-security-policy', "default-src 'self'; connect-src 'self'; img-src 'self' data:; script-src 'self'; frame-ancestors 'none'");
         return res.end(Buffer.from(b));
       })
       .catch(() => res.status(400).end());
@@ -471,11 +503,19 @@ export async function seedDevCatalog(deps: FunctionDeps, labsDir: string, catalo
   return { catalogVersion, cards: cards.map((c) => String(c.id)), tracks: tracks.map((t) => String(t.id)) };
 }
 
-export async function ensureDevPlatformConfig(deps: FunctionDeps, port: number): Promise<void> {
+export async function ensureDevPlatformConfig(deps: FunctionDeps, port: number, platformUrl: string | null = null): Promise<void> {
   const repos = reposOf(deps);
-  if (await repos.platform.config(true)) return;
+  const cur = await repos.platform.config(true);
+  if (cur) {
+    // ATL_DEV_PLATFORM_URL (e.g. the Vite origin of npm run platform:dev): certificates, share links and the console
+    // federation Issuer point at the page the browser actually uses
+    if (platformUrl && (cur as { platformUrl?: string }).platformUrl !== platformUrl) {
+      await repos.table.update(Keys.platformConfig(), { set: { platformUrl, updatedAt: deps.ports.clock.now().toISOString() } }).catch(() => undefined);
+    }
+    return;
+  }
   const { devPlatformConfig } = await loadDevTables();
-  await repos.table.put(devPlatformConfig(deps.ports.clock.now().toISOString(), deps.env.region, deps.env.accountId, port), { expression: 'attribute_not_exists(PK)' }).catch(() => undefined);
+  await repos.table.put(devPlatformConfig(deps.ports.clock.now().toISOString(), deps.env.region, deps.env.accountId, port, platformUrl), { expression: 'attribute_not_exists(PK)' }).catch(() => undefined);
 }
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -491,7 +531,7 @@ async function main(): Promise<void> {
   if (portArg >= 0 && argv[portArg + 1]) process.env.ATL_DEV_PORT = argv[portArg + 1];
   const cfg = (await loadDevConfigModule()).loadDevConfig();
   const rt = await (await loadDevRuntime()).createDevRuntime(cfg);
-  await ensureDevPlatformConfig(rt.deps, cfg.port);
+  await ensureDevPlatformConfig(rt.deps, cfg.port, cfg.platformUrl);
   // atl-custom-resources = the infra handler on dev ports (UninstallGuard / UninstallRoleCleanup, SeedData, …)
   try {
     const { installDevCustomResources } = await import('./dev/adapters/custom-resources.js');
@@ -512,6 +552,18 @@ async function main(): Promise<void> {
       const r = await seedDevCatalog(rt.deps, dir);
       console.log(`seeded content release ${r.catalogVersion}: ${r.cards.length} cards, ${r.tracks.length} tracks from ${dir} (no labs:build output: checks are not expanded)`);
     }
+  }
+  // the certificate verification page atl-certs publishes: P09-V from `npm run build -w @atl/web` (what platform/api/build.mjs
+  // embeds into the Lambda bundles), else the fallback page; ATL_DEV_VERIFY_PAGE=fallback keeps the fallback
+  if (process.env.ATL_DEV_VERIFY_PAGE !== 'fallback') {
+    const dir = path.join((await loadDevConfigModule()).REPO_ROOT, 'platform', 'web', 'public-pages', 'dist', 'verify');
+    const read = (f: string) => (fs.existsSync(path.join(dir, f)) ? fs.readFileSync(path.join(dir, f), 'utf8') : null);
+    const [html, js, css] = [read('index.html'), read('verify.js'), read('verify.css')];
+    if (html && js) {
+      const { setVerifyPageAssets } = await import('./services/certificates/static-site.js');
+      setVerifyPageAssets({ 'index.html': html, 'verify.js': js, ...(css ? { 'verify.css': css } : {}) });
+      console.log(`certificate verification page: P09-V from ${path.relative(process.cwd(), dir)}`);
+    } else console.log('certificate verification page: fallback (build P09-V with npm run build -w @atl/web)');
   }
   // 03 workspace (SSM mock of @atl/ssm-client, federation stub) and the dev member directory
   const dev = await (await loadDevWorkspace()).createDevExtensions({ port: cfg.port, dataDir: cfg.dataDir, nowMs: () => rt.clock.nowMs(), envs: rt.envs });

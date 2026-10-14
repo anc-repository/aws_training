@@ -72,6 +72,9 @@ describe('dev workspace: terminal through the SSM mock, console through the fede
         }),
       },
     });
+    // the browser protocol client compares the API's connectBy (virtual clock) with the wall clock: start the virtual clock
+    // at the real time, or the test only passes before T0 + 30 s (it began failing on 2026-10-14 after 01:00:30Z)
+    rt.clock.advance(Math.max(0, Date.now() - rt.clock.nowMs()));
     await rt.repos.platform.updateConfig({ rateLimits: { terminal: 0, consoleLink: 0 } }, undefined, new Date(rt.clock.nowMs()).toISOString());
     const q = body(await rt.api(ev('POST', `/api/v1/labs/${LAB_ID}/quotes`, { token: LEARNER, body: { purpose: 'START' } })));
     sid = body(await rt.api(ev('POST', '/api/v1/sessions', { token: LEARNER, body: { labId: LAB_ID, quoteId: q.quoteId, costAcknowledged: true } }))).sessionId as string;
@@ -129,7 +132,10 @@ describe('dev workspace: terminal through the SSM mock, console through the fede
 
   it('workspace targets, console sign-in through the stub, app credentials', async () => {
     const w = body(await rt.api(ev('GET', `/api/v1/sessions/${sid}/workspace`, { token: LEARNER })));
-    expect((w.targets as { tab: string; ssmPing: string }[]).map((t) => `${t.tab}:${t.ssmPing}`)).toEqual(['terminal-lab:Online', 'terminal-workstation:Online']);
+    // (ordered by launch time, then instance id)
+    expect((w.targets as { tab: string; ssmPing: string }[]).map((t) => `${t.tab}:${t.ssmPing}`).sort()).toEqual(['terminal-lab:Online', 'terminal-workstation:Online']);
+    // the browser sends these ids back in POST …/terminals, which validates them like EC2 instance ids (e2e:platform)
+    for (const t of w.targets as { instanceId?: string }[]) expect(t.instanceId).toMatch(/^i-[0-9a-f]{8,17}$/);
     const link = body(await rt.api(ev('POST', `/api/v1/sessions/${sid}/console-link`, { token: LEARNER, body: { linkId: 'cloudtrail.events' } })));
     const form = link.form as { action: string; fields: Record<string, string> };
     expect(form.action).toBe(fedUrl);

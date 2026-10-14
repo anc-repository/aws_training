@@ -11,10 +11,19 @@
  *   POST /__dev/trail/events              inject fake CloudTrail events (JSON array of TrailEvent)
  *   POST /__dev/faults                    inject a Step Functions fault { state, error, cause?, times?, stateMachine? }
  *   POST /__dev/clock/skip                { minutes } — jump the scaled clock forward
+ *   POST /__dev/clock/scale               { scale } — change the clock speed from now on (platform s per wall s)
  *   POST /__dev/invoke/<function>         invoke a function with the JSON body (e.g. atl-timer { kind: 'SWEEP' })
+ *   POST /__dev/fixtures/completions      { sub, trackId? | labIds? } — completion records + verified badges (dev fixture,
+ *                                         marked `fixture: dev`) so that a learning path becomes certificate-eligible
+ *   POST /__dev/reclaim/protected-resource { sessionId } — the learner “created” an RDS instance with deletion protection
+ *                                         in the console (fake account resource + CloudTrail CreateDBInstance): the
+ *                                         reclaim cannot delete it → CLEANUP_FAILED (the smoke:platform phase 8 fault)
+ *   POST /__dev/reclaim/delete-resource   { type, region?, id } — the learner deleted it by hand (before “我已处理”)
  */
 import http from 'node:http';
-import { LAMBDA_FUNCTIONS, matchRoute, type LambdaFunctionName, type TrailEvent } from '@atl/shared';
+import { createHash } from 'node:crypto';
+import { GetCommand, PutCommand } from '@aws-sdk/lib-dynamodb';
+import { envNameFromEnvId, Keys, LAMBDA_FUNCTIONS, matchRoute, WebKeys, type LambdaFunctionName, type TrailEvent } from '@atl/shared';
 import type { HttpEvent, HttpResult } from '../http/types.js';
 import { ScaledClock } from './adapters/clock.js';
 import { loadDevConfig } from './config.js';
@@ -52,7 +61,7 @@ export async function handleDevRequest(rt: DevRuntime, req: http.IncomingMessage
     if (method === 'GET' && url.pathname === '/__dev/state') {
       return sendJson(res, 200, {
         now: rt.clock.now().toISOString(),
-        timeScale: rt.cfg.timeScale,
+        timeScale: rt.clock instanceof ScaledClock ? rt.clock.scale : rt.cfg.timeScale,
         runnerMode: rt.cfg.runnerMode,
         executions: rt.orchestrator.sim.listExecutions(),
         schedules: rt.scheduler.list(),
@@ -76,6 +85,32 @@ export async function handleDevRequest(rt: DevRuntime, req: http.IncomingMessage
       if (!(rt.clock instanceof ScaledClock)) return sendJson(res, 409, { error: 'clock is not a ScaledClock' });
       rt.clock.skip(Number((JSON.parse(body || '{}') as { minutes?: number }).minutes ?? 0) * 60_000);
       return sendJson(res, 200, { now: rt.clock.now().toISOString() });
+    }
+    if (method === 'POST' && url.pathname === '/__dev/clock/scale') {
+      if (!(rt.clock instanceof ScaledClock)) return sendJson(res, 409, { error: 'clock is not a ScaledClock' });
+      const scale = Number((JSON.parse(body || '{}') as { scale?: number }).scale);
+      if (!(scale > 0 && scale <= 600)) return sendJson(res, 400, { error: 'scale must be in (0, 600]' });
+      rt.clock.setScale(scale);
+      return sendJson(res, 200, { now: rt.clock.now().toISOString(), scale });
+    }
+    if (method === 'POST' && url.pathname === '/__dev/fixtures/completions') {
+      try {
+        return sendJson(res, 200, await devCompletions(rt, JSON.parse(body || '{}') as { sub?: string; trackId?: string; labIds?: string[] }));
+      } catch (e) {
+        return sendJson(res, 400, { error: e instanceof Error ? e.message : String(e) });
+      }
+    }
+    if (method === 'POST' && url.pathname === '/__dev/reclaim/protected-resource') {
+      try {
+        return sendJson(res, 200, await devProtectedResource(rt, String((JSON.parse(body || '{}') as { sessionId?: string }).sessionId ?? '')));
+      } catch (e) {
+        return sendJson(res, 400, { error: e instanceof Error ? e.message : String(e) });
+      }
+    }
+    if (method === 'POST' && url.pathname === '/__dev/reclaim/delete-resource') {
+      const r = JSON.parse(body || '{}') as { type?: string; region?: string; id?: string };
+      const k = `${r.type ?? ''}|${r.region ?? rt.env.region}|${r.id ?? ''}`;
+      return sendJson(res, 200, { deleted: rt.reclaim.resources.delete(k), key: k });
     }
     const inv = /^\/__dev\/invoke\/([a-z-]+)$/.exec(url.pathname);
     if (method === 'POST' && inv && (LAMBDA_FUNCTIONS as readonly string[]).includes(inv[1]!)) {
@@ -109,6 +144,88 @@ export async function handleDevRequest(rt: DevRuntime, req: http.IncomingMessage
   send(res, result);
 }
 
+// ---------------------------------------------------------------------------------------------------------------
+// dev fixtures (the same records smoke:platform phase 7 / 8 writes; never in production)
+
+async function devCompletions(rt: DevRuntime, p: { sub?: string; trackId?: string; labIds?: string[] }): Promise<{ sub: string; labIds: string[] }> {
+  const sub = String(p.sub ?? '');
+  if (!/^[A-Za-z0-9_.@-]{1,128}$/.test(sub)) throw new Error('sub is required');
+  let labIds = Array.isArray(p.labIds) ? p.labIds.map(String) : [];
+  if (!labIds.length && p.trackId) {
+    const cur = (await rt.deps.db.send(new GetCommand({ TableName: rt.env.tableName, Key: Keys.catalogCurrent() }))).Item as { catalogVersion?: string } | undefined;
+    if (!cur?.catalogVersion) throw new Error('no current content release');
+    const raw = await rt.objects.get(rt.env.buckets.web, `${WebKeys.content(cur.catalogVersion)}catalog/index.json`);
+    const index = raw ? (JSON.parse(Buffer.from(raw).toString('utf8')) as { tracks?: { id: string; stages?: { items?: { card: string; role?: string }[] }[] }[] }) : null;
+    const track = index?.tracks?.find((t) => t.id === p.trackId);
+    if (!track) throw new Error(`track ${p.trackId} not found in the content release ${cur.catalogVersion}`);
+    labIds = (track.stages ?? []).flatMap((s) => s.items ?? []).filter((i) => i.role === 'required').map((i) => i.card);
+  }
+  if (!labIds.length) throw new Error('trackId or labIds is required');
+  const nowIso = rt.clock.now().toISOString();
+  for (const labId of labIds) {
+    const cur = (await rt.deps.db.send(new GetCommand({ TableName: rt.env.tableName, Key: Keys.labProgress(sub, labId) }))).Item ?? {};
+    const attemptId = `sfx${createHash('sha256').update(`${sub}/${labId}`).digest('hex').replace(/[^0-9a-hjkmnp-tv-z]/g, '').slice(0, 10)}`;
+    await rt.deps.db.send(
+      new PutCommand({
+        TableName: rt.env.tableName,
+        Item: {
+          ...cur,
+          ...Keys.labProgress(sub, labId),
+          type: 'LabProgress',
+          sub,
+          labId,
+          kind: labId.startsWith('sc-') ? 'scenario' : 'service',
+          ver: Number(cur.ver ?? 0) + 1,
+          createdAt: cur.createdAt ?? nowIso,
+          updatedAt: nowIso,
+          status: 'completed',
+          attempts: Number(cur.attempts ?? 0) + 1,
+          attemptIds: [...((cur.attemptIds as string[] | undefined) ?? []), attemptId],
+          bestAttemptId: attemptId,
+          firstCompletedAt: cur.firstCompletedAt ?? nowIso,
+          badge: { level: 'verified', status: 'valid', earnedAt: nowIso, attemptId, labVersion: '1.0.0', variant: 'default', evidenceScore: 0.95, fixture: 'dev' },
+          credits: (cur.credits as unknown[] | undefined) ?? [],
+          regressions: (cur.regressions as unknown[] | undefined) ?? [],
+          quizByService: (cur.quizByService as Record<string, unknown> | undefined) ?? {},
+        },
+      }),
+    );
+  }
+  return { sub, labIds };
+}
+
+async function devProtectedResource(rt: DevRuntime, sid: string): Promise<{ type: string; region: string; id: string }> {
+  if (!/^s[0-9a-z]{12}$/.test(sid)) throw new Error('sessionId is required');
+  const s = (await rt.deps.db.send(new GetCommand({ TableName: rt.env.tableName, Key: Keys.labSession(sid) }))).Item as { envId?: string } | undefined;
+  if (!s?.envId) throw new Error(`session ${sid} has no environment`);
+  const envName = envNameFromEnvId(String(s.envId));
+  const region = rt.env.region;
+  const id = `cloudalbum-${envName}-db-protected`;
+  rt.reclaim.addResource({ type: 'AWS::RDS::DBInstance', region, id, behaviour: { kind: 'protected' } });
+  const at = new Date(rt.clock.nowMs() - 60_000).toISOString();
+  rt.trail.inject({
+    eventId: `ev-${id}`,
+    eventName: 'CreateDBInstance',
+    eventTime: at,
+    eventSource: 'rds.amazonaws.com',
+    region,
+    username: `atl-${sid}-console`,
+    readOnly: false,
+    resources: [{ resourceType: 'AWS::RDS::DBInstance', resourceName: id }],
+    cloudTrailEvent: JSON.stringify({
+      eventID: `ev-${id}`,
+      eventName: 'CreateDBInstance',
+      eventSource: 'rds.amazonaws.com',
+      awsRegion: region,
+      eventTime: at,
+      userIdentity: { type: 'AssumedRole', arn: `arn:aws:sts::${rt.env.accountId}:assumed-role/ATLLearnerRole/atl-${sid}-console`, sessionContext: { sessionIssuer: { arn: `arn:aws:iam::${rt.env.accountId}:role/ATLLearnerRole` } } },
+      requestParameters: { dBInstanceIdentifier: id },
+      responseElements: { dBInstanceIdentifier: id, dBInstanceArn: `arn:aws:rds:${region}:${rt.env.accountId}:db:${id}` },
+    }),
+  });
+  return { type: 'AWS::RDS::DBInstance', region, id };
+}
+
 async function main(): Promise<void> {
   if (process.argv.includes('--dev-mode')) process.env.ATL_DEV_MODE = '1'; // npm run platform:dev (Windows-friendly)
   if (process.env.ATL_DEV_MODE !== '1') {
@@ -132,6 +249,8 @@ async function main(): Promise<void> {
   process.on('SIGTERM', () => void stop());
 }
 
-if (process.argv[1] && /server\.(ts|js)$/.test(process.argv[1])) {
+// only when this file is the entry point: `dev-server.ts` (npm run platform:dev) also ends in “server.ts” and imports this
+// module lazily for /__dev/* — a suffix match started a second runtime on the same port (EADDRINUSE; e2e:platform)
+if (process.argv[1] && /(^|[\\/])dev[\\/]server\.(ts|js)$/.test(process.argv[1])) {
   void main();
 }

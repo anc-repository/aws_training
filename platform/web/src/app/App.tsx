@@ -4,13 +4,13 @@
  */
 import { Suspense, useEffect, useState, type ReactNode } from 'react';
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
-import { NotFoundPage } from '../components/ErrorPages';
 import { Guarded, ProtectedShell, PublicShell } from '../components/Shells';
 import type { SessionActionDialogs } from '../components/SessionActions';
 import { Skeleton } from '../ui';
 import { ServicesProvider, useAuth, useServices, useSessionSync } from './context';
 import { GlobalStatusProvider } from './globalStatus';
-import { ROUTE_TABLE } from './routeTable';
+import { NotFoundRoute, ROUTE_TABLE } from './routeTable';
+import { SESSION_ACTION_DIALOGS } from './sessionActionDialogs';
 import { rootRedirect } from './sessionRouting';
 import type { Services } from './services';
 
@@ -27,7 +27,7 @@ function SignedOutGate() {
   return <ProtectedShell layout="app" />;
 }
 
-export function AppRoutes({ dialogs }: { dialogs?: SessionActionDialogs }) {
+export function AppRoutes({ dialogs = SESSION_ACTION_DIALOGS }: { dialogs?: SessionActionDialogs }) {
   const pub = ROUTE_TABLE.filter((r) => r.layout === 'public');
   const app = ROUTE_TABLE.filter((r) => r.layout === 'app');
   const ws = ROUTE_TABLE.filter((r) => r.layout === 'workspace');
@@ -55,7 +55,7 @@ export function AppRoutes({ dialogs }: { dialogs?: SessionActionDialogs }) {
             />
           ))}
           <Route path="/settings" element={<Navigate to="/settings/profile" replace />} />
-          <Route path="*" element={<NotFoundPage />} />
+          <Route path="*" element={<NotFoundRoute />} />
         </Route>
         <Route element={<ProtectedShell layout="workspace" dialogs={dialogs} />}>
           {ws.map((r) => (

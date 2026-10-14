@@ -6,7 +6,8 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc -p tsconfig.json --noEmit && vite build",
+    "build": "tsc -p tsconfig.json --noEmit && vite build && node public-pages/build.mjs",
+    "build:public": "node public-pages/build.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "preview": "vite preview",
     "lint": "eslint .",
@@ -14,6 +15,7 @@
   },
   "dependencies": {
     "@atl/shared": "0.1.0",
+    "@atl/ssm-client": "0.1.0",
     "@xterm/addon-fit": "^0.11.0",
     "@xterm/xterm": "^6.0.0",
     "react": "^18.3.1",

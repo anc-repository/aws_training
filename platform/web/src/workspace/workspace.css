@@ -10,6 +10,8 @@
 .ws-loading{padding:16px; display:grid; gap:12px}
 .wsbans{flex:none; display:grid}
 .wsbar{position:relative}
+/* 卡片 id 不在连字符处折行（1280px 下 svc-storage 曾折成两行；e2e:platform） */
+.wsbar .ttl .mono{white-space:nowrap}
 .wsbar .bar-acts{gap:6px}
 .wsbar-targets{flex-basis:100%; padding-left:4px}
 .narrow-only{display:none}

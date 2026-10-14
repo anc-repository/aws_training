@@ -65,7 +65,8 @@ export interface RenderOptions {
 export function renderReportHtml(r: Report, o: RenderOptions = {}): string {
   const h: string[] = [];
   h.push(`<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">`);
-  h.push(`<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; img-src data:; frame-ancestors 'none'">`);
+  // frame-ancestors only works as a header (browsers log an error for it in <meta>): CloudFront's atl-web-share policy sends it
+  h.push(`<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; img-src data:">`);
   if (o.share) h.push('<meta name="robots" content="noindex, nofollow"><meta name="referrer" content="no-referrer">');
   h.push(`<title>${esc(r.lab.title)} · 实验报告</title><style>${CSS}</style></head><body><main>`);
   if (o.share) h.push('<p class="banner">这是由自托管 ATL 实验平台生成的脱敏报告副本，不是 AWS 官方认证。</p>');

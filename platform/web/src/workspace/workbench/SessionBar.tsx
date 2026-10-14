@@ -69,6 +69,10 @@ export function SessionBar(p: SessionBarProps) {
         ‹ 目录
       </Link>
       <div className="ttl">
+        {/* 每个画面一个 h1（08 §8.2）；工作台的可见标题是这一行，h1 只给读屏 */}
+        <h1 className="sr" tabIndex={-1}>
+          工作台 · {lab?.title ?? v.labId}
+        </h1>
         <span className="tag">{lab?.kind === 'scenario' ? '场景' : '服务'}</span>
         {blocks.map((s) => {
           const a = abbrOf(index, s.id);
