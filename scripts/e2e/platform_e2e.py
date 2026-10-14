@@ -342,6 +342,18 @@ def phase_workbench(page: Page, sid: str) -> None:
     check('app preview: the environment entry (local CloudAlbum L0) opens in a new tab', app.url.startswith('http://127.0.0.1'), app.url)
     shot(app, '12b-app-preview')
     app.close()
+    phase_csp_live(page.context.browser, sid)
+    state['phase'] = '4 workbench'
+
+
+def resync_clock(page: Page) -> None:
+    """After a dev clock jump: let the page re-sync its server clock now, as when a tab comes back to the foreground.
+
+    A real server clock does not jump. Without a state change the session polls answer 304 (no serverNow sample) and the
+    60 s heartbeat sample may be dropped for its round trip (ServerClock keeps the best sample), so the page could stay
+    behind for longer than the 54 s the ×5 clock leaves between T-4.5 and the deadline.
+    """
+    page.evaluate("() => document.dispatchEvent(new Event('visibilitychange'))")
 
 
 def phase_expire(page: Page, sid: str) -> None:
@@ -368,6 +380,7 @@ def phase_expire(page: Page, sid: str) -> None:
     shot(page, '14-t15-banner')
     # T-5: the one-time reminder dialog
     skip_to(deadline, -int(4.5 * 60_000))
+    resync_clock(page)
     t5 = dialog(page, '^还剩 5 分钟')
     t5.wait_for(timeout=60_000)
     check('T-5: the one-time “还剩 5 分钟” dialog', t5.is_visible())
@@ -574,6 +587,77 @@ document.addEventListener('securitypolicyviolation', (e) => window.__csp.push({ 
 """
 
 
+CSP_TERMINAL_PROBE = """
+() => {
+  const rows = document.querySelector('#panel-terminal-lab .xterm-rows');
+  const spans = rows ? [...rows.querySelectorAll('span')] : [];
+  const tc = spans.find((s) => s.textContent.includes('csp-truecolor') && s.style.color);
+  return {
+    terminals: document.querySelectorAll('.xterm').length,
+    styleElements: document.querySelectorAll('style').length,
+    adopted: document.adoptedStyleSheets.length,
+    rowsFont: rows ? getComputedStyle(rows).fontFamily : null,
+    bodyFont: getComputedStyle(document.body).fontFamily,
+    rowsColor: rows ? getComputedStyle(rows).color : null,
+    truecolor: tc ? getComputedStyle(tc).color : null,
+    violations: window.__csp || [],
+  };
+}
+"""
+
+
+def csp_login(page: Page) -> None:
+    page.goto(f'{CSP_WEB}/labs')
+    page.locator('input.mono').fill(SUB)
+    page.get_by_role('button', name='以开发身份登录').click()
+    page.locator('[data-screen=P02]').wait_for(timeout=20_000)
+
+
+def phase_csp_live(browser: Any, sid: str) -> None:
+    """The production build under the CloudFront CSP with a live session: the workbench and an open lab terminal.
+
+    xterm.js 6 injects <style> elements and style attributes at runtime; the SPA turns them into adopted constructable
+    stylesheets and CSSOM writes (03 §3.7.6). No securitypolicyviolation, no <style> element, the rows in the monospace
+    font and true-colour cells coloured. connect-src additionally lists the local SSM mock (scripts/e2e/platform.mjs).
+    """
+    if not CSP_WEB:
+        return
+    state['phase'] = '4b csp-live'
+    ctx = browser.new_context(viewport={'width': 1280, 'height': 900}, locale='zh-CN', timezone_id='Asia/Tokyo')
+    ctx.add_init_script(CSP_PROBE)
+    page = ctx.new_page()
+    attach(page, 'csp-live')
+    try:
+        csp_login(page)
+        page.goto(f'{CSP_WEB}/workspace/{sid}?step=orient')
+        page.locator('[data-screen=P05][data-variant=live]').wait_for(timeout=30_000)
+        lab = page.locator('#panel-terminal-lab')
+
+        def lab_shown() -> bool:
+            # the manual may move the right pane to the step's default panel once it has loaded: select the tab again
+            if not lab.is_visible():
+                page.locator('#tab-terminal-lab').click()
+                return False
+            return '已连接' in page.locator('#tab-terminal-lab').inner_text()
+
+        wait_until('csp: lab terminal shown and connected', lab_shown, 45, 0.5)
+        lab.locator('.xterm').first.click()
+        page.keyboard.type(r"printf '\e[38;2;10;20;30mcsp-truecolor\e[0m \e[1;34mcsp-blue\e[0m\n'")
+        page.keyboard.press('Enter')
+        wait_until('csp: terminal output', lambda: lab.locator('.xterm-rows').first.inner_text().count('csp-truecolor') >= 2, 20, 0.5)
+        page.wait_for_timeout(800)
+        r = page.evaluate(CSP_TERMINAL_PROBE)
+        shot(page, '11b-csp-live-terminal')
+        mono = r['rowsFont'] or ''
+        check('production CSP, live workbench + lab terminal: no securitypolicyviolation (xterm.js styles adopted, not inline)', not r['violations'] and r['styleElements'] == 0 and r['adopted'] >= 2, {k: r[k] for k in ('violations', 'terminals', 'styleElements', 'adopted')})
+        check('production CSP: terminal rows use the monospace font (not the page font); true-colour cells are coloured', 'JetBrains Mono' in mono and mono != r['bodyFont'] and bool(r['truecolor']) and r['truecolor'] != r['rowsColor'], {k: r[k] for k in ('rowsFont', 'bodyFont', 'rowsColor', 'truecolor')})
+    except Exception as e:  # noqa: BLE001 — recorded as a failure; the main flow goes on
+        check(f'csp-live: {type(e).__name__}: {str(e).splitlines()[0][:300] if str(e) else ""}', False, traceback.format_exc()[-1500:])
+        shot(page, 'fail-csp-live', full=True)
+    finally:
+        ctx.close()
+
+
 def phase_csp(browser: Any) -> None:
     """The production build (vite preview) under the atl-web-spa CSP header: no violations on the main screens."""
     state['phase'] = '9b csp'
@@ -583,10 +667,7 @@ def phase_csp(browser: Any) -> None:
     ctx.add_init_script(CSP_PROBE)
     page = ctx.new_page()
     attach(page, 'csp')
-    page.goto(f'{CSP_WEB}/labs')
-    page.locator('input.mono').fill(SUB)
-    page.get_by_role('button', name='以开发身份登录').click()
-    page.locator('[data-screen=P02]').wait_for(timeout=20_000)
+    csp_login(page)
     found: list[dict[str, Any]] = []
     seen = 0
     for name, path, sel in CSP_SCREENS:

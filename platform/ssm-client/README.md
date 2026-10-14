@@ -38,7 +38,7 @@ const conn = new SsmTerminalConnection({
   open: async () => {
     const r = await api.createTerminal(sid, { target: 'lab', cols: term.cols, rows: term.rows, clientId });
     terminalId = r.terminalId;
-    return r; // { streamUrl, tokenValue, connectBy }
+    return r; // { streamUrl, tokenValue, connectBy, serverNow } — serverNow makes connectBy immune to browser clock skew
   },
   resume: () => api.resumeTerminal(sid, terminalId, { clientId }), // TERMINAL_GONE → 'gone'
   streamUrlPolicy: { region: 'ap-northeast-1' },                    // dev mode: { allowLoopback: true }

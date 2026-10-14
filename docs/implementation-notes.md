@@ -2528,3 +2528,50 @@ atl-web-spa CSP 头提供生产构建（CSP 检查）。Python Playwright 用系
 - xterm 的 CSP 冲突、终端在生产 CSP 下的表现、真实 `ssmmessages` 都未验证；缺 Storybook、axe-core、xterm 插件（web-links、search、unicode11、webgl、clipboard）、cfn-lint、Go 工具链。
 - dev 替身：价格是夹具；实验机终端是模拟 shell（没有 `aws`）；控制台是本地登录桩；回收在内存账号中，`/__dev/reclaim/*` 注入资源的 CLI 提示是注释，不是可执行命令。
 - 本节只提交了自己改动的路径；`docs/` 下的其他文件（含 `docs/platform/`）由并行的提交 bc171f5 加入，本节没有修改。
+
+## platform-web-review-fixes
+
+修复审查提出的 5 个问题（1 个 high、3 个 medium、1 个 low，全部修复）。全程没有调用真实的 AWS API，也没有部署任何东西；没有运行 `npm install`。
+
+### 1. 修复内容
+
+| 级别 | 问题 | 修复 | 主要文件 |
+|---|---|---|---|
+| high | xterm.js 6 在生产 CSP `style-src 'self'` 下运行时注入的 3 个 `<style>` 被浏览器拦截：主题、字体、光标与滚动条样式丢失，行文字回退为比例字体，列、光标与选区错位 | 采用 03 §3.7.6 的首选方案，CSP 不变，以运行时补丁实现（不使用 patch-package）。`term.open()` 期间临时替换 `document.createElement`：`'style'` 改为返回不渲染的 `<template>` 替身，其 textContent 写入可构造样式表（`new CSSStyleSheet()` + `replaceSync()`）并挂到 `document.adoptedStyleSheets`，`remove()` 时摘下；open 结束后恢复 createElement。审查没有提到、但同样会被拦截的 `DomRendererRowFactory._addStyle`（真彩色与最低对比度调整用 `setAttribute('style')`）改为 `style.setProperty`（CSSOM）。xterm 内部结构变化导致补丁未生效时，控制台警告一次 | `web/src/workspace/terminal/cspStyles.ts`（新）、`xterm.ts` |
+| medium | 确认框选“在新的终端子标签中粘贴”后，沿用了旧终端的判定，没有对新终端重新判定，多行或危险命令在新终端里被逐行执行 | 新增 `terminal/pasteFlow.ts`（`runPaste`）。流程为 Ready → `waitForPrompt` → 按要粘贴进去的那个终端判定；选 newtab 后，新子标签 Ready 且出现提示符，再用新终端的状态重新判定（reject 或 confirm 照常处理，危险命令会再次弹出红色确认）。等不到提示符、终端仍不是 bracketed 模式时，多行一律拒绝并自动复制，拒绝框显示“命令已复制到剪贴板”。“目标终端未打开”的分支同样先等提示符，不会误拒。`TerminalController.waitForPrompt`：OSC 133 B 或 bracketedPasteMode 开启即视为提示符出现；只收到 A 时再等 300ms 宽限；时限 5 秒，从 Ready 且 xterm 接上时起算，因此已经用了一阵的终端不会每次都等；新的 SSM 会话会重置，resume 不重置 | `terminal/pasteFlow.ts`（新）、`controller.ts`、`Workspace.tsx`、`workbench/PasteDialogs.tsx` |
+| medium | `connectBy` 按服务端时钟签发，客户端却用本机时钟比较；本机时钟快 30 秒以上时永远连不上（5 次 resume 后进入 reconnect-exhausted） | ssm-client 的 `StreamCredentials` 增加 `serverNow`，`localConnectDeadline` 把 connectBy 换算成“收到时刻 +（connectBy − serverNow）”的相对期限。API 的 `POST …/terminals` 与 `…/resume` 响应带回 `serverNow`；web 的 TerminalController 优先用响应里的 serverNow，没有时用 `serverClock.now()`（`useServices().clock`）。不改协议层的 `now`，DataChannel 的重传计时与空闲判断仍用本机单调时间 | `ssm-client/src/connection.ts`、`api/src/services/workspace/provider.ts`、`web/…/terminal/controller.ts`、`channel.ts`、`TerminalPane.tsx` |
+| medium | EXTEND/KEEP 报价的 `ref: module` 按模板默认参数展开（NAT 为 0、Single-AZ、最小规格），少算且不标 unknown | `Environment.moduleParams`（可选，模块 → 启用参数）由 `quoteLinesForEnvironment` 随 `ref: module` 行传给 atl-pricing（`line.params`，只保留 `pricingParamKeys()` 中的键：scaleBy 的键与 InstanceType / DbInstanceClass / CacheNodeType）。`expandLines` 把它作为 sources；没有记录时，带 scaleBy 或模块参数占位符的条目输出 unknown 行，并把 pricingKey 加入 `incomplete`，不查价也不套用默认值，因此 KEEP 的 `requiresTypedConfirm` 也会生效 | `api/src/services/pricing/estimate.ts`、`catalog/quotes.ts`、`functions/lifecycle/store/model.ts`、`shared/src/entities.ts` |
+| low | `ATLPricingFunctionRole` 对整个 PLATFORM 分区有写权限 | 拆成两条语句：`PriceAndQuoteItems` 只保留 `PRICE#*`、`USER#*` 的读写；新增 `PlatformConfigRead`，PLATFORM 只允许 `dynamodb:GetItem`。IAM 只能限定分区键，限定不到 CONFIG 这一条，所以只读是可行的最小权限 | `infra/src/50-iam.yaml` |
+
+测试：`cspStyles.test.ts`（替身与样式表；jsdom 中真实打开 xterm 6.0.0，确认 0 个 `<style>`、3 个替身，并找到行工厂内部路径）；`pasteFlow.test.ts`（审查给出的触发路径：忙碌加多行，选 newtab 后被拒绝、命令被复制、没有粘贴；新终端开启 bracketed paste 后再次确认才粘贴；未打开的终端先等提示符）；`controller.test.ts`（waitForPrompt 的 A/B、bracketed、宽限、时限与断开；时钟偏差 +60 秒仍能连接）；ssm-client `connection.test.ts`（本机时钟快 60 秒时直接连接，不走 resume；`localConnectDeadline`）；`pricing.test.ts`（有参数时 NAT 按 1 计、Multi-AZ ×2、按记录的规格查价；无参数时 4 项 unknown 进入 incomplete、不查价；参数白名单）；`workspace-provider.test.ts`（serverNow）；`inventory.test.ts`（定价角色对 PLATFORM 只读）。
+
+e2e：新增“4b csp-live”阶段。工作台阶段结束后，在 `vite preview` 的生产构建（70-web.yaml 的 CSP）中打开同一个 live 会话的工作台与实验机终端，输入 `printf` 输出真彩色和蓝色文字，然后断言：`securitypolicyviolation` 为 0、页面没有 `<style>`、adoptedStyleSheets ≥ 2、行字体为 JetBrains Mono（不同于页面字体）、真彩色单元格已上色。为了让终端能在 CSP 下连接，e2e 只在 `connect-src` 中追加本地 SSM 模拟服务器的地址（`withMockSsm`），`script-src`、`style-src` 与 70-web.yaml 完全一致。
+
+### 2. 自测结果（2026-10-14，Windows 11 / Node 22.14.0 / Docker 28 / 系统 Chrome）
+
+| 自测 | 命令 | 结果 |
+|---|---|---|
+| 构建 | `npm run build` | 通过 |
+| 检查 | `npm run lint` | 0 个问题 |
+| 单元 / 组件测试 | `npm test` | 182 个文件（181 个通过、1 个跳过），2193 个测试通过、18 个跳过（需要外部服务）；本节新增或扩充 7 个测试文件 |
+| 平台端到端（API） | `npm run smoke:platform` | 120 / 120，128 秒 |
+| 浏览器端到端 | `npm run e2e:platform` | **51 / 51**，206 秒（新增“4b csp-live”的 2 项）；没有控制台错误，也没有 5xx / 429 / 意外 4xx。反向对照：临时去掉补丁后，csp-live 报告 `style-src-elem` 违规并失败（已恢复） |
+
+### 3. 设计有歧义时的取舍
+
+1. **CSP 方案**：03 §3.7.6 首选给 xterm 打补丁并保持 CSP 不变；文档写的是用 patch-package 修改源码，这里改为在 `createXterm` 中做运行时补丁，因为当前阶段不能 `npm install`，且补丁只依赖 3 处 `createElement('style')` 都在 `open()` 中同步执行这一点。`_addStyle` 的替换依赖 xterm 6.0 的内部路径 `_core._renderService._renderer.value._rowFactory`，由 jsdom 中的真实 xterm 测试守住；升级 xterm 时这个测试会失败。可构造样式表是否受 `style-src` 约束，以本地 Chrome 实测为准（07 U43 仍需在 Edge、Firefox 和真实 ssmmessages 上确认）。
+2. **connectBy**：审查给了两种做法。这里选“相对期限”而不是给协议层传 `now: serverClock.now`，因为 `now` 同时驱动 DataChannel 的重传计时和 `readyAt`/`lastInputAt`，而控制器按本机时间判断空闲断开，混用两种时钟会把空闲断开误判为其他原因；serverClock 的样本更新时还会让重传计时跳变。
+3. **提示符信号**：03 §3.7.5 的 shell 集成在 PROMPT_COMMAND 中输出 OSC 133 A，这发生在 readline 输出 `ESC[?2004h` 之前；PS1 末尾的 B 在它之后。因此以 B 为准，只收到 A 时给 300ms 宽限。本地模拟 shell 只输出 A/B，不开启 bracketed paste，所以 dev 模式下多行粘贴依旧被拒绝，现在会自动复制。
+4. **moduleParams**：目前没有任何代码写入 `Environment.enabledModules`（lifecycle start 写 `[]`），所以现阶段 EXTEND/KEEP 报价实际上没有模块行。本节只定义 moduleParams 字段、读取方式和“无记录即 unknown”的规则；负责写入 enabledModules 的一方要同时写入 moduleParams（模块栈参数中的定价键）。卡片 variant 中目标模块的 `set` 只是期望值，不能代表学员实际启用时的参数，因此不作为来源。
+5. **e2e 的 T-5 对时**：第一次运行时 T-5 对话框在截止前没有出现。原因是 dev 时钟跳跃后会话状态不变，轮询返回 304，没有 serverNow 样本；60 秒一次的心跳样本又可能因往返时间较长被 ServerClock 丢弃，而 ×5 时钟在 T-4.5 到截止之间只剩 54 秒。上一轮通过时也等了 30 秒。e2e 在这次跳跃后派发一次 `visibilitychange`，相当于标签页回到前台，页面会立即对时。产品代码不改，生产环境的时钟不会跳跃。
+
+### 4. 需要其他部分配合
+
+- 写入 `Environment.enabledModules` 的一方（module-op 或运行器回报）要同时写入 `moduleParams[module]`（例如 `NETWORK_NAT_MODE`、`MultiAz`、`DbInstanceClass`、`CacheNodeType`、`InstanceType`），否则这些模块的报价会一直显示“未知”。
+- 03 §3.2 的接口表：`POST …/terminals` 与 `…/resume` 的响应新增 `serverNow`（只增加字段，旧客户端不受影响）。按规定本节不修改 docs/platform，请文档负责人补上。
+- 07 V2-3 / U43：在真实 CloudFront CSP 与 ssmmessages 下，用 Chrome、Edge、Firefox 复核终端显示和 0 个 CSP 违规；WebGL 插件目前没有使用，如果以后引入，它的 `<style>` 也要走同一个补丁。
+- `npm test` 中 ssm-client 的 `mock.test.ts`“survives a dropped connection”在全量并行时偶尔超过 15 秒（本节第一次全量运行出现过一次，单独运行和第二次全量运行都通过），与本节改动无关。
+
+### 5. 提交范围
+
+只提交本节改动的路径（第 1 节所列文件、对应测试、`scripts/e2e/`）和本节笔记；工作区中其他会话的改动不在提交范围内。

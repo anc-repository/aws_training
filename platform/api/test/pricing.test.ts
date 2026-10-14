@@ -11,13 +11,13 @@ import { parse as parseYaml } from 'yaml';
 import { Keys } from '@atl/shared';
 import { createPricingActions, createPricingHandler } from '../src/functions/pricing/handler.js';
 import { createRepositories } from '../src/repositories/index.js';
-import { estimate, expandLines, resolveFilters } from '../src/services/pricing/estimate.js';
+import { estimate, expandLines, pricingParamKeys, resolveFilters } from '../src/services/pricing/estimate.js';
 import { PRICING_DIMENSION_SET } from '../src/services/pricing/dimensions.js';
 import { fixturePriceListSource } from '../src/services/pricing/fixture.js';
 import { cacheDimensionKey, NOT_FOUND_CACHE_HOURS, PriceBook } from '../src/services/pricing/price-book.js';
 import { awsPriceListSource, normalizeUnit, parsePriceList, priceListEndpointRegion, type PricingSdk } from '../src/services/pricing/price-list.js';
 import { priceQuoteAction } from '../src/services/pricing/index.js';
-import { quoteLinesFromLab, type QuoteLine } from '../src/services/catalog/quotes.js';
+import { quoteLinesForEnvironment, quoteLinesFromLab, type QuoteLine } from '../src/services/catalog/quotes.js';
 import type { LabContent } from '../src/services/catalog/store.js';
 import { body, createApiTestRuntime, ev, LEARNER, type ApiTestRuntime } from './api-support/api-runtime.js';
 import { CATALOG_VERSION, fixtureLab, LAB_ID } from './api-support/fixtures.js';
@@ -193,14 +193,69 @@ describe('estimate (04 §3.4)', () => {
   it('KEEP: environment lines (base + enabled modules), maxSession = retained hourly × hours', async () => {
     const lines: QuoteLine[] = [
       { group: 'environment', ref: 'start-profile' },
-      { group: 'environment', ref: 'module', key: 'cache' },
+      { group: 'environment', ref: 'module', key: 'cache', params: { CacheNodeType: 'cache.t4g.small' } },
       { group: 'environment', ref: 'module', key: 'not-a-module' },
     ];
     const e = await estimate({ ...input(lab(), { purpose: 'KEEP', lines, durationMinutes: 240, maxTotalMinutes: 240, keepHours: 4 }) }, book, 'fixture');
     expect(e.lines.map((l) => l.key)).toEqual(['lab-instance', 'lab-ebs', 'lab-ipv4', 'elasticache-node', 'not-a-module']);
+    expect(source.queries.some((q) => q.serviceCode === 'AmazonElastiCache' && JSON.stringify(q.filters).includes('cache.t4g.small'))).toBe(true);
     expect(e.retainHourly).not.toBeNull();
     expect(e.maxSession!.high).toBeCloseTo(e.retainHourlyRange!.high * 4, 6);
     expect(e.incomplete).toEqual(['ref:module']);
+  });
+
+  it('EXTEND / KEEP: module lines use the recorded module parameters (NAT gateway, Multi-AZ, instance class)', async () => {
+    const lines: QuoteLine[] = [
+      { group: 'environment', ref: 'module', key: 'network', params: { NETWORK_NAT_MODE: 'gateway' } },
+      { group: 'environment', ref: 'module', key: 'database', params: { MultiAz: 'true', DbInstanceClass: 'db.t4g.small' } },
+    ];
+    const e = await estimate({ ...input(lab(), { purpose: 'KEEP', lines, durationMinutes: 60, maxTotalMinutes: 60, keepHours: 1 }) }, book, 'fixture');
+    const by = Object.fromEntries(e.lines.map((l) => [l.key, l]));
+    expect(by['nat-gateway']).toMatchObject({ quantity: 1, perHourLow: expect.any(Number) });
+    expect(by['nat-gateway']!.perHourLow).toBeGreaterThan(0);
+    expect(by['rds-instance']).toMatchObject({ quantity: 2 });
+    expect(by['rds-storage']).toMatchObject({ quantity: 40 });
+    expect(source.queries.some((q) => q.serviceCode === 'AmazonRDS' && JSON.stringify(q.filters).includes('db.t4g.small'))).toBe(true);
+    expect(e.incomplete).toEqual([]);
+    expect(e.retainHourly).toBeGreaterThan(0);
+  });
+
+  it('EXTEND / KEEP: without recorded parameters the parameter-dependent items are unknown and incomplete (not template defaults, never 0)', async () => {
+    const lines: QuoteLine[] = [
+      { group: 'environment', ref: 'start-profile' },
+      { group: 'environment', ref: 'module', key: 'network' },
+      { group: 'environment', ref: 'module', key: 'database' },
+      { group: 'environment', ref: 'module', key: 'cache' },
+      { group: 'environment', ref: 'module', key: 'secrets' },
+    ];
+    const e = await estimate({ ...input(lab(), { purpose: 'EXTEND', lines, durationMinutes: 30, maxTotalMinutes: 30 }) }, book, 'fixture');
+    const by = Object.fromEntries(e.lines.map((l) => [l.key, l]));
+    for (const k of ['nat-gateway', 'rds-instance', 'rds-storage', 'elasticache-node']) {
+      expect(by[k], k).toMatchObject({ unknown: true, ref: 'module', reason: expect.stringContaining('启用参数') });
+      expect(by[k]!.quantity, k).toBeUndefined();
+      expect(by[k]!.perHourLow, k).toBeUndefined();
+    }
+    // no parameter involved: priced as before
+    expect(by['secrets']).toMatchObject({ quantity: 3, perHourLow: expect.any(Number) });
+    expect(by['secrets']!.unknown).toBeUndefined();
+    expect(e.incomplete.sort()).toEqual(['elasticache.node', 'nat-gateway.hours', 'rds.instance', 'rds.storage.gp3']);
+    expect(e.notes.join(' ')).toContain('估算不完整');
+    // nothing was queried for the unknown items (no default class priced)
+    expect(source.queries.some((q) => ['AmazonRDS', 'AmazonElastiCache'].includes(q.serviceCode) || JSON.stringify(q.filters).includes('NAT Gateway'))).toBe(false);
+  });
+
+  it('quoteLinesForEnvironment passes only the pricing parameters the environment recorded', () => {
+    const env = {
+      enabledModules: ['network', 'database', 'storage'],
+      moduleParams: { network: { NETWORK_NAT_MODE: 'gateway', Secret: 'x' }, database: { MultiAz: true, DbInstanceClass: 'db.t4g.small', MasterPassword: 'p', Nested: { a: 1 } } },
+    };
+    const lines = quoteLinesForEnvironment(env, []);
+    expect(lines.filter((l) => l.ref === 'module')).toEqual([
+      { group: 'environment', ref: 'module', key: 'network', detail: '模块 network', params: { NETWORK_NAT_MODE: 'gateway' } },
+      { group: 'environment', ref: 'module', key: 'database', detail: '模块 database', params: { MultiAz: 'true', DbInstanceClass: 'db.t4g.small' } },
+      { group: 'environment', ref: 'module', key: 'storage', detail: '模块 storage' },
+    ]);
+    expect(pricingParamKeys()).toEqual(expect.arrayContaining(['InstanceType', 'DbInstanceClass', 'CacheNodeType', 'MultiAz', 'NETWORK_NAT_MODE']));
   });
 });
 

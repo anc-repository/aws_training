@@ -260,6 +260,8 @@ describe('WorkspaceProvider through the API routes (aws-sdk-client-mock)', () =>
       tab: 'terminal-lab',
     });
     expect(Date.parse(String(b.connectBy)) - rt.clock.nowMs()).toBe(30_000);
+    // serverNow lets the browser judge connectBy relative to the server clock (its own clock may be skewed)
+    expect(Date.parse(String(b.connectBy)) - Date.parse(String(b.serverNow))).toBe(30_000);
     const assume = m.sts.commandCalls(AssumeRoleCommand)[0]!.args[0].input;
     expect(assume).toMatchObject({ RoleArn: `arn:aws:iam::${ACCOUNT}:role/ATLLearnerRole`, RoleSessionName: `atl-${sid}-term`, SourceIdentity: 'u-learner' });
     expect(assume.DurationSeconds).toBeGreaterThanOrEqual(900);
@@ -342,7 +344,7 @@ describe('WorkspaceProvider through the API routes (aws-sdk-client-mock)', () =>
     const resume = () => rt.api(ev('POST', `/api/v1/sessions/${sid}/terminals/${t.terminalId}/resume`, { token: LEARNER, body: { clientId: 'tab-2' } }));
     const r1 = await resume();
     expect(r1.statusCode, r1.body).toBe(200);
-    expect(body(r1)).toMatchObject({ terminalId: t.terminalId, tokenValue: 'TOKEN-2', clientVersion: SSM_CLIENT_VERSION });
+    expect(body(r1)).toMatchObject({ terminalId: t.terminalId, tokenValue: 'TOKEN-2', clientVersion: SSM_CLIENT_VERSION, serverNow: new Date(rt.clock.nowMs()).toISOString() });
     expect(m.ssm.commandCalls(ResumeSessionCommand)[0]!.args[0].input).toEqual({ SessionId: 'atl-s-term-0a1b2c3d' });
     expect(await rt.repos.sessions.getChild(Keys.terminalSession(sid, String(t.terminalId)))).toMatchObject({ resumeCount: 1, clientId: 'tab-2' });
     m.ssm.on(ResumeSessionCommand).rejects(named('DoesNotExistException'));

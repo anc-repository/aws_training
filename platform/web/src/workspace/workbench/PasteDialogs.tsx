@@ -97,7 +97,8 @@ export function PasteConfirmDialog({ req, onDone }: { req: ConfirmRequest; onDon
   );
 }
 
-export function PasteRejectDialog({ rejection, onClose }: { rejection: PasteRejection; onClose: () => void }) {
+/** `copied`：命令已复制到剪贴板（多行但终端不支持安全粘贴时自动复制，03 §7.1）。 */
+export function PasteRejectDialog({ rejection, copied = false, onClose }: { rejection: PasteRejection; copied?: boolean; onClose: () => void }) {
   return (
     <Dialog open onClose={onClose} title="不能粘贴" size="narrow" footer={<button type="button" className="btn" onClick={onClose}>知道了</button>}>
       <div className="stack-8" data-paste-reject={rejection.reason}>
@@ -108,7 +109,13 @@ export function PasteRejectDialog({ rejection, onClose }: { rejection: PasteReje
             <CommandBlock text={rejection.readCommand} runsOn="lab" copyOnly />
           </>
         ) : null}
-        {rejection.reason === 'multiline-unsafe' || rejection.reason === 'too-large' ? <p className="small muted">可以先复制命令，再在终端里手动粘贴。</p> : null}
+        {copied ? (
+          <p className="small" data-paste-copied="">
+            命令已复制到剪贴板，检查后可以在终端里手动粘贴。
+          </p>
+        ) : rejection.reason === 'multiline-unsafe' || rejection.reason === 'too-large' ? (
+          <p className="small muted">可以先复制命令，再在终端里手动粘贴。</p>
+        ) : null}
       </div>
     </Dialog>
   );

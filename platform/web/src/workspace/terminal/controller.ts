@@ -55,6 +55,8 @@ export interface CreateTerminalResponse {
   idleTimeoutMin?: number;
   maxDurationMin?: number;
   connectBy?: string;
+  /** 签发时的服务端时间（与 connectBy 同一时钟）。 */
+  serverNow?: string;
   clientVersion?: string;
 }
 
@@ -74,6 +76,13 @@ export interface XtermLike {
 }
 
 export const READY_WAIT_MS = 15_000;
+/**
+ * 新 SSM 会话 Ready 之后等 shell 第一次显示提示符的时限（从 Ready 且 xterm 已接上起算）。Ready 时 shell 还没输出提示符，
+ * bracketedPasteMode 要等 readline 输出 `ESC[?2004h` 才变 true；在此之前判定会把多行命令按“非安全粘贴”逐行执行（03 §7.1）。
+ */
+export const PROMPT_WAIT_MS = 5_000;
+/** 只见到 OSC 133 A（PROMPT_COMMAND 输出，早于 readline）时，再等 B 或 bracketed paste 开启的宽限。 */
+export const PROMPT_GRACE_MS = 300;
 
 export interface ControllerOptions {
   api: Pick<ApiClient, 'call'>;
@@ -89,6 +98,11 @@ export interface ControllerOptions {
   onCommandFinished?: (exitCode: number | null) => void;
   /** 测试用：直接给协议层模块。 */
   client?: SsmClientModule | null;
+  /**
+   * 服务端时钟（api/serverClock）。`connectBy` 由服务端按自己的时钟签发：响应没有 serverNow 时用它估计签发时的服务端时间，
+   * 交给 ssm-client 做相对判断——本机时钟快 30 秒以上也不会把刚拿到的令牌当成已过期（组件不得直接用 Date.now() 比较服务端时间）。
+   */
+  clock?: { now(): number };
 }
 
 const INITIAL: TermSnapshot = {
@@ -143,6 +157,12 @@ export class TerminalController {
   private connSubs: (() => void)[] = [];
   private readyWaiters: ((ok: boolean) => void)[] = [];
   private disposed = false;
+  /** shell 提示符：none = 本 SSM 会话还没见到；start = OSC 133 A；end = OSC 133 B 或 bracketed paste 已开启。 */
+  private promptMark: 'none' | 'start' | 'end' = 'none';
+  private promptAt = 0;
+  private readyAt: number | null = null;
+  private attachedAt: number | null = null;
+  private readonly promptWaiters = new Set<() => void>();
   private revoked = false;
   private clientId = '';
 
@@ -156,9 +176,31 @@ export class TerminalController {
 
   private set(patch: Partial<TermSnapshot>): void {
     this.snap = { ...this.snap, ...patch };
+    if (this.snap.phase === 'ready') this.readyAt ??= Date.now();
     for (const l of this.listeners) l();
     if (this.snap.phase === 'ready') this.flushWaiters(true);
     else if (['failed', 'closed', 'blocked'].includes(this.snap.phase)) this.flushWaiters(false);
+    this.notifyPrompt();
+  }
+
+  private notifyPrompt(): void {
+    for (const w of [...this.promptWaiters]) w();
+  }
+
+  private markPrompt(mark: 'start' | 'end'): void {
+    if (this.promptMark === 'end' || (mark === 'start' && this.promptMark === 'start')) return;
+    this.promptMark = mark;
+    this.promptAt = Date.now();
+    this.notifyPrompt();
+  }
+
+  /** 输出交给 xterm；解析完后检查 bracketed paste 是否已开启（没有 shell 集成时它就是“提示符已出现”的信号）。 */
+  private sinkTo(term: XtermLike): (data: Uint8Array, done: () => void) => void {
+    return (data, done) =>
+      term.write(data, () => {
+        done();
+        if (this.term === term && this.bracketedPaste) this.markPrompt('end');
+      });
   }
 
   private flushWaiters(ok: boolean): void {
@@ -172,6 +214,7 @@ export class TerminalController {
   /** 绑定 xterm 实例：输入转发、尺寸、OSC 133 / OSC 7。 */
   attach(term: XtermLike): void {
     this.term = term;
+    this.attachedAt = Date.now();
     this.termSubs.push(term.onData((d) => void this.conn?.sendInput(d)));
     if (term.onBinary) this.termSubs.push(term.onBinary((d) => void this.conn?.sendInput(Uint8Array.from(d, (c) => c.charCodeAt(0) & 0xff))));
     if (term.onResize) this.termSubs.push(term.onResize(({ cols, rows }) => this.conn?.resize(cols, rows)));
@@ -188,13 +231,15 @@ export class TerminalController {
         }),
       );
     }
-    this.conn?.setOutputSink((data, done) => term.write(data, done));
+    this.conn?.setOutputSink(this.sinkTo(term));
     this.conn?.resize(term.cols, term.rows);
   }
 
   onOsc133(payload: string): void {
     const [kind, arg] = payload.split(';');
-    if (kind === 'C') this.set({ busy: true });
+    if (kind === 'A') this.markPrompt('start');
+    else if (kind === 'B') this.markPrompt('end');
+    else if (kind === 'C') this.set({ busy: true });
     else if (kind === 'D') {
       const ec = arg !== undefined && arg !== '' && Number.isFinite(Number(arg)) ? Number(arg) : null;
       const wasBusy = this.snap.busy;
@@ -207,6 +252,9 @@ export class TerminalController {
   async open(): Promise<void> {
     if (this.disposed || this.revoked) return;
     this.teardownConn();
+    // 新的 SSM 会话 = 新的 shell：提示符要重新等（续连 resume 是同一个 shell，不重置）
+    this.promptMark = 'none';
+    this.readyAt = null;
     this.set({ ...INITIAL, phase: 'requesting', busy: false });
     const mod = this.o.client !== undefined ? this.o.client : await loadSsmClient();
     if (this.disposed) return;
@@ -238,14 +286,14 @@ export class TerminalController {
         document: res.document ?? null,
         openedAt: Date.now(),
       });
-      return { streamUrl: res.streamUrl, tokenValue: res.tokenValue, connectBy: res.connectBy ?? null };
+      return { streamUrl: res.streamUrl, tokenValue: res.tokenValue, connectBy: res.connectBy ?? null, serverNow: this.serverNowOf(res.serverNow) };
     };
     const resume = async () => {
       const id = this.snap.terminalId;
       if (!id) throw new ApiError({ status: 409, code: 'TERMINAL_GONE' });
-      const r = await this.o.api.call<{ streamUrl: string; tokenValue: string; connectBy?: string }>('resumeTerminal', { params: { sid: this.o.sid, terminalId: id }, body: { clientId: this.clientId } });
+      const r = await this.o.api.call<{ streamUrl: string; tokenValue: string; connectBy?: string; serverNow?: string }>('resumeTerminal', { params: { sid: this.o.sid, terminalId: id }, body: { clientId: this.clientId } });
       if (!r.data?.streamUrl) throw new ApiError({ status: r.status, code: 'BAD_RESPONSE' });
-      return r.data;
+      return { streamUrl: r.data.streamUrl, tokenValue: r.data.tokenValue, connectBy: r.data.connectBy ?? null, serverNow: this.serverNowOf(r.data.serverNow) };
     };
     let conn: SsmConnectionLike;
     try {
@@ -263,10 +311,16 @@ export class TerminalController {
     this.connSubs.push(conn.on('state', (e) => this.onState(e)));
     if (this.term) {
       const term = this.term;
-      conn.setOutputSink((data, done) => term.write(data, done));
+      conn.setOutputSink(this.sinkTo(term));
       conn.resize(term.cols, term.rows);
     }
     await conn.start();
+  }
+
+  /** 签发时的服务端时间：响应自带的 serverNow，否则服务端时钟在收到时的读数（没有时钟时为 null = 按绝对时间判断）。 */
+  private serverNowOf(fromResponse: string | undefined): string | number | null {
+    if (fromResponse && Number.isFinite(Date.parse(fromResponse))) return fromResponse;
+    return this.o.clock ? this.o.clock.now() : null;
   }
 
   private onState(e: SsmStateChange): void {
@@ -319,6 +373,42 @@ export class TerminalController {
         clearTimeout(t);
         resolve(ok);
       });
+    });
+  }
+
+  /**
+   * 等 shell 显示提示符（OSC 133 B，或 bracketed paste 已开启；只见到 OSC 133 A 时再等 PROMPT_GRACE_MS），之后
+   * `bracketedPaste` 与 `busy` 才反映 shell 的真实状态（03 §7.1）。时限从 Ready 且 xterm 已接上起算，所以对已经用了一阵的
+   * 终端（没有 shell 集成也没有 bracketed paste）不会每次都等。true = 已见到提示符；false = 超时、未连接或已关闭。
+   */
+  waitForPrompt(timeoutMs = PROMPT_WAIT_MS): Promise<boolean> {
+    const settled = (): boolean | null => {
+      if (this.disposed || this.snap.phase !== 'ready') return false;
+      if (this.promptMark === 'end' || this.bracketedPaste) return true;
+      if (this.promptMark === 'start' && Date.now() - this.promptAt >= PROMPT_GRACE_MS) return true;
+      return null;
+    };
+    const now = settled();
+    if (now !== null) return Promise.resolve(now);
+    const since = Math.max(this.readyAt ?? Date.now(), this.attachedAt ?? Date.now());
+    const left = since + timeoutMs - Date.now();
+    if (left <= 0 && this.promptMark === 'none') return Promise.resolve(false);
+    return new Promise((resolve) => {
+      let grace: ReturnType<typeof setTimeout> | null = null;
+      const finish = (ok: boolean) => {
+        clearTimeout(timer);
+        if (grace) clearTimeout(grace);
+        this.promptWaiters.delete(check);
+        resolve(ok);
+      };
+      const check = () => {
+        const r = settled();
+        if (r !== null) return finish(r);
+        if (this.promptMark === 'start' && !grace) grace = setTimeout(check, Math.max(0, PROMPT_GRACE_MS - (Date.now() - this.promptAt)));
+      };
+      const timer = setTimeout(() => finish(this.promptMark !== 'none' && !this.disposed && this.snap.phase === 'ready'), Math.max(0, left));
+      this.promptWaiters.add(check);
+      check();
     });
   }
 
@@ -388,6 +478,7 @@ export class TerminalController {
     this.teardownConn();
     for (const s of this.termSubs.splice(0)) s.dispose();
     this.flushWaiters(false);
+    this.notifyPrompt();
     this.listeners.clear();
   }
 }

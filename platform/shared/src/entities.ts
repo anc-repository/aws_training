@@ -283,6 +283,8 @@ export interface EnvironmentItem {
   sessionChain: string[];
   labChain: string[];
   enabledModules: string[];
+  /** Parameters each enabled module was enabled with (pricing of EXTEND / KEEP quotes; absent = not recorded). */
+  moduleParams?: Record<string, Record<string, string>> | null;
   stateUri: string;
   stacks: string[];
   instances?: unknown[];

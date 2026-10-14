@@ -9,7 +9,8 @@
  *   check engine against it, the @atl/ssm-client mock for the terminals, the federation stub, ×5 clock) → Vite (the SPA,
  *   proxying /api, /content, /__dev and the public files) → scripts/e2e/platform_e2e.py (Python Playwright, the system
  *   Chrome in headless mode) drives the screens. The production build (vite preview) is served as well, with the CSP
- *   header of 70-web.yaml, to catch CSP violations of the built SPA.
+ *   header of 70-web.yaml, to catch CSP violations of the built SPA — including a live workbench with an open terminal
+ *   (connect-src also lists the local SSM mock, see withMockSsm).
  *
  *   npm run e2e:platform [-- --keep] [--serve-only] [--headed] [--time-scale 5] [--only <step,...>]
  *
@@ -109,6 +110,16 @@ function spaCsp() {
   return m[1].replaceAll('${AWS::Region}', 'ap-northeast-1').replaceAll('${CognitoDomain}', 'atl-e2e00000');
 }
 
+/**
+ * e2e only: the dev SSM mock (ws://127.0.0.1:<port>) stands in for `wss://ssmmessages.<region>` in `connect-src`, so the
+ * CSP run can open a terminal (xterm.js runtime styles under `style-src 'self'`, 03 §3.7.6). Every other directive —
+ * `script-src` and `style-src` included — stays exactly as 70-web.yaml sends it.
+ */
+function withMockSsm(csp, origin) {
+  if (!/(^|;\s*)connect-src /.test(csp)) throw new Error('the atl-web-spa CSP has no connect-src');
+  return csp.replace(/(^|;\s*)connect-src ([^;]*)/, (_m, lead, v) => `${lead}connect-src ${v.trim()} ${origin}`);
+}
+
 const children = [];
 
 function start(name, args, env, cwd = REPO) {
@@ -193,7 +204,7 @@ async function main() {
   // the production build under the CSP header of the atl-web-spa response-headers policy (70-web.yaml)
   const cspPort = await freePort();
   const cspUrl = `http://127.0.0.1:${cspPort}`;
-  const csp = spaCsp();
+  const csp = withMockSsm(spaCsp(), `ws://127.0.0.1:${ssmPort}`);
   const preview = start('vite-preview', [VITE, 'preview', '--config', path.join(WEB, 'vite.config.ts')], childEnv({ ATL_API_URL: apiUrl, ATL_WEB_PORT: String(cspPort), ATL_WEB_CSP: csp }), WEB);
   if (!(await waitFor(`${cspUrl}/`, preview, 60_000))) throw new Error(`vite preview did not start (see ${path.join(RUN_DIR, 'vite-preview.log')})`);
   log(`production build with the CloudFront CSP ${cspUrl}/`);

@@ -7,6 +7,7 @@ import {
   decodeAndValidate,
   decodeSize,
   isUuid,
+  localConnectDeadline,
   parseOpenDataChannel,
   type NetworkStatus,
   type SsmTerminalConnectionOptions,
@@ -470,6 +471,44 @@ describe('reconnect and resume (03 §3.5.9)', () => {
     const firstFrame = h.factory.pairs[0]!.client.sent[0] as string;
     expect(parseOpenDataChannel(firstFrame)!.TokenValue).not.toBe(stale!.TokenValue);
     expect(conn.handshake?.skipped).toBe(false);
+  });
+
+  it('a browser clock 60 s ahead of the server still connects: connectBy is judged relative to serverNow', async () => {
+    const h = setup();
+    const skewMs = 60_000;
+    let issued: StartSessionOutput | null = null;
+    const resume = vi.fn(async (): Promise<StreamCredentials> => {
+      const r = h.svc.resumeSession(issued!.SessionId);
+      return { streamUrl: r.StreamUrl, tokenValue: r.TokenValue };
+    });
+    const conn = new SsmTerminalConnection({
+      open: async () => {
+        issued = h.svc.startSession();
+        const serverNow = Date.now(); // the server's clock; the browser below reads it + 60 s
+        return { streamUrl: issued.StreamUrl, tokenValue: issued.TokenValue, connectBy: new Date(serverNow + 30_000).toISOString(), serverNow: new Date(serverNow).toISOString() };
+      },
+      resume,
+      clientId: 'c',
+      webSocketFactory: h.factory,
+      streamUrlPolicy: { allowLoopback: true },
+      network: h.network,
+      random: () => 0,
+      now: () => Date.now() + skewMs,
+    });
+    await conn.start();
+    await settle(300);
+    expect(conn.state).toBe('ready');
+    expect(resume).not.toHaveBeenCalled();
+    expect(parseOpenDataChannel(h.factory.pairs[0]!.client.sent[0] as string)!.TokenValue).toBe(issued!.TokenValue);
+  });
+
+  it('localConnectDeadline: relative with serverNow, absolute without', () => {
+    const connectBy = '2026-10-14T01:00:30.000Z';
+    expect(localConnectDeadline({ connectBy }, 0)).toBe(Date.parse(connectBy));
+    expect(localConnectDeadline({ connectBy, serverNow: '2026-10-14T01:00:00.000Z' }, 5_000)).toBe(35_000);
+    expect(localConnectDeadline({ connectBy, serverNow: Date.parse('2026-10-14T01:01:00.000Z') }, 5_000)).toBe(-25_000);
+    expect(localConnectDeadline({ connectBy: null, serverNow: 1 }, 5)).toBeNull();
+    expect(localConnectDeadline({ connectBy, serverNow: 'not a date' }, 5)).toBe(Date.parse(connectBy));
   });
 
   it('fails with connection-lost when no resume function is given', async () => {

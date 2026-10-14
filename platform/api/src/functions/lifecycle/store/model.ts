@@ -143,6 +143,13 @@ export interface EnvironmentRecord {
   sessionChain: string[];
   labChain: string[];
   enabledModules: string[];
+  /**
+   * Parameters each enabled module was enabled with (module stack parameters / switches, e.g. `network: {NETWORK_NAT_MODE:
+   * "gateway"}`, `database: {MultiAz: "true", DbInstanceClass: "db.t4g.small"}`), written together with `enabledModules`.
+   * EXTEND / KEEP quotes price `ref: module` lines from it; a module without a record is priced as “unknown” where its
+   * cost depends on a parameter (services/pricing/estimate.ts).
+   */
+  moduleParams?: Record<string, Record<string, string>> | null;
   stateUri: string;
   stacks: string[];
   instances?: { instanceId: string; role: string; state: string }[];

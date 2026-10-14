@@ -1,7 +1,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ApiError } from '../../api/errors';
 import { setSsmClient, type SsmClientModule, type SsmConnectionOptions, type SsmStateChange } from './channel';
-import { overlayOf, TerminalController, type XtermLike } from './controller';
+import { overlayOf, PROMPT_GRACE_MS, PROMPT_WAIT_MS, TerminalController, type XtermLike } from './controller';
+import { localConnectDeadline } from '@atl/ssm-client';
 
 class FakeConn {
   static last: FakeConn | null = null;
@@ -195,5 +196,109 @@ describe('TerminalController (03 §3.2, §3.5.9, §3.9)', () => {
     FakeConn.last!.emit('ready');
     await expect(p).resolves.toBe(true);
     expect(overlayOf(c.getSnapshot(), { expectedOutage: false, replaced: true })).toBe('replaced');
+  });
+
+  it('waitForPrompt: a fresh tab waits for OSC 133 B / bracketed paste; A alone gets a short grace; the budget runs from Ready', async () => {
+    vi.useFakeTimers();
+    const a = api((id) => (id === 'createTerminal' ? { terminalId: 't5', streamUrl: 'wss://ssmmessages.x.amazonaws.com/a', tokenValue: 't' } : null));
+    const c = new TerminalController({ api: a as never, sid: 's1', target: 'workstation', client: MOD });
+    const term = fakeTerm();
+    term.modes = { bracketedPasteMode: false };
+    c.attach(term);
+    await c.open();
+    // not Ready yet → false at once
+    await expect(c.waitForPrompt()).resolves.toBe(false);
+    FakeConn.last!.emit('ready');
+    let done: boolean | null = null;
+    void c.waitForPrompt().then((v) => (done = v));
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(done).toBeNull();
+    // readline turns bracketed paste on, then the PS1 ends with OSC 133 B
+    term.osc.get(133)!('A');
+    await vi.advanceTimersByTimeAsync(PROMPT_GRACE_MS - 50);
+    expect(done).toBeNull();
+    term.modes = { bracketedPasteMode: true };
+    term.osc.get(133)!('B');
+    await vi.advanceTimersByTimeAsync(0);
+    expect(done).toBe(true);
+    expect(c.bracketedPaste).toBe(true);
+    // afterwards it resolves at once
+    await expect(c.waitForPrompt()).resolves.toBe(true);
+  });
+
+  it('waitForPrompt: bracketed paste switched on by the output (no shell integration) counts as the prompt; no signal → false after the budget, then no more waiting', async () => {
+    vi.useFakeTimers();
+    const a = api((id) => (id === 'createTerminal' ? { terminalId: 't6', streamUrl: 'wss://ssmmessages.x.amazonaws.com/a', tokenValue: 't' } : null));
+    const c = new TerminalController({ api: a as never, sid: 's1', target: 'workstation', client: MOD });
+    const term = fakeTerm();
+    term.modes = { bracketedPasteMode: false };
+    c.attach(term);
+    await c.open();
+    FakeConn.last!.emit('ready');
+    let done: boolean | null = null;
+    void c.waitForPrompt().then((v) => (done = v));
+    term.modes = { bracketedPasteMode: true };
+    FakeConn.last!.sink!(new TextEncoder().encode('[?2004h$ '), () => undefined);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(done).toBe(true);
+
+    const c2 = new TerminalController({ api: a as never, sid: 's1', target: 'workstation', client: MOD });
+    const t2 = fakeTerm();
+    t2.modes = { bracketedPasteMode: false };
+    c2.attach(t2);
+    await c2.open();
+    FakeConn.last!.emit('ready');
+    let d2: boolean | null = null;
+    void c2.waitForPrompt().then((v) => (d2 = v));
+    await vi.advanceTimersByTimeAsync(PROMPT_WAIT_MS + 10);
+    expect(d2).toBe(false);
+    await expect(c2.waitForPrompt()).resolves.toBe(false);
+    // only OSC 133 A (custom PS1 without B): resolves after the grace
+    t2.osc.get(133)!('A');
+    let d3: boolean | null = null;
+    void c2.waitForPrompt().then((v) => (d3 = v));
+    await vi.advanceTimersByTimeAsync(PROMPT_GRACE_MS + 10);
+    expect(d3).toBe(true);
+    // a connection lost while waiting resolves false; a new SSM session (open) forgets the prompt
+    await c2.open();
+    FakeConn.last!.emit('ready');
+    let d4: boolean | null = null;
+    void c2.waitForPrompt().then((v) => (d4 = v));
+    FakeConn.last!.emit('closed', { closed: { reason: 'channel-closed' } });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(d4).toBe(false);
+  });
+
+  it('connectBy is judged on the server clock: a browser clock 60 s ahead still connects (serverNow from the response or the server clock)', async () => {
+    const skewMs = 60_000;
+    const serverClock = { now: () => Date.now() - skewMs }; // this browser runs 60 s ahead of the server
+    const serverNow = new Date(serverClock.now()).toISOString();
+    const connectBy = new Date(serverClock.now() + 30_000).toISOString();
+    for (const withServerNow of [true, false]) {
+      const a = api((id) =>
+        id === 'createTerminal'
+          ? { terminalId: 't7', streamUrl: 'wss://ssmmessages.x.amazonaws.com/a', tokenValue: 't', connectBy, ...(withServerNow ? { serverNow } : {}) }
+          : id === 'resumeTerminal'
+            ? { streamUrl: 'wss://ssmmessages.x.amazonaws.com/b', tokenValue: 't2', connectBy, ...(withServerNow ? { serverNow } : {}) }
+            : null,
+      );
+      const c = new TerminalController({ api: a as never, sid: 's1', target: 'lab', client: MOD, clock: serverClock });
+      await c.open();
+      const creds = await FakeConn.last!.opts.open();
+      expect(creds.connectBy).toBe(connectBy);
+      // without the server clock the local clock (60 s ahead) says the token expired 30 s ago
+      expect(Date.now()).toBeGreaterThan(Date.parse(connectBy));
+      // with serverNow the protocol layer gets ~30 s on the local clock
+      const deadline = localConnectDeadline(creds, Date.now())!;
+      expect(deadline - Date.now()).toBeGreaterThan(25_000);
+      const resumed = await FakeConn.last!.opts.resume!();
+      expect(localConnectDeadline(resumed, Date.now())! - Date.now()).toBeGreaterThan(25_000);
+    }
+    // no clock and no serverNow: absolute connectBy as before
+    const a = api(() => ({ terminalId: 't8', streamUrl: 'wss://ssmmessages.x.amazonaws.com/a', tokenValue: 't', connectBy }));
+    const c = new TerminalController({ api: a as never, sid: 's1', target: 'lab', client: MOD });
+    await c.open();
+    const creds = await FakeConn.last!.opts.open();
+    expect(creds.serverNow).toBeNull();
   });
 });

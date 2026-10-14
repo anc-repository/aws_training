@@ -301,6 +301,28 @@ const ROUTE_NEEDS: { role: string; action: string; resource: string; why: string
   { role: 'ATLPricingFunctionRole', action: 'dynamodb:PutItem', resource: 'AtlMainTable', why: 'PriceCache writes', condition: 'PRICE#' },
 ];
 
+describe('least privilege on the main table', () => {
+  it('ATLPricingFunctionRole only reads the PLATFORM partition (PLATFORM / CONFIG); it writes PRICE# and USER# only', () => {
+    const entry = Object.entries(resources()).find(([, r]) => r.Type === 'AWS::IAM::Role' && prop(r, 'RoleName') === 'ATLPricingFunctionRole');
+    expect(entry).toBeTruthy();
+    const [id, role] = entry!;
+    const statements = rolePolicies(id, role).flatMap((d) => statementsOf(d)).filter((st) => st.Effect === 'Allow');
+    const ddb = statements.filter((st) => ([] as unknown[]).concat(st.Action as unknown).some((a) => String(a).startsWith('dynamodb:')));
+    expect(ddb.length).toBeGreaterThan(0);
+    for (const st of ddb) {
+      const leading = JSON.stringify(st.Condition ?? {});
+      expect(leading, 'every main-table statement is limited by dynamodb:LeadingKeys').toContain('dynamodb:LeadingKeys');
+      const actions = ([] as unknown[]).concat(st.Action as unknown).map(String);
+      const writes = actions.filter((a) => /^dynamodb:(PutItem|UpdateItem|DeleteItem|BatchWriteItem|TransactWriteItems)$/.test(a));
+      if (/"PLATFORM/.test(leading)) {
+        expect(actions, 'PLATFORM: read only').toEqual(['dynamodb:GetItem']);
+      } else if (writes.length) {
+        expect(leading).not.toContain('PLATFORM');
+      }
+    }
+  });
+});
+
 describe('route → AWS calls: the function roles hold what the routes and actions need', () => {
   for (const n of ROUTE_NEEDS) {
     it(`${n.role} ${n.action} (${n.why})`, () => {

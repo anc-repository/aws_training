@@ -3,8 +3,12 @@
  *
  * 1. **Expand** the request lines: `ref: start-profile` → the L0 base items (+ the start modules' items for START /
  *    REUSE), `ref: workstation` → workstation items, `ref: target-modules` → target modules' items, `ref: module` (EXTEND /
- *    KEEP, one per enabled module) → that module's items, `ref: extra-stacks` → one “unknown” line per card stack (their
- *    billable resources are not derived from the templates). Explicit `pricingKey` lines stay as they are.
+ *    KEEP, one per enabled module) → that module's items, quantities and placeholders taken from the parameters the
+ *    environment recorded for the module (`line.params`, `Environment.moduleParams`); without them an item that depends on
+ *    a parameter (`scaleBy`, `{instanceType}` …) is an unknown line — the template default (NAT 0, Single-AZ, the smallest
+ *    class) is not assumed for an environment whose actual parameters are not known. `ref: extra-stacks` → one “unknown”
+ *    line per card stack (their billable resources are not derived from the templates). Explicit `pricingKey` lines stay
+ *    as they are.
  * 2. **Price** every item through the `PriceBook` (Price List + `PriceCache`); placeholders (`{instanceType}`, …) come
  *    from module parameters, platform settings or the region. Anything that cannot be priced is an `unknown` line and
  *    its key is listed in `incomplete` — never counted as 0.
@@ -178,6 +182,25 @@ function fromItem(group: QuoteGroup, it: DimensionItem, extra: { ref?: string; m
   };
 }
 
+/** Module-parameter placeholders of the filters (`{regionPrefix}` / `{edgeLocationGroup}` come from the region). */
+const PARAM_PLACEHOLDER = new RegExp(String.raw`\{(${Object.keys(PARAM_SOURCES).join('|')})\}`);
+
+/** The item's quantity or Price List product depends on a module parameter. */
+export function dependsOnModuleParams(it: DimensionItem, dims: DimensionSet = PRICING_DIMENSION_SET): boolean {
+  if (it.scaleBy) return true;
+  return Object.values(dims.dimensions[it.pricingKey]?.filters ?? {}).some((v) => PARAM_PLACEHOLDER.test(v));
+}
+
+/**
+ * The module parameters atl-pricing reads (scaleBy keys and the placeholder sources): what `Environment.moduleParams`
+ * needs to carry, and the only keys `quoteLinesForEnvironment` passes on.
+ */
+export function pricingParamKeys(dims: DimensionSet = PRICING_DIMENSION_SET): string[] {
+  const keys = new Set<string>(Object.values(PARAM_SOURCES));
+  for (const items of Object.values(dims.modules)) for (const it of items) if (it.scaleBy) keys.add(it.scaleBy.key);
+  return [...keys].sort();
+}
+
 function cleanLine(l: QuoteLine): QuoteLine {
   const out: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(l)) if (v !== undefined) out[k] = v;
@@ -210,8 +233,21 @@ export function expandLines(input: EstimateInput): Expanded[] {
       }
     } else if (l.ref === 'module' && l.key) {
       const items = dims.modules[l.key];
-      if (!items) out.push({ line: cleanLine({ ...l, unknown: true }), item: null, params: {}, reason: `模块 ${l.key} 没有计费维度` });
-      for (const it of items ?? []) out.push(fromItem(l.group, it, { ref: 'module', module: l.key, defaults: labDefaults }));
+      if (!items) out.push({ line: cleanLine({ ...l, unknown: true, params: undefined }), item: null, params: {}, reason: `模块 ${l.key} 没有计费维度` });
+      // the parameters the module was enabled with (recorded on the environment); absent → parameter-dependent items unknown
+      const params = l.params && typeof l.params === 'object' ? l.params : null;
+      for (const it of items ?? []) {
+        if (!params && dependsOnModuleParams(it, dims)) {
+          out.push({
+            line: cleanLine({ group: l.group, ref: 'module', key: it.key, pricingKey: it.pricingKey, billing: it.billing, detail: [`模块 ${l.key}`, it.note ?? null].filter(Boolean).join(' · '), unknown: true }),
+            item: null,
+            params: {},
+            reason: `环境没有记录模块 ${l.key} 的启用参数${it.scaleBy ? `（${it.scaleBy.key}）` : ''}，不按模板默认值估算`,
+          });
+          continue;
+        }
+        out.push(fromItem(l.group, it, { ref: 'module', module: l.key, defaults: labDefaults }, params ?? undefined));
+      }
     } else if (l.ref === 'extra-stacks' || l.ref === 'extra-stack') {
       const stacks = (input.lab?.extraStacks ?? []) as { id?: string; title?: string }[];
       for (const st of stacks) {

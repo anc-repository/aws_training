@@ -34,10 +34,11 @@ import type { VariableStripHandle } from './manual/VariableStrip';
 import { actionableState, extendBlock, EXTEND_REASON_TEXT, shouldOpenT5, showExpiredOverlay, t5Key } from './model/expiry';
 import { defaultPanelOf, PANELS, type PanelId } from './model/lab';
 import { breakpointOf, clampSplit, defaultSplitPct, isSegmented, keyStep, loadLayout, saveLayout } from './model/layout';
-import { evaluatePaste, normalizePasteText, precheckPaste, sha256Hex, TARGET_TEXT, type PasteRejection, type TerminalTarget } from './model/paste';
+import { normalizePasteText, precheckPaste, sha256Hex, TARGET_TEXT, type PasteRejection, type TerminalTarget } from './model/paste';
 import { ProvisionPanel, ReadyFlash } from './provision/ProvisionPanel';
 import { CredentialRevealDialog } from './preview/PreviewFrame';
 import type { TermPhase, TermTarget } from './terminal/controller';
+import { runPaste } from './terminal/pasteFlow';
 import { targetOf, type TerminalPaneHandle } from './terminal/TerminalPane';
 import { EndDialog } from './timer/EndDialog';
 import { ExtendDialog } from './timer/ExtendDialog';
@@ -63,7 +64,7 @@ type Dlg =
   | { kind: 'cost' }
   | { kind: 't5' }
   | { kind: 'paste-confirm'; req: ConfirmRequest; resolve: (c: ConfirmChoice) => void }
-  | { kind: 'paste-reject'; rejection: PasteRejection };
+  | { kind: 'paste-reject'; rejection: PasteRejection; copied?: boolean };
 
 const PANEL_OF: Record<TerminalTarget, PanelId> = { lab: 'terminal-lab', workstation: 'terminal-workstation' };
 const LEADER_TIMEOUT_MS = 1_500;
@@ -289,55 +290,47 @@ export function Workspace({ sid, view }: { sid: string; view: SessionView }) {
         announce('终端还没有准备好');
         return false;
       }
-      let ctl = meta.newTab ? (h.newSubTab() ?? h.active()) : h.active();
-      const ready = await ctl.ensureReady();
-      if (!ready) {
-        const copied = await copyText(text);
-        announce(copied ? '终端还没有连上，命令已复制，可以连上后手动粘贴' : '终端还没有连上，请先复制命令，连上后手动粘贴');
+      // 03 §7.1：等目标终端 Ready 与 shell 提示符，再按“要粘贴进去的那个终端”的状态判定；
+      // 选“在新的终端子标签中粘贴”时对新终端重新判定（terminal/pasteFlow.ts）
+      const t = targetOf(data.workspace.data?.targets, tabTarget);
+      const res = await runPaste(
+        { text, mode, danger: meta.dangerous, target: tabTarget, expected: meta.expected ?? null, tmux: h.tmux, dontAskExecute: () => dontAsk.current },
+        {
+          terminal: meta.newTab ? (h.newSubTab() ?? h.active()) : h.active(),
+          newSubTab: () => h.newSubTab(),
+          copy: copyText,
+          confirm: async (decision, into) => {
+            const snap = into.getSnapshot();
+            const choice = await confirm({
+              text: normalizePasteText(text),
+              target: tabTarget,
+              expected: meta.expected ?? null,
+              notes: decision.notes,
+              severe: decision.severe,
+              lines: decision.lines,
+              offerNewTab: decision.offerNewTab,
+              offerDontAsk: decision.offerDontAsk,
+              execute: mode === 'execute',
+              host: snap.instanceId ?? t?.instanceId ?? null,
+              user: snap.runAs ?? t?.runAs ?? 'labuser',
+              identity: tabTarget === 'lab' ? (t?.awsIdentity ?? 'CloudAlbumAppRole') : (t?.awsIdentity ?? `ATLLearnerRole（atl-${sid}-ws）`),
+            });
+            if (choice.dontAsk) dontAsk.current = true;
+            return choice;
+          },
+        },
+      );
+      if (res.kind === 'not-connected') {
+        const lead = res.newTab ? '新的终端子标签没有连上' : '终端还没有连上';
+        announce(res.copied ? `${lead}，命令已复制，可以连上后手动粘贴` : `${lead}，请先复制命令，连上后手动粘贴`);
         return false;
       }
-      const snap = ctl.getSnapshot();
-      const decision = evaluatePaste({
-        text,
-        mode,
-        danger: meta.dangerous,
-        target: tabTarget,
-        expected: meta.expected ?? null,
-        terminal: { bracketedPaste: ctl.bracketedPaste, busy: snap.busy, tmux: h.tmux },
-        dontAskExecute: dontAsk.current,
-      });
-      if (decision.kind === 'reject') {
-        setDlg({ kind: 'paste-reject', rejection: decision.rejection });
+      if (res.kind === 'rejected') {
+        setDlg({ kind: 'paste-reject', rejection: res.rejection, copied: res.copied });
         return false;
       }
-      if (decision.kind === 'confirm') {
-        const t = targetOf(data.workspace.data?.targets, tabTarget);
-        const choice = await confirm({
-          text: normalizePasteText(text),
-          target: tabTarget,
-          expected: meta.expected ?? null,
-          notes: decision.notes,
-          severe: decision.severe,
-          lines: decision.lines,
-          offerNewTab: decision.offerNewTab,
-          offerDontAsk: decision.offerDontAsk,
-          execute: mode === 'execute',
-          host: snap.instanceId ?? t?.instanceId ?? null,
-          user: snap.runAs ?? t?.runAs ?? 'labuser',
-          identity: tabTarget === 'lab' ? (t?.awsIdentity ?? 'CloudAlbumAppRole') : (t?.awsIdentity ?? `ATLLearnerRole（atl-${sid}-ws）`),
-        });
-        if (choice.action === 'cancel') return false;
-        if (choice.dontAsk) dontAsk.current = true;
-        if (choice.action === 'newtab') {
-          const n = h.newSubTab();
-          if (!n || !(await n.ensureReady())) {
-            announce('新的终端子标签没有连上');
-            return false;
-          }
-          ctl = n;
-        }
-      }
-      if (!ctl.paste(normalizePasteText(text), mode === 'execute')) return false;
+      if (res.kind !== 'pasted') return false;
+      const ctl = res.ctl;
       lastPaste.current[tabTarget] = meta.stepId;
       ctl.focus();
       const reduced = typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -771,7 +764,7 @@ export function Workspace({ sid, view }: { sid: string; view: SessionView }) {
         {dlg?.kind === 'cost' ? <CostDrawer onClose={closeDlg} /> : null}
         {dlg?.kind === 't5' ? <ExpiryDialog canExtend={allowed.includes('extend') && !extendReason} onExtend={() => setDlg({ kind: 'extend' })} onClose={closeDlg} /> : null}
         {dlg?.kind === 'paste-confirm' ? <PasteConfirmDialog req={dlg.req} onDone={dlg.resolve} /> : null}
-        {dlg?.kind === 'paste-reject' ? <PasteRejectDialog rejection={dlg.rejection} onClose={closeDlg} /> : null}
+        {dlg?.kind === 'paste-reject' ? <PasteRejectDialog rejection={dlg.rejection} copied={dlg.copied} onClose={closeDlg} /> : null}
       </WorkbenchContext.Provider>
     </WorkspaceContext.Provider>
   );

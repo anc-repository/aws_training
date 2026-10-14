@@ -931,12 +931,19 @@ Resources:
                 Effect: Allow
                 Action: 'pricing:GetProducts'
                 Resource: '*'
-              # PriceCache (PRICE#), quotes (USER#), and PLATFORM / CONFIG for the workstation instance type
+              # PriceCache (PRICE#) and quotes (USER#)
               - Sid: PriceAndQuoteItems
                 Effect: Allow
                 Action: ['dynamodb:GetItem', 'dynamodb:Query', 'dynamodb:PutItem', 'dynamodb:UpdateItem', 'dynamodb:BatchWriteItem']
                 Resource: !GetAtt AtlMainTable.Arn
-                Condition: { 'ForAllValues:StringLike': { 'dynamodb:LeadingKeys': ['PRICE#*', 'USER#*', 'PLATFORM'] } }
+                Condition: { 'ForAllValues:StringLike': { 'dynamodb:LeadingKeys': ['PRICE#*', 'USER#*'] } }
+              # PLATFORM / CONFIG (the workstation instance type), read only: no write to the platform settings, locks or schema
+              # (IAM cannot narrow a partition to one sort key; GetItem on PLATFORM is the least it needs)
+              - Sid: PlatformConfigRead
+                Effect: Allow
+                Action: 'dynamodb:GetItem'
+                Resource: !GetAtt AtlMainTable.Arn
+                Condition: { 'ForAllValues:StringEquals': { 'dynamodb:LeadingKeys': ['PLATFORM'] } }
               # the expanded card (start profile, target modules, extra stacks) of the content release (04 §3.4 ref expansion)
               - Sid: ContentRead
                 Effect: Allow

@@ -80,6 +80,13 @@ export interface StreamCredentials {
   tokenValue: string;
   /** 03 §3.2 `connectBy` (ISO string, epoch ms or Date): after it the token is not used; the connection resumes instead. */
   connectBy?: string | number | Date | null;
+  /**
+   * The server's clock when the credentials were issued (the API's `serverNow`, or the caller's server-clock estimate at
+   * receipt). With it `connectBy` is judged relatively — receipt + (connectBy − serverNow) on the local clock — so a
+   * browser clock that runs ahead of the server does not turn every fresh token into an expired one. Without it
+   * `connectBy` is compared with `now()` directly.
+   */
+  serverNow?: string | number | Date | null;
 }
 
 export interface StateChange {
@@ -179,6 +186,17 @@ function deadlineOf(v: StreamCredentials['connectBy']): number | null {
   if (v === undefined || v === null) return null;
   const t = v instanceof Date ? v.getTime() : typeof v === 'number' ? v : Date.parse(v);
   return Number.isFinite(t) ? t : null;
+}
+
+/**
+ * `connectBy` on the local clock (`now()`): relative to `serverNow` when the caller gave it (03 §3.2 step 10; the
+ * server's and the browser's clocks may differ by minutes), otherwise the absolute instant.
+ */
+export function localConnectDeadline(creds: Pick<StreamCredentials, 'connectBy' | 'serverNow'>, receivedAt: number): number | null {
+  const connectBy = deadlineOf(creds.connectBy);
+  if (connectBy === null) return null;
+  const serverNow = deadlineOf(creds.serverNow);
+  return serverNow === null ? connectBy : receivedAt + (connectBy - serverNow);
 }
 
 type Listener<K extends keyof TerminalEvents> = (e: TerminalEvents[K]) => void;
@@ -370,8 +388,10 @@ export class SsmTerminalConnection {
       this.fail('invalid-stream-url', check.reason);
       return;
     }
-    const deadline = deadlineOf(creds.connectBy);
-    if (deadline !== null && this.now() > deadline && this.opts.resume) {
+    // openSocket runs right after open() / resume() resolved: now() is the moment the credentials were received
+    const receivedAt = this.now();
+    const deadline = localConnectDeadline(creds, receivedAt);
+    if (deadline !== null && receivedAt > deadline && this.opts.resume) {
       // 03 §3.2 step 10 / §3.8: a token past connectBy is not used; get a new one with ResumeSession.
       this.scheduleReconnect();
       return;

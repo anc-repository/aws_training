@@ -24,6 +24,8 @@ export interface StreamCredentials {
   streamUrl: string;
   tokenValue: string;
   connectBy?: string | number | Date | null;
+  /** 签发时的服务端时间：ssm-client 按“收到时刻 +（connectBy − serverNow）”判断令牌是否过期，不受本机时钟偏差影响。 */
+  serverNow?: string | number | Date | null;
 }
 
 export interface SsmConnectionOptions {

@@ -9,6 +9,7 @@
  */
 import { PortError, QUOTE_TTL_MINUTES, type QuotePurpose } from '@atl/shared';
 import type { FunctionDeps } from '../../runtime/deps.js';
+import { pricingParamKeys } from '../pricing/estimate.js';
 import type { LabContent } from './store.js';
 import type { ResolvedVariant } from './labs.js';
 
@@ -38,6 +39,11 @@ export interface QuoteLine {
   unitPrice?: { low: number; high: number; unit: string; currency: string } | null;
   /** Why an `unknown` line has no price (atl-pricing). */
   reason?: string;
+  /**
+   * `ref: module` (EXTEND / KEEP): the parameters the environment recorded for that module (`Environment.moduleParams`,
+   * only the keys atl-pricing reads). Absent = not recorded → atl-pricing marks the parameter-dependent items unknown.
+   */
+  params?: Record<string, string>;
 }
 
 export interface Range {
@@ -119,11 +125,30 @@ export function quoteLinesFromLab(lab: LabContent): QuoteLine[] {
   return lines;
 }
 
+/**
+ * The pricing-relevant parameters `Environment.moduleParams[module]` recorded for an enabled module (`NETWORK_NAT_MODE`,
+ * `MultiAz`, `DbInstanceClass`, …; scalar values only, other keys dropped so nothing else of the stack reaches a quote).
+ * `null` when the environment has no record for the module.
+ */
+export function recordedModuleParams(env: Record<string, unknown> | null, moduleId: string): Record<string, string> | null {
+  const all = env?.moduleParams;
+  if (!all || typeof all !== 'object') return null;
+  const rec = (all as Record<string, unknown>)[moduleId];
+  if (!rec || typeof rec !== 'object' || Array.isArray(rec)) return null;
+  const keys = new Set(pricingParamKeys());
+  const out: Record<string, string> = {};
+  for (const [k, v] of Object.entries(rec as Record<string, unknown>)) {
+    if (keys.has(k) && (typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean')) out[k] = String(v);
+  }
+  return out;
+}
+
 /** Lines of an EXTEND / KEEP quote: the environment as it is now (02 §5.4: enabled modules, card stacks, manual resources). */
 export function quoteLinesForEnvironment(env: Record<string, unknown> | null, hourlyResources: { resourceType?: string; name?: string; billing?: string }[]): QuoteLine[] {
   const lines: QuoteLine[] = [{ group: 'environment', ref: 'start-profile', detail: '实验机、EBS 与公有 IPv4' }];
   for (const m of (Array.isArray(env?.enabledModules) ? env.enabledModules : []) as string[]) {
-    lines.push({ group: 'environment', ref: 'module', key: String(m), detail: `模块 ${String(m)}` });
+    const params = recordedModuleParams(env, String(m));
+    lines.push({ group: 'environment', ref: 'module', key: String(m), detail: `模块 ${String(m)}`, ...(params ? { params } : {}) });
   }
   for (const r of hourlyResources) {
     lines.push({ group: 'step', service: r.resourceType ?? '手工资源', detail: r.name ?? '', billing: (r.billing as QuoteLine['billing']) ?? 'hourly', unknown: true });

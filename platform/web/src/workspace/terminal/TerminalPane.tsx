@@ -77,7 +77,7 @@ export function TerminalPane({
   handleRef: Ref<TerminalPaneHandle>;
 }) {
   const ws = useWorkspace();
-  const { api, config } = useServices();
+  const { api, config, clock } = useServices();
   const desc = ws.data.workspace.data;
   const target = targetOf(desc?.targets, which);
   const devLoopback = config.auth === 'dev' && typeof location !== 'undefined' && isLocalDevHost(location.hostname);
@@ -101,6 +101,7 @@ export function TerminalPane({
           instanceId: target?.instanceId ?? null,
           region,
           allowLoopback: devLoopback,
+          clock,
           report: (type, data) => ws.reporter?.push(type, data),
           onCommandFinished: (ec) => finishedRef.current(which, ec),
         }),
@@ -108,7 +109,7 @@ export function TerminalPane({
     },
     // 实例被替换时由覆盖层“连接新实验机”重新创建，不随 target 自动重建
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [api, ws.sid, which, region, devLoopback],
+    [api, clock, ws.sid, which, region, devLoopback],
   );
   const [subs, setSubs] = useState<Sub[]>([]);
   const [cur, setCur] = useState(0);

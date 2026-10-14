@@ -306,6 +306,8 @@ export function createWorkspaceProvider(opts: WorkspaceProviderOptions): Workspa
         idleTimeoutMin: SESSION_SHELL.idleTimeoutMin,
         maxDurationMin: SESSION_SHELL.maxDurationMin,
         connectBy: new Date(ctx.nowMs + CONNECT_BY_MS).toISOString(),
+        // the browser judges connectBy relative to this (ssm-client localConnectDeadline): its own clock may run ahead
+        serverNow: new Date(ctx.nowMs).toISOString(),
         clientVersion: SSM_CLIENT_VERSION,
         recording,
       });
@@ -343,6 +345,7 @@ export function createWorkspaceProvider(opts: WorkspaceProviderOptions): Workspa
         streamUrl: grant.streamUrl,
         tokenValue: grant.tokenValue,
         connectBy: new Date(ctx.nowMs + CONNECT_BY_MS).toISOString(),
+        serverNow: now,
         clientVersion: SSM_CLIENT_VERSION,
       });
     },
