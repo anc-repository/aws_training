@@ -23,7 +23,7 @@ export default {
     title: 'ラボレポート', // 实验报告
     readingSession: 'セッションを読み込んでいます', // 正在读取会话
     crumbs: 'パンくずリスト', // 面包屑
-    mySessions: '実験履歴', // 我的实验
+    mySessions: 'ラボ履歴', // 我的实验
     heading: '{labId} · ラボレポート', // {labId} · 实验报告
     sessionSub: 'セッション {sid}', // 会话 {sid}
     noReportTitle: 'このセッションにはレポートがありません', // 这次会话没有报告
@@ -63,6 +63,9 @@ export default {
     evidenceScore: '（証拠スコア {n}）', // （证据分 {n}）
     unverifiedNote: '一部のリソースの帰属がまだ確定していません。再スキャンが終わるとレポートは自動で更新されます。', // 部分资源的归属尚未确认，复扫完成后会自动更新报告。
     incompleteNote: '未完了：{list}', // 未完成：{list}
+    reasons: {
+      ATTEMPT_INCOMPLETE: '試行が未完了か、バッジの条件を満たしていません', // 尝试未完成或徽章条件未满足
+    },
     listSep: '、', // ；
     idleNote: '未開始：環境の準備後、一度もワークベンチに入りませんでした。', // 未开始：环境就绪后一直没有进入工作台。
     duration: '所要時間', // 用时
@@ -243,6 +246,8 @@ export default {
     medium: '中', // 中
     low: '低', // 低
     built: 'このラボで構築した構成', // 这次实验搭建的构成
+    target: 'このカードの目標構成', // 这张卡片的目标构成
+    targetPending: '点線はこのセッションでまだ組み込んでいない部分です', // 虚线：这次会话还没有完成接入的部分
     details: '詳しく', // 详细说明
   },
 } satisfies Dict<typeof zh>;

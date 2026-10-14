@@ -3,7 +3,7 @@ step: enable
 ---
 
 SES を組み込みます。モジュールは、メールアドレス ID `{{ learner.inputs.ses-identity }}`（すでにあれば読み取り専用で利用）、設定セット（評価メトリクス、設定セットレベルの BOUNCE / COMPLAINT の抑制）、
-イベントトピックとフィードバックキュー（＋ DLQ）、`category` タグをディメンションとする CloudWatch のイベント送信先、そしてこの ID からの送信だけを許可するカスタマー管理ポリシー
+イベントトピックとフィードバックキュー（ + DLQ）、`category` タグをディメンションとする CloudWatch のイベント送信先、そしてこの ID からの送信だけを許可するカスタマー管理ポリシー
 （`ses:SendEmail` を `ses:FromAddress` 条件で限定）を作成します。
 
 :::method{kind=script default}

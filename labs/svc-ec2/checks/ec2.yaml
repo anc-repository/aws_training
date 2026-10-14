@@ -15,7 +15,7 @@ checks:
     assert:
       - { path: '$.Reservations[0].Instances[0].MetadataOptions.HttpTokens', op: eq, value: required, label: { zh-CN: IMDSv2 必需, ja: IMDSv2 が必須, en: IMDSv2 required } }
       - { path: '$.Reservations[0].Instances[0].MetadataOptions.HttpPutResponseHopLimit', op: eq, value: 1, label: { zh-CN: 跳数, ja: ホップ数, en: Hop limit } }
-      - { path: '$.Reservations[0].Instances[0].BlockDeviceMappings', op: len_eq, value: 2, label: { zh-CN: 根卷 + 数据卷, ja: ルートボリューム＋データボリューム, en: Root volume + data volume } }
+      - { path: '$.Reservations[0].Instances[0].BlockDeviceMappings', op: len_eq, value: 2, label: { zh-CN: 根卷 + 数据卷, ja: ルートボリューム + データボリューム, en: Root volume + data volume } }
       - { path: '$.Reservations[0].Instances[0].IamInstanceProfile.Arn', op: endsWith, value: '/CloudAlbumAppRole', label: { zh-CN: 实例配置文件, ja: インスタンスプロファイル, en: Instance profile } }
     explain:
       zh-CN: 读取实验机的元数据选项、挂载的卷与实例配置文件；实验机由平台在会话开始时创建（session-or-start）。

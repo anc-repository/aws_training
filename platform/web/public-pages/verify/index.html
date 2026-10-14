@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="zh-CN">
+<html lang="ja">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -7,58 +7,58 @@
 <meta name="robots" content="noindex">
 <meta name="referrer" content="no-referrer">
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; connect-src 'self'; img-src 'self' data:; script-src 'self'; base-uri 'none'; form-action 'none'">
-<title>ATL 证书验证（非 AWS 官方）</title>
+<title>ATL 修了証の検証（AWS 非公式）</title>
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="/verify/verify.css">
 <script src="/verify/verify.js" defer></script>
 </head>
 <body>
-<a class="skip" href="#main" data-i18n="skip">跳到主要内容</a>
+<a class="skip" href="#main" data-i18n="skip">メインコンテンツへスキップ</a>
 <main class="pub" id="main">
-  <nav class="vlang small" id="vlang" aria-label="语言"><a href="?lang=ja" data-lang="ja" lang="ja">日本語</a> · <a href="?lang=en" data-lang="en" lang="en">English</a> · <a href="?lang=zh-CN" data-lang="zh-CN" lang="zh-CN">中文</a></nav>
+  <nav class="vlang small" id="vlang" aria-label="言語"><a href="?lang=ja" data-lang="ja" lang="ja">日本語</a> · <a href="?lang=en" data-lang="en" lang="en">English</a> · <a href="?lang=zh-CN" data-lang="zh-CN" lang="zh-CN">中文</a></nav>
   <section class="pubcard" aria-labelledby="vh">
-    <h1 id="vh" data-i18n="title">ATL 证书验证</h1>
+    <h1 id="vh" data-i18n="title">ATL 修了証の検証</h1>
     <details class="nature">
-      <summary data-i18n="natureShort">这不是 AWS 官方认证，而是自托管 ATL 实例签发的完成证明。</summary>
-      <p id="vnature" data-i18n="nature">本证明由部署在学员自己 AWS 账号中的自托管 AWS Training Lab 实例自动签发，表示该实例记录到持有人完成了所列实验，签名可用于确认内容未被篡改、且出自该实例的签名密钥。它不是 AWS 官方认证，也不代表 AWS Certified Solutions Architect – Associate 或任何 AWS 认证资格；签发者与持有人可能是同一人，平台的数据与密钥由账号所有者控制。验证结果只说明“该实例签发了此内容”，不说明签发过程的独立性。</p>
+      <summary data-i18n="natureShort">AWS の公式認定ではなく、セルフホストの ATL インスタンスが発行した修了証明です。</summary>
+      <p id="vnature" data-i18n="nature">この証明は、受講者自身の AWS アカウントにデプロイされたセルフホストの AWS Training Lab インスタンスが自動で発行したものです。そのインスタンスが、保有者が記載のラボを完了したことを記録したことを示します。署名により、内容が改ざんされていないこと、そのインスタンスの署名鍵で発行されたことを確認できます。AWS の公式認定ではなく、AWS Certified Solutions Architect – Associate やその他の AWS 認定資格を示すものでもありません。発行者と保有者が同一人物の場合があり、プラットフォームのデータと鍵はアカウント所有者が管理しています。検証結果が示すのは「このインスタンスがこの内容を発行した」ことだけで、発行手続きの独立性は示しません。</p>
     </details>
     <div id="vres" class="vres pend" role="status" aria-live="polite" aria-busy="true" data-result="verifying">
       <span id="vres-shape" class="vshape spin"><svg class="shp" viewBox="0 0 12 12" aria-hidden="true" focusable="false"><circle cx="6" cy="6" r="4.6" fill="none" stroke="currentColor" stroke-width="1.3"/><path d="M6 3.4V6l1.8 1.2" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg></span>
       <div class="vres-body">
-        <span class="big" id="vres-title">正在验证签名…</span>
+        <span class="big" id="vres-title">署名を検証しています…</span>
         <span class="small" id="vres-detail" hidden></span>
         <span class="vres-act">
-          <button type="button" class="btn sm" id="vres-retry" data-i18n="retry" hidden>重试</button>
-          <button type="button" class="linkbtn small" id="vres-paste" data-i18n="paste" hidden>粘贴证书</button>
+          <button type="button" class="btn sm" id="vres-retry" data-i18n="retry" hidden>再試行</button>
+          <button type="button" class="linkbtn small" id="vres-paste" data-i18n="paste" hidden>修了証を貼り付ける</button>
         </span>
       </div>
     </div>
     <dl class="kv" id="vdetails" hidden></dl>
     <section class="vlabs" id="vlabs" aria-labelledby="vlabs-title" hidden>
-      <h2 id="vlabs-title" data-i18n="labsTitle">包含的卡片</h2>
+      <h2 id="vlabs-title" data-i18n="labsTitle">含まれるカード</h2>
       <ul class="vlab-list" id="vlabs-list"></ul>
-      <p class="small muted" data-i18n="labsNote">核对报告：选择持有人提供的报告 JSON，浏览器按 RFC 8785 规范化后计算 SHA-256 并与证书中的报告摘要比较，文件不会上传。请使用持有人在证书详情中下载的“核验用报告 JSON”；打码导出的报告或更新过的版本会显示不一致。</p>
+      <p class="small muted" data-i18n="labsNote">レポートの照合：保有者から受け取ったレポート JSON を選ぶと、ブラウザーが RFC 8785 で正規化して SHA-256 を計算し、修了証のレポートダイジェストと比較します。ファイルはアップロードされません。保有者が修了証の詳細からダウンロードした「照合用レポート JSON」を使ってください。マスクしてエクスポートしたレポートや更新後の版は不一致になります。</p>
     </section>
     <details class="vhow">
-      <summary id="vhow" data-i18n="howTitle">如何独立核对</summary>
-      <p class="small" data-i18n="howBody">把上面的公钥指纹与持有人在其公开主页（例如 GitHub 个人页）上公布的指纹对照。验证完全在你的浏览器中完成，不需要登录：页面读取本实例的公钥与签名的吊销列表，用浏览器内置的 WebCrypto 验证 ES256 签名。</p>
+      <summary id="vhow" data-i18n="howTitle">独自に確認する方法</summary>
+      <p class="small" data-i18n="howBody">上の公開鍵フィンガープリントを、保有者が公開プロフィール（GitHub のプロフィールなど）に載せているフィンガープリントと照らし合わせてください。検証はすべてブラウザー内で行われ、ログインは不要です。このページはインスタンスの公開鍵と署名付き失効リストを読み込み、ブラウザー組み込みの WebCrypto で ES256 署名を検証します。</p>
     </details>
   </section>
   <form class="pubcard" id="vpaste" tabindex="-1" novalidate aria-labelledby="vpaste-h">
-    <h2 id="vpaste-h" data-i18n="pasteTitle">粘贴证书或选择文件</h2>
+    <h2 id="vpaste-h" data-i18n="pasteTitle">修了証を貼り付けるか、ファイルを選択</h2>
     <div class="field">
-      <label for="vjws" data-i18n="jwsLabel">证书（JWS）</label>
+      <label for="vjws" data-i18n="jwsLabel">修了証（JWS）</label>
       <textarea class="input mono" id="vjws" rows="4" spellcheck="false" autocomplete="off" placeholder="eyJhbGciOiJFUzI1NiIs…" aria-describedby="vpaste-hint vpaste-err"></textarea>
-      <span class="small muted" id="vpaste-hint" data-i18n="pasteHint">也可以选择证书文件（.jws）或离线验证包（.json）。</span>
+      <span class="small muted" id="vpaste-hint" data-i18n="pasteHint">修了証ファイル（.jws）やオフライン検証パッケージ（.json）も選べます。</span>
       <span class="ferr" id="vpaste-err" hidden></span>
     </div>
     <div class="row">
-      <button type="submit" class="btn primary" id="vsubmit" data-i18n="submit">验证</button>
-      <label class="btn"><input type="file" class="sr" id="vfile" accept=".jws,.json,.txt,application/jose,application/json,text/plain"><span data-i18n="chooseFile">选择文件…</span></label>
+      <button type="submit" class="btn primary" id="vsubmit" data-i18n="submit">検証</button>
+      <label class="btn"><input type="file" class="sr" id="vfile" accept=".jws,.json,.txt,application/jose,application/json,text/plain"><span data-i18n="chooseFile">ファイルを選択…</span></label>
     </div>
   </form>
-  <noscript><p class="pubcard">验证需要启用 JavaScript；也可以使用证书持有人提供的离线验证包中的脚本（node verify.mjs）。</p></noscript>
-  <p class="small faint foot-note" data-i18n="footNote">自托管 ATL 实验平台（非 AWS 官方）。平台卸载后，本页与公开证书文件随之失效；请使用证书页提供的离线验证包。</p>
+  <noscript><p class="pubcard">検証には JavaScript が必要です。保有者から受け取ったオフライン検証パッケージのスクリプト（node verify.mjs）でも検証できます。</p></noscript>
+  <p class="small faint foot-note" data-i18n="footNote">セルフホストの ATL ラボプラットフォーム（AWS 非公式）。プラットフォームをアンインストールすると、このページと公開された修了証ファイルは使えなくなります。修了証ページにあるオフライン検証パッケージを使ってください。</p>
 </main>
 </body>
 </html>

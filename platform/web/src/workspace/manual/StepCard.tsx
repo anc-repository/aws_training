@@ -22,7 +22,7 @@ import { PlatformActionButton } from './PlatformAction';
 import { StepCheckPanel } from './StepCheckPanel';
 import { VarInputDirective } from './VariableStrip';
 
-import { t } from '../../i18n';
+import { t, withoutOptionalMark } from '../../i18n';
 import { W } from '../strings';
 import { manualUntranslated } from '../../i18n/content';
 import { UntranslatedIf } from '../../i18n/Untranslated';
@@ -87,7 +87,7 @@ export function StepCard({ step, index }: { step: LabStep; index: number }) {
       </div>
       <h2 id={`step-h-${step.id}`} tabIndex={-1} data-step-heading="">
         <span className="no">{index + 1}</span>
-        {step.title}
+        {optional ? withoutOptionalMark(step.title) : step.title}
         <UntranslatedIf show={!!manual && manualUntranslated(manual)} />
       </h2>
       <StepServices lab={lab} step={step} />

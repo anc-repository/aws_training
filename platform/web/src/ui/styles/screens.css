@@ -30,9 +30,12 @@
 .search{position:relative; flex:1 1 260px; max-width:420px; min-width:0}
 .search input{width:100%; padding-left:28px}
 .search .ico{position:absolute; left:8px; top:8px; color:var(--text-3)}
-.facets{display:grid; gap:6px; padding-bottom:10px; border-bottom:1px solid var(--border)}
-.facets .fr{display:flex; gap:6px; align-items:center; flex-wrap:wrap}
-.facets .fl{font-size:12px; color:var(--text-2); width:36px; flex:none}
+/* 筛选行：标签列按最长的标签取宽（各语言的标签长度不同，09 §1），芯片在第二列换行；窄屏标签在芯片上方 */
+.facets{display:grid; grid-template-columns:max-content minmax(0,1fr); gap:6px 10px; padding-bottom:10px; border-bottom:1px solid var(--border)}
+.facets .fr{grid-column:1/-1; display:grid; grid-template-columns:subgrid; align-items:center; min-width:0}
+.facets .fl{font-size:12px; color:var(--text-2); min-width:36px; white-space:nowrap}
+.facets .fv{display:flex; gap:6px; align-items:center; flex-wrap:wrap; min-width:0}
+@media (max-width:479px){ .facets{grid-template-columns:minmax(0,1fr); gap:4px} .facets .fr{gap:2px} }
 @media (max-width:767px){ .facets.collapsed{display:none} }
 .csec{display:grid; gap:10px; padding-top:16px}
 .csec>h2{font-size:14px; display:flex; gap:8px; align-items:baseline; flex-wrap:wrap}

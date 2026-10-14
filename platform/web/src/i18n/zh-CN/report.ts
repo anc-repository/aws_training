@@ -59,6 +59,9 @@ export default {
     evidenceScore: '（证据分 {n}）',
     unverifiedNote: '部分资源的归属尚未确认，复扫完成后会自动更新报告。',
     incompleteNote: '未完成：{list}',
+    reasons: {
+      ATTEMPT_INCOMPLETE: '尝试未完成或徽章条件未满足',
+    },
     listSep: '；',
     idleNote: '未开始：环境就绪后一直没有进入工作台。',
     duration: '用时',
@@ -240,6 +243,8 @@ export default {
     medium: '中',
     low: '低',
     built: '这次实验搭建的构成',
+    target: '这张卡片的目标构成',
+    targetPending: '虚线：这次会话还没有完成接入的部分',
     details: '详细说明',
   },
 };

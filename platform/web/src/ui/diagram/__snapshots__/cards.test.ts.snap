@@ -1,0 +1,204 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`service cards: the core path of every card is on its “when done” diagram > matches the per-card edge snapshot 1`] = `
+{
+  "svc-ami": [
+    "browser>nginx:flow",
+    "nginx>ec2:flow",
+  ],
+  "svc-analytics": [
+    "browser>nginx:flow",
+    "nginx>ec2:flow",
+    "ec2>analytics:flow",
+  ],
+  "svc-audit": [
+    "browser>nginx:flow",
+    "nginx>ec2:flow",
+  ],
+  "svc-auth": [
+    "browser>nginx:flow",
+    "browser>auth:aux",
+    "nginx>ec2:flow",
+  ],
+  "svc-autoscaling": [
+    "browser>load-balancer:flow",
+    "browser>storage:flow",
+    "load-balancer>ec2:flow",
+    "ec2>database:flow",
+    "ec2>storage:aux",
+    "autoscaling>load-balancer:dep",
+    "autoscaling>ec2:attach",
+  ],
+  "svc-backup": [
+    "browser>nginx:flow",
+    "nginx>ec2:flow",
+  ],
+  "svc-cache": [
+    "browser>nginx:flow",
+    "nginx>ec2:flow",
+    "ec2>cache:flow",
+  ],
+  "svc-cdn": [
+    "browser>cdn:flow",
+    "cdn>nginx:flow",
+    "nginx>ec2:flow",
+  ],
+  "svc-compliance": [
+    "browser>nginx:flow",
+    "nginx>ec2:flow",
+  ],
+  "svc-config": [
+    "browser>nginx:flow",
+    "nginx>ec2:flow",
+  ],
+  "svc-cost": [
+    "browser>nginx:flow",
+    "nginx>ec2:flow",
+  ],
+  "svc-database": [
+    "browser>nginx:flow",
+    "nginx>ec2:flow",
+    "ec2>database:flow",
+  ],
+  "svc-db-proxy": [
+    "browser>nginx:flow",
+    "nginx>ec2:flow",
+    "ec2>db-proxy:flow",
+    "db-proxy>database:flow",
+  ],
+  "svc-dns": [
+    "browser>dns:aux",
+    "browser>nginx:flow",
+    "nginx>ec2:flow",
+  ],
+  "svc-ec2": [
+    "browser>nginx:flow",
+    "nginx>ec2:flow",
+  ],
+  "svc-email": [
+    "browser>nginx:flow",
+    "nginx>ec2:flow",
+    "ec2>email:flow",
+  ],
+  "svc-iam": [
+    "browser>nginx:flow",
+    "nginx>ec2:flow",
+  ],
+  "svc-identity-pool": [
+    "browser>nginx:flow",
+    "browser>auth:aux",
+    "browser>identity-pool:aux",
+    "browser>storage:flow",
+    "nginx>ec2:flow",
+    "identity-pool>storage:flow",
+    "ec2>storage:aux",
+  ],
+  "svc-image-processing": [
+    "browser>nginx:flow",
+    "browser>storage:flow",
+    "nginx>ec2:flow",
+    "ec2>storage:aux",
+    "storage>image-processing:flow",
+  ],
+  "svc-kms": [
+    "browser>nginx:flow",
+    "nginx>ec2:flow",
+  ],
+  "svc-load-balancer": [
+    "browser>load-balancer:flow",
+    "load-balancer>ec2:flow",
+  ],
+  "svc-logging": [
+    "browser>nginx:flow",
+    "nginx>ec2:flow",
+  ],
+  "svc-monitoring": [
+    "browser>nginx:flow",
+    "nginx>ec2:flow",
+  ],
+  "svc-network": [
+    "browser>nginx:flow",
+    "nginx>ec2:flow",
+  ],
+  "svc-notification": [
+    "browser>nginx:flow",
+    "nginx>ec2:flow",
+    "ec2>notification:flow",
+  ],
+  "svc-queue": [
+    "browser>nginx:flow",
+    "nginx>ec2:flow",
+    "ec2>queue:flow",
+  ],
+  "svc-scheduler": [
+    "browser>nginx:flow",
+    "nginx>ec2:flow",
+    "scheduler>ec2:flow",
+  ],
+  "svc-secrets": [
+    "browser>nginx:flow",
+    "nginx>ec2:flow",
+  ],
+  "svc-shared-fs": [
+    "browser>nginx:flow",
+    "nginx>ec2:flow",
+    "ec2>shared-fs:flow",
+  ],
+  "svc-shell-access": [
+    "browser>nginx:flow",
+    "nginx>ec2:flow",
+  ],
+  "svc-social-api": [
+    "browser>nginx:flow",
+    "browser>social-api:flow",
+    "nginx>ec2:flow",
+  ],
+  "svc-social-store": [
+    "browser>nginx:flow",
+    "nginx>ec2:flow",
+    "ec2>social-store:flow",
+  ],
+  "svc-storage": [
+    "browser>nginx:flow",
+    "browser>storage:flow",
+    "nginx>ec2:flow",
+    "ec2>storage:aux",
+  ],
+  "svc-tagging": [
+    "browser>nginx:flow",
+    "nginx>ec2:flow",
+    "ec2>tagging:flow",
+  ],
+  "svc-threat-detection": [
+    "browser>nginx:flow",
+    "nginx>ec2:flow",
+  ],
+  "svc-tls": [
+    "browser>nginx:flow",
+    "tls>nginx:attach",
+    "nginx>ec2:flow",
+  ],
+  "svc-tracing": [
+    "browser>nginx:flow",
+    "nginx>ec2:flow",
+  ],
+  "svc-vuln-scan": [
+    "browser>nginx:flow",
+    "nginx>ec2:flow",
+  ],
+  "svc-waf": [
+    "browser>cdn:flow",
+    "cdn>nginx:flow",
+    "waf>cdn:attach",
+    "nginx>ec2:flow",
+  ],
+  "svc-workflow": [
+    "browser>nginx:flow",
+    "browser>storage:flow",
+    "nginx>ec2:flow",
+    "ec2>workflow:flow",
+    "ec2>storage:aux",
+    "workflow>storage:dep",
+  ],
+}
+`;

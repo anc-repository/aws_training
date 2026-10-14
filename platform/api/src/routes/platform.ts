@@ -28,7 +28,7 @@ function meView(profile: Item | null, p: { sub: string; email?: string; groups: 
     role: profile?.role ?? null,
     displayName: profile?.displayName ?? null,
     certName: profile?.certName ?? null,
-    locale: profile?.locale ?? 'zh-CN',
+    locale: profile?.locale ?? 'ja', // the platform default language is Japanese (09 §1.1, I1)
     notify: profile?.notify ?? {},
     currentTrackId: profile?.currentTrackId ?? 'saa-main',
     onboarding: profile?.onboarding ?? null,

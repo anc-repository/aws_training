@@ -13,7 +13,7 @@ import { indexCodeBlocks, Nodes } from './Mdast';
 import { StepCard, stepStateOf, usedVariablePaths } from './StepCard';
 import { VariableStrip, type VariableStripHandle } from './VariableStrip';
 
-import { rich, t } from '../../i18n';
+import { rich, t, withoutOptionalMark } from '../../i18n';
 import { W } from '../strings';
 export interface ManualPaneProps {
   stepIndex: number;
@@ -189,7 +189,7 @@ function StepRail({ steps, current, onPick }: { steps: readonly LabStep[]; curre
                     <StepTypeIcon type={s.type} />
                   </span>
                   <span className="wrap-any small">
-                    {s.title}
+                    {isOptional(s) ? withoutOptionalMark(s.title) : s.title}
                     {isOptional(s) ? <span className="tag">{W.manual.optional}</span> : null}
                     {s.wait ? <span className="tag">{W.manual.wait}</span> : null}
                     {s.expectedOutage ? <span className="tag">{W.manual.outage}</span> : null}

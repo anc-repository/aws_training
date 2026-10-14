@@ -4,15 +4,15 @@ id: performant
 version: 1.0.0
 title:
   zh-CN: 高性能专项
-  ja: 高パフォーマンスパス
+  ja: 高性能パス
   en: High performance path
 summary:
   zh-CN: 补强“设计高性能的架构”：对象存储与边缘、事件驱动处理、托管 API、缓存与数据库提速、分析。
-  ja: SAA の「高パフォーマンスなアーキテクチャの設計」を強化します。オブジェクトストレージとエッジ、イベント駆動の処理、マネージド API、キャッシュとデータベースの高速化、分析を扱います。
+  ja: SAA の「高性能なアーキテクチャの設計」を強化します。オブジェクトストレージとエッジ、イベント駆動の処理、マネージド API、キャッシュとデータベースの高速化、分析を扱います。
   en: 'Strengthens the SAA domain "Design High-Performing Architectures": object storage and the edge, event-driven processing, managed APIs, caching and faster databases, and analytics.'
 audience:
   zh-CN: 想补强 SAA“设计高性能的架构”领域的学员
-  ja: SAA の「高パフォーマンスなアーキテクチャの設計」分野を強化したい受講者
+  ja: SAA の「高性能なアーキテクチャの設計」分野を強化したい受講者
   en: Learners who want to strengthen the SAA domain "Design High-Performing Architectures"
 domain: performance
 stages:
@@ -65,5 +65,5 @@ certificate:
   enabled: true
   title:
     zh-CN: 高性能架构专项证书
-    ja: 高パフォーマンスアーキテクチャパス修了証
+    ja: 高性能アーキテクチャパス修了証
     en: High-performing architecture path certificate

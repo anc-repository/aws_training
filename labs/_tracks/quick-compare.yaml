@@ -4,7 +4,7 @@ id: quick-compare
 version: 1.0.0
 title:
   zh-CN: 点名对比快速路径
-  ja: 指定サービスの比較クイックパス
+  ja: 比較クイックパス
   en: Quick comparison path
 summary:
   zh-CN: 七个服务的“有 vs 没有”：Cognito、SQS、CloudFront、Lambda、ElastiCache、S3、RDS

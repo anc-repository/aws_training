@@ -99,7 +99,15 @@ export function layoutArch(model: ArchModel, size: DiagramSize): ArchLayout {
     col += cols;
   }
   const width = Math.round(x - spec.laneGap + spec.padX);
-  const height = Math.round(spec.header + spec.padTop + (rowsUsed - 1) * spec.rowH + spec.glyph + (size === 'full' ? 22 : 0) + spec.padBottom);
+  let height = Math.round(spec.header + spec.padTop + (rowsUsed - 1) * spec.rowH + spec.glyph + (size === 'full' ? 22 : 0) + spec.padBottom);
+  // 同一行跨两列以上的连线向下弓（routeEdges 的 bow，贝塞尔最低点约为 0.75 × bow）：最下一行也有这样的连线时，图要留出空间，
+  // 否则弧线被 SVG 裁掉（例如 svc-storage 的 浏览器 → S3 直传）
+  const bowDepth = spec.rowH * (size === 'full' ? 0.85 : 0.65) * 0.75 + (size === 'full' ? 4 : 2);
+  for (const e of [...model.before.edges, ...model.after.edges]) {
+    const a = nodes[e.from];
+    const b = nodes[e.to];
+    if (a && b && a.row === b.row && Math.abs(a.col - b.col) > 1) height = Math.max(height, Math.ceil(a.cy + bowDepth + spec.padBottom));
+  }
 
   let frame: ArchLayout['frame'] = null;
   if (model.union.includes('network') || model.before.frame || model.after.frame) {

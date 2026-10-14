@@ -81,3 +81,22 @@ export function placeholders(template: string): string[] {
   for (const m of template.matchAll(/\{(\w+)(?:\}|,\s*plural,)/g)) names.add(m[1]!);
   return [...names].sort();
 }
+
+// 汉字、假名、全角标点与全角字符
+const CJK = '\u3000-\u303f\u3040-\u30ff\u3400-\u9fff\uf900-\ufaff\uff00-\uffef';
+const SOFT_BREAK = new RegExp(`([${CJK}])[ \t]*\r?\n[ \t]*(?=[${CJK}])`, 'g');
+
+/**
+ * 内容里的软换行（YAML 块标量、Markdown 段落中的换行）在 HTML 里会变成空格。两侧都是中日文字符或全角标点时直接删除
+ * 换行（日语、中文的句号后不应出现半角空格）；其他位置（英文）保持原样，由浏览器显示为空格。
+ */
+export function joinSoftBreaks(s: string): string {
+  return s.includes('\n') ? s.replace(SOFT_BREAK, '$1') : s;
+}
+
+const OPTIONAL_PREFIX = /^\s*(?:（选做）|（任意）|\(Optional\))\s*/;
+
+/** 步骤标题前的“（选做）/（任意）/(Optional)”：画面另有“任意”徽章时去掉，信息不重复（源语言的标题仍带着它）。 */
+export function withoutOptionalMark(title: string): string {
+  return title.replace(OPTIONAL_PREFIX, '');
+}

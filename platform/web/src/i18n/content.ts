@@ -94,3 +94,20 @@ export function manualUntranslated(manual: unknown, lang: Locale = getLocale()):
   if (lang === 'zh-CN') return false;
   return typeof l !== 'string' || l !== lang;
 }
+
+const HAN = /[\u3400-\u9fff]/;
+const KANA = /[\u3040-\u30ff]/;
+
+/**
+ * 回退显示的文字实际是哪种语言（回退链是 所选 → en → zh-CN）：含汉字且不含假名 → zh-CN，否则 en。渲染时用作 `lang`
+ * 属性（WCAG 3.1.2；读屏的发音与字体栈随之切换）。
+ */
+export function fallbackLang(text: string): Locale {
+  return HAN.test(text) && !KANA.test(text) ? 'zh-CN' : 'en';
+}
+
+/** 内容字段实际显示的语言：没有走回退时是文档的语言（或当前语言），走了回退时按文字判断。 */
+export function actualLang(doc: unknown, pointer: string, text: string, lang: Locale = getLocale()): Locale {
+  if (!untranslated(doc, pointer)) return contentI18n(doc)?.lang ?? lang;
+  return fallbackLang(text);
+}

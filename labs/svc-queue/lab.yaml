@@ -39,7 +39,7 @@ story:
 objectives:
   - text:
       zh-CN: 用至少一次投递与幂等去重解释“重启不丢任务”
-      ja: 少なくとも 1 回の配信と冪等な重複排除で「再起動してもジョブが失われない」理由を説明する
+      ja: 少なくとも 1 回の配信と冪等な重複排除で「再起動してもジョブが失われない」理由を説明できる
       en: Use at-least-once delivery and idempotent deduplication to explain why restarts lose no jobs
     domain: resilient
     relatesTo: after
@@ -51,13 +51,13 @@ objectives:
     relatesTo: enable-sqs
   - text:
       zh-CN: 用死信队列隔离坏消息并重放
-      ja: デッドレターキューで不正なメッセージを隔離し、再処理する
+      ja: デッドレターキューで不正なメッセージを隔離し、再処理できる
       en: Isolate bad messages in a dead-letter queue and replay them
     domain: resilient
     relatesTo: poison
   - text:
       zh-CN: 理解削峰填谷与按积压扩缩容
-      ja: ピーク平準化とバックログに基づくスケーリングを理解する
+      ja: ピーク平準化とバックログに基づくスケーリングを説明できる
       en: Understand load leveling and scaling on backlog
     domain: performance
     relatesTo: after
@@ -110,7 +110,7 @@ prerequisites:
   knowledge:
     - zh-CN: 进程与 systemd 服务
       ja: プロセスと systemd サービス
-      en: Processes and systemd services
+      en: processes and systemd services
     - zh-CN: JSON
       ja: JSON
       en: JSON
@@ -160,7 +160,7 @@ startProfile:
   platform: { preview: { directHttps: 'on' } }
   reason:
     zh-CN: queue 的 requires 为空；起始状态是 L0 + 实例角色 + 两个本地档（档位 atl/svc-queue/default），不部署任何队列
-    ja: queue の requires は空です。開始状態は L0 ＋インスタンスロール＋ 2 つのローカル階層です（プロファイル atl/svc-queue/default）。キューは何もデプロイしません
+    ja: queue の requires は空です。開始状態は L0 + インスタンスロール + 2 つのローカル階層です（プロファイル atl/svc-queue/default）。キューは何もデプロイしません
     en: queue has no requires; the start state is L0 plus the instance role plus two local tiers (profile atl/svc-queue/default), and no queue is deployed
 targetModules:
   - { id: queue, driver: sqs, fromDriver: memory, wireStep: enable-sqs, adoptsExisting: false }
@@ -335,13 +335,13 @@ steps:
     type: experiment
     title:
       zh-CN: （选做）运行时 A/B：同一时段一半请求绕过 SQS
-      ja: （任意）実行時 A/B：同じ時間帯にリクエストの半分が SQS をバイパス
-      en: "(Optional) Runtime A/B: half of the requests bypass SQS in the same period"
+      ja: 実行時 A/B：同じ時間帯にリクエストの半分が SQS をバイパス
+      en: "Runtime A/B: half of the requests bypass SQS in the same period"
     manual: manual/70-ab.md
     optional:
       reason:
         zh-CN: 与 before/after 结论方向一致
-        ja: before/after と結論の方向が同じです
+        ja: before/after と同じ結論になります
         en: Points to the same conclusion as before/after
     experiment: { module: queue, id: upload-burst, label: after }
     requires: { steps: [enable-sqs] }

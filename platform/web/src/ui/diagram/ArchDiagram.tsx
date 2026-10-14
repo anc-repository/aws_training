@@ -7,7 +7,7 @@
  * - 纯 SVG；颜色只来自 token 类（亮暗主题都可读），不写 style 属性（CSP style-src 'self'）。
  * - 可访问性：每张图 role="img" + <title>/<desc>（各泳道的服务与新增服务的文字摘要）；decorative 时 aria-hidden。
  */
-import { useId, useMemo, type ReactElement } from 'react';
+import { useEffect, useId, useMemo, useRef, useState, type ReactElement, type ReactNode } from 'react';
 import { MOTIFS, PSEUDO_MOTIFS } from '../glyphs/motifs';
 import { glyphModule, groupClass } from '../glyphs/data';
 import { useVisualI18n, type VisualI18n, type VisualKey } from '../glyphs/visualI18n';
@@ -223,6 +223,42 @@ function Legend({ model, mode, i18n }: { model: ArchModel; mode: DiagramMode; i1
   );
 }
 
+/**
+ * full 图的横向滚动容器（窄屏，I6 b）：只有内容真的溢出时才是可聚焦的滚动区（tabIndex、role、名称），不多出 Tab 停留点；
+ * 第一次溢出时把第一个新增 / 变更 / 选做 / ghost 节点滚进视口（窄屏首屏就能看到本卡新增的服务，左侧尽量保留入口与 EC2）。
+ */
+function ScrollBox({ label, children }: { label: string; children: ReactNode }) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [over, setOver] = useState(false);
+  const scrolled = useRef(false);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return undefined;
+    const check = () => {
+      const o = el.scrollWidth > el.clientWidth + 1;
+      setOver(o);
+      if (!o || scrolled.current) return;
+      scrolled.current = true;
+      const target = el.querySelector('.an.st-new, .an.st-changed, .an.st-optional, .an.st-ghost');
+      if (!target) return;
+      const box = target.getBoundingClientRect();
+      const host = el.getBoundingClientRect();
+      const right = box.right - host.left + el.scrollLeft;
+      el.scrollLeft = Math.max(0, right + 16 - el.clientWidth);
+    };
+    check();
+    if (typeof ResizeObserver === 'undefined') return undefined;
+    const ro = new ResizeObserver(check);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+  return (
+    <div ref={ref} className="arch-scroll" data-overflow={over ? '' : undefined} {...(over ? { tabIndex: 0, role: 'group', 'aria-label': label } : {})}>
+      {children}
+    </div>
+  );
+}
+
 export function ArchDiagram({ input, model: givenModel, size = 'full', mode, title, decorative, fit = 'scroll', legend, className }: ArchDiagramProps) {
   const i18n = useVisualI18n();
   const model = useMemo(() => givenModel ?? buildArchModel(input ?? {}), [givenModel, input]);
@@ -253,9 +289,9 @@ export function ArchDiagram({ input, model: givenModel, size = 'full', mode, tit
                 </div>
               ) : null}
               {scroll ? (
-                <div className="arch-scroll" tabIndex={0} role="group" aria-label={i18n.t('visual.diagram.scroll', { title: titled(i18n, heading, k) })}>
+                <ScrollBox label={i18n.t('visual.diagram.scroll', { title: titled(i18n, heading, k) })}>
                   <DiagramSvg model={model} layout={layout} stateKey={k} title={heading} decorative={decorative} i18n={i18n} uid={uid} />
-                </div>
+                </ScrollBox>
               ) : (
                 <DiagramSvg model={model} layout={layout} stateKey={k} title={heading} decorative={decorative} i18n={i18n} uid={uid} />
               )}

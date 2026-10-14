@@ -68,6 +68,7 @@ export default {
     malformedDetail: '不是三段式 JWS、签名算法或类型不符，或证书内容的格式不符。',
   },
   detail: {
+    untranslated: '未翻译',
     cert: '证书',
     scope: '（{scope}）',
     holder: '持有人',

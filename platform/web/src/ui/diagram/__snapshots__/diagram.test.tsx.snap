@@ -137,9 +137,10 @@ exports[`buildArchModel > matches the layout snapshots > sc-ha-web 1`] = `
     "after": {
       "edges": [
         "browser>load-balancer:flow*",
+        "browser>storage:flow",
         "load-balancer>ec2:flow*",
         "ec2>database:flow",
-        "ec2>storage:flow",
+        "ec2>storage:aux",
         "autoscaling>load-balancer:dep*",
         "autoscaling>ec2:attach*",
       ],
@@ -158,9 +159,10 @@ exports[`buildArchModel > matches the layout snapshots > sc-ha-web 1`] = `
     "before": {
       "edges": [
         "browser>nginx:flow",
+        "browser>storage:flow",
         "nginx>ec2:flow",
         "ec2>database:flow",
-        "ec2>storage:flow",
+        "ec2>storage:aux",
       ],
       "frame": null,
       "nodes": {
@@ -397,11 +399,12 @@ exports[`buildArchModel > matches the layout snapshots > sc-user-identity 1`] = 
         "browser>social-api:flow*",
         "browser>auth:aux*",
         "browser>identity-pool:aux*",
+        "browser>storage:flow",
         "cdn>nginx:flow",
         "nginx>ec2:flow",
         "social-api>auth:aux*",
         "identity-pool>storage:flow*",
-        "ec2>storage:flow",
+        "ec2>storage:aux",
       ],
       "frame": null,
       "nodes": {
@@ -419,9 +422,10 @@ exports[`buildArchModel > matches the layout snapshots > sc-user-identity 1`] = 
     "before": {
       "edges": [
         "browser>cdn:flow",
+        "browser>storage:flow",
         "cdn>nginx:flow",
         "nginx>ec2:flow",
-        "ec2>storage:flow",
+        "ec2>storage:aux",
       ],
       "frame": null,
       "nodes": {

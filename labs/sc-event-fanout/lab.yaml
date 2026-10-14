@@ -81,37 +81,37 @@ scenario:
 objectives:
   - text:
       zh-CN: 用 SNS 一次发布、按订阅扇出，发布方耗时与接收人数无关
-      ja: SNS で 1 回発行してサブスクリプションごとにファンアウトし、発行側の所要時間が受信者数に依存しないようにする
+      ja: SNS で 1 回発行してサブスクリプションごとにファンアウトし、発行側の所要時間が受信者数に依存しないようにできる
       en: Publish once with SNS and fan out per subscription, so the publisher's time does not depend on the number of recipients
     domain: resilient
     relatesTo: after
   - text:
       zh-CN: 用订阅过滤策略（消息属性 userId）让每位用户只收到自己的通知
-      ja: サブスクリプションフィルターポリシー（メッセージ属性 userId）で、各ユーザーが自分の通知だけを受け取るようにする
+      ja: サブスクリプションフィルターポリシー（メッセージ属性 userId）で、各ユーザーが自分の通知だけを受け取るようにできる
       en: Use subscription filter policies (message attribute userId) so each user only receives their own notifications
     domain: resilient
     relatesTo: filter
   - text:
       zh-CN: 区分 SNS + SQS 扇出与 SQS 竞争消费；worker 停机时消息在队列中等待
-      ja: SNS + SQS のファンアウトと SQS の競合消費を区別する。worker が停止している間、メッセージはキューで待つ
+      ja: SNS + SQS のファンアウトと SQS の競合消費を区別できる（worker の停止中、メッセージはキューで待機する）
       en: Tell SNS + SQS fan-out from SQS competing consumers; messages wait in the queue while the worker is down
     domain: resilient
     relatesTo: worker-stop
   - text:
       zh-CN: 理解 SES 身份验证、沙盒与生产访问
-      ja: SES の ID の検証、サンドボックス、本番アクセスを理解する
+      ja: SES の ID の検証、サンドボックス、本番アクセスを説明できる
       en: Understand SES identity verification, the sandbox and production access
     domain: secure
     relatesTo: enable-email
   - text:
       zh-CN: 用配置集事件目标 + SNS → SQS 把退信与投诉送回没有入站端口的应用
-      ja: 設定セットのイベント送信先 + SNS → SQS で、受信ポートのないアプリにバウンスと苦情を届ける
+      ja: 設定セットのイベント送信先 + SNS → SQS で、受信ポートのないアプリにバウンスと苦情を届けられる
       en: Use configuration set event destinations + SNS → SQS to deliver bounces and complaints to an app with no inbound ports
     domain: secure
     relatesTo: enable-email
   - text:
       zh-CN: 区分 SNS 邮件订阅与 SES 事务邮件的适用场景
-      ja: SNS のメールサブスクリプションと SES のトランザクションメールの使い分けを区別する
+      ja: SNS のメールサブスクリプションと SES のトランザクションメールを使い分けられる
       en: Tell when to use SNS email subscriptions and when to use SES transactional email
     domain: resilient
     relatesTo: worker-stop
@@ -167,10 +167,10 @@ prerequisites:
   knowledge:
     - zh-CN: 电子邮件的 + 子地址（plus addressing）
       ja: メールアドレスの + サブアドレス（plus addressing）
-      en: Email + sub-addressing (plus addressing)
+      en: email + sub-addressing (plus addressing)
     - zh-CN: 邮件头（From、Message-ID）
       ja: メールのヘッダー（From、Message-ID）
-      en: Email headers (From, Message-ID)
+      en: email headers (From, Message-ID)
     - zh-CN: JSON
       ja: JSON
       en: JSON
@@ -212,7 +212,7 @@ startProfile:
   platform: { preview: { directHttps: 'on' } }
   reason:
     zh-CN: 起始状态是 L0 + 实例角色（档位 atl/sc-event-fanout/default）。不预置 queue 模块：SNS → SQS 的扇出用 notification 自带的收件队列，SES 的反馈用 email 自带的反馈队列（registry auxQueues），让学员看清“没开 queue 模块也在用 SQS”的边界
-    ja: 開始状態は L0 ＋インスタンスロールです（プロファイル atl/sc-event-fanout/default）。queue モジュールは事前準備しません。SNS → SQS のファンアウトには notification 付属の受信キューを、SES のフィードバックには email 付属のフィードバックキュー（registry auxQueues）を使い、「queue モジュールを有効にしていなくても SQS を使っている」という境界を受講者に見せます
+    ja: 開始状態は L0 + インスタンスロールです（プロファイル atl/sc-event-fanout/default）。queue モジュールは事前準備しません。SNS → SQS のファンアウトには notification 付属の受信キューを、SES のフィードバックには email 付属のフィードバックキュー（registry auxQueues）を使い、「queue モジュールを有効にしていなくても SQS を使っている」という境界を受講者に見せます
     en: "The start state is L0 plus the instance role (profile atl/sc-event-fanout/default). The queue module is not provisioned: SNS → SQS fan-out uses notification's own inbox queue, and SES feedback uses email's own feedback queue (registry auxQueues), showing learners the boundary of \"using SQS without the queue module\""
 targetModules:
   - { id: email, driver: ses, fromDriver: outbox, wireStep: enable-email, adoptsExisting: false }
@@ -503,8 +503,8 @@ steps:
     type: observe
     title:
       zh-CN: （选做）退信与投诉经 SNS → SQS 回流
-      ja: （任意）バウンスと苦情が SNS → SQS で戻ってくる
-      en: (Optional) Bounces and complaints flow back through SNS → SQS
+      ja: バウンスと苦情が SNS → SQS で戻ってくる
+      en: Bounces and complaints flow back through SNS → SQS
     manual: manual/70-feedback-loop.md
     optional:
       reason:

@@ -184,7 +184,7 @@ export default {
     stale: '·stale', // ·过期
     withReason: ' ({reason})', // （{reason}）
     manual: 'manual', // 手动
-    auto: 'automatic', // 自动
+    auto: 'auto', // 自动
     reviewPending: 'Waiting for assistant review', // 等待助教复核
     reviewApproved: 'Reviewed by an assistant', // 助教已复核
     reviewRejected: 'Rejected by an assistant', // 助教已打回

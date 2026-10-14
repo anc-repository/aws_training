@@ -20,13 +20,13 @@ import { formatClock, formatDate, formatSpan, formatUtcTitle } from '../../lib/f
 import { maskAccountId } from '../../lib/redact';
 import { ATTEMPT_STATUS_META, Button, EmptyState, ErrorPanel, Icon, SessionStatePill, Shape, Skeleton, Status, type AttemptStatus, type Tone } from '../../ui';
 import { BarChart, ProgressRing } from '../../ui/charts';
-import { ArchDiagram, archInputFromCatalogCard } from '../../ui/diagram';
+import { ArchDiagram, archInputFromCatalogCard, type ArchInput } from '../../ui/diagram';
 import { ServiceGlyph } from '../../ui/glyphs';
 import { InlineProblem } from '../errors/InlineProblem';
 import { Missing } from '../errors/NotFoundPage';
 import { useAction } from '../errors/useAction';
 import { ExperimentCompare } from '../experiments/ExperimentCompare';
-import { cardTitle, useApiData, useCatalogIndex, useLabContent, useSessionView, viewX, type SessionViewX } from '../sessions/data';
+import { cardTitle, useApiData, useCatalogIndex, useLabContent, useSessionView, viewX, type LabContent, type SessionViewX } from '../sessions/data';
 import '../sessions/pages.css';
 import { BADGE_LEVEL_TEXT, BADGE_STATUS_TEXT, formatMoneyRange, hourlyRange } from '../sessions/sessionText';
 import { IconBadge, StatusBadge, VTile, VTiles } from '../sessions/visuals';
@@ -35,6 +35,7 @@ import { ShareDialog, ShareList } from './Shares';
 import { CheckHistory, StepEvidence, type StepResult } from './StepEvidence';
 
 import { msg, rich, t } from '../../i18n';
+import { Recorded } from '../../i18n/Untranslated';
 import { RP } from './strings';
 export interface ReportItem {
   sessionId: string;
@@ -64,6 +65,43 @@ interface LabProgressBadge {
 const LIVE = ['REQUESTED', 'PROVISIONING', 'READY', 'RUNNING', 'EXPIRING'];
 
 export const REVISION_REASON_TEXT: Readonly<Record<string, string>> = RP.revisionReason;
+
+
+/**
+ * 不发徽章的原因：报告里存的是代码（ATTEMPT_INCOMPLETE …），按当前语言显示；旧报告里记录的中文句子原样显示并带
+ * lang="zh-CN" 与“未翻訳”标记。
+ */
+function ReasonList({ reasons }: { reasons: readonly string[] }) {
+  const text = RP.page.reasons as Readonly<Record<string, string>>;
+  return (
+    <>
+      {reasons.map((code, i) => (
+        <span key={`${i}-${code}`}>
+          {i > 0 ? RP.page.listSep : null}
+          {text[code] ?? <Recorded text={code} marker />}
+        </span>
+      ))}
+    </>
+  );
+}
+
+/**
+ * 报告的构成图（I6 f）：画卡片的目标构成；目标模块的接入步骤（wireStep）在这次会话里没有完成时，把它画成虚线（选做的样式），
+ * 标题也从“这次实验搭建的构成”改为“这张卡片的目标构成”。拿不到步骤结果或手册时只说“目标构成”，不声称已经搭建。
+ */
+export function reportArch(input: ArchInput, lab: LabContent | null, steps: readonly StepResult[] | null): { input: ArchInput; complete: boolean; pending: boolean } {
+  const targets = (input.targets ?? []).map((t) => (typeof t === 'string' ? { id: t } : t));
+  if (!targets.length) return { input, complete: !!steps, pending: false };
+  if (!lab?.targetModules?.length || !steps) return { input, complete: false, pending: false };
+  const done = new Set(steps.filter((s) => s.state === 'done' || s.state === 'done_manual').map((s) => s.stepId));
+  const wired = (id: string) => {
+    const decl = lab.targetModules?.find((x) => x.id === id);
+    return !decl?.wireStep || done.has(decl.wireStep);
+  };
+  const next = targets.map((t) => (wired(t.id) ? t : { ...t, optional: true }));
+  const complete = targets.filter((t) => !t.optional).every((t) => wired(t.id));
+  return { input: { ...input, targets: next }, complete, pending: !complete };
+}
 
 export default function ReportPage() {
   const { sid = '' } = useParams();
@@ -228,7 +266,7 @@ function ReportView({ view }: { view: SessionViewX }) {
         { key: 'low', label: RV.low, value: ev.low ?? 0, tone: 'before' as const },
       ]
     : null;
-  const archInput = card && (card.targets?.length || card.startProfiles?.length) ? archInputFromCatalogCard(card, view.variant ?? undefined) : null;
+  const arch = card && (card.targets?.length || card.startProfiles?.length) ? reportArch(archInputFromCatalogCard(card, view.variant ?? undefined), lab, steps.data?.items ?? null) : null;
   const attemptNote = attempt === 'unverified' || (attempt === 'incomplete' && !!r?.eligibility?.reasons?.length) || view.endReason === 'IDLE_NOT_STARTED';
 
   return (
@@ -316,10 +354,13 @@ function ReportView({ view }: { view: SessionViewX }) {
             </div>
           ) : null}
         </div>
-        {archInput ? (
-          <figure className="rep-arch" data-visual="architecture">
-            <figcaption>{RV.built}</figcaption>
-            <ArchDiagram input={archInput} mode="after" title={RV.built} />
+        {arch ? (
+          <figure className="rep-arch" data-visual="architecture" data-arch={arch.complete ? 'built' : 'target'}>
+            <figcaption>
+              {arch.complete ? RV.built : RV.target}
+              {!arch.complete && arch.pending ? <span className="small muted"> {RV.targetPending}</span> : null}
+            </figcaption>
+            <ArchDiagram input={arch.input} mode="after" title={arch.complete ? RV.built : RV.target} />
           </figure>
         ) : null}
         <details className="disc" open={attemptNote || undefined}>
@@ -335,7 +376,7 @@ function ReportView({ view }: { view: SessionViewX }) {
               {typeof myBadge?.evidenceScore === 'number' ? t(RP.page.evidenceScore, { n: myBadge.evidenceScore.toFixed(2) }) : ''}
             </span>
             {attempt === 'unverified' ? <span className="small muted">{RP.page.unverifiedNote}</span> : null}
-            {attempt === 'incomplete' && r?.eligibility?.reasons?.length ? <span className="small muted">{t(RP.page.incompleteNote, { list: r.eligibility.reasons.join(RP.page.listSep) })}</span> : null}
+            {attempt === 'incomplete' && r?.eligibility?.reasons?.length ? <span className="small muted">{rich(RP.page.incompleteNote, { list: <ReasonList reasons={r.eligibility.reasons} /> })}</span> : null}
             {view.endReason === 'IDLE_NOT_STARTED' ? <span className="small muted">{RP.page.idleNote}</span> : null}
           </div>
           <div className="stat">

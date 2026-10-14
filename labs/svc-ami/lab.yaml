@@ -19,7 +19,7 @@ title:
   en: "EC2 Image Builder: golden AMI builds"
 summary:
   zh-CN: 把“公共 AMI + 开机现场安装”换成 Image Builder 烘焙、测试、晋升的黄金 AMI：开机更快、启动不再依赖外部仓库，但镜像会老化。
-  ja: 「公開 AMI ＋起動時のその場インストール」を、Image Builder でベイク・テスト・昇格したゴールデン AMI に置き換えます。起動が速くなり外部リポジトリに依存しなくなりますが、イメージは古くなっていきます。
+  ja: 「公開 AMI + 起動時のその場インストール」を、Image Builder でベイク・テスト・昇格したゴールデン AMI に置き換えます。起動が速くなり外部リポジトリに依存しなくなりますが、イメージは古くなっていきます。
   en: Replace "public AMI plus install-on-boot" with a golden AMI that Image Builder bakes, tests and promotes. Instances boot faster and no longer depend on external repositories, but images go stale over time.
 difficulty: intermediate
 estimatedMinutes: 135

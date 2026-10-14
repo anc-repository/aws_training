@@ -10,7 +10,7 @@ section: wrap-up
 
 ## 試験ポイントの振り返り
 
-- User Pool と Identity Pool。ID・アクセス・リフレッシュトークン。認可コード＋ PKCE、パブリッククライアントと機密クライアント。
+- User Pool と Identity Pool。ID・アクセス・リフレッシュトークン。認可コード + PKCE、パブリッククライアントと機密クライアント。
 - ALB の `authenticate-cognito` は HTTPS リスナーでしか使えません。API Gateway HTTP API の JWT オーソライザー。
 - Lambda トリガー（Pre Sign-up、Pre Token Generation、User Migration）。ソーシャルログインと SAML フェデレーション。マネージドログインのカスタムドメインの証明書は us-east-1 に置きます。
 - ステートレスなセッションは Auto Scaling で水平スケールする前提です。Cognito と IAM Identity Center の使い分け。責任共有モデル。

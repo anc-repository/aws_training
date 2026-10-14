@@ -244,6 +244,7 @@ export default {
     with: '有 {name}',
     none: '（没有）',
     local: '本地实现',
+    driver: '驱动 {driver}',
     notYet: '开始时还没有',
     costMore: '费用说明',
     confusable: '{label}：{a} / {b}：{rule}',

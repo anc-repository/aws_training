@@ -72,6 +72,7 @@ export default {
     malformedDetail: 'It is not a three-part JWS, the signature algorithm or type does not match, or the certificate content is malformed.', // 不是三段式 JWS、签名算法或类型不符，或证书内容的格式不符。
   },
   detail: {
+    untranslated: 'Not translated', // 未翻译
     cert: 'Certificate', // 证书
     scope: ' ({scope})', // （{scope}）
     holder: 'Holder', // 持有人

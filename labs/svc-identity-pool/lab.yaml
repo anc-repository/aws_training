@@ -24,7 +24,7 @@ title:
   en: "Amazon Cognito Identity Pool: direct uploads from end users to S3"
 subtitle:
   zh-CN: 应用自签前缀令牌 → STS 临时凭证 + IAM 策略变量
-  ja: アプリが自分で署名するプレフィックストークン → STS の一時的な認証情報＋ IAM ポリシー変数
+  ja: アプリが自分で署名するプレフィックストークン → STS の一時的な認証情報 + IAM ポリシー変数
   en: App-signed prefix token → STS temporary credentials + IAM policy variables
 summary:
   zh-CN: 已登录用户换取一组只能写自己前缀的 STS 临时凭证，浏览器直接分片上传到 S3：授权从“应用代码”搬到“IAM 策略变量”。
@@ -49,25 +49,25 @@ story:
 objectives:
   - text:
       zh-CN: 区分 User Pool（认证）与 Identity Pool（换 AWS 临时凭证）
-      ja: User Pool（認証）と Identity Pool（AWS の一時的な認証情報への交換）を区別する
+      ja: User Pool（認証）と Identity Pool（AWS の一時的な認証情報への交換）を区別できる
       en: Tell the User Pool (authentication) apart from the Identity Pool (exchange for temporary AWS credentials)
     domain: secure
     relatesTo: enable
   - text:
       zh-CN: '读懂已认证角色的信任策略（aud、amr 条件）与策略变量 ${cognito-identity.amazonaws.com:sub}'
-      ja: 認証済みロールの信頼ポリシー（aud、amr の条件）とポリシー変数 ${cognito-identity.amazonaws.com:sub} を読み解く
+      ja: 認証済みロールの信頼ポリシー（aud、amr の条件）とポリシー変数 ${cognito-identity.amazonaws.com:sub} を読み解ける
       en: Read the authenticated role's trust policy (aud and amr conditions) and the policy variable ${cognito-identity.amazonaws.com:sub}
     domain: secure
     relatesTo: read-policy
   - text:
       zh-CN: 用越权实验说明“由谁拒绝”：应用 403 vs S3 AccessDenied
-      ja: 権限外アクセスの実験で「誰が拒否するか」を説明する：アプリの 403 と S3 の AccessDenied
+      ja: 権限外アクセスの実験で「誰が拒否するか」を説明できる：アプリの 403 と S3 の AccessDenied
       en: "Use the cross-prefix experiment to show who denies the request: the app's 403 vs S3's AccessDenied"
     domain: secure
     relatesTo: after-cross
   - text:
       zh-CN: 比较应用自签令牌、预签名 URL、临时凭证三者对后端请求数与服务端控制力的取舍
-      ja: アプリが署名するトークン、署名付き URL、一時的な認証情報の 3 つを、バックエンドへのリクエスト数とサーバー側の制御力の観点で比べる
+      ja: アプリが署名するトークン、署名付き URL、一時的な認証情報の 3 つを、バックエンドへのリクエスト数とサーバー側の制御力の観点で比較できる
       en: Compare app-signed tokens, presigned URLs and temporary credentials in terms of backend requests and server-side control
     domain: performance
     relatesTo: after-bench
@@ -107,10 +107,10 @@ prerequisites:
       en: S3 multipart upload (CreateMultipartUpload / UploadPart / Complete)
     - zh-CN: JWT 的基本结构
       ja: JWT の基本構造
-      en: The basic structure of a JWT
+      en: the basic structure of a JWT
     - zh-CN: 浏览器 DevTools 的网络面板
       ja: ブラウザーの DevTools の Network パネル
-      en: The Network panel of the browser's DevTools
+      en: the Network panel of the browser's DevTools
 
 startProfile:
   provisions:
@@ -138,7 +138,7 @@ startProfile:
       set: { AUTH_DRIVER: cognito }
       reason:
         zh-CN: DEP-002 的第二个条件二选一时选 auth=cognito（IDENTITY_DEV_PROVIDER 为空时直接要求 auth；User Pool + Identity Pool 是 SAA 的标准组合）
-        ja: DEP-002 の 2 つ目の条件で二者択一のとき、auth=cognito を選びます（IDENTITY_DEV_PROVIDER が空なら auth が直接必要になります。User Pool ＋ Identity Pool は SAA の定番の組み合わせです）
+        ja: DEP-002 の 2 つ目の条件で二者択一のとき、auth=cognito を選びます（IDENTITY_DEV_PROVIDER が空なら auth が直接必要になります。User Pool + Identity Pool は SAA の定番の組み合わせです）
         en: For the either-or second condition of DEP-002, auth=cognito is chosen (with IDENTITY_DEV_PROVIDER empty, auth is required directly; User Pool + Identity Pool is the standard SAA pairing)
     - item: cognito-test-users
       kind: seed
@@ -167,7 +167,7 @@ startProfile:
   platform: { preview: { directHttps: 'on' } }
   reason:
     zh-CN: identity-pool 的硬依赖闭包是 storage=s3 + auth=cognito（DEP-002），加上 iam(role)（档位 atl/svc-identity-pool/default）
-    ja: identity-pool の必須依存の閉包は storage=s3 ＋ auth=cognito（DEP-002）に、iam(role) を加えたものです（プロファイル atl/svc-identity-pool/default）
+    ja: identity-pool の必須依存の閉包は storage=s3 + auth=cognito（DEP-002）に、iam(role) を加えたものです（プロファイル atl/svc-identity-pool/default）
     en: identity-pool's hard dependency closure is storage=s3 + auth=cognito (DEP-002), plus iam(role) (profile atl/svc-identity-pool/default)
 targetModules:
   - { id: identity-pool, driver: cognito, fromDriver: none, wireStep: enable, adoptsExisting: false }
@@ -332,8 +332,8 @@ steps:
     type: observe
     title:
       zh-CN: （选做）同一部署内 A/B：管理员旁路开前缀令牌会话
-      ja: （任意）同じデプロイ内での A/B：管理者がバイパスしてプレフィックストークンのセッションを開く
-      en: "(Optional) A/B in the same deployment: an admin bypass opens a prefix-token session"
+      ja: 同じデプロイ内での A/B：管理者がバイパスしてプレフィックストークンのセッションを開く
+      en: "A/B in the same deployment: an admin bypass opens a prefix-token session"
     manual: manual/70-ab.md
     optional:
       reason:

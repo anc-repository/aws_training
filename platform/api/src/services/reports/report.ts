@@ -82,12 +82,24 @@ export interface Report {
   integrity: { canonicalization: 'RFC8785'; digest: string };
 }
 
+/**
+ * Platform notes of the cost section, stored as keys and worded per language by the renderers (09 §1.8: reports keep
+ * codes and ids, not platform sentences).
+ */
+export const COST_NOTE_KEYS = ['price-list-estimate', 'unpriced-hours-only'] as const;
+export type CostNoteKey = (typeof COST_NOTE_KEYS)[number];
+
+/** Why a report gives no badge (`Report.eligibility.reasons` in the report record); worded per language by the web UI. */
+export const ELIGIBILITY_REASONS = ['ATTEMPT_INCOMPLETE'] as const;
+
 export interface CostReport {
   /** The learner-confirmed quote (02 §3.2), as recorded. */
   quote: Record<string, unknown> | null;
   /** Billable resources and how long they existed in this session (prices come from atl-pricing; none invented). */
   resources: { resourceType: string; name: string; billing: string; hours: number }[];
-  notes: string[];
+  noteKeys?: CostNoteKey[];
+  /** Reports generated before `noteKeys`: the notes as zh-CN sentences. */
+  notes?: string[];
 }
 
 export function reportDigest(r: Omit<Report, 'integrity'> | Report): string {
@@ -203,7 +215,8 @@ export function buildReport(i: ReportInputs, revision: number, generatedAt: stri
       }
       return { id: m.id, label: m.label, unit: m.unit, values, better: m.better, source: m.source };
     }).filter((m) => Object.keys(m.values).length > 0);
-    const charts = metrics.length ? [{ kind: 'bars' as const, svg: barsSvg(metrics.slice(0, 4), labelsOf(e).map((l) => l.id)) }] : [];
+    // metric names are the zh-CN source here; the HTML renderer draws the chart again per language from `metrics` (by id)
+    const charts = metrics.length ? [{ kind: 'bars' as const, svg: barsSvg(metrics.slice(0, 4), labelsOf(e).map((l) => l.id), '对比实验指标') }] : [];
     return { module: e.module, experiment: e.id, variants, pairs, metrics, charts };
   });
   const totalMinutes = minutesBetween(s.readyAt ?? s.createdAt, s.endedAt ?? generatedAt);
@@ -237,7 +250,8 @@ export function buildReport(i: ReportInputs, revision: number, generatedAt: stri
     sessionId: s.sid,
     revision,
     generatedAt,
-    learner: { displayName: i.profile?.displayName ?? '学员', ref: refOf(salt, s.sub) },
+    // no display name: empty, each renderer shows its own word for “learner”
+    learner: { displayName: i.profile?.displayName ?? '', ref: refOf(salt, s.sub) },
     lab: {
       id: lab.id,
       kind: lab.kind,
@@ -275,7 +289,7 @@ export function buildReport(i: ReportInputs, revision: number, generatedAt: stri
     steps,
     checkHistory,
     experiments,
-    cost: { quote: (s.costQuote as Record<string, unknown> | null | undefined) ?? null, resources, notes: ['估算 · 单价取自 Price List · 以官方定价与账单为准', '未取得单价的资源只列出时长，不按 0 计'] },
+    cost: { quote: (s.costQuote as Record<string, unknown> | null | undefined) ?? null, resources, noteKeys: [...COST_NOTE_KEYS] },
     ...(i.quiz ? { quiz: i.quiz } : {}),
     ...(badge ? { badge } : {}),
     cleanup: { status: cleanupStatus, reclaimed, pendingManual, verify },
@@ -373,7 +387,7 @@ export async function storeReport(
             digest: report.integrity.digest,
             contentDigest,
             summary: { stepsDone, stepsTotal, evidenceQuality: report.outcome.trustSummary, experiments: report.experiments.length, durationMinutes: report.timing.totalMinutes, attemptStatus: report.outcome.attemptStatus },
-            eligibility: { badge: !!report.badge, reasons: report.badge ? [] : ['尝试未完成或徽章条件未满足'] },
+            eligibility: { badge: !!report.badge, reasons: report.badge ? [] : [...ELIGIBILITY_REASONS] },
             ...Gsi1.report(inputs.session.sub, opts.nowIso, sid),
           },
     { now: () => opts.nowIso },

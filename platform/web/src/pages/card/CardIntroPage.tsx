@@ -14,7 +14,7 @@ import { Link, useLocation, useParams, useSearchParams } from 'react-router-dom'
 import { isApiError } from '../../api/errors';
 import { useAuth, useServices, useSessionSync } from '../../app/context';
 import { useGlobalStatus } from '../../app/globalStatus';
-import { msg, t } from '../../i18n';
+import { joinSoftBreaks, msg, rich, t, withoutOptionalMark } from '../../i18n';
 import { formatDate } from '../../lib/format';
 import { Button, CostTierMark, Dialog, EmptyState, ErrorPanel, SessionStatePill, Shape, Skeleton } from '../../ui';
 import { MetricIcon, StepTypeIcon } from '../../ui/charts';
@@ -35,8 +35,8 @@ import { startModel, type ResidualPolicy, type StartModel } from './startModel';
 import { SS } from './strings';
 
 import zhPages from '../../i18n/zh-CN/pages';
-import { untranslated } from '../../i18n/content';
-import { UntranslatedIf } from '../../i18n/Untranslated';
+import { actualLang, untranslated } from '../../i18n/content';
+import { FallbackText, InLang, UntranslatedIf } from '../../i18n/Untranslated';
 
 const PC = msg.pages.card;
 const zhOverviewHeading = zhPages.card.overviewHeading;
@@ -274,9 +274,10 @@ function ResourcesBlock({ intro, region }: { intro: CardIntro | null; region: st
           {SS.sections.targetTail}
         </p>
       ) : null}
-      {(r?.expectedWarnings ?? []).map((w) => (
+      {(r?.expectedWarnings ?? []).map((w, i) => (
         <p key={w.rule} className="small muted">
-          {t(SS.sections.warnings, { name: w.rule, text: w.text })}
+          {/* 规则消息来自 CloudAlbum 后端（只有 zh-CN）：回退的文字带 lang 与“未翻訳”标记 */}
+          {rich(SS.sections.warnings, { name: w.rule, text: <FallbackText text={w.text} show={untranslated(intro, `/resources/expectedWarnings/${i}/text`)} /> })}
         </p>
       ))}
       <p className="small muted">
@@ -329,7 +330,7 @@ function StepsList({ intro }: { intro: CardIntro | null }) {
             <StepTypeIcon type={STEP_ICON[s.type] ?? s.type} size={20} />
             <span className="sr">{STEP_TYPE_TEXT[s.type] ?? s.type}</span>
           </span>
-          <span className="sl-title wrap-any">{s.title}</span>
+          <span className="sl-title wrap-any">{s.optional ? withoutOptionalMark(s.title) : s.title}</span>
           <span className="sl-marks">
             {s.optional ? <span className="tag">{SS.sections.markOptional}</span> : null}
             {s.wait ? (
@@ -401,8 +402,17 @@ function ComparePair({ target: x }: { target: VsTarget }) {
         ) : (
           <ServiceGlyph id={x.id} size={40} tone="ghost" />
         )}
-        <span className={x.from ? 'vs-name mono' : 'vs-name muted'}>{x.from ?? SS.visual.none}</span>
-        <span className="vs-note small faint">{x.from ? SS.visual.local : SS.visual.notYet}</span>
+        {x.from ? (
+          <>
+            <span className="vs-name">{SS.visual.local}</span>
+            <span className="vs-drv small mono faint">{t(SS.visual.driver, { driver: x.from })}</span>
+          </>
+        ) : (
+          <>
+            <span className="vs-name muted">{SS.visual.none}</span>
+            <span className="vs-note small faint">{SS.visual.notYet}</span>
+          </>
+        )}
       </div>
       <span className="vs-arrow" aria-hidden="true">
         <svg width="20" height="20" viewBox="0 0 20 20" focusable="false">
@@ -412,7 +422,9 @@ function ComparePair({ target: x }: { target: VsTarget }) {
       <div className="vs-side after">
         <span className="vs-cap">{t(SS.visual.with, { name: short })}</span>
         <ServiceGlyph id={x.id} size={40} />
-        <span className="vs-name mono">{x.to ?? short}</span>
+        {/* 服务短名为主，驱动名是小号等宽的副标签（“S3 · driver s3”） */}
+        <span className="vs-name">{short}</span>
+        {x.to ? <span className="vs-drv small mono faint">{t(SS.visual.driver, { driver: x.to })}</span> : null}
         <span className="vs-note small faint">{x.optional ? SS.sections.elective : glyphModule(x.id)?.awsService ?? x.name}</span>
       </div>
       <figcaption className="sr">{x.from ? t(SS.sections.targetItem, { name: x.name, from: x.from, to: x.to ?? '' }) : t(SS.sections.targetItemNew, { name: x.name, to: x.to ?? '' })}</figcaption>
@@ -557,7 +569,7 @@ export default function CardIntroPage() {
           {card.kind === 'service' ? <CardGlyph card={card} size={48} /> : <ServiceStrip card={card} tax={tax} />}
           <div className="stack-4 grow">
             <h1 tabIndex={-1}>
-              {card.title}
+              <InLang lang={actualLang(card, '/title', card.title)}>{card.title}</InLang>
               <UntranslatedIf show={untranslated(card, '/title') || untranslated(intro.data)} />
               {card.kind === 'scenario' && card.subtitle ? <span className="h1-sub">{card.subtitle}</span> : null}
             </h1>
@@ -710,7 +722,13 @@ export default function CardIntroPage() {
           <section className="sec" aria-labelledby="sec-bg">
             <h2 id="sec-bg">{SECTION_TEXT.background}</h2>
             {intro.loading && !intro.data ? <Skeleton lines={2} /> : null}
-            {intro.data?.story ? <p>{intro.data.story}</p> : <p>{card.summary}</p>}
+            {intro.data?.story ? (
+              <p>
+                <InLang lang={actualLang(intro.data, '/story', intro.data.story)}>{joinSoftBreaks(intro.data.story)}</InLang>
+              </p>
+            ) : (
+              <p>{joinSoftBreaks(card.summary ?? '')}</p>
+            )}
             {background || whyTogether || platformNote ? (
               <More>
                 {background ? <MarkdownView nodes={background} /> : null}

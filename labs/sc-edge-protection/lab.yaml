@@ -86,31 +86,31 @@ objectives:
     relatesTo: enable-waf
   - text:
       zh-CN: 用托管前缀列表加自定义请求头锁定源站，并用安全组规则证明无法绕过
-      ja: マネージドプレフィックスリストとカスタムリクエストヘッダーでオリジンをロックし、セキュリティグループのルールで迂回できないことを示す
+      ja: マネージドプレフィックスリストとカスタムリクエストヘッダーでオリジンをロックし、セキュリティグループのルールで迂回できないことを示せる
       en: Lock down the origin with the managed prefix list plus a custom request header, and prove with security group rules that it cannot be bypassed
     domain: secure
     relatesTo: verify-lock
   - text:
       zh-CN: 托管规则组先 Count 观察误杀，再切到 Block
-      ja: マネージドルールグループはまず Count で誤検知を観察し、その後 Block に切り替える
+      ja: マネージドルールグループをまず Count で動かして誤検知を観察し、その後 Block に切り替えられる
       en: Observe false positives with managed rule groups in Count first, then switch to Block
     domain: secure
     relatesTo: observe-count
   - text:
       zh-CN: 用源站日志的服务端证据区分“边缘拦截”与“源站 Nginx 拒绝”
-      ja: オリジンのログというサーバー側の証拠で、「エッジでのブロック」と「オリジンの Nginx による拒否」を区別する
+      ja: オリジンのログというサーバー側の証拠で、「エッジでのブロック」と「オリジンの Nginx による拒否」を区別できる
       en: Use server-side evidence from origin logs to tell "blocked at the edge" from "refused by Nginx at the origin"
     domain: secure
     relatesTo: switch-block
   - text:
       zh-CN: 比较 Nginx 精确限速与 WAF 速率规则的窗口聚合
-      ja: Nginx の正確なレート制限と WAF のレートベースのルールのウィンドウ集計を比較する
+      ja: Nginx の正確なレート制限と、WAF のレートベースのルールのウィンドウ集計を比較できる
       en: Compare Nginx's precise rate limiting with the windowed aggregation of WAF rate-based rules
     domain: resilient
     relatesTo: after
   - text:
       zh-CN: 区分 Shield Standard、Shield Advanced、WAF 与 GuardDuty 各管哪一层
-      ja: Shield Standard、Shield Advanced、WAF、GuardDuty がそれぞれどの層を担当するかを区別する
+      ja: Shield Standard、Shield Advanced、WAF、GuardDuty がそれぞれどの層を担当するかを区別できる
       en: Tell which layer Shield Standard, Shield Advanced, WAF and GuardDuty each cover
     domain: secure
     relatesTo: layers
@@ -187,10 +187,10 @@ prerequisites:
       en: HTTP status codes and request headers
     - zh-CN: 安全组规则的基本结构
       ja: セキュリティグループのルールの基本構造
-      en: The basic structure of security group rules
+      en: the basic structure of security group rules
     - zh-CN: 七层与三/四层防护的区别
       ja: レイヤー 7 とレイヤー 3/4 の防御の違い
-      en: Layer 7 vs layer 3/4 protection
+      en: layer 7 vs layer 3/4 protection
 
 startProfile:
   provisions:
@@ -229,7 +229,7 @@ startProfile:
   platform: { preview: { directHttps: 'on' } }
   reason:
     zh-CN: 起始状态是 L0 + 实例角色（档位 atl/sc-edge-protection/default）。storage 刻意保持本地：照片经 /api/storage/upload 上传，大请求体会触发 CRS 的 SizeRestrictions_BODY，这正是“误杀与调优”的观察点；waf 的挂载点选 cdn（CLOUDFRONT 范围，没有按小时计费）
-    ja: 開始状態は L0 ＋インスタンスロールです（プロファイル atl/sc-edge-protection/default）。storage はあえてローカルのままにしています。写真は /api/storage/upload でアップロードされ、大きなリクエストボディが CRS の SizeRestrictions_BODY に一致することが、まさに「誤検知と調整」の観察ポイントだからです。waf の関連付け先には cdn を選びます（CLOUDFRONT スコープで、時間課金がない）
+    ja: 開始状態は L0 + インスタンスロールです（プロファイル atl/sc-edge-protection/default）。storage はあえてローカルのままにしています。写真は /api/storage/upload でアップロードされ、大きなリクエストボディが CRS の SizeRestrictions_BODY に一致することが、まさに「誤検知と調整」の観察ポイントだからです。waf の関連付け先には cdn を選びます（CLOUDFRONT スコープで、時間課金がない）
     en: "The start state is L0 plus the instance role (profile atl/sc-edge-protection/default). storage is deliberately kept local: photos upload through /api/storage/upload, and their large request bodies trigger CRS's SizeRestrictions_BODY, which is exactly the \"false positives and tuning\" observation point; waf attaches to cdn (CLOUDFRONT scope, no hourly billing)"
 targetModules:
   - id: cdn

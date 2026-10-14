@@ -6,6 +6,8 @@
  * - 完成后节点状态：new（新增）/ optional（选做目标）/ changed（目标已在开始时存在，只改配置）/ implied（依赖带入）/ present。
  * - 开始时，目标模块若有本地实现（from 不是 none），在它完成后的位置画 ghost（虚线框 + 驱动名，如 sqlite、local）。
  * - 连线规则见 edgesFor()：主请求路径、附着关系（WAF / ACM 挂在 CloudFront 或 ALB 上）、registry 硬依赖补充的虚线。
+ *   由驱动决定的路径：storage 是 S3（启用的模块默认就是 AWS 实现；目标的 to 为 efs 时除外）时，浏览器用预签名 URL 直接
+ *   上传 / 下载（browser → storage 为主路径），EC2 只签发 URL（ec2 → storage 降为辅助线）。
  *   运维与安全泳道是横切关注点，不画连线。
  * 输出与输入顺序无关（集合排序后处理），同样的输入总得到同样的结果。
  */
@@ -115,8 +117,21 @@ export function normalizeInput(input: ArchInput): { start: string[]; targets: Ar
   return { start, targets, unknown: [...unknown].sort() };
 }
 
-/** 一个状态的连线（确定性：按规则顺序生成，再按 from/to 排序去重）。 */
-export function edgesFor(present: ReadonlySet<string>, options: Readonly<Record<string, string>> = {}): Omit<StateEdge, 'highlight' | 'optional'>[] {
+/** storage 用 S3 时浏览器直传（预签名 URL）；efs 驱动（共享文件系统）仍经 EC2。 */
+function storageDirect(drivers: Readonly<Record<string, string | null | undefined>>): boolean {
+  const d = drivers.storage;
+  return !d || d === 's3';
+}
+
+/**
+ * 一个状态的连线（确定性：按规则顺序生成，再按 from/to 排序去重）。`drivers`：该状态下模块的驱动（目标模块完成后的 to；
+ * 没有给出的启用模块按 AWS 实现处理）。
+ */
+export function edgesFor(
+  present: ReadonlySet<string>,
+  options: Readonly<Record<string, string>> = {},
+  drivers: Readonly<Record<string, string | null | undefined>> = {},
+): Omit<StateEdge, 'highlight' | 'optional'>[] {
   const has = (id: string) => present.has(id);
   const out: Omit<StateEdge, 'highlight' | 'optional'>[] = [];
   const add = (from: string, to: string, kind: EdgeKind) => {
@@ -134,6 +149,9 @@ export function edgesFor(present: ReadonlySet<string>, options: Readonly<Record<
   add('waf', shield, 'attach');
   add('tls', shield, 'attach');
   add('browser', 'dns', 'aux');
+  // 对象存储：S3 时浏览器直接上传 / 下载（预签名 URL），EC2 只签名（svc-storage 的核心路径）
+  const direct = has('storage') && storageDirect(drivers);
+  if (direct) add('browser', 'storage', 'flow');
   // 身份
   add('browser', 'auth', 'aux');
   add('browser', 'identity-pool', 'aux');
@@ -152,7 +170,8 @@ export function edgesFor(present: ReadonlySet<string>, options: Readonly<Record<
     add('ec2', 'db-proxy', 'flow');
     add('db-proxy', 'database', 'flow');
   } else add('ec2', 'database', 'flow');
-  for (const d of ['cache', 'storage', 'shared-fs', 'social-store', 'queue', 'notification', 'analytics']) add('ec2', d, 'flow');
+  add('ec2', 'storage', direct ? 'aux' : 'flow');
+  for (const d of ['cache', 'shared-fs', 'social-store', 'queue', 'notification', 'analytics']) add('ec2', d, 'flow');
   if (!has('notification')) add('ec2', 'email', 'flow');
   add('notification', 'email', 'flow');
   add('notification', 'queue', 'flow');
@@ -192,10 +211,11 @@ function stateOf(
   nodes: StateNode[],
   options: Readonly<Record<string, string>>,
   frame: NodeStatus | null,
+  drivers: Readonly<Record<string, string | null | undefined>> = {},
 ): ArchState {
   const drawn = new Set(nodes.filter((n) => n.status !== 'ghost').map((n) => n.id));
   const status = new Map(nodes.map((n) => [n.id, n.status]));
-  const edges = edgesFor(drawn, options).map((e) => {
+  const edges = edgesFor(drawn, options, drivers).map((e) => {
     const a = status.get(e.from);
     const b = status.get(e.to);
     const optional = a === 'optional' || b === 'optional';
@@ -256,7 +276,7 @@ export function buildArchModel(input: ArchInput): ArchModel {
   const union = [...new Set([...beforeNodes, ...afterNodes].map((n) => n.id))].sort(byRank);
   return {
     before: stateOf('before', beforeNodes, options, frameStatus(before, beforeStatus)),
-    after: stateOf('after', afterNodes, options, frameStatus(after, afterStatus)),
+    after: stateOf('after', afterNodes, options, frameStatus(after, afterStatus), Object.fromEntries(targets.map((t) => [t.id, t.to ?? null]))),
     union,
     added: [...after].filter((id) => !before.has(id) && !optional.includes(id)).sort(byRank),
     changed: [...before].filter((id) => targetIds.has(id)).sort(byRank),

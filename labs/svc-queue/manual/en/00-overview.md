@@ -21,7 +21,7 @@ If the worker is killed halfway, the message reappears after the timeout and the
 - **With SQS**: the same burst upload, but at 30 s the worker is killed outright with `kill -9`. Undeleted messages reappear after the visibility timeout and the restarted worker carries on.
 - **Where you see it**: the number of lost jobs in the comparison report (`biz.jobs_lost`) drops from above 0 to 0; the EC2 CPU graph changes from a spike to a plateau, and draining takes longer;
   the response header `X-CloudAlbum-Path` changes from `queue=memory:queued` to `queue=sqs:queued`.
-- **If the results are not what you expect**: first confirm that both before and after ran on the worker tier; then confirm that after killed the worker, not the api.
+- **If the results are not what you expect**: first confirm that both the before and the after runs used the worker tier; then confirm that the after run killed the worker, not the api.
 
 ## Platform mode notes
 

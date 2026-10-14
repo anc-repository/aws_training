@@ -11,5 +11,5 @@ section: wrap-up
 
 - EBS ボリュームとインスタンスのライフサイクルは独立していること、`DeleteOnTermination` の既定値、EBS が AZ に固定されること、スナップショットによる AZ 間・リージョン間のコピー。
 - インスタンスストアと EBS の永続性の違い。Elastic IP とパブリック IPv4 の課金。
-- IMDSv2、ホップ数の制限、SSRF。User Data と `CreationPolicy` ＋ `cfn-signal`。SSM パブリックパラメータによる最新 AMI の解決。
+- IMDSv2、ホップ数の制限、SSRF。User Data と `CreationPolicy` + `cfn-signal`。SSM パブリックパラメーターによる最新 AMI の解決。
 - T 系の CPU クレジット（standard / unlimited）。セキュリティグループはステートフルで、許可ルールしかないこと。高可用性と「バックアップがある」ことの違い。

@@ -2,8 +2,8 @@
 step: enable
 ---
 
-Cognito を有効にします。モジュールは User Pool（`Retain` ＋削除保護、ユーザー名はメールアドレス、パスワードポリシー、任意の TOTP）、パブリックなアプリクライアント `cloudalbum-spa`、
-ユーザーグループ admin / member をデプロイし、読み取り専用期間中にローカルのアカウントを User Pool に bulk 移行します（`AdminCreateUser` ＋ `MessageAction=SUPPRESS`、招待メールは送りません）。
+Cognito を有効にします。モジュールは User Pool（`Retain` + 削除保護、ユーザー名はメールアドレス、パスワードポリシー、任意の TOTP）、パブリックなアプリクライアント `cloudalbum-spa`、
+ユーザーグループ admin / member をデプロイし、読み取り専用期間中にローカルのアカウントを User Pool に bulk 移行します（`AdminCreateUser` + `MessageAction=SUPPRESS`、招待メールは送りません）。
 その後 `auth.env` を書き込んで再起動します。最後にワークベンチであなたの権限でフック `cognito-passwords` を実行し、テストアカウントに既知のパスワードを設定します。
 
 :::method{kind=script default}

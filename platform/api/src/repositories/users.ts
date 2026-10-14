@@ -36,7 +36,7 @@ export class UsersRepo {
       email: p.email,
       role: p.role,
       displayName: p.displayName ?? p.email.split('@')[0] ?? p.sub,
-      ...(p.role === 'learner' ? { certName: null, locale: 'zh-CN', notify: {}, currentTrackId: 'saa-main' } : {}),
+      ...(p.role === 'learner' ? { certName: null, locale: 'ja', notify: {}, currentTrackId: 'saa-main' } : {}),
     };
     try {
       await this.table.put(item, { expression: 'attribute_not_exists(PK)' });

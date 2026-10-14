@@ -22,7 +22,7 @@ title:
   en: "AWS Lambda: thumbnail generation"
 subtitle:
   zh-CN: EC2 上的 sharp → S3 + EventBridge + Lambda
-  ja: EC2 上の sharp → S3 ＋ EventBridge ＋ Lambda
+  ja: EC2 上の sharp → S3 + EventBridge + Lambda
   en: sharp on EC2 → S3 + EventBridge + Lambda
 summary:
   zh-CN: 缩略图从 EC2 上的 sharp 改由 S3 → EventBridge → Lambda 生成，批量上传时“上传完成”接口与 EC2 CPU 曲线的变化一目了然。
@@ -45,11 +45,11 @@ objectives:
       en: Explain retries, maximum event age and on-failure destinations when EventBridge invokes Lambda asynchronously
     domain: resilient
     relatesTo: failures
-  - { text: { zh-CN: 用输入输出分离避免递归调用, ja: 入力と出力を分けて再帰呼び出しを防ぐ, en: Separate input from output to avoid recursive invocations }, domain: cost, relatesTo: inspect }
-  - { text: { zh-CN: 区分预留并发与预置并发, ja: 予約済み同時実行とプロビジョニングされた同時実行を区別する, en: Tell reserved concurrency from provisioned concurrency }, domain: performance, relatesTo: throttle }
+  - { text: { zh-CN: 用输入输出分离避免递归调用, ja: 入力と出力を分けて再帰呼び出しを防げる, en: Separate input from output to avoid recursive invocations }, domain: cost, relatesTo: inspect }
+  - { text: { zh-CN: 区分预留并发与预置并发, ja: 予約済み同時実行とプロビジョニングされた同時実行を区別できる, en: Tell reserved concurrency from provisioned concurrency }, domain: performance, relatesTo: throttle }
   - text:
       zh-CN: 理解 Lambda 无法读取 EBS：状态必须外置
-      ja: Lambda は EBS を読めないため、状態を外に出す必要があることを理解する
+      ja: Lambda は EBS を読めないため、状態を外に出す必要があることを説明できる
       en: Understand that Lambda cannot read EBS, so state has to live outside the instance
     domain: resilient
     relatesTo: enable
@@ -88,7 +88,7 @@ modules: { target: [image-processing], start: [iam, storage], context: [], relat
 prerequisites:
   cards:
     - { id: svc-storage, kind: soft }
-  knowledge: [{ zh-CN: 事件驱动与异步调用的基本概念, ja: イベント駆動と非同期呼び出しの基本, en: The basics of event-driven design and asynchronous invocation }]
+  knowledge: [{ zh-CN: 事件驱动与异步调用的基本概念, ja: イベント駆動と非同期呼び出しの基本, en: the basics of event-driven design and asynchronous invocation }]
 
 startProfile:
   provisions:
@@ -273,8 +273,8 @@ steps:
     type: cli
     title:
       zh-CN: （选做）冷启动与 Init Duration
-      ja: （任意）コールドスタートと Init Duration
-      en: (Optional) Cold starts and Init Duration
+      ja: コールドスタートと Init Duration
+      en: Cold starts and Init Duration
     manual: manual/70-cold-start.md
     optional:
       reason:

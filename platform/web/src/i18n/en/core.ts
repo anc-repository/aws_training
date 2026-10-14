@@ -27,8 +27,8 @@ export default {
   },
   nav: {
     label: 'Main navigation', // 主导航
-    catalog: 'Card catalog', // 卡片目录
-    track: 'Learning paths', // 学习路径
+    catalog: 'Catalog', // 卡片目录
+    track: 'Paths', // 学习路径
     learning: 'My learning', // 我的学习
     sessions: 'My labs', // 我的实验
     openMenu: 'Open navigation', // 打开导航

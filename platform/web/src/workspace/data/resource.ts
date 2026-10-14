@@ -5,6 +5,7 @@
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { isApiError, type ApiError } from '../../api/errors';
+import { useReloadOnLocale } from '../../i18n/hooks';
 
 export interface Resource<T> {
   data: T | null;
@@ -56,6 +57,8 @@ export function useResource<T>(key: string | null, fetcher: () => Promise<T | nu
     void refresh();
     return undefined;
   }, [key, enabled, refresh]);
+  // 界面语言变化：就地重取（内容地址与 Accept-Language 跟随新语言），刷新期间保留旧数据（工作台不卸载，终端不断开，09 §1.2）
+  useReloadOnLocale(enabled ? refresh : null);
 
   const interval = opts.intervalMs ?? null;
   useEffect(() => {

@@ -4,7 +4,7 @@
  * docs.aws.amazon.com / aws.amazon.com（05 §7.2 写作规则），外链新标签页打开并带“（新标签页）”。
  */
 import { Fragment, type ReactNode } from 'react';
-import { msg } from '../../i18n';
+import { joinSoftBreaks, msg } from '../../i18n';
 import { SECTION_TEXT } from '../labs/strings';
 import type { MdNode } from '../labs/types';
 
@@ -38,7 +38,7 @@ function MdNodeView({ node: n, k }: { node: MdNode; k: string }): ReactNode {
     case 'root':
       return <>{kids(n, k)}</>;
     case 'text':
-      return n.value ?? '';
+      return joinSoftBreaks(n.value ?? '');
     case 'paragraph':
       return <p>{kids(n, k)}</p>;
     case 'heading': {

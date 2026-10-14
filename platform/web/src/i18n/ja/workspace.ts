@@ -724,8 +724,8 @@ export default {
     },
     domain: {
       secure: 'セキュリティ', // 安全
-      resilient: '回復性', // 弹性
-      performance: '高パフォーマンス', // 高性能
+      resilient: '弾力性', // 弹性
+      performance: '高性能', // 高性能
       cost: 'コスト最適化', // 成本优化
     },
     fromVar: '変数 {name} から', // 来自变量 {name}

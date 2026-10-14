@@ -242,6 +242,7 @@ export default {
     cont: {
       title: 'Keep learning', // 继续学习
       path: '{track} · {stage} · required {done}/{total}', // {track} · {stage} · 必修 {done}/{total}
+      pathNoStage: '{track} · required {done}/{total}', // {track} · 必修 {done}/{total}
       recommend: 'Recommended', // 推荐
       recommendAfter: 'Recommended after the current environment', // 当前环境之后推荐
       view: 'View →', // 查看 →
@@ -252,6 +253,7 @@ export default {
     },
     map: {
       legend: 'Legend:', // 图例：
+      legendLevel: '{level}: {n, plural, one {# service} other {# services}}', // {level} {n} 项服务
       legendTail: '· dashed frame = includes manual · ! = needs review · * needs a domain to count via scenario cards · † no scenario card', // · 虚线框 = 含手动 · ! = 需复习 · * 需要域名才能由场景卡计入 · † 没有场景卡
       help: 'The score only drives the progress ring; the level follows the rules. Click a service to open the side panel; Tab into the map and use the arrow keys to move between cells.', // 分数只用于进度环；等级文字按规则判定。点击服务格打开侧栏；Tab 进入地图后用方向键在格子之间移动。
       cellLabel: '{name}, {fn}, {level}, {score} points', // {name}，{fn}，{level}，{score} 分

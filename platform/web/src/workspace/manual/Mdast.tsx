@@ -21,7 +21,7 @@ import { ExpectedOutput } from '../visual/ExpectedOutput';
 import { WsIcon } from '../visual/icons';
 import { codeAttrs, ManualCommand } from './ManualCommand';
 
-import { msg, t } from '../../i18n';
+import { joinSoftBreaks, msg, t } from '../../i18n';
 import { W } from '../strings';
 export interface RenderEnv {
   lab: LabDoc;
@@ -202,7 +202,7 @@ export function Node({ node: n, env }: { node: MdNode; env: RenderEnv }): ReactN
     case 'root':
       return <Children node={n} env={env} />;
     case 'text':
-      return <InlineText text={n.value ?? ''} vars={env.vars} />;
+      return <InlineText text={joinSoftBreaks(n.value ?? '')} vars={env.vars} />;
     case 'paragraph':
       if (!env.inFold && collectTexts(n).join('').length >= CLAMP_MIN_CHARS) {
         return (

@@ -49,6 +49,24 @@ describe('labs:build', () => {
     expect(Object.keys(manifest.files).length).toBe(r1.files - 1);
   });
 
+  it('the card intro and the catalog index give every target module the same start driver (at-start diagram, with vs without)', () => {
+    const index = readJson(out1, 'catalog/index.json') as { cards: { id: string; targets?: { module: string; from: string | null }[] }[] };
+    let compared = 0;
+    for (const card of index.cards) {
+      if (!card.targets?.length || !fs.existsSync(path.join(out1, 'catalog', 'cards', `${card.id}.json`))) continue;
+      const intro = readJson(out1, `catalog/cards/${card.id}.json`) as { resources?: { targets?: { moduleId: string; from?: string }[] } };
+      const fromIntro = Object.fromEntries((intro.resources?.targets ?? []).map((t) => [t.moduleId, t.from ?? null]));
+      for (const t of card.targets) {
+        expect([card.id, t.module, fromIntro[t.module] ?? null]).toEqual([card.id, t.module, t.from]);
+        compared += 1;
+      }
+    }
+    expect(compared).toBeGreaterThan(40);
+    // svc-storage starts with the local disk implementation and ends on S3
+    const storage = readJson(out1, 'catalog/cards/svc-storage.json') as { resources: { targets: { moduleId: string; from?: string; to: string }[] } };
+    expect(storage.resources.targets.find((t) => t.moduleId === 'storage')).toMatchObject({ from: 'local', to: 's3' });
+  });
+
   it('is deterministic', () => {
     expect(r2.contentDigest).toBe(r1.contentDigest);
   });

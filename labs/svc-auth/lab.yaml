@@ -43,7 +43,7 @@ story:
 objectives:
   - text:
       zh-CN: 区分 User Pool（认证）与 Identity Pool（换 AWS 凭证）
-      ja: User Pool（認証）と Identity Pool（AWS 認証情報への交換）を区別する
+      ja: User Pool（認証）と Identity Pool（AWS 認証情報への交換）を区別できる
       en: Tell the User Pool (authentication) apart from the Identity Pool (exchange for AWS credentials)
     domain: secure
     relatesTo: enable
@@ -55,13 +55,13 @@ objectives:
     relatesTo: tokens
   - text:
       zh-CN: 理解无状态校验的代价：登出后 access token 在过期前仍然有效
-      ja: ステートレスな検証の代償を理解する：サインアウト後もアクセストークンは有効期限まで使える
+      ja: ステートレスな検証の代償を説明できる：サインアウト後もアクセストークンは有効期限まで使える
       en: "Understand the cost of stateless validation: after sign-out, an access token stays valid until it expires"
     domain: secure
     relatesTo: tokens
   - text:
       zh-CN: 用共享责任模型解释“密码交给 AWS 后还剩什么是我们的事”
-      ja: 責任共有モデルを使って「パスワードを AWS に任せた後、何が自分たちの仕事として残るか」を説明する
+      ja: 責任共有モデルを使って「パスワードを AWS に任せた後、何が自分たちの仕事として残るか」を説明できる
       en: Use the shared responsibility model to explain what is still our job after passwords move to AWS
     domain: secure
     relatesTo: inspect-client
@@ -89,10 +89,10 @@ prerequisites:
   knowledge:
     - zh-CN: HTTP Cookie 与 JWT 的基本结构
       ja: HTTP Cookie と JWT の基本構造
-      en: The basic structure of HTTP cookies and JWTs
+      en: the basic structure of HTTP cookies and JWTs
     - zh-CN: 一个能收信的邮箱（注册验证码会真实发出）
       ja: 受信できるメールアドレス（登録時の確認コードが実際に送信されます）
-      en: An email address you can receive mail at (sign-up verification codes are really sent)
+      en: an email address you can receive mail at (sign-up verification codes are really sent)
 
 startProfile:
   provisions:
@@ -314,7 +314,7 @@ saa:
     - id: clients
       title:
         zh-CN: 公有客户端与机密客户端、授权码 + PKCE
-        ja: パブリッククライアントと機密クライアント、認可コード＋ PKCE
+        ja: パブリッククライアントと機密クライアント、認可コード + PKCE
         en: Public and confidential clients; authorization code + PKCE
       domain: secure
       relatesTo: inspect-client

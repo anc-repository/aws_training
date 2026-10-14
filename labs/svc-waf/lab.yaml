@@ -49,25 +49,25 @@ objectives:
     relatesTo: enable
   - text:
       zh-CN: 用服务端证据区分“边缘拦截”和“源站 Nginx 的 403/429”
-      ja: サーバー側の証拠で「エッジでのブロック」と「オリジンの Nginx の 403/429」を区別する
+      ja: サーバー側の証拠で「エッジでのブロック」と「オリジンの Nginx の 403/429」を区別できる
       en: Use server-side evidence to tell "blocked at the edge" from "403/429 from Nginx at the origin"
     domain: secure
     relatesTo: switch-block
   - text:
       zh-CN: 理解托管规则组先 Count 后 Block，以及 CRS 对大请求体的误杀
-      ja: マネージドルールグループはまず Count、その後 Block にすること、そして CRS による大きなリクエストボディの誤検知を理解する
+      ja: マネージドルールグループはまず Count、その後 Block にすること、そして CRS による大きなリクエストボディの誤検知を説明できる
       en: Understand that managed rule groups go Count first and Block later, and how CRS falsely blocks large request bodies
     domain: secure
     relatesTo: observe-count
   - text:
       zh-CN: 理解速率规则按窗口聚合、有检测延迟，与 Nginx 精确限速的差别
-      ja: レートベースのルールがウィンドウで集計され検知に遅延があること、Nginx の正確なレート制限との違いを理解する
+      ja: レートベースのルールがウィンドウで集計され検知に遅延があること、Nginx の正確なレート制限との違いを説明できる
       en: Understand that rate-based rules aggregate over a window with a detection delay, unlike Nginx's precise rate limiting
     domain: performance
     relatesTo: after
   - text:
       zh-CN: 理解源站锁定与“绕过 WAF”
-      ja: オリジンのロックと「WAF の迂回」を理解する
+      ja: オリジンのロックと「WAF の迂回」を説明できる
       en: Understand origin lock-down and "bypassing WAF"
     domain: secure
     relatesTo: lock-origin
@@ -128,10 +128,10 @@ prerequisites:
       en: HTTP status codes and request headers
     - zh-CN: 七层与三/四层防护的区别
       ja: レイヤー 7 とレイヤー 3/4 の防御の違い
-      en: Layer 7 vs layer 3/4 protection
+      en: layer 7 vs layer 3/4 protection
     - zh-CN: 正则与编码变体
       ja: 正規表現とエンコードのバリエーション
-      en: Regular expressions and encoding variants
+      en: regular expressions and encoding variants
 
 startProfile:
   provisions:
@@ -178,7 +178,7 @@ startProfile:
   platform: { preview: { directHttps: 'on' } }
   reason:
     zh-CN: 起始状态是 L0 + 实例角色 + cdn（源站 = EC2，入口未锁定，CDN_DIRECT_ACCESS 取默认 open）；档位 atl/svc-waf/default
-    ja: 開始状態は L0 ＋インスタンスロール＋ cdn（オリジン = EC2、入口はロックされておらず、CDN_DIRECT_ACCESS はデフォルトの open）です。プロファイル atl/svc-waf/default
+    ja: 開始状態は L0 + インスタンスロール + cdn（オリジン = EC2、入口はロックされておらず、CDN_DIRECT_ACCESS はデフォルトの open）です。プロファイル atl/svc-waf/default
     en: The start state is L0 plus the instance role plus cdn (origin = EC2, entry not locked, CDN_DIRECT_ACCESS at its default open); profile atl/svc-waf/default
 targetModules:
   - { id: waf, driver: aws, set: { WAF_RULE_ACTION: count }, params: { Scope: CLOUDFRONT }, wireStep: enable, adoptsExisting: false }
@@ -489,8 +489,8 @@ steps:
     type: observe
     title:
       zh-CN: （选做）封禁 IP 与 Shield
-      ja: （任意）IP のブロックと Shield
-      en: (Optional) IP blocking and Shield
+      ja: IP のブロックと Shield
+      en: IP blocking and Shield
     manual: manual/80-blocklist.md
     optional:
       reason:

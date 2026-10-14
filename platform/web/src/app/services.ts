@@ -9,6 +9,7 @@ import { serverClock as defaultClock, type ServerClock } from '../api/serverCloc
 import { SessionSync, type VisibilitySource } from '../api/sessionSync';
 import { AuthService } from '../auth/authService';
 import type { PlatformConfigJson } from '../auth/config';
+import { subscribeLocale } from '../i18n/runtime';
 import type { Channel } from '../lib/broadcast';
 
 /** P13 的全局对话框状态：登录过期（#5）、需要最近登录（#6）。 */
@@ -79,5 +80,7 @@ export function createServices(o: CreateServicesOptions): Services {
     if (wasOffline && !s.offline) sync.refreshNow();
     wasOffline = s.offline;
   });
+  // 语言切换：先丢弃 ETag 缓存（响应随 Accept-Language 变化，URL 不变），数据 hook 随后就地重取（09 §1.2）
+  subscribeLocale(() => api.invalidate());
   return { config: o.config, auth, api, connectivity, clock, sync, errors };
 }

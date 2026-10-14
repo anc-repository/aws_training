@@ -88,7 +88,7 @@ export default {
     allReleased: 'すべてのリソースを解放しました', // 已释放全部资源
     failedReleased: '起動に失敗しました。作成済みのリソースは解放しました', // 启动失败，已释放已创建的资源
     crumbs: 'パンくずリスト', // 面包屑
-    mySessions: '実験履歴', // 我的实验
+    mySessions: 'ラボ履歴', // 我的实验
     heading: '{labId} · 終了と回収', // {labId} · 结束与回收
     session: 'セッション {sid}', // 会话 {sid}
     env: ' · 環境 {name}', //  · 环境 {name}
@@ -166,7 +166,7 @@ export default {
     budget: '今月の費用が予算を超えたため、設定により保持を延長できません。', // 本月费用已超过预算，按设置不能延长保留。
     cannot: '現在は保持を延長できません。', // 当前不能延长保留。
     crumbs: 'パンくずリスト', // 面包屑
-    mySessions: '実験履歴', // 我的实验
+    mySessions: 'ラボ履歴', // 我的实验
     title: '環境を保持中', // 环境保留中
     heading: '環境を保持中 · {labId}', // 环境保留中 · {labId}
     autoRelease: '{until} に自動解放', // {until} 自动释放

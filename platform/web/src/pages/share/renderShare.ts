@@ -17,7 +17,13 @@ import { BADGE_LEVEL_TEXT, BADGE_STATUS_TEXT, COMPARE_REASON_TEXT, endReasonText
 import { redactDeep } from './publicRedact';
 import { shapeSvgString } from './shapes';
 
-import { getLocale, INTL_TAG, LOCALE_NAMES, LOCALES, msg, setLocale, t, type Locale } from '../../i18n/core';
+import { getLocale, INTL_TAG, LOCALE_NAMES, LOCALES, msg, registerLocaleDict, setLocale, t, type Locale } from '../../i18n/core';
+import { en } from '../../i18n/en';
+import { ja } from '../../i18n/ja';
+
+// 一份副本里同步渲染三种语言（Node 中也会运行）：词典静态打包进渲染器，不走 SPA 的按需加载
+registerLocaleDict('ja', ja);
+registerLocaleDict('en', en);
 /** atl.report/v1 中分享副本用到的部分（字段全部可选：上游版本不同也能渲染）。 */
 export interface ShareReport {
   schema?: string;

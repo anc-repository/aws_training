@@ -24,7 +24,7 @@ title:
   en: "AWS Budgets: cost guardrails and alerts"
 subtitle:
   zh-CN: 本地计费资源清单 → AWS Budgets 月度预算 + Cost Explorer
-  ja: ローカルの課金リソース一覧 → AWS Budgets の月次予算＋ Cost Explorer
+  ja: ローカルの課金リソース一覧 → AWS Budgets の月次予算 + Cost Explorer
   en: Local list of billed resources → AWS Budgets monthly budgets + Cost Explorer
 summary:
   zh-CN: 给项目装上费用护栏：本地计费资源清单“快而粗”，AWS Budgets 与 Cost Explorer“准而慢”，把两者并排看清。
@@ -46,7 +46,7 @@ story:
 objectives:
   - text:
       zh-CN: 用成本分配标签 + 预算把“项目的钱”与“账号的钱”分开看
-      ja: コスト配分タグと予算を使って「プロジェクトのお金」と「アカウントのお金」を分けて見る
+      ja: コスト配分タグと予算を使って「プロジェクトのお金」と「アカウントのお金」を分けて把握できる
       en: Use cost allocation tags and budgets to separate the project's money from the account's money
     domain: cost
     relatesTo: enable
@@ -56,10 +56,10 @@ objectives:
       en: Explain how fresh Budgets, Cost Explorer and billing alarms are and what each is for
     domain: cost
     relatesTo: side-by-side
-  - { text: { zh-CN: 理解抵扣额度为什么会掩盖真实用量, ja: クレジットが実際の使用量を覆い隠してしまう理由を理解する, en: Understand why credits can hide real usage }, domain: cost, relatesTo: enable }
+  - { text: { zh-CN: 理解抵扣额度为什么会掩盖真实用量, ja: クレジットが実際の使用量を覆い隠してしまう理由を説明できる, en: Understand why credits can hide real usage }, domain: cost, relatesTo: enable }
   - text:
       zh-CN: 识别按小时计费的资源（公网 IPv4、NAT、RDS…）
-      ja: 時間課金のリソース（パブリック IPv4、NAT、RDS など）を見分ける
+      ja: 時間課金のリソース（パブリック IPv4、NAT、RDS など）を見分けられる
       en: Recognize resources that are billed by the hour (public IPv4, NAT, RDS …)
     domain: cost
     relatesTo: orient
@@ -91,7 +91,7 @@ prerequisites:
     - { id: cost-tags-active }
     - { id: notify-email }
     - { id: budget-amounts }
-  knowledge: [{ zh-CN: 成本分配标签, ja: コスト配分タグ, en: Cost allocation tags }, { zh-CN: 月度账单与预测, ja: 月次の請求と予測, en: Monthly bills and forecasts }]
+  knowledge: [{ zh-CN: 成本分配标签, ja: コスト配分タグ, en: cost allocation tags }, { zh-CN: 月度账单与预测, ja: 月次の請求と予測, en: monthly bills and forecasts }]
 
 startProfile:
   provisions:
@@ -130,7 +130,7 @@ startProfile:
   platform: { preview: { directHttps: 'on' } }
   reason:
     zh-CN: cost 的 requires 为空；起始状态是 L0 + 实例角色（档位 atl/svc-cost/default）。本地估算在 L0 就在运行
-    ja: cost の requires は空です。開始状態は L0 ＋インスタンスロールです（プロファイル atl/svc-cost/default）。ローカルの見積もりは L0 の時点ですでに動いています
+    ja: cost の requires は空です。開始状態は L0 + インスタンスロールです（プロファイル atl/svc-cost/default）。ローカルの見積もりは L0 の時点ですでに動いています
     en: cost has no requires; the start state is L0 plus the instance role (profile atl/svc-cost/default). The local estimate is already running at L0
 targetModules:
   - { id: cost, driver: budgets, fromDriver: local,
@@ -242,8 +242,8 @@ steps:
     type: code
     title:
       zh-CN: （选做）抄录单价：注明出处与日期才参与估算
-      ja: （任意）単価を書き写す：出典と日付を明記したものだけが見積もりに使われる
-      en: "(Optional) Copy unit prices: only prices with a source and a date count toward the estimate"
+      ja: 単価を書き写す：出典と日付を明記したものだけが見積もりに使われる
+      en: "Copy unit prices: only prices with a source and a date count toward the estimate"
     manual: manual/20-rates.md
     optional:
       reason:
@@ -317,8 +317,8 @@ steps:
     type: experiment
     title:
       zh-CN: （选做）Cost Explorer：按 Module 标签看“无标签”费用
-      ja: （任意）Cost Explorer：Module タグで「タグなし」の費用を見る
-      en: "(Optional) Cost Explorer: look at untagged costs by the Module tag"
+      ja: Cost Explorer：Module タグで「タグなし」の費用を見る
+      en: "Cost Explorer: look at untagged costs by the Module tag"
     manual: manual/70-tag-coverage.md
     optional: { reason: { zh-CN: Cost Explorer API 按请求计费, ja: Cost Explorer API はリクエストごとに課金されます, en: The Cost Explorer API is billed per request } }
     experiment: { module: cost, id: tag-coverage, label: after }
@@ -331,8 +331,8 @@ steps:
     type: script
     title:
       zh-CN: （选做）预算动作：只作用于金丝雀角色
-      ja: （任意）予算アクション：カナリアロールにだけ作用させる
-      en: "(Optional) Budget action: only act on a canary role"
+      ja: 予算アクション：カナリアロールにだけ作用させる
+      en: "Budget action: only act on a canary role"
     manual: manual/80-budget-action.md
     methods: [script]
     optional:

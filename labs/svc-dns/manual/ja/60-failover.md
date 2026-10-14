@@ -2,7 +2,7 @@
 step: failover
 ---
 
-（任意）ルーティングポリシーをフェイルオーバーに変えます。PRIMARY ＝ラボ用インスタンスの EIP ＋ヘルスチェック（`origin.<ドメイン>/api/health/ready?scope=instance` を確認）、
+（任意）ルーティングポリシーをフェイルオーバーに変えます。PRIMARY ＝ラボ用インスタンスの EIP + ヘルスチェック（`origin.<ドメイン>/api/health/ready?scope=instance` を確認）、
 SECONDARY ＝レコードと同じ名前の S3 静的ウェブサイトバケットにあるメンテナンスページです。
 
 ```bash {runsOn=workstation}

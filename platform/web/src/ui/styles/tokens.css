@@ -40,6 +40,15 @@
   --dur-state:150ms; --dur-drawer:200ms; --dur-fresh:120ms;
   color-scheme:light;
 }
+/* 字体栈按语言（09 §1.4）：上面的 :root 是 zh-CN（源语言）。ja 用日文字体（假名与汉字字形），en 用系统 UI 字体；
+   页面中另一种语言的片段（回退显示的中文内容带 lang="zh-CN"、语言切换器的选项）按自己的 lang 换字体。只用本机字体（CSP 不加载外部字体） */
+:root:lang(ja){--font-sans:"Hiragino Sans","Hiragino Kaku Gothic ProN","Yu Gothic UI","Meiryo UI",Meiryo,"Noto Sans JP","Noto Sans CJK JP","Source Han Sans JP",system-ui,sans-serif; --font-mono:"JetBrains Mono","Cascadia Mono","SFMono-Regular",Consolas,"Noto Sans Mono CJK JP","BIZ UDGothic",Menlo,monospace}
+:root:lang(en){--font-sans:system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,"Noto Sans","Hiragino Sans","Yu Gothic UI",sans-serif}
+[lang]:not(:root):lang(zh-CN){--font-sans:"PingFang SC","Hiragino Sans GB","Microsoft YaHei UI","Microsoft YaHei","Noto Sans SC","Source Han Sans SC",system-ui,sans-serif; --font-mono:"JetBrains Mono","Cascadia Mono","SFMono-Regular",Consolas,"Noto Sans Mono CJK SC",Menlo,monospace}
+[lang]:not(:root):lang(ja){--font-sans:"Hiragino Sans","Hiragino Kaku Gothic ProN","Yu Gothic UI","Meiryo UI",Meiryo,"Noto Sans JP","Noto Sans CJK JP","Source Han Sans JP",system-ui,sans-serif; --font-mono:"JetBrains Mono","Cascadia Mono","SFMono-Regular",Consolas,"Noto Sans Mono CJK JP","BIZ UDGothic",Menlo,monospace}
+[lang]:not(:root):lang(en){--font-sans:system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,"Noto Sans","Hiragino Sans","Yu Gothic UI",sans-serif}
+[lang]:not(:root){font-family:var(--font-sans)}
+:is(code,kbd,pre,samp,.mono)[lang]:not(:root){font-family:var(--font-mono)}
 @media (prefers-color-scheme: dark){
   :root:not([data-theme="light"]){
     --bg:#141517; --surface:#1B1C1F; --surface-2:#232428; --border:#34363B; --border-strong:#6E7179;

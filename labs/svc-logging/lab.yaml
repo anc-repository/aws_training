@@ -49,19 +49,19 @@ objectives:
     relatesTo: wire
   - text:
       zh-CN: 测量摄取延迟，理解“本地立即可见、云端秒级延迟”
-      ja: 取り込みの遅延を測定し、「ローカルでは即時、クラウドでは秒単位の遅延」を理解する
+      ja: 取り込みの遅延を測定し、「ローカルでは即時、クラウドでは秒単位の遅延」であることを説明できる
       en: Measure ingestion latency and understand "immediate locally, seconds of delay in the cloud"
     domain: performance
     relatesTo: ingest
   - text:
       zh-CN: 用指标过滤器把日志变成指标，并知道它不回溯
-      ja: メトリクスフィルターでログをメトリクスに変え、過去にはさかのぼらないことを知る
+      ja: メトリクスフィルターでログをメトリクスに変換できる（過去のログにはさかのぼって適用されない）
       en: Turn logs into metrics with metric filters, knowing that they do not apply retroactively
     domain: resilient
     relatesTo: insights
   - text:
       zh-CN: 区分 Logs Insights、订阅过滤器与导出到 S3
-      ja: Logs Insights、サブスクリプションフィルター、S3 へのエクスポートを区別する
+      ja: Logs Insights、サブスクリプションフィルター、S3 へのエクスポートを区別できる
       en: Tell Logs Insights, subscription filters and export to S3 apart
     domain: cost
     relatesTo: after
@@ -120,7 +120,7 @@ prerequisites:
       en: JSON logs
     - zh-CN: 正则或关键字检索
       ja: 正規表現またはキーワードでの検索
-      en: Searching with regular expressions or keywords
+      en: searching with regular expressions or keywords
 
 startProfile:
   provisions:
@@ -160,7 +160,7 @@ startProfile:
   platform: { preview: { directHttps: 'on' } }
   reason:
     zh-CN: logging 的 requires 为空；起始状态是 L0 + 实例角色 + 故障注入开关（档位 atl/svc-logging/default）
-    ja: logging の requires は空です。開始状態は L0 ＋インスタンスロール＋障害注入スイッチです（プロファイル atl/svc-logging/default）
+    ja: logging の requires は空です。開始状態は L0 + インスタンスロール + 障害注入スイッチです（プロファイル atl/svc-logging/default）
     en: logging has no requires; the start state is L0 plus the instance role plus the fault injection switch (profile atl/svc-logging/default)
 targetModules:
   - { id: logging, driver: cloudwatch, fromDriver: file, params: { RetentionInDays: 14 }, wireStep: wire, adoptsExisting: false }
@@ -344,8 +344,8 @@ steps:
     type: script
     title:
       zh-CN: （选做）改用 CloudWatch Agent 采集
-      ja: （任意）CloudWatch エージェントでの収集に切り替える
-      en: (Optional) Switch to collection with the CloudWatch agent
+      ja: CloudWatch エージェントでの収集に切り替える
+      en: Switch to collection with the CloudWatch agent
     manual: manual/70-agent.md
     methods: [script]
     optional:

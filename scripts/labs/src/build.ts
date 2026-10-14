@@ -32,7 +32,7 @@ import { expandChecks, expandPitfalls } from './checks.js';
 import { fullCards, loadContent, type CardContent, type ContentSet, type LintIssue } from './content.js';
 import { deriveAll, type CardDerivation, type DeriverMode } from './derive/index.js';
 import { CONTENT_LANGS, diffPointers, FALLBACK_MARK, generatedText, SOURCE_LANG, TRANSLATED_LANGS, type ContentLang } from './l10n.js';
-import { loadRegistry, registryVersion, toolkitVersion } from './registry.js';
+import { loadRegistry, registryVersion, startDriverOf, toolkitVersion } from './registry.js';
 import { readTextIfExists } from './paths.js';
 
 export interface BuildOptions {
@@ -114,7 +114,12 @@ function cardIntro(set: ContentSet, card: CardContent, messages: Map<string, str
     resources: {
       provisions,
       extraStacks: (lab.extraStacks ?? []).map((x) => ({ id: x.id, title: x.id })),
-      targets: (lab.targetModules ?? []).map((t) => ({ moduleId: t.id, displayName: displayName(set, t.id), ...(t.fromDriver ? { from: t.fromDriver } : {}), to: t.driver, optional: t.optional === true })),
+      targets: (lab.targetModules ?? []).map((t) => {
+        // same start driver as the catalog index (fromDriver, else the local implementation): the intro's “at start” diagram and
+        // the “with vs without” pair show the local driver the learner starts with
+        const from = startDriverOf(set.paths, t);
+        return { moduleId: t.id, displayName: displayName(set, t.id), ...(from ? { from } : {}), to: t.driver, optional: t.optional === true };
+      }),
       expectedWarnings: (lab.expectedWarnings ?? []).map((r) => ({ rule: r, text: mark(messages.get(r) ?? '') })),
     },
     steps: (lab.steps ?? []).map((s) => ({

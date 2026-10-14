@@ -148,7 +148,7 @@ export default {
     copy: 'コピー', // 复制
     copyWarn: 'コピー (!)', // 复制 (!)
     pasteLabel: '{target}のターミナルに貼り付け', // 粘贴到{target}终端
-    pasteTo: '{target} に貼り付け', // 粘贴到 {target}
+    pasteTo: '{target}に貼り付け', // 粘贴到 {target}
     morePaste: 'その他の貼り付け方法', // 更多粘贴方式
     pasteNewTab: '新しいターミナルのサブタブに貼り付け', // 在新的终端子标签中粘贴
     pasteExecute: '貼り付けて実行', // 粘贴并执行

@@ -12,7 +12,7 @@ aws s3api list-objects-v2 --bucket {{ var.rawBucket }} --prefix raw/ --max-items
 
 :::expected
 The PUT request's host is `{{ var.rawBucket }}.s3.{{ session.region }}.amazonaws.com` and the URL carries `X-Amz-Signature`;
-the objects you just uploaded appear under the `raw/` prefix; the lab instance's network card shows almost no inbound traffic growing with the uploads.
+the objects you just uploaded appear under the `raw/` prefix; the lab instance's network interface shows almost no inbound traffic growing with the uploads.
 :::
 
 ::checks

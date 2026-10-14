@@ -7,6 +7,7 @@
  * < 768px 折叠为“卡片 id · 状态 · 剩余时间 ⋯”，延长与结束收进 ⋯。
  */
 import { Link } from 'react-router-dom';
+import { useLocaleSync } from '../../app/localeSync';
 import { getThemePref, setThemePref, type ThemePref } from '../../app/theme';
 import { formatClock, formatCountdown } from '../../lib/format';
 import { BrandMark, Countdown, Disclosure, Icon, SessionStatePill, Shape, displayState, useSecondTick } from '../../ui';
@@ -35,6 +36,7 @@ function ElapsedClock({ since, now }: { since: string; now: () => number }) {
 
 export function SessionBar(p: SessionBarProps) {
   const ws = useWorkspace();
+  const onLocale = useLocaleSync();
   // 每秒重算剩余时间（服务端时钟），只重绘顶栏
   useSecondTick(true);
   const v = ws.view;
@@ -269,7 +271,10 @@ export function SessionBar(p: SessionBarProps) {
                   aria-pressed={getLocale() === l}
                   onClick={() => {
                     close();
+                    if (l === getLocale()) return;
+                    // 原地切换（LocaleRoot 不重新挂载）：终端连接、手册与对话框的状态都保留；与顶栏一样同步个人资料
                     setLocale(l);
+                    onLocale(l);
                   }}
                 >
                   {LOCALE_NAMES[l]}

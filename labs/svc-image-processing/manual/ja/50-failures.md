@@ -2,7 +2,7 @@
 step: failures
 ---
 
-失敗の経路です。壊れた JPEG（正しいファイルヘッダー＋ランダムなバイト）をアップロードします。これは恒久的なエラーで、何回再試行しても成功しません。そのため関数はそのまま FAILED を書き戻し、例外も投げず、再試行もしません。
+失敗の経路です。壊れた JPEG（正しいファイルヘッダー + ランダムなバイト）をアップロードします。これは恒久的なエラーで、何回再試行しても成功しません。そのため関数はそのまま FAILED を書き戻し、例外も投げず、再試行もしません。
 
 ```bash {runsOn=workstation}
 npm run exp -- image-processing --label after --scenario failures --param count=3 --upload

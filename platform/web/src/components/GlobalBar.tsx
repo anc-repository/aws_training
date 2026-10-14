@@ -6,9 +6,9 @@
  */
 import { lazy, Suspense, useEffect, useRef, useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { useAuth, useServices } from '../app/context';
 import { useGlobalStatus } from '../app/globalStatus';
-import { msg, type Locale } from '../i18n';
+import { useLocaleSync } from '../app/localeSync';
+import { msg } from '../i18n';
 import { LanguageSwitcher } from '../i18n/LanguageSwitcher';
 import { BrandMark, Disclosure, Drawer, Icon, Skeleton } from '../ui';
 import { AccountMenu } from './AccountMenu';
@@ -78,16 +78,6 @@ function ProgressDisclosure() {
       )}
     </Disclosure>
   );
-}
-
-/** 语言切换后：丢弃按语言缓存的 API 响应，并尽力同步到个人资料（09 §1.1；失败不影响切换）。 */
-function useLocaleSync(): (l: Locale) => void {
-  const { api } = useServices();
-  const auth = useAuth();
-  return (l) => {
-    api.invalidate();
-    if (auth.status === 'authenticated') void api.call('patchMe', { body: { locale: l } }).catch(() => undefined);
-  };
 }
 
 export function GlobalBar() {

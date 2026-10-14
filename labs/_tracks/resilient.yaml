@@ -4,15 +4,15 @@ id: resilient
 version: 1.0.0
 title:
   zh-CN: 弹性专项
-  ja: 回復性パス
+  ja: 弾力性パス
   en: Resilience path
 summary:
   zh-CN: 补强“设计弹性的架构”：单点与可替换的实例、解耦、跨 AZ 的高可用、备份与灾备。
-  ja: SAA の「回復性の高いアーキテクチャの設計」を強化します。単一障害点と置き換え可能なインスタンス、疎結合、複数 AZ による高可用性、バックアップと DR を扱います。
+  ja: SAA の「弾力性に優れたアーキテクチャの設計」を強化します。単一障害点と置き換え可能なインスタンス、疎結合、複数 AZ による高可用性、バックアップと DR を扱います。
   en: 'Strengthens the SAA domain "Design Resilient Architectures": single points of failure and replaceable instances, decoupling, multi-AZ high availability, and backup and disaster recovery.'
 audience:
   zh-CN: 想补强 SAA“设计弹性的架构”领域的学员
-  ja: SAA の「回復性の高いアーキテクチャの設計」分野を強化したい受講者
+  ja: SAA の「弾力性に優れたアーキテクチャの設計」分野を強化したい受講者
   en: Learners who want to strengthen the SAA domain "Design Resilient Architectures"
 domain: resilient
 stages:
@@ -78,5 +78,5 @@ certificate:
   enabled: true
   title:
     zh-CN: 弹性架构专项证书
-    ja: 回復性アーキテクチャパス修了証
+    ja: 弾力性アーキテクチャパス修了証
     en: Resilient architecture path certificate

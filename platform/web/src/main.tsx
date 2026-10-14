@@ -10,7 +10,7 @@ import { App } from './app/App';
 import { createServices } from './app/services';
 import { applyTheme } from './app/theme';
 import { loadConfig } from './auth/config';
-import { msg } from './i18n';
+import { localeReady, msg } from './i18n';
 import { LocaleRoot } from './i18n/LocaleRoot';
 
 applyTheme();
@@ -33,8 +33,9 @@ function ConfigError() {
   );
 }
 
-loadConfig()
-  .then((config) => {
+// 配置与当前语言的词典（ja / en 是按需加载的 chunk）并行读取，都到了再渲染（不先闪一下源语言）
+Promise.all([loadConfig(), localeReady()])
+  .then(([config]) => {
     const services = createServices({ config });
     void services.auth.init();
     window.addEventListener('pagehide', () => services.sync.dispose());
@@ -47,9 +48,11 @@ loadConfig()
     );
   })
   .catch(() =>
-    root.render(
-      <LocaleRoot>
-        <ConfigError />
-      </LocaleRoot>,
+    void localeReady().then(() =>
+      root.render(
+        <LocaleRoot>
+          <ConfigError />
+        </LocaleRoot>,
+      ),
     ),
   );

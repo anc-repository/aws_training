@@ -14,6 +14,7 @@ import type { SessionView } from '../../api/types';
 import { useServices, useSessionSync } from '../../app/context';
 import { useGlobalStatus } from '../../app/globalStatus';
 import { contentUrl, fetchContentJson } from '../../i18n/content';
+import { useLocale, useReloadOnLocale } from '../../i18n/hooks';
 
 export type LoadStatus = 'loading' | 'ok' | 'missing' | 'error';
 
@@ -149,6 +150,8 @@ export function useApiData<T>(key: string | null, routeId: RouteId, call: CallOp
     }, pollMs);
     return () => clearInterval(id);
   }, [key, pollMs, refresh]);
+  // 界面语言变化：就地重取（Accept-Language 跟随新语言），保留旧数据直到新数据到达（09 §1.2）
+  useReloadOnLocale(key === null ? null : refresh);
 
   return { data, error, status, loaded, refresh, setData };
 }
@@ -182,6 +185,8 @@ export function fetchStaticJson<T>(url: string): Promise<T | null> {
 
 export function useStaticJson<T>(url: string | null): { data: T | null; loaded: boolean } {
   const [state, setState] = useState<{ url: string | null; data: T | null; loaded: boolean }>({ url: null, data: null, loaded: false });
+  // 语言变化时按新语言重取（fetchStaticJson 读当前语言的地址）；同一 url 在新数据到达前保留旧数据
+  const locale = useLocale();
   useEffect(() => {
     if (!url) return undefined;
     let cancelled = false;
@@ -191,7 +196,7 @@ export function useStaticJson<T>(url: string | null): { data: T | null; loaded: 
     return () => {
       cancelled = true;
     };
-  }, [url]);
+  }, [url, locale]);
   return state.url === url ? { data: state.data, loaded: state.loaded } : { data: null, loaded: !url };
 }
 
@@ -242,6 +247,8 @@ export interface LabContent {
   checks?: Record<string, { id?: string; title?: string; type?: string }>;
   experiments?: LabExperimentDecl[];
   workstation?: { required?: boolean; savingsMode?: string };
+  /** 目标模块（wireStep：接入该模块的步骤；报告的构成图据此区分已完成与未完成的部分）。 */
+  targetModules?: { id: string; wireStep?: string; optional?: boolean }[];
   catalogVersion?: string;
 }
 

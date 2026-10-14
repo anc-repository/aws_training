@@ -40,13 +40,13 @@ story:
 objectives:
   - text:
       zh-CN: 用托管前缀列表加自定义头保护自定义源站
-      ja: マネージドプレフィックスリストとカスタムヘッダーでカスタムオリジンを保護する
+      ja: マネージドプレフィックスリストとカスタムヘッダーでカスタムオリジンを保護できる
       en: Protect a custom origin with a managed prefix list and a custom header
     domain: secure
     relatesTo: enable-cdn
   - text:
       zh-CN: 用服务端证据区分“边缘命中”和“源站响应”
-      ja: サーバー側の証拠で「エッジでのヒット」と「オリジンからのレスポンス」を見分ける
+      ja: サーバー側の証拠で「エッジでのヒット」と「オリジンからのレスポンス」を見分けられる
       en: Tell an edge hit from an origin response using server-side evidence
     domain: performance
     relatesTo: observe-edge-cache
@@ -58,11 +58,11 @@ objectives:
     relatesTo: observe-edge-cache
   - text:
       zh-CN: 理解 CDN 降低源站出网流量与负载的原理
-      ja: CDN がオリジンのアウトバウンド通信量と負荷を減らす仕組みを理解する
+      ja: CDN がオリジンのアウトバウンド通信量と負荷を減らす仕組みを説明できる
       en: Understand how a CDN reduces origin egress traffic and load
     domain: cost
     relatesTo: after
-  - { text: { zh-CN: 比较失效与版本化文件名, ja: 無効化とバージョン付きファイル名を比較する, en: Compare invalidations with versioned file names }, domain: performance, relatesTo: invalidation }
+  - { text: { zh-CN: 比较失效与版本化文件名, ja: 無効化とバージョン付きファイル名を比較できる, en: Compare invalidations with versioned file names }, domain: performance, relatesTo: invalidation }
 difficulty: intermediate
 estimatedMinutes: 75
 timeLimitMinutes: 120
@@ -293,8 +293,8 @@ steps:
     type: experiment
     title:
       zh-CN: （选做）压缩：文本资源经 CloudFront 返回 br
-      ja: （任意）圧縮：テキスト系リソースが CloudFront 経由で br で返る
-      en: "(Optional) Compression: text assets come back as br through CloudFront"
+      ja: 圧縮：テキスト系リソースが CloudFront 経由で br で返る
+      en: "Compression: text assets come back as br through CloudFront"
     manual: manual/70-compression.md
     optional: { reason: { zh-CN: 不影响完成, ja: 完了には影響しません, en: Does not affect completion } }
     experiment: { module: cdn, id: compression, label: after }
@@ -362,7 +362,7 @@ saa:
     - id: custom-origin
       title:
         zh-CN: 自定义源站只能是域名；前缀列表 + 自定义头保护源站
-        ja: カスタムオリジンはドメイン名のみ。プレフィックスリスト＋カスタムヘッダーでオリジンを保護
+        ja: カスタムオリジンはドメイン名のみ。プレフィックスリスト + カスタムヘッダーでオリジンを保護
         en: A custom origin must be a domain name; protect it with a prefix list plus a custom header
       domain: secure
       relatesTo: enable-cdn

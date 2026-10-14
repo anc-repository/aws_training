@@ -72,6 +72,7 @@ export default {
     malformedDetail: '3 つの部分からなる JWS ではない、署名アルゴリズムや種類が違う、または修了証の内容の形式が正しくありません。', // 不是三段式 JWS、签名算法或类型不符，或证书内容的格式不符。
   },
   detail: {
+    untranslated: '未翻訳', // 未翻译
     cert: '修了証', // 证书
     scope: '（{scope}）', // （{scope}）
     holder: '保有者', // 持有人

@@ -22,7 +22,7 @@ you know "which key signed in from which IP", but not what was done afterwards.
 :::
 
 :::tip
-In platform mode 22 is only open to the workbench's private address, so probing the public address already times out at before; that is why this uses `--param target=private-ip`
+In platform mode 22 is only open to the workbench's private address, so probing the public address already times out in the before run; that is why this uses `--param target=private-ip`
 (the runner looks up the lab instance's private address with `aws ec2 describe-instances`).
 :::
 

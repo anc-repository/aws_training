@@ -184,6 +184,29 @@ describe('adapters', () => {
 });
 
 describe('<ArchDiagram>', () => {
+  it('makes the scroll box focusable only when the diagram overflows, and scrolls the first added node into view', () => {
+    const sw = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'scrollWidth');
+    const cw = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'clientWidth');
+    Object.defineProperty(HTMLElement.prototype, 'scrollWidth', { configurable: true, get: () => 900 });
+    Object.defineProperty(HTMLElement.prototype, 'clientWidth', { configurable: true, get: () => 360 });
+    try {
+      const { container } = render(
+        <VisualI18nProvider lang="en">
+          <ArchDiagram input={sampleCard('sc-edge-protection').input} />
+        </VisualI18nProvider>,
+      );
+      const box = container.querySelector('.arch-scroll') as HTMLElement;
+      expect(box.getAttribute('tabindex')).toBe('0');
+      expect(box.getAttribute('role')).toBe('group');
+    } finally {
+      // the originals live on Element.prototype: drop the overrides (or put back own ones)
+      if (sw) Object.defineProperty(HTMLElement.prototype, 'scrollWidth', sw);
+      else delete (HTMLElement.prototype as { scrollWidth?: number }).scrollWidth;
+      if (cw) Object.defineProperty(HTMLElement.prototype, 'clientWidth', cw);
+      else delete (HTMLElement.prototype as { clientWidth?: number }).clientWidth;
+    }
+  });
+
   it('renders the before/after pair with titles and text summaries in the current language', () => {
     const { container } = render(
       <VisualI18nProvider lang="ja">
@@ -194,9 +217,10 @@ describe('<ArchDiagram>', () => {
     expect(svgs).toHaveLength(2);
     expect(svgs[0].getAttribute('role')).toBe('img');
     expect(svgs[0].querySelector('title')?.textContent).toBe('構成図（開始時）');
-    expect(svgs[1].querySelector('desc')?.textContent).toBe('完了後：ブラウザ、CloudFront、WAF、Nginx、EC2、IAM。追加：CloudFront、WAF');
+    expect(svgs[1].querySelector('desc')?.textContent).toBe('完了後：ブラウザー、CloudFront、WAF、Nginx、EC2、IAM。追加：CloudFront、WAF');
     expect(container.querySelectorAll('.al-title')[0].textContent).toBe('クライアント');
-    expect(container.querySelector('.arch-scroll')?.getAttribute('tabindex')).toBe('0');
+    // no overflow (jsdom has no layout): the scroll box is not an extra tab stop
+    expect(container.querySelector('.arch-scroll')?.getAttribute('tabindex')).toBeNull();
     expect([...container.querySelectorAll('.arch-legend li')].map((li) => li.textContent)).toEqual(['追加', 'ローカル実装']);
   });
 

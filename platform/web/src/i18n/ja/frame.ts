@@ -17,7 +17,7 @@ export default {
     quiz: '小テスト', // 小测
     track: '学習パス', // 学习路径
     workspace: 'ワークベンチ', // 工作台
-    sessions: '実験履歴', // 我的实验
+    sessions: 'ラボ履歴', // 我的实验
     session: 'セッションの詳細', // 会话详情
     end: '終了と回収の進捗', // 结束与回收进度
     report: 'ラボレポート', // 实验报告
@@ -34,9 +34,9 @@ export default {
     certificates: '修了証 →', // 证书 →
   },
   notFound: {
-    mySessions: '実験履歴', // 我的实验
+    mySessions: 'ラボ履歴', // 我的实验
     body: '{notFound} アドレス {path} に対応する画面はありません。リンクの期限が切れているか、入力に誤りがある可能性があります。', // {notFound} 地址 {path} 没有对应的画面；链接可能已过期，或输入有误。
-    back: '実験履歴に戻る', // 回到我的实验
+    back: 'ラボ履歴に戻る', // 回到我的实验
     missingBody: '削除されたか、このプラットフォームのものではない可能性があります。', // 它可能已被删除，或者不属于这个平台安装。
     canRetry: '再試行できます。', // 可以重试了。
   },
@@ -61,12 +61,12 @@ export default {
   crumbs: 'パンくずリスト', // 面包屑
   catalog: 'カード一覧', // 卡片目录
   about: ' · 約 {n} 分 ·', //  · 约 {n} 分钟 ·
-  otherParams: '…（ほかのパラメータは UsePreviousValue=true）', // …（其余参数 UsePreviousValue=true）
+  otherParams: '…（ほかのパラメーターは UsePreviousValue=true）', // …（其余参数 UsePreviousValue=true）
   ws: {
     catalog: '‹ カード一覧', // ‹ 目录
     title: 'ワークベンチ', // 工作台
     notFoundTitle: 'このセッションは見つかりません', // 没有找到这个实验会话
-    notFound: '削除されたか、URL が間違っている可能性があります。すべてのセッションは「実験履歴」で確認できます。', // 它可能已被删除，或者地址有误。可以在“我的实验”中查看全部会话。
+    notFound: '削除されたか、URL が間違っている可能性があります。すべてのセッションは「ラボ履歴」で確認できます。', // 它可能已被删除，或者地址有误。可以在“我的实验”中查看全部会话。
   },
   manualPage: {
     severity: {
@@ -76,7 +76,7 @@ export default {
       INFO: '情報', // 信息
     },
     crumbs: 'パンくずリスト', // 面包屑
-    mySessions: '実験履歴', // 我的实验
+    mySessions: 'ラボ履歴', // 我的实验
     title: '要対応リスト', // 待人工处理清单
     sub: 'セッション横断のまとめ · 各項目にコンソールのリンクと CLI コマンドがあり、対応後に再確認できます', // 跨会话汇总 · 每项都有控制台链接与 CLI 命令，处理后可重新核对
     remask: 'マスクに戻す', // 恢复打码
@@ -88,7 +88,7 @@ export default {
     count: '全 {n} 件', // 共 {n} 项
     countHourly: '全 {n} 件（うち {h} 件はブロックかつ時間課金）', // 共 {n} 项，其中 {h} 项阻塞且按小时计费
     emptyTitle: '解放されていないリソースはありません。', // 没有未释放的资源。
-    viewSessions: '実験履歴を見る', // 查看我的实验
+    viewSessions: 'ラボ履歴を見る', // 查看我的实验
     emptyBody: '回収の失敗や再スキャンで見つかった残存リソースがここに表示されます。', // 回收失败或复扫发现的残留会出现在这里。
     noMatch: '絞り込みに合う項目はありません。', // 没有符合筛选条件的条目。
     clear: '絞り込みを解除', // 清除筛选

@@ -7,7 +7,7 @@
  * - [吊销证书…]：原因 learner-request（默认）/ content-defect / misissued；key-compromise 由密钥轮换流程处理；
  * - 页脚：平台卸载后在线验证页失效，请先下载离线验证包；A、O 只读（没有公开、吊销、下载离线包）；打印样式。
  */
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { isApiError, type ApiError } from '../../api/errors';
 import { useAuth, useServices } from '../../app/context';
@@ -29,7 +29,8 @@ import { BadgeGlyph, type BadgeState } from './BadgeGlyph';
 import { BADGE_LEVEL_META, pct, REVOKE_REASON_TEXT, revokeReasonText } from './certText';
 import type { CertificateItem } from './CertificatesPage';
 
-import { msg, rich, t } from '../../i18n';
+import { msg, rich, t, untranslated } from '../../i18n';
+import { Recorded } from '../../i18n/Untranslated';
 import { CT } from './strings';
 
 const CD = CT.detail;
@@ -107,7 +108,10 @@ export default function CertificateDetailPage() {
 
   const now = clock.now();
   const a = payload?.achievement ?? {};
-  const title = a.title ?? c.trackId ?? certId;
+  // 证书标题：签发时写入的是源语言（zh-CN）；路径证书按 trackId 用目录里当前语言的证书名，查不到时显示记录值并标出语言与“未翻訳”
+  const track = c.trackId ? index?.tracks?.find((x) => x.id === c.trackId) : null;
+  const localTitle = track?.certificate?.title && !untranslated(track, '/certificate/title') ? track.certificate.title : null;
+  const title: ReactNode = localTitle ?? <Recorded text={a.title ?? c.trackId ?? certId} marker />;
   const verifyUrl = payload?.verify ?? `${window.location.origin}/verify/${certId}`;
   const valid = c.status === 'valid';
   const successor = !valid && c.revokeReason === 'superseded' ? (all.data?.items ?? []).find((x) => x.certId !== certId && x.trackId === c.trackId && x.status === 'valid') : null;

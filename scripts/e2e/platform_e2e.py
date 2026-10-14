@@ -8,7 +8,9 @@ fast-forwarding the platform clock, the completion fixture of a learning path an
 
 Languages (09-i18n-and-visual.md): the flow runs in zh-CN (its assertions use the source texts); phase 11 checks the
 Japanese default, switching to English / Chinese, content per language with the “未翻訳” marker, the public verify page and
-the main screens in ja / en, and writes Japanese screenshots of the main screens to --ja-shots (.atl-dev/screens-ja/).
+the main screens in ja / en (no horizontal scrolling, no clipped text), and writes Japanese screenshots of the main screens to
+--ja-shots (.atl-dev/screens-ja/); phase 4c checks the live workbench in ja / en and switches the language there while the lab
+terminal is connected (the terminal must stay connected: the UI re-renders in place).
 
 Writes <dir>/results.json and <dir>/screenshots/*.png; exit code 0 when every check passed.
 No AWS API is called (the dev server never reaches AWS; this script only talks to 127.0.0.1).
@@ -751,7 +753,7 @@ I18N_SCREENS = [
     ('catalog-map', '/labs?view=map', '[data-screen=P02]'),
     ('card', '/labs/svc-storage', '[data-screen=P03]'),
     ('track', '/tracks/quick-compare', '[data-screen=P02-T]'),
-    ('workspace', '/workspace/{sid}', '[data-screen]'),
+    # the workbench is checked while the session is live (phase 4c): after it ended the route shows no manual
     ('sessions', '/sessions', '[data-screen=P11]'),
     ('reclaim', '/sessions/{sid}/end', '[data-screen=P07]'),
     ('report', '/sessions/{sid}/report', '[data-screen=P08]'),
@@ -800,6 +802,27 @@ ZH_LEFTOVERS = """
 """
 
 
+# Text elements whose own text is wider than the element (and that do not scroll or truncate on purpose): clipped or
+# overlapping labels. Inline elements, form controls, code, terminals, SVG and screen-reader-only text are skipped.
+CLIPPED_TEXT = """
+() => {
+  const out = [];
+  for (const el of document.querySelectorAll('body *')) {
+    if (!(el instanceof HTMLElement) || !el.offsetParent || el.clientWidth === 0) continue;
+    if (el.scrollWidth <= el.clientWidth + 1) continue;
+    if (['INPUT', 'SELECT', 'TEXTAREA', 'OPTION'].includes(el.tagName)) continue;
+    if (el.closest('.xterm, svg, pre, code, .sr, .mono, [data-term-host]')) continue;
+    const cs = getComputedStyle(el);
+    if (cs.overflowX === 'auto' || cs.overflowX === 'scroll' || cs.textOverflow === 'ellipsis' || cs.display === 'inline') continue;
+    const own = [...el.childNodes].filter((n) => n.nodeType === 3 && n.textContent.trim()).map((n) => n.textContent.trim()).join(' ');
+    if (!own) continue;
+    out.push(`${el.tagName.toLowerCase()}.${(el.className || '').toString().split(' ').join('.')} ${el.scrollWidth}>${el.clientWidth} “${own.slice(0, 30)}”`);
+  }
+  return out.slice(0, 8);
+}
+"""
+
+
 # Errors of the test machine's network stack, not of the platform: Windows answers WSAENOBUFS (“No buffer space”) under
 # heavy socket churn (Vite dev modules, HMR sockets, the dev server's local CloudAlbum). Listed in results.json, not failed.
 ENV_NET_ERROR = re.compile(r'net::ERR_(NO_BUFFER_SPACE|INSUFFICIENT_RESOURCES)\b')
@@ -837,24 +860,94 @@ def dev_login(page: Page, base: str = '') -> None:
     page.locator('[data-screen=P02]').wait_for(timeout=20_000)
 
 
+def clipped_text(page: Page) -> list[str]:
+    """Text elements whose content is wider than the element (cut off or overlapping a neighbour) — the per-element check
+    the whole-page scroll test cannot see (translated labels are longer than the zh-CN ones they were sized for)."""
+    try:
+        return page.evaluate(CLIPPED_TEXT)
+    except Exception as e:  # noqa: BLE001
+        return [f'(not inspected: {e})']
+
+
 def phase_ja_live(browser: Any, sid: str) -> None:
-    """Japanese screenshot of the live workbench (P05) while the session runs (a second browser context, as phase 4b)."""
-    if not JA_SHOTS:
-        return
-    state['phase'] = '4c ja-live'
+    """The live workbench (P05) in ja and en (a second browser context, as phase 4b): at 400 / 1280 px the manual step is
+    rendered (not the loading skeleton), nothing scrolls sideways and no text is clipped; Japanese screenshot. Then the
+    language is switched in the workbench's “more” menu while the lab terminal is connected: the switch happens in place —
+    the terminal stays connected with its scrollback, the choice is stored and sent to the profile (PATCH /me)."""
+    state['phase'] = '4c languages (live workbench)'
     ctx = browser.new_context(viewport={'width': 1280, 'height': 900}, locale='ja-JP', timezone_id='Asia/Tokyo')
+    ctx.set_default_timeout(20_000)
     page = ctx.new_page()
     attach(page, 'ja-live')
+    patches: list[str] = []
+    page.on('request', lambda r: patches.append(r.post_data or '') if r.method == 'PATCH' and r.url.rstrip('/').endswith('/api/v1/me') else None)
     try:
         dev_login(page)
+        bad: list[str] = []
+        mark_at = len(console_events)
+        for lang in ('ja', 'en'):
+            page.evaluate("([k, l]) => localStorage.setItem(k, JSON.stringify(l))", [LOCALE_KEY, lang])
+            for width in (400, 1280):
+                page.set_viewport_size({'width': width, 'height': 900})
+                page.goto(f'{WEB}/workspace/{sid}?step=orient')
+                try:
+                    page.locator('[data-screen=P05][data-variant=live] [data-step-heading]').first.wait_for(timeout=30_000)
+                except Exception:  # noqa: BLE001
+                    bad.append(f'{lang} {width}: manual step not rendered')
+                    continue
+                page.wait_for_timeout(1500)
+                skel = page.locator('#mpane [data-skel]').count()
+                if skel:
+                    bad.append(f'{lang} {width}: {skel} skeleton line(s) left in the manual')
+                if html_lang(page) != lang:
+                    bad.append(f'{lang} {width}: <html lang> {html_lang(page)}')
+                m = no_hscroll(page)
+                if m['scroll'] > m['client'] + 1:
+                    bad.append(f'{lang} {width}: scrollWidth {m["scroll"]} > {m["client"]} {overflowers(page)}')
+                clip = clipped_text(page)
+                if clip:
+                    bad.append(f'{lang} {width}: clipped text {clip}')
+                shot(page, f'{lang}-w{width}-workspace-live')
+                if lang == 'ja' and width == 1280:
+                    body = page.locator('body').inner_text()
+                    check('ja: the live workbench (P05) renders in Japanese (UI and manual)', bool(KANA.search(body)) and page.locator('.untranslated').count() == 0, html_lang(page))
+                    ja_shot(page, '04-workbench', full=False)
+        check('live workbench (P05) in ja / en at 400 / 1280 px: the manual step (no skeleton), no horizontal scrolling, no clipped text', not bad, bad)
+        errs = errors_since(mark_at, 'ja-live')
+        check('live workbench in ja / en: no console errors', not errs, errs[:10])
+
+        # --- switching the language inside the workbench keeps the terminal session (LocaleRoot re-renders in place)
+        page.set_viewport_size({'width': 1280, 'height': 900})
+        page.evaluate("([k, l]) => localStorage.setItem(k, JSON.stringify(l))", [LOCALE_KEY, 'ja'])
         page.goto(f'{WEB}/workspace/{sid}?step=orient')
-        page.locator('[data-screen=P05][data-variant=live]').wait_for(timeout=30_000)
-        page.wait_for_timeout(2500)
-        body = page.locator('body').inner_text()
-        check('ja: the live workbench (P05) renders in Japanese (UI and manual)', html_lang(page) == 'ja' and bool(KANA.search(body)) and page.locator('.untranslated').count() == 0, html_lang(page))
-        ja_shot(page, '04-workbench', full=False)
+        page.locator('[data-screen=P05][data-variant=live] [data-step-heading]').first.wait_for(timeout=30_000)
+        page.locator('#tab-terminal-lab').click()
+        term = page.locator('[data-terminal=lab] .term:not([hidden])').first
+        wait_until('lab terminal ready (ja)', lambda: term.get_attribute('data-phase') == 'ready', 45, 0.5)
+        page.locator('[data-terminal=lab] .xterm').first.click()
+        page.keyboard.type('echo atl-lang-switch')
+        page.keyboard.press('Enter')
+        wait_until('terminal output (ja)', lambda: (lambda t: t if t.count('atl-lang-switch') >= 2 else None)(page.locator('[data-terminal=lab] .xterm-rows').first.inner_text()), 20, 0.5)
+        term_id = term.get_attribute('id')
+        patches.clear()
+        page.get_by_role('button', name='その他', exact=True).first.click()
+        page.locator('.mi-group button[lang=en]').click()
+        wait_until('UI in English', lambda: html_lang(page) == 'en' and 'Workbench' in page.locator('body').inner_text() or None, 15, 0.3)
+        page.wait_for_timeout(2000)
+        term2 = page.locator('[data-terminal=lab] .term:not([hidden])').first
+        rows = page.locator('[data-terminal=lab] .xterm-rows').first.inner_text()
+        detail = {'phase': term2.get_attribute('data-phase'), 'sameTab': term2.get_attribute('id') == term_id, 'scrollback': rows.count('atl-lang-switch'), 'lang': html_lang(page), 'stored': stored_locale(page), 'patchMe': patches[:2]}
+        ok = detail['phase'] == 'ready' and detail['sameTab'] and detail['scrollback'] >= 2 and detail['lang'] == 'en' and detail['stored'] == 'en' and any('"en"' in p for p in patches)
+        check('workbench “more” menu → English: switched in place — the lab terminal stays connected with its scrollback, the choice is stored and sent to the profile', ok, detail)
+        # the terminal still works after the switch
+        page.locator('[data-terminal=lab] .xterm').first.click()
+        page.keyboard.type('echo atl-after-switch')
+        page.keyboard.press('Enter')
+        out = wait_until('terminal output (en)', lambda: (lambda t: t if t.count('atl-after-switch') >= 2 else None)(page.locator('[data-terminal=lab] .xterm-rows').first.inner_text()), 20, 0.5)
+        check('the same terminal session answers after the language switch', out.count('atl-after-switch') >= 2, out[-160:])
     except Exception as e:  # noqa: BLE001 — recorded as a failure; the main flow goes on
-        check(f'ja-live: {type(e).__name__}: {str(e).splitlines()[0][:300] if str(e) else ""}', False, traceback.format_exc()[-1500:])
+        check(f'languages-live: {type(e).__name__}: {str(e).splitlines()[0][:300] if str(e) else ""}', False, traceback.format_exc()[-1500:])
+        shot(page, 'fail-languages-live', full=True)
     finally:
         ctx.close()
 
@@ -1007,6 +1100,9 @@ def phase_i18n(browser: Any) -> None:
                     m = no_hscroll(page)
                     if m['scroll'] > m['client'] + 1:
                         bad.append(f'{name}: scrollWidth {m["scroll"]} > {m["client"]} {overflowers(page)}')
+                    clip = clipped_text(page)
+                    if clip:
+                        bad.append(f'{name}: clipped text {clip}')
                     shot(page, f'{lang}-w{width}-{name}', full=True)
                     if width == 1280:
                         left = page.evaluate(ZH_LEFTOVERS, SIMPLIFIED_ONLY)
@@ -1014,7 +1110,7 @@ def phase_i18n(browser: Any) -> None:
                             log(f'{lang} {name}: zh-CN text on the page (review): {left}')
                     if name != 'verify':  # P09-V has its own CSP (atl-certs), not the SPA's
                         violations += [{'screen': name, **v} for v in page.evaluate('() => window.__csp || []')]
-                check(f'{lang} {width}px: {seen} main screens in {lang} ({build}), no horizontal scrolling', not bad, bad)
+                check(f'{lang} {width}px: {seen} main screens in {lang} ({build}), no horizontal scrolling, no clipped text', not bad, bad)
             errs = errors_since(mark_at, 'i18n')
             check(f'{lang}: no console errors on the main screens', not errs, errs[:10])
             if CSP_WEB:

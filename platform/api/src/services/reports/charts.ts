@@ -9,7 +9,7 @@ export function escapeXml(s: string): string {
 
 const PALETTE = ['#4c6ef5', '#12b886', '#f59f00', '#e64980', '#7950f2'];
 
-export function barsSvg(metrics: { label: string; unit: string; values: Record<string, number> }[], labels: string[]): string {
+export function barsSvg(metrics: { label: string; unit: string; values: Record<string, number> }[], labels: string[], ariaLabel = 'Comparison experiment metrics'): string {
   const width = 640;
   const rowH = 22;
   const groupGap = 18;
@@ -17,7 +17,7 @@ export function barsSvg(metrics: { label: string; unit: string; values: Record<s
   const used = labels.filter((l) => metrics.some((m) => m.values[l] !== undefined));
   const height = 24 + metrics.length * (used.length * rowH + groupGap) + 20;
   const parts: string[] = [];
-  parts.push(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${width} ${height}" width="100%" role="img" aria-label="对比实验指标">`);
+  parts.push(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${width} ${height}" width="100%" role="img" aria-label="${escapeXml(ariaLabel)}">`);
   parts.push('<style>text{font:12px system-ui,sans-serif;fill:currentColor}.v{font-size:11px}</style>');
   let y = 20;
   used.forEach((l, i) => parts.push(`<rect x="${left + i * 90}" y="4" width="10" height="10" fill="${PALETTE[i % PALETTE.length]}"/><text x="${left + 14 + i * 90}" y="13">${escapeXml(l)}</text>`));

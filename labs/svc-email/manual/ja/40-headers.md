@@ -11,7 +11,7 @@ step: headers
 
 :::why
 **メールアドレス ID** で送信すると、SES は自分のドメイン（amazonses.com）で署名し、SPF の MAIL FROM も SES のドメインになります。どちらもあなたの送信元ドメインとそろわず、
-DMARC はこのそろい具合（アライメント）に依存します。**ドメイン ID** ＋ Easy DKIM で初めて DKIM の署名ドメインが送信元ドメインと一致し、さらにカスタム MAIL FROM で SPF もそろえれば、到達率が上がります。
+DMARC はこのそろい具合（アライメント）に依存します。**ドメイン ID** + Easy DKIM で初めて DKIM の署名ドメインが送信元ドメインと一致し、さらにカスタム MAIL FROM で SPF もそろえれば、到達率が上がります。
 :::
 
 :::expected

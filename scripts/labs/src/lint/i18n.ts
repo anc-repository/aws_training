@@ -7,6 +7,9 @@
  *   I3 error  manual/<lang>/<f>.md without manual/<f>.md, a duplicate, or a front matter (step / section) that differs
  *   I4 warn   a translation changes the `{{ … }}` variables, the directives or the number of code blocks of its source
  *   I5 warn   a translated 00-overview.md lacks the translated form of a heading that the zh-CN overview has (C-12)
+ *   I6 error  Japanese orthography of the glossary (platform/web/src/i18n/glossary.md): long vowel at the end of loanwords
+ *             (ブラウザー, パラメーター, サーバー, ユーザー, フォルダー; メモリ stays as in the AWS console) and a half-width
+ *             “ + ” instead of “＋”
  *
  * Coverage (`labs:i18n`) counts translated text fields and manuals per card and language.
  */
@@ -51,6 +54,22 @@ function emptyValues(doc: unknown): string[] {
   return out;
 }
 
+/** Glossary orthography rules for Japanese text (I6); code spans and fenced blocks are not checked. */
+export const JA_ORTHOGRAPHY: readonly { re: RegExp; use: string }[] = [
+  { re: /ブラウザ(?!ー)/, use: 'ブラウザー' },
+  { re: /パラメータ(?!ー)/, use: 'パラメーター' },
+  { re: /サーバ(?![ーレ])/, use: 'サーバー' },
+  { re: /ユーザ(?!ー)/, use: 'ユーザー' },
+  { re: /フォルダ(?!ー)/, use: 'フォルダー' },
+  { re: /＋/, use: '“ + ” (half-width, spaces around)' },
+];
+
+/** The orthography problems of one Japanese text (outside inline code and fenced code blocks). */
+export function jaOrthography(text: string): string[] {
+  const prose = text.replace(/```[\s\S]*?```/g, '').replace(/`[^`\n]*`/g, '');
+  return JA_ORTHOGRAPHY.filter((r) => r.re.test(prose)).map((r) => `${r.re.source} → ${r.use}`);
+}
+
 const same = (a: readonly string[], b: readonly string[]) => a.length === b.length && a.every((x, i) => x === b[i]);
 
 function directiveSignature(m: ParsedManual): string[] {
@@ -72,6 +91,7 @@ function lintManualTranslations(card: CardContent, add: (rule: string, message: 
       if (!same(zh.variables.map((v) => v.expr.trim()).sort(), t.variables.map((v) => v.expr.trim()).sort())) add('I4', `${rel}: {{ … }} variables differ from ${file}`, 'warn');
       if (!same(directiveSignature(zh), directiveSignature(t))) add('I4', `${rel}: directives (::name{…}) differ from ${file}`, 'warn');
       if (zh.code.length !== t.code.length) add('I4', `${rel}: ${t.code.length} code block(s), ${file} has ${zh.code.length}`, 'warn');
+      if (lang === 'ja') for (const p of jaOrthography(t.body)) add('I6', `${rel}: ${p}`);
       if (zh.frontMatter?.section === 'overview') {
         const h2zh = zh.headings.filter((h) => h.depth === 2).map((h) => h.text);
         const h2 = t.headings.filter((h) => h.depth === 2).map((h) => h.text);
@@ -96,6 +116,8 @@ export function lintTranslations(set: ContentSet): LintIssue[] {
         const t = f.texts[l];
         if (t !== undefined && !same(placeholdersOf(zh), placeholdersOf(t))) add('I4', `${f.pointer} (${l}): {{ … }} variables differ from zh-CN`, 'warn');
       }
+      const ja = f.texts.ja;
+      if (ja !== undefined) for (const p of jaOrthography(ja)) add('I6', `${f.pointer} (ja): ${p}`);
     }
   }
   for (const card of set.cards) {

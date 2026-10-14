@@ -68,7 +68,7 @@ scenario:
 objectives:
   - text:
       zh-CN: 用 OAC 与桶策略的 AWS:SourceArn 让私有桶只对本分配开放
-      ja: OAC とバケットポリシーの AWS:SourceArn で、プライベートバケットをこのディストリビューションにだけ開く
+      ja: OAC とバケットポリシーの AWS:SourceArn で、プライベートバケットをこのディストリビューションにだけ公開できる
       en: Use OAC and AWS:SourceArn in the bucket policy to open a private bucket to this distribution only
     domain: secure
     relatesTo: private-bucket
@@ -80,19 +80,19 @@ objectives:
     relatesTo: enable-cdn
   - text:
       zh-CN: 用服务端证据证明边缘命中不回源
-      ja: サーバー側の証拠で、エッジでヒットしたリクエストがオリジンに届かないことを示す
+      ja: サーバー側の証拠で、エッジでヒットしたリクエストがオリジンに届かないことを示せる
       en: Prove with server-side evidence that edge hits do not go to the origin
     domain: performance
     relatesTo: after
   - text:
       zh-CN: 比较失效与版本化文件名
-      ja: 無効化とバージョン付きファイル名を比較する
+      ja: 無効化とバージョン付きファイル名を比較できる
       en: Compare invalidations with versioned file names
     domain: cost
     relatesTo: invalidation
   - text:
       zh-CN: 区分 CloudFront、S3 Transfer Acceleration 与 Global Accelerator
-      ja: CloudFront、S3 Transfer Acceleration、Global Accelerator を区別する
+      ja: CloudFront、S3 Transfer Acceleration、Global Accelerator を区別できる
       en: Tell CloudFront, S3 Transfer Acceleration and Global Accelerator apart
     domain: performance
     relatesTo: after
@@ -152,7 +152,7 @@ prerequisites:
       en: HTTP cache headers (Cache-Control, Age, ETag)
     - zh-CN: S3 桶策略的基本结构
       ja: S3 バケットポリシーの基本構造
-      en: The basic structure of S3 bucket policies
+      en: the basic structure of S3 bucket policies
 
 startProfile:
   provisions:
@@ -194,7 +194,7 @@ startProfile:
   platform: { preview: { directHttps: 'on' } }
   reason:
     zh-CN: 起始状态是 L0 + 实例角色 + storage(s3)（档位 atl/sc-static-acceleration/default）；cdn 是目标模块，不预置
-    ja: 開始状態は L0 ＋インスタンスロール＋ storage(s3) です（プロファイル atl/sc-static-acceleration/default）。cdn は対象モジュールなので事前準備しません
+    ja: 開始状態は L0 + インスタンスロール + storage(s3) です（プロファイル atl/sc-static-acceleration/default）。cdn は対象モジュールなので事前準備しません
     en: The start state is L0 plus the instance role plus storage(s3) (profile atl/sc-static-acceleration/default); cdn is the target module and is not provisioned
 targetModules:
   - id: cdn

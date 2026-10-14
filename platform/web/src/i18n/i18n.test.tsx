@@ -1,4 +1,5 @@
-import { render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { contentUrl, fetchContentJson, manualUntranslated, untranslated } from './content';
 import { compareDicts, coverage } from './dict';
@@ -7,6 +8,8 @@ import { fmtClock, fmtDate } from './format';
 import { ja } from './ja';
 import { DEFAULT_LOCALE, fallbackChain, storedLocale } from './locale';
 import { LanguageSwitcher } from './LanguageSwitcher';
+import { LocaleRoot } from './LocaleRoot';
+import { useReloadOnLocale } from './hooks';
 import { getLocale, msg, setLocale } from './runtime';
 import { placeholders, t } from './text';
 import { rich } from './template';
@@ -38,9 +41,10 @@ describe('locale (I1)', () => {
 });
 
 describe('dictionaries', () => {
-  it('ja and en have exactly the keys of zh-CN with matching placeholders (empty = not translated yet)', () => {
+  it('ja and en have exactly the keys of zh-CN, every one translated, with matching placeholders (I2 CI check)', () => {
+    // 空字符串（未翻译）也算问题：新增的键必须同时给出 ja 与 en，否则 npm test 失败（与 npm run i18n:check 相同）
     for (const d of [ja, en]) {
-      const issues = compareDicts(zhCN, d).filter((i) => i.kind !== 'empty');
+      const issues = compareDicts(zhCN, d);
       expect(issues).toEqual([]);
     }
     expect(coverage(zhCN, ja).total).toBeGreaterThan(1500);
@@ -125,9 +129,54 @@ describe('LanguageSwitcher', () => {
     render(<LanguageSwitcher onChanged={onChanged} />);
     const select = screen.getByRole('combobox');
     expect(Array.from((select as HTMLSelectElement).options).map((o) => o.text)).toEqual(['日本語', 'English', '中文']);
-    const { fireEvent } = await import('@testing-library/react');
     fireEvent.change(select, { target: { value: 'en' } });
     expect(getLocale()).toBe('en');
     expect(onChanged).toHaveBeenCalledWith('en');
+  });
+});
+
+describe('LocaleRoot (switching in place)', () => {
+  it('re-renders the whole tree in the new language without remounting it (state and effects survive)', () => {
+    setLocale('ja', { persist: false });
+    const mounts = vi.fn();
+    const unmounts = vi.fn();
+    const reloads = vi.fn();
+    function Leaf() {
+      const [n, setN] = useState(0);
+      useEffect(() => {
+        mounts();
+        return () => unmounts();
+      }, []);
+      useReloadOnLocale(reloads);
+      return (
+        <button type="button" onClick={() => setN((x) => x + 1)}>
+          {msg.i18n.untranslated} {n}
+        </button>
+      );
+    }
+    // a parent that never re-renders by itself: the leaf must still follow the language
+    function Static({ children }: { children: ReactNode }) {
+      return <div>{children}</div>;
+    }
+    function App() {
+      return (
+        <Static>
+          <Leaf />
+        </Static>
+      );
+    }
+    render(
+      <LocaleRoot>
+        <App />
+      </LocaleRoot>,
+    );
+    fireEvent.click(screen.getByRole('button'));
+    expect(screen.getByRole('button').textContent).toBe('未翻訳 1');
+    act(() => setLocale('en', { persist: false }));
+    expect(screen.getByRole('button').textContent).toBe('Not translated 1');
+    expect(document.documentElement.lang).toBe('en');
+    expect(mounts).toHaveBeenCalledTimes(1);
+    expect(unmounts).not.toHaveBeenCalled();
+    expect(reloads).toHaveBeenCalledTimes(1);
   });
 });

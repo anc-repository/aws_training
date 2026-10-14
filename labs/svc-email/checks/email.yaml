@@ -188,7 +188,7 @@ checks:
           - value: pass-own
             label:
               zh-CN: dkim=pass，签名域是你的发件域（域名身份 + Easy DKIM）
-              ja: dkim=pass、署名ドメインは自分の送信元ドメイン（ドメイン ID ＋ Easy DKIM）
+              ja: dkim=pass、署名ドメインは自分の送信元ドメイン（ドメイン ID + Easy DKIM）
               en: dkim=pass, signing domain is your sending domain (domain identity + Easy DKIM)
             expected: true
           - value: none

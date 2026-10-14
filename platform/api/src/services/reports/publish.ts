@@ -15,7 +15,7 @@ import { loadCard } from '../../functions/checks/engine/facts.js';
 import { maskText } from '../../functions/checks/engine/redact.js';
 import type { PendingEvent } from '../progress/events.js';
 import { ConflictError, mutate, type ItemStore } from '../progress/store.js';
-import { renderReportHtml } from './html.js';
+import { renderReportHtml, reportTextsFromLab, type ReportLang, type ReportTexts } from './html.js';
 import { loadReportInputs, storeReport, type Report } from './report.js';
 
 export interface ReportsContext {
@@ -25,12 +25,30 @@ export interface ReportsContext {
   invalidate: (paths: string[]) => Promise<void>;
 }
 
+/**
+ * Card texts in ja / en for the report HTML (09 §1.8): the localized expanded lab `content/<v>/<lang>/labs/<id>.json`
+ * written by labs:build. A missing or unreadable file only means the recorded zh-CN texts are shown with the marker.
+ */
+export async function loadReportTexts(deps: FunctionDeps, catalogVersion: string, labId: string): Promise<Partial<Record<ReportLang, ReportTexts | null>>> {
+  const out: Partial<Record<ReportLang, ReportTexts | null>> = {};
+  for (const lang of ['ja', 'en'] as const) {
+    try {
+      const raw = await deps.ports.objects.get(deps.env.buckets.web, `${WebKeys.content(catalogVersion)}${lang}/labs/${labId}.json`);
+      out[lang] = raw ? reportTextsFromLab(JSON.parse(Buffer.from(raw).toString('utf8'))) : null;
+    } catch {
+      out[lang] = null;
+    }
+  }
+  return out;
+}
+
 export async function generateReport(c: ReportsContext, sid: string, reason: string): Promise<{ revision: number; digest: string; created: boolean; events: PendingEvent[] }> {
   const session = await c.store.get<{ catalogVersion: string; labId: string }>(Keys.labSession(sid));
   if (!session) throw new Error(`session ${sid} not found`);
   const card = await loadCard(c.deps, session.catalogVersion, session.labId);
   const inputs = await loadReportInputs(c.store, card, sid, c.deps.env.accountId);
-  const stored = await storeReport(c.store, c.deps.ports.objects, c.deps.env.buckets.data, inputs, (r) => renderReportHtml(r), { nowIso: c.nowIso, reason });
+  const texts = await loadReportTexts(c.deps, session.catalogVersion, session.labId);
+  const stored = await storeReport(c.store, c.deps.ports.objects, c.deps.env.buckets.data, inputs, (r) => renderReportHtml(r, { texts }), { nowIso: c.nowIso, reason });
   const events: PendingEvent[] = stored.created ? [{ type: 'report.generated', sessionId: sid, data: { revision: stored.revision, digest: stored.digest, reason } }] : [];
   return { revision: stored.revision, digest: stored.digest, created: stored.created, events };
 }
@@ -56,12 +74,12 @@ export interface MaskOptions {
 const RESOURCE_PATTERNS: [RegExp, (m: string) => string][] = [
   [/\b(i|sg|vol|subnet|vpc|eni|ami|nat|igw|rtb|snap|vpce|lt)-[0-9a-f]{8,17}\b/g, (m) => `${m.slice(0, m.indexOf('-') + 3)}…${m.slice(-2)}`],
   [/\bE[A-Z0-9]{8,20}\b/g, (m) => `${m.slice(0, 3)}…${m.slice(-2)}`],
-  [/\b[a-z0-9]{6,20}\.cloudfront\.net\b/g, () => '‹分配域名›.cloudfront.net'],
-  [/\b[\w.-]+\.elb\.amazonaws\.com\b/g, () => '‹负载均衡器›.elb.amazonaws.com'],
-  [/\bec2-[\d-]+\.[\w.-]+\.amazonaws\.com\b/g, () => '‹实验机公网 DNS›'],
+  [/\b[a-z0-9]{6,20}\.cloudfront\.net\b/g, () => '‹distribution›.cloudfront.net'],
+  [/\b[\w.-]+\.elb\.amazonaws\.com\b/g, () => '‹load-balancer›.elb.amazonaws.com'],
+  [/\bec2-[\d-]+\.[\w.-]+\.amazonaws\.com\b/g, () => '‹lab-instance-public-dns›'],
   [/\b[a-z0-9]{10}\.execute-api\.[\w.-]+\.amazonaws\.com\b/g, () => '‹API›.execute-api.amazonaws.com'],
-  [/\batl-s[0-9a-z]{12}-[a-z-]+\b/g, () => 'atl-‹会话›'],
-  [/\bs[0-9a-hjkmnp-tv-z]{12}\b/g, () => '‹会话›'],
+  [/\batl-s[0-9a-z]{12}-[a-z-]+\b/g, () => 'atl-‹session›'],
+  [/\bs[0-9a-hjkmnp-tv-z]{12}\b/g, () => '‹session›'],
 ];
 
 export function maskString(s: string, o: MaskOptions): string {
@@ -80,7 +98,7 @@ export function maskReport(r: Report, o: MaskOptions): Report {
   const copy = walk(r) as Report;
   if (o.hideManualNotes) for (const s of copy.steps) for (const c of s.checks) if (c.manual) c.manual = { ...c.manual, note: '' };
   if (o.includeHistory === false) copy.checkHistory = [];
-  if (o.resourceIds) copy.sessionId = '‹会话›';
+  if (o.resourceIds) copy.sessionId = '‹session›';
   return { ...copy, integrity: { canonicalization: 'RFC8785', digest: r.integrity.digest } };
 }
 
@@ -119,7 +137,8 @@ export async function exportReport(
   if (!r) throw new Error('no report has been generated for this session');
   const m: MaskOptions = { accountId: true, ip: true, includeHistory: true, ...(opts.mask ?? {}) };
   const masked = maskReport(r.report, m);
-  const body = opts.format === 'json' ? JSON.stringify({ ...masked, exportNote: m.accountId === false ? undefined : 'masked copy; integrity.digest refers to the unmasked report' }, null, 2) : renderReportHtml(masked, { hideManualNotes: m.hideManualNotes === true, includeHistory: m.includeHistory !== false });
+  const texts = opts.format === 'json' ? {} : await loadReportTexts(c.deps, r.report.lab.catalogVersion, r.report.lab.id);
+  const body = opts.format === 'json' ? JSON.stringify({ ...masked, exportNote: m.accountId === false ? undefined : 'masked copy; integrity.digest refers to the unmasked report' }, null, 2) : renderReportHtml(masked, { hideManualNotes: m.hideManualNotes === true, includeHistory: m.includeHistory !== false, texts });
   const slot = exportSlot(opts.format, m);
   // deterministic per revision / format / variant: a retry or a repeated request rewrites the same object
   const key = `${DataKeys.exports}${sid}/report-v${r.revision}-${slot}.${opts.format}`;
@@ -243,7 +262,8 @@ export async function createShare(
   // 3. the redacted copy (fixed keys: a retry overwrites instead of adding a copy)
   const masked = maskReport(r.report, { accountId: true, ip: true, resourceIds: true, hideManualNotes: true, includeHistory: true });
   const web = c.deps.env.buckets.web;
-  await c.deps.ports.objects.put(web, objectKeys[0]!, renderReportHtml(masked, { share: true, hideManualNotes: true }), { contentType: 'text/html; charset=utf-8' });
+  const texts = await loadReportTexts(c.deps, r.report.lab.catalogVersion, r.report.lab.id);
+  await c.deps.ports.objects.put(web, objectKeys[0]!, renderReportHtml(masked, { share: true, hideManualNotes: true, texts }), { contentType: 'text/html; charset=utf-8' });
   await c.deps.ports.objects.put(web, objectKeys[1]!, JSON.stringify({ ...masked, redactedCopy: true }, null, 2), { contentType: 'application/json' });
   // 4. active — unless the learner revoked it while it was being written (then take the copy down again)
   const after = await mutate<ReportShareItem>(c.store, key, (cur) => (cur && !cur.revokedAt && cur.status !== 'active' ? { ...cur, status: 'active', publishedAt: c.nowIso } : null), { now: () => c.nowIso });

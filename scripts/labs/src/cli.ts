@@ -11,6 +11,8 @@
  *            resolved to that language instead)
  *   policy   ATLVerifierRole read-only actions of the content (--out <file>, default: print)
  *   i18n     translation coverage per card (ja, en; 09 §2.3) and the translation rules I1–I5     exit 1 on errors
+ *            (--min ja=100,en=100: also when a card is below the coverage threshold; --only startable: skip planned cards;
+ *            --quiet: totals and issues only)
  *
  * Options: --labs <dir> (default <repo>/labs), --card <id>[,<id>] (derive), --deriver auto|cli|reference,
  *          --catalog-version <v> and --out <dir> (build), --json (machine-readable issues), --warnings-as-errors
@@ -43,6 +45,18 @@ export function writeSchemas(labsDir: string): string[] {
     fs.writeFileSync(file, `${JSON.stringify(schemaObject(name), null, 2)}\n`);
     return file;
   });
+}
+
+/** `--min ja=100,en=100` → { ja: 100, en: 100 }; {} when absent; null when malformed. */
+export function parseMin(v: string | undefined): Record<string, number> | null {
+  if (v === undefined) return {};
+  const out: Record<string, number> = {};
+  for (const part of v.split(',').filter(Boolean)) {
+    const m = /^(ja|en)=(\d{1,3})$/.exec(part.trim());
+    if (!m || Number(m[2]) > 100) return null;
+    out[m[1]!] = Number(m[2]);
+  }
+  return out;
 }
 
 function report(issues: readonly LintIssue[], label: string, cards: number): number {
@@ -148,15 +162,36 @@ async function main(): Promise<number> {
     }
     case 'i18n': {
       const set = loadContent(paths);
-      const rows = translationCoverage(set);
-      const issues = lintTranslations(set);
+      // --only startable: cards that can be started (status ≠ planned) and the shared documents (_catalog, _tracks, _shared)
+      const planned = new Set(set.cards.filter((c) => c.planned).map((c) => c.id));
+      const only = opt('--only');
+      if (only && only !== 'startable') {
+        console.error('--only must be "startable"');
+        return 2;
+      }
+      const rows = translationCoverage(set).filter((r) => only !== 'startable' || !planned.has(r.card));
+      const issues = [...lintTranslations(set)];
+      // --min ja=100,en=100: fail (exit 1) when a card's field or manual coverage of a language is below the threshold (CI, 09 §2.3)
+      const min = parseMin(opt('--min'));
+      if (min === null) {
+        console.error('--min takes <lang>=<percent>[,<lang>=<percent>] with lang ja or en, e.g. --min ja=100,en=100');
+        return 2;
+      }
+      for (const r of rows) {
+        for (const [l, want] of Object.entries(min)) {
+          const fields = r.fields ? ((r.translated[l] ?? 0) / r.fields) * 100 : 100;
+          const manuals = r.manuals ? ((r.manualsTranslated[l] ?? 0) / r.manuals) * 100 : 100;
+          if (fields < want) issues.push({ card: r.card, rule: 'I-COV', severity: 'error', message: `${l}: ${r.translated[l] ?? 0} / ${r.fields} text field(s) translated (${Math.floor(fields)}% < ${want}%)` });
+          if (manuals < want) issues.push({ card: r.card, rule: 'I-COV', severity: 'error', message: `${l}: ${r.manualsTranslated[l] ?? 0} / ${r.manuals} manual file(s) translated (${Math.floor(manuals)}% < ${want}%)` });
+        }
+      }
       if (flag('--json')) {
         process.stdout.write(`${JSON.stringify({ coverage: rows, issues }, null, 2)}
 `);
       } else {
         const pct = (n: number, d: number) => (d ? `${Math.round((n / d) * 100)}%` : '—').padStart(5);
         console.log(`${'card'.padEnd(28)} ${'fields'.padStart(6)}    ja    en  manuals    ja    en`);
-        for (const r of rows) {
+        for (const r of flag('--quiet') ? [] : rows) {
           console.log(`${r.card.padEnd(28)} ${String(r.fields).padStart(6)} ${pct(r.translated.ja ?? 0, r.fields)} ${pct(r.translated.en ?? 0, r.fields)}  ${String(r.manuals).padStart(7)} ${pct(r.manualsTranslated.ja ?? 0, r.manuals)} ${pct(r.manualsTranslated.en ?? 0, r.manuals)}`);
         }
         const sum = (f: (r: (typeof rows)[number]) => number) => rows.reduce((a, r) => a + f(r), 0);
@@ -168,7 +203,7 @@ async function main(): Promise<number> {
       return issues.some((i) => i.severity === 'error') ? 1 : 0;
     }
     default:
-      console.error('usage: atl-labs <schema|lint|derive|build|catalog|policy|i18n> [--labs <dir>] [--card <id>] [--deriver auto|cli|reference] [--out <path>] [--catalog-version <v>] [--lang <ja|en>] [--json] [--check]');
+      console.error('usage: atl-labs <schema|lint|derive|build|catalog|policy|i18n> [--labs <dir>] [--card <id>] [--deriver auto|cli|reference] [--out <path>] [--catalog-version <v>] [--lang <ja|en>] [--min ja=<n>,en=<n>] [--only startable] [--json] [--check]');
       return 2;
   }
 }

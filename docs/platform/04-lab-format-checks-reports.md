@@ -2810,6 +2810,12 @@ export interface Report {
 }
 ```
 
+> **多语言（2026-10-14，09 的“评审修复”R6）**：报告只存与语言无关的代码与 id，句子由渲染方按语言生成：`learner.displayName` 在没有
+> 资料名时为空字符串（各语言显示“学员 / 受講者 / Learner”）；`cost.noteKeys`（`price-list-estimate`、`unpriced-hours-only`）代替
+> 旧的中文 `cost.notes`（旧报告仍可读）；`experiments[].metrics[].id` 是指标的身份，`label` 只是源语言名称，HTML 按语言重画图表；
+> `Report` 项的 `eligibility.reasons` 是代码（`ATTEMPT_INCOMPLETE`）。卡片、步骤与检查名、徽章名、起始理由仍按记录（zh-CN）保存，
+> HTML 渲染时从 `content/<catalogVersion>/<lang>/labs/<labId>.json` 取对应语言，查不到时带 `lang="zh-CN"` 与“未翻訳”标记。
+
 **报告页面的章节顺序**：摘要（结论、用时、费用、证据质量）→ 架构变化（起始状态与目标状态的两张架构图）→ 逐步证据 → 对比实验（图表与解读，解读模板取 guides `compare.explain`）→ 小测 → 费用 → 清理 → 附录（完整检查记录、证据摘要、内容版本）。
 
 **图表**：对比实验用两种内联 SVG，由服务端生成，不依赖任何前端脚本：

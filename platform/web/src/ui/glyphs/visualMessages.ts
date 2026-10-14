@@ -172,7 +172,7 @@ const ja: VisualDict = {
   'visual.lane.compute': 'コンピュート',
   'visual.lane.data': 'データ・メッセージ',
   'visual.lane.ops': '運用・セキュリティ',
-  'visual.node.browser': 'ブラウザ',
+  'visual.node.browser': 'ブラウザー',
   'visual.diagram.title': '構成図',
   'visual.diagram.before': '開始時',
   'visual.diagram.after': '完了後',

@@ -4,8 +4,8 @@ id: serverless
 version: 1.0.0
 title:
   zh-CN: Serverless 应用
-  ja: Serverless アプリケーション
-  en: Serverless applications
+  ja: Serverless アプリケーションパス
+  en: Serverless applications path
 summary:
   zh-CN: 把分散在原 Lab 4、10、11、12、17 中的无服务器内容连成一条线：事件驱动、按请求付费、托管扩展。
   ja: 旧 Lab 4、10、11、12、17 に分散していたサーバーレスの内容を 1 本につなぎます。イベント駆動、リクエスト単位の課金、マネージドなスケーリングを扱います。

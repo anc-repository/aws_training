@@ -11,6 +11,7 @@ import { isTerminal } from '@atl/shared';
 import { serviceCells, type Holder, type ProgressLike, type ServiceCellView } from './model';
 import type { CardIntro, CatalogCard, CatalogIndex, CatalogRef, LabsView, TrackDef } from './types';
 import { contentI18n, contentUrl, fetchContentJson, type FetchContentResult } from '../../i18n/content';
+import { useReloadOnLocale } from '../../i18n/hooks';
 
 // ---------------------------------------------------------------------------------------------------------------
 // 静态内容
@@ -102,6 +103,8 @@ export function useResource<T>(key: string | null, load: () => Promise<T | null>
       counter.current++;
     };
   }, [run]);
+  // 界面语言变化：就地重取（内容地址与 Accept-Language 跟随新语言），新数据到达前保留旧数据（09 §1.2）
+  useReloadOnLocale(key === null ? null : run);
 
   const { pollMs = null, refreshOnVisible = false } = opts;
   useEffect(() => {

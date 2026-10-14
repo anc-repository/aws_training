@@ -131,3 +131,10 @@ textarea.input{min-height:88px; resize:vertical; font-size:12.5px; overflow-wrap
 @media (forced-colors: active){ .vres .vshape{border-color:CanvasText} }
 details.nature>summary{cursor:pointer; color:var(--text); font-weight:600}
 details.nature[open]>summary{margin-bottom:6px}
+/* 签发时记录的中文证书标题旁的“未翻訳 / Not translated”标记（I2）；字体按 lang 切换（与 SPA 的 tokens.css 相同的做法） */
+.untranslated{display:inline-block; font-size:11px; line-height:16px; padding:0 4px; border:1px dashed var(--border-strong, #8a8f98); border-radius:3px; color:var(--text-2, #5b6475); vertical-align:1px}
+:root:lang(ja){--font-sans:"Hiragino Sans","Hiragino Kaku Gothic ProN","Yu Gothic UI","Meiryo UI",Meiryo,"Noto Sans JP",system-ui,sans-serif}
+:root:lang(en){--font-sans:system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif}
+[lang]:not(:root):lang(zh-CN){--font-sans:"PingFang SC","Hiragino Sans GB","Microsoft YaHei UI","Microsoft YaHei","Noto Sans SC",system-ui,sans-serif}
+[lang]:not(:root):lang(ja){--font-sans:"Hiragino Sans","Hiragino Kaku Gothic ProN","Yu Gothic UI","Meiryo UI",Meiryo,"Noto Sans JP",system-ui,sans-serif}
+[lang]:not(:root){font-family:var(--font-sans)}

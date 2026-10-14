@@ -42,10 +42,11 @@ export function AccountMenu() {
       ariaLabel={t(a.menuLabel, { region, last4, name, role: roleText })}
       label={
         <>
-          <span className="mono hide-sm">{region}</span>
-          <span className="hide-sm faint">·</span>
-          <span className="mono hide-sm">{masked ?? '••••'}</span>
-          <span className="hide-sm faint">·</span>
+          {/* 区域与账号（打码）在 1440px 以下只放在展开的菜单里：顶栏在各语言下都保持一行（09 §1） */}
+          <span className="mono hide-sm hide-lg">{region}</span>
+          <span className="hide-sm hide-lg faint">·</span>
+          <span className="mono hide-sm hide-lg">{masked ?? '••••'}</span>
+          <span className="hide-sm hide-lg faint">·</span>
           <Icon name="user" />
           <span className="hide-sm">{name}</span>
           <Icon name="chev" />

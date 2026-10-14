@@ -16,7 +16,7 @@ import type { ManualSpec } from '../model/lab';
 import { resolveTemplate } from '../model/vars';
 import { ManualCommand } from './ManualCommand';
 
-import { t } from '../../i18n';
+import { t, useLocale } from '../../i18n';
 import { W } from '../strings';
 
 const MC = W.manualConfirm;
@@ -59,6 +59,7 @@ export function ManualConfirmDialog({ stepId, checkId, onClose }: { stepId: stri
   }, [spec.input?.pattern]);
   const observedOk = options.length ? !!chosen?.expected : d.observed.trim() !== '' && (!inputRe || inputRe.test(d.observed.trim()));
   const noteOk = d.note.trim().length >= 6;
+  const locale = useLocale();
   const evidenceErr = useMemo(() => {
     if (!d.evidence.trim()) return null;
     if (d.evidence.length > EVIDENCE_MAX_CHARS) return t(MC.evidenceTooLong, { n: EVIDENCE_MAX_CHARS });
@@ -68,7 +69,8 @@ export function ManualConfirmDialog({ stepId, checkId, onClose }: { stepId: stri
     } catch {
       return MC.evidenceJson;
     }
-  }, [d.evidence]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [d.evidence, locale]);
   const canSubmit = observedOk && noteOk && !evidenceErr && !busy;
   const where = spec.where as { breadcrumb?: string[]; region?: string } | undefined;
 

@@ -13,7 +13,7 @@ npm run exp -- identity-pool --label before --scenario upload-bench --upload
 アプリのプレビューでも 1 回試してみましょう。「上传照片」（写真をアップロード）を開き、写真を 2 枚まとめて選び（複数ファイルは F14 を通ります）、ブラウザーの DevTools の Network パネルを開きます。
 
 :::expected
-レポートは `mode=token` で、`backendRequestsPerFile` はおよそ 2 ＋パート数（登録、パートごとに 1 回の `parts:sign`、complete）です。
+レポートは `mode=token` で、`backendRequestsPerFile` はおよそ 2 + パート数（登録、パートごとに 1 回の `parts:sign`、complete）です。
 DevTools では、各パートの前に EC2 への `POST /api/uploads/parts:sign` があり、リクエストヘッダーは `Authorization: CA-Upload …` です。
 レスポンスヘッダー `X-CloudAlbum-Path` の identity-pool セグメントは `none:token` です。
 :::

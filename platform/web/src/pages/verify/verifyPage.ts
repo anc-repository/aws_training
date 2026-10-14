@@ -233,7 +233,24 @@ export function render(env: Pick<VerifyEnv, 'doc' | 'subtle'>, r: PageResult): v
       const dt = doc.createElement('dt');
       dt.textContent = row.label;
       const dd = doc.createElement('dd');
-      dd.textContent = row.value;
+      if (row.segments) {
+        for (const s of row.segments) {
+          if (!s.lang) {
+            dd.append(doc.createTextNode(s.text));
+            continue;
+          }
+          const span = doc.createElement('span');
+          span.lang = s.lang;
+          span.textContent = s.text;
+          dd.append(span);
+          if (s.untranslated) {
+            const mark = doc.createElement('span');
+            mark.className = 'untranslated';
+            mark.textContent = VT.detail.untranslated;
+            dd.append(doc.createTextNode(' '), mark);
+          }
+        }
+      } else dd.textContent = row.value;
       if (row.title) dd.title = row.title;
       dl.append(dt, dd);
     }

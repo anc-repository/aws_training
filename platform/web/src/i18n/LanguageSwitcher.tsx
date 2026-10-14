@@ -1,6 +1,6 @@
 /**
  * 顶栏的语言切换（09 §1.1，决定 I1）：日本語 / English / 中文。选择保存在 localStorage；`onChanged` 用于登录后同步到
- * 个人资料（PATCH /me { locale }）与清理按语言缓存的数据。切换后 LocaleRoot 以新语言重新挂载应用（不整页刷新）。
+ * 个人资料（PATCH /me { locale }）与清理按语言缓存的数据。切换后 LocaleRoot 让应用按新语言原地重新渲染（不重新挂载、不整页刷新）。
  * 语言名用各语言的自称，不翻译；控件的可见名称来自词典（当前语言）。
  */
 import { useId } from 'react';

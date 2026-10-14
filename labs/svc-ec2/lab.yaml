@@ -47,25 +47,25 @@ objectives:
     relatesTo: host-inspect
   - text:
       zh-CN: 用 IMDSv2 的会话令牌解释 SSRF 为何读不到凭证
-      ja: IMDSv2 のセッショントークンを使って、SSRF で認証情報を読み取れない理由を説明する
+      ja: IMDSv2 のセッショントークンを使って、SSRF で認証情報を読み取れない理由を説明できる
       en: Use IMDSv2 session tokens to explain why SSRF cannot read credentials
     domain: secure
     relatesTo: imds
   - text:
       zh-CN: 区分平台管理通道的角色与应用自己的 AWS 身份
-      ja: プラットフォームの管理チャネル用のロールと、アプリ自身の AWS の ID を区別する
+      ja: プラットフォームの管理チャネル用のロールと、アプリ自身の AWS の ID を区別できる
       en: Tell the platform management channel's role apart from the app's own AWS identity
     domain: secure
     relatesTo: orient
   - text:
       zh-CN: 亲测单点：停机即中断，EIP 让地址保持不变
-      ja: 単一障害点を自分で試す：止めればサービスが中断し、EIP によってアドレスは変わらない
+      ja: 単一障害点を自分で確かめられる：止めればサービスは中断し、EIP によってアドレスは変わらない
       en: "Test the single point of failure yourself: stopping means an outage, and the EIP keeps the address the same"
     domain: resilient
     relatesTo: spof
   - text:
       zh-CN: 知道公网 IPv4（含 EIP）与 EBS 的计费方式
-      ja: パブリック IPv4（EIP を含む）と EBS の課金方法を知る
+      ja: パブリック IPv4（EIP を含む）と EBS の課金方法を説明できる
       en: Know how public IPv4 (including EIPs) and EBS are billed
     domain: cost
     relatesTo: orient

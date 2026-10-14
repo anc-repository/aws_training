@@ -45,13 +45,13 @@ story:
 objectives:
   - text:
       zh-CN: 用 SNS + SQS 扇出解释“推送式一对多”与 SQS 竞争消费的区别
-      ja: SNS + SQS のファンアウトで「プッシュ型の 1 対多」と SQS の競合コンシューマーの違いを説明する
+      ja: SNS + SQS のファンアウトで「プッシュ型の 1 対多」と SQS の競合コンシューマーの違いを説明できる
       en: Use SNS + SQS fan-out to explain push-based one-to-many versus SQS competing consumers
     domain: resilient
     relatesTo: after
   - text:
       zh-CN: 用订阅过滤策略让每位用户只收到与自己有关的通知
-      ja: サブスクリプションフィルターポリシーで、各ユーザーが自分に関係する通知だけを受け取るようにする
+      ja: サブスクリプションフィルターポリシーで、各ユーザーが自分に関係する通知だけを受け取るようにできる
       en: Use subscription filter policies so each user only receives notifications about them
     domain: resilient
     relatesTo: subscribe-users
@@ -63,7 +63,7 @@ objectives:
     relatesTo: enable
   - text:
       zh-CN: 看懂 Publish 耗时与接收人数无关
-      ja: Publish の所要時間が受信者数と無関係であることを読み取る
+      ja: Publish の所要時間が受信者数と無関係であることを読み取れる
       en: See that Publish time does not depend on the number of recipients
     domain: performance
     relatesTo: after
@@ -120,7 +120,7 @@ prerequisites:
   knowledge:
     - zh-CN: 电子邮件的 + 子地址（plus addressing）
       ja: メールアドレスの + サブアドレス（plus addressing）
-      en: Email + sub-addressing (plus addressing)
+      en: email + sub-addressing (plus addressing)
     - zh-CN: JSON
       ja: JSON
       en: JSON
@@ -156,7 +156,7 @@ startProfile:
   platform: { preview: { directHttps: 'on' } }
   reason:
     zh-CN: notification 的 requires 为空，不依赖 email 与 queue（SNS → SQS 扇出用的是本模块自带的收件队列）；起始状态是 L0 + 实例角色（档位 atl/svc-notification/default）
-    ja: notification の requires は空で、email と queue には依存しません（SNS → SQS のファンアウトにはこのモジュール付属の受信キューを使います）。開始状態は L0 ＋インスタンスロールです（プロファイル atl/svc-notification/default）
+    ja: notification の requires は空で、email と queue には依存しません（SNS → SQS のファンアウトにはこのモジュール付属の受信キューを使います）。開始状態は L0 + インスタンスロールです（プロファイル atl/svc-notification/default）
     en: notification has no requires and does not depend on email or queue (SNS → SQS fan-out uses this module's own inbox queue); the start state is L0 plus the instance role (profile atl/svc-notification/default)
 targetModules:
   - { id: notification, driver: sns, fromDriver: db, wireStep: enable, adoptsExisting: false }

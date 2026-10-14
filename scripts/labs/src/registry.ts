@@ -81,6 +81,15 @@ export function moduleIds(p: LabsPaths): string[] {
 }
 
 /** Local (start-of-L0) driver of a module: values[0] for enum switches, the PARAM_DRIVERS local name otherwise. */
+/**
+ * The driver a target module has when the card starts: its `fromDriver`, otherwise the module's local implementation
+ * (registry `localDriver`); null when the module is not there at the start. The catalog index and the card intro both use
+ * it, so the “at start” diagram and the “with vs without” pair show the same thing everywhere.
+ */
+export function startDriverOf(p: LabsPaths, t: { id: string; fromDriver?: string | null }): string | null {
+  return t.fromDriver ?? (localDriver(p, t.id) || null);
+}
+
 export function localDriver(p: LabsPaths, id: string): string {
   if (id === 'ec2') return 'single';
   const m = loadRegistry(p).modules[id];

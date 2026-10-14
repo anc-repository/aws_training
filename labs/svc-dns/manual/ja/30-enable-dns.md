@@ -2,7 +2,7 @@
 step: enable-dns
 ---
 
-ワンクリックスクリプトが dns スタックをデプロイします。ホストゾーン（新規作成、または `--zone-id` で指定した既存のゾーン）＋ラボ用インスタンスの Elastic IP を指す TTL 60 の A レコードです。
+ワンクリックスクリプトが dns スタックをデプロイします。ホストゾーン（新規作成、または `--zone-id` で指定した既存のゾーン） + ラボ用インスタンスの Elastic IP を指す TTL 60 の A レコードです。
 続いて `dns.env` をラボ用インスタンスに配置します。`APP_BASE_URL` が `http://{{ learner.inputs.domain }}` になり、メールや共有リンクにはこれ以降ドメイン名が書かれます。
 
 :::method{kind=script default}

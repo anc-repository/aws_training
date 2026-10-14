@@ -24,7 +24,7 @@ title:
   en: "Amazon SES: real email sending and bounce feedback"
 subtitle:
   zh-CN: 本地 outbox → SES + 反馈回流
-  ja: ローカルの outbox → SES ＋フィードバックの還流
+  ja: ローカルの outbox → SES + フィードバックの還流
   en: Local outbox → SES + feedback loop
 summary:
   zh-CN: 把只写进本地 outbox 的邮件改由 SES 真正发出，验证发件身份、查看 DKIM 签名，并用 SES 邮箱模拟器演练退信与投诉回流。
@@ -36,7 +36,7 @@ story:
     页面标注“本地实现，未真正发信”。这也意味着 outbox 档的“邮箱已验证”证明不了邮箱归属。这张卡片让同一份 MIME 经 Amazon SES 真正发出，
     投递、退信与投诉事件经模块自带的 SNS → SQS 回流到应用，EC2 不需要任何入站端口。
   ja: |
-    L0 のメール（登録確認、パスワードの再設定、コメント通知、日次レポート）はすべて EC2 上の outbox（.eml ＋ outbox_emails テーブル）に書かれるだけで、本人が /me/outbox でプレビューします。
+    L0 のメール（登録確認、パスワードの再設定、コメント通知、日次レポート）はすべて EC2 上の outbox（.eml + outbox_emails テーブル）に書かれるだけで、本人が /me/outbox でプレビューします。
     ページには「本地实现，未真正发信」（ローカル実装、実際には未送信）と表示されます。つまり outbox 階層の「メールアドレス確認済み」は、メールアドレスの所有を証明できません。このカードでは同じ MIME を Amazon SES から実際に送信し、
     配信、バウンス、苦情のイベントはモジュール付属の SNS → SQS を経てアプリに還流します。EC2 にインバウンドのポートは一切必要ありません。
   en: |
@@ -52,19 +52,19 @@ objectives:
     relatesTo: enable
   - text:
       zh-CN: 用配置集事件目标与 SNS → SQS 把退信、投诉安全地送回应用
-      ja: 設定セットのイベント送信先と SNS → SQS で、バウンスと苦情を安全にアプリへ戻す
+      ja: 設定セットのイベント送信先と SNS → SQS で、バウンスと苦情を安全にアプリへ戻せる
       en: Use configuration set event destinations and SNS → SQS to bring bounces and complaints back to the app safely
     domain: resilient
     relatesTo: after
   - text:
       zh-CN: 在原始邮件中看懂 DKIM 签名与认证结果
-      ja: 元のメールにある DKIM 署名と認証結果を読み解く
+      ja: 元のメールにある DKIM 署名と認証結果を読み解ける
       en: Read the DKIM signature and authentication results in the raw email
     domain: secure
     relatesTo: headers
   - text:
       zh-CN: 理解为什么不从 EC2 直接用 25 端口发信
-      ja: EC2 から 25 番ポートで直接送信しない理由を理解する
+      ja: EC2 から 25 番ポートで直接送信しない理由を説明できる
       en: Understand why you do not send directly from EC2 over port 25
     domain: resilient
     relatesTo: enable
@@ -95,7 +95,7 @@ prerequisites:
   learnerInputs:
     - { id: ses-identity }
     - { id: domain, required: false }
-  knowledge: [{ zh-CN: 邮件头（From、Message-ID）, ja: メールヘッダー（From、Message-ID）, en: "Email headers (From, Message-ID)" }, { zh-CN: DNS 的 CNAME 与 TXT 记录, ja: DNS の CNAME レコードと TXT レコード, en: DNS CNAME and TXT records }]
+  knowledge: [{ zh-CN: 邮件头（From、Message-ID）, ja: メールヘッダー（From、Message-ID）, en: "email headers (From, Message-ID)" }, { zh-CN: DNS 的 CNAME 与 TXT 记录, ja: DNS の CNAME レコードと TXT レコード, en: DNS CNAME and TXT records }]
 
 startProfile:
   provisions:
@@ -128,7 +128,7 @@ startProfile:
   platform: { preview: { directHttps: 'on' } }
   reason:
     zh-CN: email 的 requires 为空，不依赖 notification 与 queue（反馈通道自带）；不使用域名时也不需要 dns。起始状态是 L0 + 实例角色（档位 atl/svc-email/default）
-    ja: email の requires は空で、notification や queue には依存しません（フィードバックのチャネルは付属しています）。ドメインを使わない場合は dns も不要です。開始状態は L0 ＋インスタンスロールです（プロファイル atl/svc-email/default）
+    ja: email の requires は空で、notification や queue には依存しません（フィードバックのチャネルは付属しています）。ドメインを使わない場合は dns も不要です。開始状態は L0 + インスタンスロールです（プロファイル atl/svc-email/default）
     en: email has no requires and does not depend on notification or queue (it brings its own feedback channel); without a domain it does not need dns either. The start state is L0 plus the instance role (profile atl/svc-email/default)
 targetModules:
   - { id: email, driver: ses, fromDriver: outbox, wireStep: enable, adoptsExisting: false }
@@ -275,8 +275,8 @@ steps:
     type: experiment
     title:
       zh-CN: （选做）注册接口的同步链路代价
-      ja: （任意）登録 API の同期処理の代償
-      en: (Optional) The cost of the synchronous path in the sign-up API
+      ja: 登録 API の同期処理の代償
+      en: The cost of the synchronous path in the sign-up API
     manual: manual/60-register-latency.md
     optional: { reason: { zh-CN: 与 send-matrix 的发送耗时结论方向一致, ja: send-matrix の送信時間の結論と同じ傾向です, en: It points the same way as the send-matrix timing results } }
     experiment: { module: email, id: register-latency, label: after }
@@ -289,8 +289,8 @@ steps:
     type: script
     title:
       zh-CN: （选做）域名身份与 Easy DKIM
-      ja: （任意）ドメイン ID と Easy DKIM
-      en: (Optional) Domain identity and Easy DKIM
+      ja: ドメイン ID と Easy DKIM
+      en: Domain identity and Easy DKIM
     manual: manual/70-domain-identity.md
     optional: { reason: { zh-CN: 需要自有域名（人工前置）, ja: 自分のドメインが必要です（手作業の前提条件）, en: Needs your own domain (a manual prerequisite) }, when: "learner.inputs.domain != ''" }
     when: "learner.inputs.domain != ''"

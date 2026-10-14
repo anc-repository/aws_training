@@ -47,7 +47,7 @@ questions:
           ja: スナップショットを作成 → コピー時に KMS キーで暗号化 → 暗号化されたスナップショットから新しいインスタンスを復元 → アプリを切り替える
           en: Take a snapshot → copy it with KMS encryption → restore a new instance from the encrypted snapshot → switch the app over
       - { id: c, text: { zh-CN: 创建加密的只读副本，再提升为主库, ja: 暗号化されたリードレプリカを作成し、プライマリに昇格させる, en: Create an encrypted read replica and promote it to primary } }
-      - { id: d, text: { zh-CN: 在参数组中设置 rds.force_ssl=1, ja: パラメータグループで rds.force_ssl=1 を設定する, en: Set rds.force_ssl=1 in the parameter group } }
+      - { id: d, text: { zh-CN: 在参数组中设置 rds.force_ssl=1, ja: パラメーターグループで rds.force_ssl=1 を設定する, en: Set rds.force_ssl=1 in the parameter group } }
     answer: [b]
     explain:
       zh-CN: 加密只能在创建时决定；未加密实例不能直接创建加密的只读副本；rds.force_ssl 是传输加密，与静态加密无关。

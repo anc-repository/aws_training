@@ -15,7 +15,7 @@ import type { SessionView } from '../../api/types';
 import { useAuth, useServices, useSessionSync } from '../../app/context';
 import { useGlobalStatus } from '../../app/globalStatus';
 import { shortcutsEnabled } from '../../components/globalHooks';
-import { msg, t } from '../../i18n';
+import { msg, t, useLocale } from '../../i18n';
 import { announce } from '../../lib/announce';
 import { lsGet, lsSet, ssGet, ssSet } from '../../lib/storage';
 import { EmptyState, ErrorPanel, Icon, Skeleton } from '../../ui';
@@ -188,9 +188,12 @@ export default function CatalogPage() {
     if (!index) return [];
     return sortCards(filtered, query.sort, { pathOrder: pathOrderOf(index, currentTrackId), lastAttemptAt: (id) => lastAt.get(id) ?? 0 });
   }, [index, filtered, query.sort, currentTrackId, lastAt]);
+  // 分组标题含当前语言的文案（领域名）：语言变化时重算
+  const locale = useLocale();
   const sections = useMemo(
     () => (index ? groupCards(sorted, query.group, { tax: index.taxonomy, onlyPrimary: query.primary, domainLabel: (d) => DOMAIN_TEXT[d] }) : []),
-    [index, sorted, query.group, query.primary],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [index, sorted, query.group, query.primary, locale],
   );
 
   // 结果变化时播报“显示 5 / 56 张卡片”（3 秒内合并）
@@ -397,6 +400,7 @@ export default function CatalogPage() {
                         personal={personal}
                         query={query.q}
                         flags={cardFlags(c, { drRegion: catalog.ref?.drRegion ?? null, completedMajor: items.get(c.id)?.completedMajorVersion ?? null })}
+                        grouped={query.group === 'kind' || query.group === 'category'}
                       />
                     ))}
                   </div>

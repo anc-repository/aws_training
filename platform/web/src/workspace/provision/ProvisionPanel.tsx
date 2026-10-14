@@ -20,7 +20,7 @@ import { buildPhaseRows, nearBudget } from '../model/phases';
 import { WsIcon } from '../visual/icons';
 import { PhaseDiagram } from './PhaseDiagram';
 
-import { t } from '../../i18n';
+import { t, useLocale } from '../../i18n';
 import { W } from '../strings';
 const WP = W.provision;
 
@@ -46,7 +46,13 @@ function PreparingView({ onCancel }: { onCancel: () => void }) {
   const lab = ws.data.lab.data;
   const pclass = lab?.provision?.class ?? (ws.data.index.data?.cards?.find((c) => c.id === v.labId)?.provisionClass ?? null);
   const cls = pclass ? PROVISION_CLASS[pclass] : null;
-  const rows = useMemo(() => buildPhaseRows({ view: v as never, events: ws.data.events, targets: ws.data.workspace.data?.targets ?? null }), [v, ws.data.events, ws.data.workspace.data]);
+  // 行标题是当前语言的文案：语言变化时重算（原地重新渲染，09 §1.2）
+  const locale = useLocale();
+  const rows = useMemo(
+    () => buildPhaseRows({ view: v as never, events: ws.data.events, targets: ws.data.workspace.data?.targets ?? null }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [v, ws.data.events, ws.data.workspace.data, locale],
+  );
   const now = ws.now();
   const elapsed = now - Date.parse(v.createdAt);
   const hourly = hourlyRangeOf(v.env?.hourlyEstimate);

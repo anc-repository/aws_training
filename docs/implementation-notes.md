@@ -3729,3 +3729,57 @@ web 目录、简介、小测、i18n 相关测试（10 个文件 154 通过）、
 e2e 中途两次出现测试机的 `net::ERR_NO_BUFFER_SPACE`（开发服务器 + HMR 的连接数多），见上表的取舍；最后一次运行没有出现。
 没有运行 `npm install`；5174 / 8787 的开发服务器没有停止也没有占用（自测都在 e2e 自己分配的端口上；中途为排查 400px 问题用
 `e2e:platform --serve-only` 起过一次独立的栈，查完后结束进程并删掉了它的两张表）。
+
+## i18n-review-fixes
+
+集成后评审意见（high 2、medium 7、low 7）的修复。规格的变化写在 docs/platform/09-i18n-and-visual.md 的“评审修复（R1～R16）”与
+§1.1～§1.8、V4；04 的报告类型下加了多语言说明，08 顶部的指引补了一句。
+
+**R1（用户试用环境）不在本轮操作**：127.0.0.1:5174 / 8787 由 `D:\workspace\atl-demo`（停在 7f5ef00，早于 i18n 的提交）中的进程提供，
+所以用户在试用环境里看不到日语默认与视觉化改动。评审要求先向用户说明、征得同意后再操作；本会话是工作流中的子代理，无法征得同意，
+因此没有停止、重启或改动 atl-demo 与这两个端口（自测都在 e2e 自己分配的端口上）。需要用户同意后执行：在 atl-demo 中 `git pull`
+（origin 是本仓库，可快进到本节的提交）→ `npm run labs:build` → 重启 8787 的 dev-server（tsx 不 watch）→ 重启 5174 的 Vite（依赖与
+index.html 有变化）。或者从本仓库用 `npm run e2e:platform -- --serve-only` 在其他端口另起一套。今后的集成摘要应写明试用服务器的
+工作目录与提交。
+
+有歧义时的取舍（都取最简单的做法）：
+
+| 问题 | 决定 |
+|---|---|
+| R2：怎样不重新挂载也让整棵树换语言 | `LocaleRoot` 订阅语言并 `cloneElement(children)`：新元素对象让 React 不跳过 App，渲染沿树传播（路由元素在 `AppRoutes` 的渲染中创建，Outlet 读上下文，都会更新）。没有 `React.memo`；依赖文案的 `useMemo` 加 `useLocale()`（3 处）。没有选“把终端控制器移到 services 层”：改动大，而且对话框输入、展开状态同样会丢 |
+| R2：语言变化后数据怎样换成新语言 | 三个数据 hook（`pages/labs/data.ts`、`pages/sessions/data.ts`、`workspace/data/resource.ts`）用 `useReloadOnLocale()` 在语言变化后就地重取，新数据到达前保留旧数据（工作台不会因手册重取而卸载）；ETag 缓存在 `services.ts` 订阅语言时先丢弃（URL 不变、响应随 Accept-Language 变化）。小测进行中的题目仍是开始时的语言（与以前相同，存在 sessionStorage） |
+| R2：工作台菜单的个人资料同步 | 顶栏与工作台共用 `app/localeSync.ts` 的 `useLocaleSync()`（invalidate + 尽力 `PATCH /me`） |
+| R3：简介与目录的 `from` | 共用 `startDriverOf()`（`fromDriver`，否则 registry 的本地驱动）。根目录 zh-CN 产物因此变化（每张卡的简介多了 `from`），这是构建输出的修正，不是内容变化，卡片版本与 CHANGELOG 不变 |
+| R4：S3 直传怎样画 | 不新增内容字段：`edgesFor(present, options, drivers)` 中 storage 存在且驱动不是 `efs`（启用的模块默认是 AWS 实现）时画 浏览器 → S3（flow），EC2 → S3 降为 aux。核对 40 张服务卡：`cards.test.ts` 读 `labs/_catalog/catalog.yaml`，每个目标都要有请求或附着连线（运维泳道除外）+ 24 条手写的核心路径 + 全部连线快照 |
+| R4：报告的构成图 | 用 `labs/<id>.json` 的 `targetModules[].wireStep` 与 `GET /sessions/{sid}/steps` 的步骤状态（done / done_manual）判断目标是否接入；没接入的画成选做样式（虚线），标题改为“这张卡片的目标构成”并说明虚线；拿不到步骤或手册时也只说“目标构成” |
+| R5：筛选标签宽度 | 标签列 `max-content` 的子网格（`grid-template-columns: subgrid`），芯片包进 `.fv`；< 480px 标签在芯片上方 |
+| R5：en 顶栏两行 | 不改断点：1440px 以下账号按钮只显示图标与用户名（区域与打码账号在展开的菜单里，所有语言），en 导航用短名 Catalog / Paths（页面标题仍是 Card catalog / Learning paths） |
+| R5：逐元素溢出检查 | e2e 的 `CLIPPED_TEXT`：自身文字比元素宽、`overflow-x` 不是 auto / scroll、没有 `text-overflow: ellipsis` 的块级元素（跳过表单控件、代码、终端、SVG、读屏文字）。用在阶段 11 的全部画面与阶段 4c 的工作台 |
+| R6：报告怎样只存代码 | 不改 `atl.report/v1` 的版本：`cost.noteKeys` 新增、`cost.notes` 改为可选（旧报告仍渲染，中文句子带 `lang="zh-CN"`）；`eligibility.reasons` 存 `ATTEMPT_INCOMPLETE`（SPA 按码显示，未知值带标记）；指标仍有 `label`（源语言），HTML 按 `metrics[].id` 用各语言的名称重画图表（存的 SVG 只在没有 metrics 时使用）；学员名为空时渲染方给“学员 / 受講者 / Learner” |
+| R6：卡片文字从哪里来 | 渲染前读 `content/<v>/ja|en/labs/<id>.json`（`loadReportTexts`，读不到就算了）转成 `ReportTexts`（标题、徽章、步骤、检查、起始理由与回退指针）；查不到或是回退时显示记录值并加 `<span lang="zh-CN">` 与“未翻訳”。不含汉字的值（id、产品名）不加标记 |
+| R6：打码占位 | `‹分配域名›` 等改为语言中立的 `‹distribution›`、`‹load-balancer›`、`‹lab-instance-public-dns›`、`‹session›`（与已有的 `‹redacted›` 一致） |
+| R7：字体 | `:root:lang(ja)` / `:root:lang(en)` 重定义 `--font-sans`（ja 另有 `--font-mono` 的 CJK 回退），带 `lang` 的片段按自己的语言换字体；验证页的样式表同样处理 |
+| R8：长音规则 | 按 Microsoft / AWS 日语文档：ブラウザー、パラメーター、サーバー、ユーザー、フォルダー；メモリ 例外（AWS 控制台写法）。加号统一为半角 “ + ”。规则写进用语表，`labs:lint` I6（error）与 `i18n:check` 检查 ja |
+| R8：学习目标 | ja 统一为“〜できる”或可能动词（示せる、見分けられる、読み解ける …，77 条）；en 保持动词原形开头 |
+| R8：“（任意）”前缀 | 只从 ja / en 的步骤标题中去掉（44 处，zh-CN 源文不动，否则根目录产物与卡片版本要变）；画面有“任意”徽章的地方（手册步骤、步骤列表、简介页步骤概览）用 `withoutOptionalMark()` 去掉 zh-CN 标题的前缀 |
+| R8：SAA 领域与路径名 | 弾力性に優れたアーキテクチャの設計 / 高性能なアーキテクチャの設計（官方考试指南）；短名 弾力性 / 高性能；路径名统一以“パス / path”结尾（比較クイックパス、ネットワークとエッジのパス …） |
+| R8：知识前提的大写 | 简介页把知识前提连成一句，en 的条目首词小写（专有名词与缩写除外，18 条） |
+| R9：CI | 根 `pretest` = `gen:registry && i18n:check && labs:i18n:check`；`labs:i18n` 新增 `--min`、`--only startable`、`--quiet`；`i18n.test.tsx` 不再过滤空字符串 |
+| R10：回退文字的实际语言 | 不改构建输出：回退链是 所选 → en → zh-CN，含汉字且不含假名的回退文字就是 zh-CN，否则 en（`fallbackLang`） |
+| R11：窄屏架构图 | 不缩放（400px 下文字会小到看不清）：滚动容器第一次溢出时把第一个新增 / 变更 / 选做 / ghost 节点滚到右侧可见处（尽量保留左侧的入口与 EC2）；只有溢出时才是 Tab 停留点 |
+| R12：软换行 | 渲染时处理（`joinSoftBreaks`），不改 labs:build 的产物 |
+| R14：词典拆包 | zh-CN 静态，ja / en 动态 `import()`；首次渲染前等待当前语言；切换到未加载的语言时加载完成后才切换。生产构建主 chunk 不再含 ja / en 词典 |
+| R15 | I18N_SCREENS 去掉工作台（会话结束后路由不显示手册）；阶段 4c（live 会话中的第二个上下文）检查 ja / en × 400 / 1280，等 `[data-step-heading]` 出现并断言 `#mpane` 中没有骨架行，然后在“更多”菜单切换到 English，断言终端仍是同一个子标签、`data-phase=ready`、滚动记录还在、新命令有回显、`atl.locale.v1` 为 en、发出了 `PATCH /me {"locale":"en"}` |
+| R16 | 验证页静态 HTML 用 ja 词典的文字（`<html lang="ja">`）；`formatDay` 按验证页的语言用 Intl；证书标题：SPA 的证书详情按 `trackId` 取目录中当前语言的证书名，验证页（不读目录）把记录的中文标题放进 `lang="zh-CN"` 并加“未翻訳”；后端建档与 `GET /me` 的默认 `locale` 改为 `ja` |
+| R5：en 报告检查行的“automatic” | 列宽 40px 是按中文定的；en 改用 “auto”（与 “manual” 等长），不改列宽 |
+| 目录卡片 | 按类型 / 类别分组时服务卡不显示分组行（场景卡的“包含 n 个服务”保留）；去掉被截断的简介（完整简介在链接的 `title` 与读屏文字中，搜索命中简介时才显示）；卡片改为纵向 flex，去掉 228px 的最小高度；“学習を続ける”在路径完成且没有推荐时只说完成、没有阶段时不显示“—”；服务地图图例写单位 |
+
+自测（2026-10-14）：`npm run build`、`npm run lint`（0 问题）、`npm test`（pretest 含 `i18n:check` 与 `labs:i18n:check`；231 个文件 / 2821 个用例
+通过，18 个跳过）、`npm run i18n:check`（ja / en 各 3571 / 3571，表记 0 问题）、`npm run labs:lint`（56 张，0 错误 0 警告，含新规则 I6）、
+`npm run labs:i18n:check`（4680 个文本字段与 231 个手册，ja / en 100%）、`npm run e2e:platform`（79 / 79；第一次运行时新增的
+逐元素检查发现 en 报告的检查行“automatic”被 40px 的列截断，改为 “auto” 后通过；截图已更新到 `.atl-dev/screens-ja/`）。
+生产构建的主 chunk 从 848 KB / 276 KB gz 降到 468 KB / 159 KB gz（ja 216 KB / 63 KB gz、en 167 KB / 54 KB gz 为独立 chunk）。新增测试：`ui/diagram/cards.test.ts`、
+`i18n/softbreak.test.ts`、`i18n.test.tsx` 的 LocaleRoot 原地切换用例、`diagram.test.tsx` 的溢出滚动用例、`scripts/labs/test/build.test.ts` 的
+简介 / 目录 `from` 一致性、`platform/api/test/report-html-i18n.test.ts` 的三个用例（ja / en 块中没有简体专用字、未翻译时的 `lang` 与标记、
+`reportTextsFromLab`）。没有运行 `npm install`；没有调用 AWS；5174 / 8787 没有停止也没有占用（截图自查用 `e2e:platform --serve-only`
+起的独立栈，查完结束进程并删掉了它的两张表）。

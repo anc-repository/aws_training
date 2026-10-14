@@ -60,7 +60,7 @@ fieldset.plain>legend{padding:0}
 .ctile .lab-hit{font-size:12px; color:var(--accent)}
 .ctile .svs{display:flex; gap:4px; flex-wrap:wrap; align-items:center}
 .cgrid-empty{margin-top:16px}
-.facets .fr .count{margin-left:auto}
+.facets .fv .count{margin-left:auto}
 .envbar .eb-btns{display:flex; gap:6px; flex-wrap:wrap; align-items:center}
 .envbar .st{white-space:normal}
 .contstrip .rec{display:inline-flex; gap:6px; flex-wrap:wrap; align-items:center}
@@ -135,7 +135,8 @@ fieldset.plain>legend{padding:0}
 
 /* ---------- 视觉化（I6 c、d、f；09「视觉组件」V9）：目录卡片、服务地图、简介页、学习页 ---------- */
 /* 目录卡片：服务图标 + 迷你架构图 + 标题 + 一行简介 + 指标图标 */
-.ctile.vis{grid-template-rows:auto auto auto 1fr auto; gap:8px}
+.ctile.vis{display:flex; flex-direction:column; gap:8px; min-height:0}
+.ctile.vis .foot{margin-top:auto}
 .ct-head{display:flex; gap:10px; align-items:flex-start; min-width:0}
 .ct-title{display:flex; flex-direction:column; gap:2px; min-width:0}
 .ctile.vis .kindline{flex-wrap:wrap; gap:4px}
@@ -186,7 +187,7 @@ details.more .more-body{display:grid; gap:6px}
 .vs-side.after{border-color:var(--accent); box-shadow:inset 0 0 0 1px var(--accent)}
 .vs-cap{font-size:12px; font-weight:600; color:var(--text-2)}
 .vs-name{font-size:13px; overflow-wrap:anywhere}
-.vs-note{overflow-wrap:anywhere}
+.vs-note,.vs-drv{overflow-wrap:anywhere}
 .vs-local{fill:none; stroke:var(--border-strong); stroke-width:1.5; stroke-dasharray:4 3; stroke-linecap:round}
 .vs-local path{stroke:var(--text-3); stroke-dasharray:none; stroke-width:2}
 .vs-arrow{display:flex; align-items:center; color:var(--text-3)}

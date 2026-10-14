@@ -42,13 +42,13 @@ story:
 objectives:
   - text:
       zh-CN: 区分域名注册与 DNS 托管，完成 NS 委派或使用已有托管区域
-      ja: ドメインの登録と DNS ホスティングを区別し、NS 委任を行うか既存のホストゾーンを使う
+      ja: ドメインの登録と DNS ホスティングを区別し、NS 委任または既存のホストゾーンで名前解決を設定できる
       en: Tell domain registration apart from DNS hosting, and set up NS delegation or use an existing hosted zone
     domain: resilient
     relatesTo: enable-dns
   - text:
       zh-CN: 用换 IP 演练证明“名字固定、目标可换”
-      ja: IP 変更の訓練で「名前は固定、宛先は交換可能」を証明する
+      ja: IP 変更の訓練で「名前は固定、宛先は交換可能」であることを証明できる
       en: Use an IP change drill to prove that the name stays fixed while the target can change
     domain: resilient
     relatesTo: ip-after
@@ -60,7 +60,7 @@ objectives:
     relatesTo: alias-cname
   - text:
       zh-CN: 理解 TTL、健康检查与故障转移的时间构成
-      ja: TTL、ヘルスチェック、フェイルオーバーにかかる時間の内訳を理解する
+      ja: TTL、ヘルスチェック、フェイルオーバーにかかる時間の内訳を説明できる
       en: Understand how TTLs, health checks and failover add up in time
     domain: resilient
     relatesTo: failover
@@ -94,7 +94,7 @@ prerequisites:
   learnerInputs:
     - { id: domain }
     - { id: hosted-zone, required: false }
-  knowledge: [{ zh-CN: 域名、记录与 TTL 的基本概念, ja: ドメイン名、レコード、TTL の基本, en: "Basics of domain names, records and TTLs" }, { zh-CN: 在注册商处修改 NS 的方法, ja: レジストラーで NS を変更する方法, en: How to change NS records at your registrar }]
+  knowledge: [{ zh-CN: 域名、记录与 TTL 的基本概念, ja: ドメイン名、レコード、TTL の基本, en: "basics of domain names, records and TTLs" }, { zh-CN: 在注册商处修改 NS 的方法, ja: レジストラーで NS を変更する方法, en: how to change NS records at your registrar }]
 
 startProfile:
   provisions:
@@ -195,7 +195,7 @@ cost:
     - { key: queries, pricingKey: route53.queries, billing: usage, quantity: 1, unit: Queries, assumedUsagePerHour: 2000, source: target, whenRetained: false }
   assumptions:
     - zh-CN: 标准查询按每小时约 2000 次估算（演练脚本每 5 秒查询一次 + 浏览），指向 AWS 资源的 Alias 查询不收费，以官方定价为准
-      ja: 標準クエリは 1 時間あたり約 2000 回で見積もっています（訓練スクリプトの 5 秒ごとのクエリ＋閲覧）。AWS リソースを指す Alias のクエリは無料です。正確な料金は公式の料金表を確認してください
+      ja: 標準クエリは 1 時間あたり約 2000 回で見積もっています（訓練スクリプトの 5 秒ごとのクエリ + 閲覧）。AWS リソースを指す Alias のクエリは無料です。正確な料金は公式の料金表を確認してください
       en: Standard queries are estimated at about 2,000 per hour (the drill script queries every 5 seconds, plus browsing); Alias queries to AWS resources are free — check the official pricing
     - zh-CN: 托管区域按月计费，报价按会话时长折算；域名注册费不在本卡范围内
       ja: ホストゾーンは月額課金で、見積もりはセッション時間で按分しています。ドメインの登録料金はこのカードの範囲外です
@@ -284,8 +284,8 @@ steps:
     type: experiment
     title:
       zh-CN: （选做）健康检查与故障转移：停掉 Nginx，客户端多久拿到维护页
-      ja: （任意）ヘルスチェックとフェイルオーバー：Nginx を止めると、クライアントがメンテナンスページを受け取るまでどれくらいかかるか
-      en: "(Optional) Health checks and failover: stop Nginx and see how long clients take to get the maintenance page"
+      ja: ヘルスチェックとフェイルオーバー：Nginx を止めると、クライアントがメンテナンスページを受け取るまでどれくらいかかるか
+      en: "Health checks and failover: stop Nginx and see how long clients take to get the maintenance page"
     manual: manual/60-failover.md
     optional:
       reason:

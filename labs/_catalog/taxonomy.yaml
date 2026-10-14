@@ -431,11 +431,11 @@ domains:
     weight: 30
     track: secure
   - id: resilient
-    label: { zh-CN: 设计弹性的架构, ja: 回復性の高いアーキテクチャの設計, en: Design Resilient Architectures }
+    label: { zh-CN: 设计弹性的架构, ja: 弾力性に優れたアーキテクチャの設計, en: Design Resilient Architectures }
     weight: 26
     track: resilient
   - id: performance
-    label: { zh-CN: 设计高性能的架构, ja: 高パフォーマンスなアーキテクチャの設計, en: Design High-Performing Architectures }
+    label: { zh-CN: 设计高性能的架构, ja: 高性能なアーキテクチャの設計, en: Design High-Performing Architectures }
     weight: 24
     track: performant
   - id: cost

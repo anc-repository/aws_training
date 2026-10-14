@@ -5,18 +5,25 @@
  *   文案。对象的身份不变，所以各目录 strings.ts 里的别名（`export const S = msg.labs.ui`）和组件里的 `msg.app.retry`
  *   在重新渲染时自然取到新语言；
  * - 空字符串视为“未翻译”，按回退链取下一种语言；开发模式下把缺少的键汇总成一条控制台警告；
- * - 切换语言后 `LocaleRoot` 以语言为 key 重新挂载应用（见 LocaleRoot.tsx），不需要整页刷新；
+ * - 切换语言后 `LocaleRoot` 让应用原地重新渲染（不重新挂载，组件状态与终端连接保留，见 LocaleRoot.tsx），不需要整页刷新；
  * - 本模块不依赖 React（公开验证页与分享副本渲染器经 core.ts 使用它）；React hook 在 hooks.ts。
+ * - 按需加载：zh-CN（源语言，也是类型来源）静态打包；ja、en 各是一个独立的 chunk，用到时才 `import()`（每个用户只下载自己的
+ *   语言）。main.tsx 在首次渲染前 `await localeReady()`；切换到未加载的语言时先加载、加载完成后才真正切换（不会先闪一下中文）。
+ *   `npm run i18n:check` 保证 ja / en 完整，运行时的回退只用已加载的词典。测试与分享副本渲染器用 `registerLocaleDict()`
+ *   同步注册。
  */
-import { en } from './en';
-import { ja } from './ja';
 import { applyHtmlLang, fallbackChain, hasStoredLocale, persistLocale, storedLocale, type Locale } from './locale';
 import { setTextLocale } from './text';
 import { zhCN, type Messages } from './zh-CN';
 
 type Tree = Record<string, unknown>;
 
-const DICTS: Readonly<Record<Locale, unknown>> = { 'zh-CN': zhCN, ja, en };
+const DICTS: Partial<Record<Locale, unknown>> = { 'zh-CN': zhCN };
+const LOADERS: Readonly<Record<Exclude<Locale, 'zh-CN'>, () => Promise<unknown>>> = {
+  ja: () => import('./ja').then((m) => m.ja),
+  en: () => import('./en').then((m) => m.en),
+};
+const loading = new Map<Locale, Promise<void>>();
 
 function deepClone<T>(v: T): T {
   if (Array.isArray(v)) return v.map(deepClone) as T;
@@ -54,7 +61,9 @@ function isDev(): boolean {
 
 /** 把 `msg` 的每个叶子改写成 `loc` 的文案；返回走了回退的键（a.b.c）。 */
 function materialize(loc: Locale): string[] {
-  const chain = fallbackChain(loc).map((l) => DICTS[l]);
+  const chain = fallbackChain(loc)
+    .map((l) => DICTS[l])
+    .filter((d) => d !== undefined);
   const missing: string[] = [];
   const walk = (src: unknown, target: Tree, path: string[]) => {
     for (const k of Object.keys(src as Tree)) {
@@ -106,11 +115,41 @@ export function missingKeys(): readonly string[] {
   return lastMissing;
 }
 
-/**
- * 切换语言：改写词典、`<html lang>`、通知订阅者。`persist` 为 false 时不写 localStorage（测试用）。
- */
-export function setLocale(loc: Locale, opts: { persist?: boolean } = {}): void {
-  if (opts.persist !== false) persistLocale(loc);
+/** 同步注册一种语言的词典（测试、Node 中运行的分享副本渲染器）；当前语言因此变完整时重新改写。 */
+export function registerLocaleDict(loc: Locale, dict: unknown): void {
+  DICTS[loc] = dict;
+  if (fallbackChain(current).includes(loc)) apply(current);
+}
+
+/** 加载一种语言的词典（已加载时立即完成；失败时抛出，界面保持原来的语言）。 */
+export function loadLocale(loc: Locale): Promise<void> {
+  if (DICTS[loc] !== undefined || loc === 'zh-CN') return Promise.resolve();
+  let p = loading.get(loc);
+  if (!p) {
+    p = LOADERS[loc]().then((d) => {
+      DICTS[loc] = d;
+    });
+    loading.set(loc, p);
+    p.catch(() => loading.delete(loc));
+  }
+  return p;
+}
+
+/** 首次渲染前：加载当前语言的词典并改写文案（失败时以已有的词典显示，不阻止启动）。 */
+export async function localeReady(): Promise<void> {
+  const loc = current;
+  try {
+    await loadLocale(loc);
+  } catch {
+    return;
+  }
+  if (loc === current) apply(loc);
+}
+
+let wanted: Locale | null = null;
+
+function commit(loc: Locale): void {
+  wanted = null;
   if (loc === current) {
     applyHtmlLang(loc);
     return;
@@ -118,6 +157,27 @@ export function setLocale(loc: Locale, opts: { persist?: boolean } = {}): void {
   current = loc;
   apply(loc);
   for (const fn of [...listeners]) fn();
+}
+
+/**
+ * 切换语言：改写词典、`<html lang>`、通知订阅者。`persist` 为 false 时不写 localStorage（测试用）。
+ * 词典已加载时同步完成；否则先加载，加载完成（且期间没有选别的语言）后再切换。
+ */
+export function setLocale(loc: Locale, opts: { persist?: boolean } = {}): void {
+  if (opts.persist !== false) persistLocale(loc);
+  wanted = loc;
+  if (loc === 'zh-CN' || DICTS[loc] !== undefined) {
+    commit(loc);
+    return;
+  }
+  loadLocale(loc).then(
+    () => {
+      if (wanted === loc) commit(loc);
+    },
+    () => {
+      if (wanted === loc) wanted = null;
+    },
+  );
 }
 
 export function subscribeLocale(fn: () => void): () => void {

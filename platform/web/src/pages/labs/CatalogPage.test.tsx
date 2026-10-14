@@ -14,7 +14,9 @@ describe('P02 卡片目录', () => {
     expect(await screen.findByRole('heading', { level: 1, name: '卡片目录' })).toBeTruthy();
     const ec2 = await screen.findByRole('article', { name: /Amazon EC2/ });
     expect(within(ec2).getByRole('link', { name: /Amazon EC2/ }).getAttribute('href')).toBe('/labs/svc-ec2');
-    expect(ec2.textContent).toContain('单服务 · 基础');
+    // grouped by kind: the section heading names the kind and category, the tile does not repeat it (I6 c)
+    expect(ec2.textContent).not.toContain('单服务 · 基础');
+    expect(ec2.closest('section')?.querySelector('h2')?.textContent).toContain('基础');
     // I6 c：服务图标 + 迷你架构图 + 指标图标（时长用 Intl 的分钟；时间上限只给读屏）
     expect(ec2.querySelector('[data-glyph="ec2"]')).toBeTruthy();
     expect(ec2.querySelector('[data-arch="svc-ec2"] svg.arch-svg')?.getAttribute('aria-hidden')).toBe('true');

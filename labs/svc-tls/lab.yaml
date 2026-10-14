@@ -46,25 +46,25 @@ story:
 objectives:
   - text:
       zh-CN: 区分自签名、Let's Encrypt 与 ACM 证书在信任与续期上的差别
-      ja: 自己署名、Let's Encrypt、ACM の証明書の信頼と更新の違いを区別する
+      ja: 自己署名、Let's Encrypt、ACM の証明書について、信頼と更新の違いを説明できる
       en: Distinguish self-signed, Let's Encrypt and ACM certificates in terms of trust and renewal
     domain: secure
     relatesTo: before
   - text:
       zh-CN: 用 ACME 端点 + 预先批准的 DNS 域验证 + EAB 给自管服务器签发证书
-      ja: ACME エンドポイント + 事前承認された DNS ドメイン検証 + EAB で自己管理のサーバーに証明書を発行する
+      ja: ACME エンドポイント + 事前承認された DNS ドメイン検証 + EAB で、自己管理のサーバーに証明書を発行できる
       en: Issue a certificate for a self-managed server with the ACME endpoint + pre-approved DNS domain validation + EAB
     domain: secure
     relatesTo: enable-tls
   - text:
       zh-CN: 记住考试结论：ACM 公有证书只挂在集成服务上，CloudFront 的证书在 us-east-1
-      ja: 試験の結論を覚える：ACM のパブリック証明書は統合サービスにしか付けられず、CloudFront の証明書は us-east-1 にある
+      ja: 試験の結論を説明できる：ACM のパブリック証明書は統合サービスにしか付けられず、CloudFront の証明書は us-east-1 にある
       en: "Remember the exam answer: ACM public certificates only attach to integrated services, and CloudFront's certificate is in us-east-1"
     domain: secure
     relatesTo: two-columns
   - text:
       zh-CN: 理解证书续期由谁负责，以及 HSTS 的风险
-      ja: 証明書の更新を誰が担当するか、そして HSTS のリスクを理解する
+      ja: 証明書の更新を誰が担当するか、そして HSTS のリスクを説明できる
       en: Understand who is responsible for renewal, and the risks of HSTS
     domain: secure
     relatesTo: after
@@ -122,10 +122,10 @@ prerequisites:
   knowledge:
     - zh-CN: HTTPS 与证书链的基本概念
       ja: HTTPS と証明書チェーンの基本
-      en: Basics of HTTPS and certificate chains
+      en: basics of HTTPS and certificate chains
     - zh-CN: 在你的 DNS 中添加 A 与 CNAME 记录的方法
       ja: 自分の DNS に A レコードと CNAME レコードを追加する方法
-      en: How to add A and CNAME records in your DNS
+      en: how to add A and CNAME records in your DNS
 
 startProfile:
   provisions:
@@ -359,8 +359,8 @@ steps:
     type: script
     title:
       zh-CN: （选做）强制 HTTPS 与 HSTS
-      ja: （任意）HTTPS の強制と HSTS
-      en: (Optional) Force HTTPS and HSTS
+      ja: HTTPS の強制と HSTS
+      en: Force HTTPS and HSTS
     manual: manual/70-force-https.md
     optional:
       reason:

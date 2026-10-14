@@ -15,8 +15,8 @@ export default {
   },
   domain: {
     secure: 'セキュリティ', // 安全
-    resilient: '回復性', // 弹性
-    performance: '高パフォーマンス', // 高性能
+    resilient: '弾力性', // 弹性
+    performance: '高性能', // 高性能
     cost: 'コスト最適化', // 成本
   },
   duration: {
@@ -242,6 +242,7 @@ export default {
     cont: {
       title: '学習を続ける', // 继续学习
       path: '{track} · {stage} · 必修 {done}/{total}', // {track} · {stage} · 必修 {done}/{total}
+      pathNoStage: '{track} · 必修 {done}/{total}', // {track} · 必修 {done}/{total}
       recommend: 'おすすめ', // 推荐
       recommendAfter: '現在の環境の次におすすめ', // 当前环境之后推荐
       view: '見る →', // 查看 →
@@ -252,6 +253,7 @@ export default {
     },
     map: {
       legend: '凡例：', // 图例：
+      legendLevel: '{level} {n} サービス', // {level} {n} 项服务
       legendTail: '· 破線枠 = 手動確認を含む · ! = 要復習 · * シナリオカードで加算するにはドメインが必要 · † シナリオカードなし', // · 虚线框 = 含手动 · ! = 需复习 · * 需要域名才能由场景卡计入 · † 没有场景卡
       help: 'スコアは進捗リングにだけ使い、レベルは規則に従って判定します。サービスをクリックするとサイドパネルが開きます。Tab でマップに入り、矢印キーで移動できます。', // 分数只用于进度环；等级文字按规则判定。点击服务格打开侧栏；Tab 进入地图后用方向键在格子之间移动。
       cellLabel: '{name}、{fn}、{level}、{score} 点', // {name}，{fn}，{level}，{score} 分

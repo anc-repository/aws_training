@@ -128,7 +128,7 @@ export default {
     wsEc2: 'ワークベンチ EC2（推奨）', // 工作台 EC2（推荐）
     wsCloudshell: 'ワークベンチを起動せず CloudShell を使う（節約モード）', // 不启动工作台，用 CloudShell（省钱模式）
     wsRequired: 'ワークベンチ EC2（このカードではワークベンチが必要なため、節約モードはありません）', // 工作台 EC2（本卡片需要工作台，不提供省钱模式）
-    wsLimits: '節約モードの制限：分割画面に埋め込めない、コンソールのセッションは最長 1 時間、比較実験の結果をアップロードできない、ラボ用インスタンス側の実験は手動での観察のみ、CloudShell のホームディレクトリは自分で片付ける必要がある。', // 省钱模式的限制：不能嵌入分屏；控制台会话最长 1 小时；对比实验结果无法上传；实验机侧实验只能手动观察；CloudShell 主目录需自行清理。
+    wsLimits: '節約モードには次の制限があります：分割画面に埋め込めません。コンソールのセッションは最長 1 時間です。比較実験の結果はアップロードできません。ラボ用インスタンス側の実験は手動での観察のみです。CloudShell のホームディレクトリは自分で片付けてください。', // 省钱模式的限制：不能嵌入分屏；控制台会话最长 1 小时；对比实验结果无法上传；实验机侧实验只能手动观察；CloudShell 主目录需自行清理。
     wsDegraded: '負荷系の実験結果は参考値になります。', // 负载类实验的结果只供参考。
     inputs: '用意してほしいもの', // 需要你提供
     inputsNone: '—（このカードにはありません）', // —（本卡片没有）
@@ -154,7 +154,7 @@ export default {
     accountImpact: 'このカードはアカウント全体の設定を変更します：{list}。', // 本卡片会修改账号级设置：{list}。
     reusePlan: '差分計画：', // 差异计划：
     reuseEnable: '{list} を有効化', // 需启用 {list}
-    reuseChange: 'パラメータの変更 {list}', // 参数变更 {list}
+    reuseChange: 'パラメーターの変更 {list}', // 参数变更 {list}
     reuseChangeItem: '{module}（{replace}{downtime}）', // {module}（{replace}{downtime}）
     reuseReplace: 'インスタンスを置き換え', // 替换实例
     reuseNoReplace: 'インスタンスは置き換えない', // 不替换实例
@@ -247,6 +247,7 @@ export default {
     with: '{name} あり', // 有 {name}
     none: '（なし）', // （没有）
     local: 'ローカル実装', // 本地实现
+    driver: 'ドライバー {driver}', // 驱动 {driver}
     notYet: '開始時はまだありません', // 开始时还没有
     costMore: '費用の説明', // 费用说明
     confusable: '{label}：{a} / {b}：{rule}', // {label}：{a} / {b}：{rule}

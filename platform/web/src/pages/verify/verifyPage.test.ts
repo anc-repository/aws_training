@@ -59,7 +59,9 @@ describe('static entry contract (08 P09-V, §6.11 D-UI-7; 04 §10.6)', () => {
     expect(pageHtml).toContain('<link rel="stylesheet" href="/verify/verify.css">');
     expect(pageHtml).not.toContain("'unsafe-inline'");
     expect(pageHtml).toMatch(/id="vres"[^>]*role="status"/);
-    expect(pageHtml).toContain('不是 AWS 官方认证');
+    // static texts are Japanese (I1: the first visit is Japanese, also before the script runs or without it)
+    expect(pageHtml).toContain('<html lang="ja">');
+    expect(pageHtml).toContain('AWS の公式認定ではなく');
   });
 });
 

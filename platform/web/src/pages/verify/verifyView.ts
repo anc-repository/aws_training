@@ -5,8 +5,9 @@
 import { redactText } from '../share/publicRedact';
 import { certLabs, type CertLab, type CertPayload, type VerifyOutcome } from './verifyCore';
 
+import { INTL_TAG, type Locale } from '../../i18n/locale';
 import { t } from '../../i18n/text';
-import { VT } from './strings';
+import { VT, verifyLocale } from './strings';
 export type VerifyTone = 'ok' | 'bad' | 'warn' | 'grey' | 'pend';
 export type VerifyShape = 'check' | 'xbox' | 'tri' | 'ring' | 'clock';
 
@@ -40,14 +41,21 @@ const D = VT.detail;
 
 const pad = (n: number) => String(n).padStart(2, '0');
 
-/** 日期 `2026-10-20`（本地时区）。 */
-export function formatDay(iso: string | null | undefined): string {
+/**
+ * 日期（本地时区，09 §1.4）：zh-CN `2026-10-20`；ja / en 用 Intl（`2026/10/20`、`Oct 20, 2026`），与 SPA 的 fmtDay 相同。
+ * 验证页不加载 SPA 的运行时，语言取验证页自己的选择。
+ */
+export function formatDay(iso: string | null | undefined, lang: Locale = verifyLocale()): string {
   if (!iso) return '—';
   const t = Date.parse(iso);
   if (!Number.isFinite(t)) return '—';
   const d = new Date(t);
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+  if (lang === 'zh-CN') return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+  return new Intl.DateTimeFormat(INTL_TAG[lang], { year: 'numeric', month: lang === 'en' ? 'short' : '2-digit', day: '2-digit' }).format(d);
 }
+
+const HAN = /[\u3400-\u9fff]/;
+const KANA = /[\u3040-\u30ff]/;
 
 /** 悬停显示的 UTC 时间。 */
 export function utcTitle(iso: string | null | undefined): string {
@@ -119,6 +127,11 @@ export interface DetailRow {
   value: string;
   title?: string;
   mono?: boolean;
+  /**
+   * 值的一部分是签发时记录的中文（证书标题）：页面把它放进 `<span lang="zh-CN">` 并加“未翻訳”标记（WCAG 3.1.2、I2）。
+   * `value` 仍是完整的纯文本。
+   */
+  segments?: { text: string; lang?: Locale; untranslated?: boolean }[];
 }
 
 function pct(v: number | null | undefined): string | null {
@@ -136,8 +149,19 @@ export function detailRows(p: CertPayload, o: VerifyOutcome, rollback: { seen: n
   const a = p.achievement ?? {};
   const scope = a.trackId ? `${red(a.trackId)}${a.trackVersion ? ` v${red(a.trackVersion)}` : ''}` : a.labId ? `${red(a.labId)}${a.labVersion ? ` v${red(a.labVersion)}` : ''}` : '';
   const ratio = pct(a.verifiedRatio ?? null);
+  // 证书标题是签发时写入的源语言（zh-CN）文字：界面是其他语言时标出语言与“未翻訳”
+  const title = a.title ? red(a.title) : '';
+  const foreign = !!title && verifyLocale() !== 'zh-CN' && HAN.test(title) && !KANA.test(title);
+  const certValue = `${red(p.certId)}${title ? ` · ${title}` : ''}${scope ? t(D.scope, { scope }) : ''}`;
   const rows: DetailRow[] = [
-    { label: D.cert, value: `${red(p.certId)}${a.title ? ` · ${red(a.title)}` : ''}${scope ? t(D.scope, { scope }) : ''}`, mono: false },
+    {
+      label: D.cert,
+      value: certValue,
+      mono: false,
+      ...(foreign
+        ? { segments: [{ text: `${red(p.certId)} · ` }, { text: title, lang: 'zh-CN' as const, untranslated: true }, ...(scope ? [{ text: t(D.scope, { scope }) }] : [])] }
+        : {}),
+    },
     {
       label: D.holder,
       value: `${t(D.holderValue, { name: red(p.subject?.displayName) || '—', t: formatDay(p.issuedAt) })}${ratio ? t(D.ratio, { ratio }) : ''}`,

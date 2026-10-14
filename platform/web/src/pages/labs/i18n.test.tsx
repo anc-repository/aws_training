@@ -57,7 +57,8 @@ describe('web-catalog i18n', () => {
     expect(await screen.findByRole('heading', { level: 1, name: 'カード一覧' })).toBeTruthy();
     expect(document.documentElement.lang).toBe('ja');
     const ec2 = await screen.findByRole('article', { name: /Amazon EC2/ });
-    expect(ec2.textContent).toContain('サービス · 基礎');
+    expect(ec2.textContent).not.toContain('サービス · 基礎');
+    expect(ec2.closest('section')?.querySelector('h2')?.textContent).toContain('基礎');
     expect(ec2.querySelector('[data-metric="duration"]')!.textContent).toContain('60 分');
     expect(ec2.querySelector('[data-metric="difficulty"]')!.textContent).toContain('入門');
     expect(ec2.querySelector('[data-arch="svc-ec2"] svg')).toBeTruthy();

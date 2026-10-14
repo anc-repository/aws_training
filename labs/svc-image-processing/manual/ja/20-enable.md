@@ -2,7 +2,7 @@
 step: enable
 ---
 
-Lambda を組み込みます。`scripts/module` は `lambdas/image-thumbnail` をパッケージング（esbuild ＋ linux-arm64 用の sharp）してツールチェーンのバケットにアップロードし、
+Lambda を組み込みます。`scripts/module` は `lambdas/image-thumbnail` をパッケージング（esbuild + linux-arm64 用の sharp）してツールチェーンのバケットにアップロードし、
 関数、ロググループ、非同期呼び出しの設定、EventBridge のルール、失敗キューと結果キューをデプロイします。その後 worker、api の順に再起動し、最後にエンドツーエンドのプローブを実行します。
 
 :::method{kind=script default}

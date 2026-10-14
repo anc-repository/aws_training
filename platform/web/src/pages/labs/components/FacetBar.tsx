@@ -90,36 +90,38 @@ export function FacetBar({ id, query: q, counts, tax, shown, total, statusDisabl
           <span className="fl" aria-hidden="true">
             {FACET_LABEL[k]}
           </span>
-          {(FACET_VALUES[k] as readonly string[]).map((v) => {
-            const n = counts[k]?.[v] ?? 0;
-            const on = (q[k] as readonly string[]).includes(v);
-            const off = k === 'st' && statusDisabled;
-            return (
-              <button
-                key={v}
-                type="button"
-                className={n || on ? 'facet' : 'facet zero'}
-                aria-pressed={on}
-                aria-disabled={off || undefined}
-                title={off ? S.catalog.statusFacetOff : undefined}
-                data-facet={`${k}-${v}`}
-                onClick={() => {
-                  if (off) return;
-                  const cur = q[k] as readonly string[];
-                  onChange({ ...q, [k]: cur.includes(v) ? cur.filter((x) => x !== v) : [...cur, v] });
-                }}
-              >
-                {k === 'cost' ? <span className="cost">{facetValueText(k, v)}</span> : facetValueText(k, v)}
-                <span className="n">{off ? '—' : n}</span>
-              </button>
-            );
-          })}
-          {k === 'dom' ? (
-            <label className="chk small">
-              <input type="checkbox" checked={q.primary} onChange={(e) => onChange({ ...q, primary: e.target.checked })} />
-              <span>{S.catalog.onlyPrimary}</span>
-            </label>
-          ) : null}
+          <div className="fv">
+            {(FACET_VALUES[k] as readonly string[]).map((v) => {
+              const n = counts[k]?.[v] ?? 0;
+              const on = (q[k] as readonly string[]).includes(v);
+              const off = k === 'st' && statusDisabled;
+              return (
+                <button
+                  key={v}
+                  type="button"
+                  className={n || on ? 'facet' : 'facet zero'}
+                  aria-pressed={on}
+                  aria-disabled={off || undefined}
+                  title={off ? S.catalog.statusFacetOff : undefined}
+                  data-facet={`${k}-${v}`}
+                  onClick={() => {
+                    if (off) return;
+                    const cur = q[k] as readonly string[];
+                    onChange({ ...q, [k]: cur.includes(v) ? cur.filter((x) => x !== v) : [...cur, v] });
+                  }}
+                >
+                  {k === 'cost' ? <span className="cost">{facetValueText(k, v)}</span> : facetValueText(k, v)}
+                  <span className="n">{off ? '—' : n}</span>
+                </button>
+              );
+            })}
+            {k === 'dom' ? (
+              <label className="chk small">
+                <input type="checkbox" checked={q.primary} onChange={(e) => onChange({ ...q, primary: e.target.checked })} />
+                <span>{S.catalog.onlyPrimary}</span>
+              </label>
+            ) : null}
+          </div>
         </div>
       ))}
       {!compact ? (
@@ -127,54 +129,60 @@ export function FacetBar({ id, query: q, counts, tax, shown, total, statusDisabl
           <span className="fl" aria-hidden="true">
             {S.catalog.facetService}
           </span>
-          <select
-            className="input inline"
-            aria-label={S.catalog.pickService}
-            value=""
-            onChange={(e) => {
-              const v = e.target.value;
-              if (v && !q.svc.includes(v)) onChange({ ...q, svc: [...q.svc, v] });
-            }}
-          >
-            <option value="">{S.catalog.pickService}</option>
-            {svcGroups.map((g) => (
-              <optgroup key={g.cat.id} label={categoryLabel(tax, g.cat.id)}>
-                {g.services.map((s) => (
-                  <option key={s.id} value={s.id}>
-                    {t(PL.serviceOption, { name: s.name, abbr: s.abbr })}
-                  </option>
-                ))}
-              </optgroup>
-            ))}
-          </select>
-          {q.svc.map((id) => {
-            const s = tax.services.find((x) => x.id === id);
-            return (
+          <div className="fv">
+            <select
+              className="input inline"
+              aria-label={S.catalog.pickService}
+              value=""
+              onChange={(e) => {
+                const v = e.target.value;
+                if (v && !q.svc.includes(v)) onChange({ ...q, svc: [...q.svc, v] });
+              }}
+            >
+              <option value="">{S.catalog.pickService}</option>
+              {svcGroups.map((g) => (
+                <optgroup key={g.cat.id} label={categoryLabel(tax, g.cat.id)}>
+                  {g.services.map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {t(PL.serviceOption, { name: s.name, abbr: s.abbr })}
+                    </option>
+                  ))}
+                </optgroup>
+              ))}
+            </select>
+            {q.svc.map((id) => {
+              const s = tax.services.find((x) => x.id === id);
+              return (
+                <button
+                  key={id}
+                  type="button"
+                  className="facet"
+                  aria-pressed="true"
+                  aria-label={t(S.catalog.removeService, { name: s?.name ?? id })}
+                  onClick={() => onChange({ ...q, svc: q.svc.filter((x) => x !== id) })}
+                >
+                  {s?.abbr ?? id} ×
+                </button>
+              );
+            })}
+            <label className="chk small">
+              <input type="checkbox" checked={q.nomanual} onChange={(e) => onChange({ ...q, nomanual: e.target.checked })} />
+              <span>{S.catalog.noManual}</span>
+            </label>
+            <span className="spacer" />
+            <span className="small" data-shown="">
+              {t(S.catalog.shown, { n: shown, total })}
+            </span>
+            {anyFilter ? (
               <button
-                key={id}
                 type="button"
-                className="facet"
-                aria-pressed="true"
-                aria-label={t(S.catalog.removeService, { name: s?.name ?? id })}
-                onClick={() => onChange({ ...q, svc: q.svc.filter((x) => x !== id) })}
+                className="btn sm ghost"
+                onClick={() => onChange({ ...q, q: '', kind: [], svc: [], dom: [], d: [], dur: [], cost: [], st: [], nomanual: false, primary: false })}
               >
-                {s?.abbr ?? id} ×
+                {S.catalog.clear}
               </button>
-            );
-          })}
-          <label className="chk small">
-            <input type="checkbox" checked={q.nomanual} onChange={(e) => onChange({ ...q, nomanual: e.target.checked })} />
-            <span>{S.catalog.noManual}</span>
-          </label>
-          <span className="spacer" />
-          <span className="small" data-shown="">
-            {t(S.catalog.shown, { n: shown, total })}
-          </span>
-          {anyFilter ? (
-            <button type="button" className="btn sm ghost" onClick={() => onChange({ ...q, q: '', kind: [], svc: [], dom: [], d: [], dur: [], cost: [], st: [], nomanual: false, primary: false })}>
-              {S.catalog.clear}
-            </button>
-          ) : null}
+            ) : null}
+          </div>
         </div>
       ) : null}
     </div>
@@ -208,7 +216,14 @@ export function ContinueStrip({ track, summary, rec, recCard, hasEnvironment, ne
         </>
       ) : (
         <>
-          <span>{t(S.cont.path, { track: name, stage: rec?.stageTitle ?? '—', done: summary?.requiredDone ?? 0, total: summary?.requiredTotal ?? 0 })}</span>
+          {/* 路径全部完成且没有推荐时只说完成（不重复路径名，也不显示占位的“—”） */}
+          {summary?.completed && !(rec && recCard) ? null : (
+            <span>
+              {rec?.stageTitle
+                ? t(S.cont.path, { track: name, stage: rec.stageTitle, done: summary?.requiredDone ?? 0, total: summary?.requiredTotal ?? 0 })
+                : t(S.cont.pathNoStage, { track: name, done: summary?.requiredDone ?? 0, total: summary?.requiredTotal ?? 0 })}
+            </span>
+          )}
           {rec && recCard ? (
             <span className="rec">
               · {t(PL.recommend, { label: hasEnvironment ? S.cont.recommendAfter : S.cont.recommend })}

@@ -63,6 +63,9 @@ export default {
     evidenceScore: ' (evidence score {n})', // （证据分 {n}）
     unverifiedNote: 'Ownership of some resources is not confirmed yet; the report updates automatically after the rescans.', // 部分资源的归属尚未确认，复扫完成后会自动更新报告。
     incompleteNote: 'Incomplete: {list}', // 未完成：{list}
+    reasons: {
+      ATTEMPT_INCOMPLETE: 'The attempt is incomplete or the badge conditions are not met', // 尝试未完成或徽章条件未满足
+    },
     listSep: '; ', // ；
     idleNote: 'Not started: the workbench was never opened after the environment was ready.', // 未开始：环境就绪后一直没有进入工作台。
     duration: 'Duration', // 用时
@@ -243,6 +246,8 @@ export default {
     medium: 'Medium', // 中
     low: 'Low', // 低
     built: 'What this lab built', // 这次实验搭建的构成
+    target: 'Target architecture of this card', // 这张卡片的目标构成
+    targetPending: 'Dashed: parts not wired in this session', // 虚线：这次会话还没有完成接入的部分
     details: 'Details', // 详细说明
   },
 } satisfies Dict<typeof zh>;

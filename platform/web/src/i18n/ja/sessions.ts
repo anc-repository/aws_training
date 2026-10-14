@@ -234,8 +234,8 @@ export default {
     colDuration: '所要時間', // 用时
     colCost: '費用の見積もり', // 估算费用
     colCleanup: 'クリーンアップ', // 清理
-    title: '実験履歴', // 我的实验
-    readOnlySub: '受講者の実験履歴（読み取り専用）', // 学员的实验记录（只读）
+    title: 'ラボ履歴', // 我的实验
+    readOnlySub: '受講者のラボ履歴（読み取り専用）', // 学员的实验记录（只读）
     refresh: '更新', // 刷新
     overview: '概要（過去 30 日）', // 概览（最近 30 天）
     overviewLine: 'セッション {n} · 終了 {ended} · ラボ時間の合計 {total} · 費用の見積もり：各セッションの詳細で確認', // 会话 {n} · 已结束 {ended} · 实验时长合计 {total} · 估算费用：在各会话详情中查看
@@ -250,8 +250,8 @@ export default {
     all: 'すべて', // 全部
     card: 'カード', // 卡片
     time: '期間', // 时间
-    loading: '実験履歴を読み込んでいます', // 正在读取实验记录
-    emptyTitle: '実験履歴はまだありません。', // 还没有实验记录。
+    loading: 'ラボ履歴を読み込んでいます', // 正在读取实验记录
+    emptyTitle: 'ラボ履歴はまだありません。', // 还没有实验记录。
     toCatalog: 'カード一覧から最初のカードを始める →', // 去卡片目录开始第一张 →
     noMatch: '条件に合うセッションはありません。', // 没有符合条件的会话。
     clearFilters: '絞り込みを解除', // 清除筛选
@@ -275,7 +275,7 @@ export default {
     title: 'セッションの詳細', // 会话详情
     reading: 'セッションを読み込んでいます', // 正在读取会话
     crumbs: 'パンくずリスト', // 面包屑
-    mySessions: '実験履歴', // 我的实验
+    mySessions: 'ラボ履歴', // 我的实验
     heading: '{labId} · セッション {sid}', // {labId} · 会话 {sid}
     inProgress: '実行中', // 进行中
     env: ' · 環境 {name}', //  · 环境 {name}
@@ -316,7 +316,7 @@ export default {
     thisSession: 'このセッション', // 本次会话
     recomputed: '{est}（実際の時間で再計算した見積もり）', // {est}（按实际时长重算，估算）
     unknownBill: '≈ 不明（単価を取得できません。請求書を確認してください）', // ≈ 未知（单价暂不可得，以账单为准）
-    unestimated: ' · ＋ 見積もりのない手動作成リソース {n} 件', //  · + 未估算的手工资源 {n} 项
+    unestimated: ' · + 見積もりのない手動作成リソース {n} 件', //  · + 未估算的手工资源 {n} 项
     extensions: '延長', // 延长
     extensionLine: '{n} 分延長', // 延长 {n} 分钟
     extensionQuote: '（見積もり {id}…）', // （报价 {id}…）

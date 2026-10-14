@@ -49,19 +49,19 @@ objectives:
     relatesTo: orient
   - text:
       zh-CN: 在安全组零入站的情况下登录实例并做端口转发
-      ja: セキュリティグループの受信ルールがゼロの状態でインスタンスにログインし、ポートフォワーディングを行う
+      ja: セキュリティグループの受信ルールがゼロの状態でインスタンスにログインし、ポートフォワーディングを行える
       en: Sign in to an instance and port-forward with zero inbound security group rules
     domain: secure
     relatesTo: session
   - text:
       zh-CN: 用 CloudTrail 与会话日志回答“谁在何时执行了什么命令”
-      ja: CloudTrail とセッションログで「誰がいつどのコマンドを実行したか」に答える
+      ja: CloudTrail とセッションログで「誰がいつどのコマンドを実行したか」に答えられる
       en: Answer "who ran which command when" with CloudTrail and session logs
     domain: secure
     relatesTo: audit-chain
   - text:
       zh-CN: 区分 Session Manager、堡垒机与 EC2 Instance Connect
-      ja: Session Manager、踏み台サーバー、EC2 Instance Connect を区別する
+      ja: Session Manager、踏み台サーバー、EC2 Instance Connect を区別できる
       en: Tell Session Manager, bastion hosts and EC2 Instance Connect apart
     domain: secure
     relatesTo: after
@@ -121,10 +121,10 @@ prerequisites:
   knowledge:
     - zh-CN: SSH 密钥对登录
       ja: SSH キーペアでのログイン
-      en: Signing in with SSH key pairs
+      en: signing in with SSH key pairs
     - zh-CN: 安全组是有状态的
       ja: セキュリティグループはステートフルであること
-      en: Security groups are stateful
+      en: security groups are stateful
 
 startProfile:
   provisions:

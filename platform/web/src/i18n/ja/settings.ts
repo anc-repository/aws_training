@@ -40,9 +40,9 @@ export default {
     leader: 'ワークベンチのリーダーキー', // 工作台前导键
     fontSize: 'ターミナルの文字サイズ', // 终端字号
     screenReader: 'ターミナルのスクリーンリーダーモード', // 终端读屏模式
-    notify: 'ブラウザ通知（ページが表示されていないときだけ送信し、確実な配信は保証しません。通知文にリソース ID やアカウント ID は含みません）', // 浏览器通知（只在页面不可见时发送，尽力送达；文案不含资源 ID 与账号 ID）
-    notifyDenied: 'ブラウザが通知の権限を拒否しました。ブラウザのサイト設定から再度許可できます。', // 浏览器拒绝了通知权限，可以在浏览器的网站设置中重新允许。
-    localNote: 'テーマ、ショートカット、ターミナルの設定はこのブラウザにだけ保存され、変更するとすぐに反映されます。', // 主题、快捷键与终端偏好只保存在这个浏览器中，修改后立即生效。
+    notify: 'ブラウザー通知（ページが表示されていないときだけ送信し、確実な配信は保証しません。通知文にリソース ID やアカウント ID は含みません）', // 浏览器通知（只在页面不可见时发送，尽力送达；文案不含资源 ID 与账号 ID）
+    notifyDenied: 'ブラウザーが通知の権限を拒否しました。ブラウザーのサイト設定から再度許可できます。', // 浏览器拒绝了通知权限，可以在浏览器的网站设置中重新允许。
+    localNote: 'テーマ、ショートカット、ターミナルの設定はこのブラウザーにだけ保存され、変更するとすぐに反映されます。', // 主题、快捷键与终端偏好只保存在这个浏览器中，修改后立即生效。
     revisit: '初回設定をもう一度見る', // 重看首次设置
   },
   platform: {
@@ -65,7 +65,7 @@ export default {
     regionNote: 'リージョンは画面から切り替えられません（リージョンを変えるには再インストールが必要です）。', // 区域不可在界面中切换（换区域需要重新安装）。
   },
   guardrails: {
-    limits: '上限（インストール時のパラメータ、読み取り専用）', // 限额（来自安装参数，只读）
+    limits: '上限（インストール時のパラメーター、読み取り専用）', // 限额（来自安装参数，只读）
     value: '値', // 取值
     maxSession: '1 セッションの合計時間', // 单次会话总时长
     extension: '延長', // 延长
@@ -88,7 +88,7 @@ export default {
     activeBlocks: '実行中または保持中の環境があるため、メンテナンスモードにできません。', // 仍有进行中或保留中的环境，不能进入维护模式。
   },
   workspace: {
-    lead: 'プラットフォームの設定はインストール時のパラメータの上限を超えられません。一部の設定は新しいセッションにだけ反映されます。', // 平台设置不超过安装参数给出的上限；部分设置只对新会话生效。
+    lead: 'プラットフォームの設定はインストール時のパラメーターの上限を超えられません。一部の設定は新しいセッションにだけ反映されます。', // 平台设置不超过安装参数给出的上限；部分设置只对新会话生效。
     limitsTitle: 'セッションと保持', // 会话与保留
     terminalTitle: 'ターミナルとワークベンチ', // 终端与工作台
     previewTitle: 'プレビュー、アップロード、回収', // 预览、上传与回收
@@ -100,8 +100,8 @@ export default {
     persistence: 'ターミナルセッションの維持（terminal.persistence）', // 终端会话保持（terminal.persistence）
     signing: 'ターミナルストリーム URL の署名（terminal.streamUrlSigning）', // 终端流地址签名（terminal.streamUrlSigning）
     keepalive: 'ターミナルのキープアライブ間隔（秒、terminal.keepalive）', // 终端保活间隔（秒，terminal.keepalive）
-    recording: 'ターミナルの録画（読み取り専用。インストール時のパラメータ TerminalRecording を反映）', // 终端录制（只读，反映安装参数 TerminalRecording）
-    instanceType: 'ワークベンチのインスタンスタイプ（読み取り専用、インストール時のパラメータ）', // 工作台实例类型（只读，安装参数）
+    recording: 'ターミナルの録画（読み取り専用。インストール時のパラメーター TerminalRecording を反映）', // 终端录制（只读，反映安装参数 TerminalRecording）
+    instanceType: 'ワークベンチのインスタンスタイプ（読み取り専用、インストール時のパラメーター）', // 工作台实例类型（只读，安装参数）
     longSession: 'コンソールの長時間セッション（console.longSession、既定はオフ）', // 控制台长会话（console.longSession，默认关）
     directHttps: 'プレビューの HTTPS 直接接続の既定値（カードで上書き可、preview.directHttps）', // 预览直连 HTTPS 的缺省值（卡片可覆盖，preview.directHttps）
     lateUpload: '比較実験の結果を確定後にアップロードするフォールバック（agent.lateUploadFallback）', // 对比实验结果的定稿上传回退（agent.lateUploadFallback）
@@ -110,7 +110,7 @@ export default {
     residualBlock: 'block：先に残存リソースの処理が必要', // block：必须先处理残留
     residualIgnore: 'ignore：通知のみ', // ignore：只提示
     ownership: '所有権確認の最大待ち時間（分、ownership.maxWaitMinutes）', // 归属确认的最长等待（分钟，ownership.maxWaitMinutes）
-    capError: 'インストール時のパラメータの上限を超えられません：{detail}', // 不能超过安装参数的上限：{detail}
+    capError: 'インストール時のパラメーターの上限を超えられません：{detail}', // 不能超过安装参数的上限：{detail}
     on: 'オン', // 开
     off: 'オフ', // 关
   },
@@ -183,7 +183,7 @@ export default {
     toSession: '現在のラボに戻る', // 回到当前实验
     step1: 'メンテナンスモードにする（この間は新しいラボを開始できません）', // 进入维护模式（期间不能开始新实验）
     step1On: 'メンテナンスモードになりました', // 已进入维护模式
-    step2: 'CloudFormation で atl スタックの変更セットを作成して確認する（パラメータは以前の値を使用）', // 在 CloudFormation 中为 atl 栈创建变更集并审阅（参数沿用旧值）
+    step2: 'CloudFormation で atl スタックの変更セットを作成して確認する（パラメーターは以前の値を使用）', // 在 CloudFormation 中为 atl 栈创建变更集并审阅（参数沿用旧值）
     openCfn: 'CloudFormation コンソールを開く', // 打开 CloudFormation 控制台
     step3: '変更セットを実行し、スタックの更新完了を待つ（失敗すると CloudFormation が自動でロールバックし、旧バージョンの成果物も残ります）', // 执行变更集，等待栈更新完成（失败时 CloudFormation 自动回滚，旧版本制品仍保留）
     step4: 'このページを更新してバージョンを確認し、メンテナンスモードを解除する', // 刷新本页确认版本，然后退出维护模式

@@ -15,7 +15,7 @@ import { costSources, costTier, expandCost, provisionClass, type CostTier } from
 import type { CardDerivation } from './derive/index.js';
 import type { PlanEntry } from './derive/plan.js';
 import { variantView } from './derive/reference.js';
-import { loadRegistry, localDriver, registryVersion, toolkitVersion } from './registry.js';
+import { loadRegistry, registryVersion, startDriverOf, toolkitVersion } from './registry.js';
 import { LEGACY_LABS } from './lint/catalog.js';
 import { generatedText, SOURCE_LANG } from './l10n.js';
 
@@ -270,7 +270,7 @@ export function catalogCard(set: ContentSet, card: CardContent, ordered: readonl
     hourlyUnits: units,
     accountScoped,
   };
-  const targets = (lab.targetModules ?? []).map((t) => ({ module: t.id, from: t.fromDriver ?? (localDriver(set.paths, t.id) || null), to: t.driver, optional: t.optional === true }));
+  const targets = (lab.targetModules ?? []).map((t) => ({ module: t.id, from: startDriverOf(set.paths, t), to: t.driver, optional: t.optional === true }));
   const primary = (lab.services ?? []).find((s) => s.role === 'primary');
   const category = lab.kind === 'service' ? set.taxonomy?.services.find((s) => s.id === primary?.id)?.category : undefined;
   const credits = [

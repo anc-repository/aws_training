@@ -6,6 +6,12 @@
 - 称呼学员：zh-CN “你”，ja 不写主语（必要时“あなた”），en “you”。
 - 不翻译（三种语言写法相同）：AWS 服务与产品名（Amazon CloudFront、AWS WAF、Amazon S3 …）、CLI 命令与参数、代码、资源名与 ID、API 路径、环境变量、文件名、`{{ … }}` 变量、`{name}` 占位、指令（`::check{…}` 等）、错误码（`LAB_PLANNED` …）。
 - 新词先加到本表再用；同一个中文词在一种语言里只用一个译名。
+- **日语表记规则**（`npm run labs:lint` 的 I6 与 `npm run i18n:check` 检查）：外来语词尾的长音按 Microsoft / AWS 日语文档的写法
+  保留（ブラウザー、パラメーター、サーバー、ユーザー、フォルダー；例外：メモリ，与 AWS 控制台一致）；连接两个术语的加号用半角并在两侧留空格
+  （“SNS + SQS”“L0 + インスタンスロール”），不用全角“＋”；占位与后面的助词之间不加空格（“{target}に貼り付け”）。
+- **学习目标**（`objectives`）的日语统一以“〜できる”（或可能动词“〜を見分けられる”“〜を読み解ける”）结尾；英语用动词原形开头。
+- **步骤标题**不写“（选做）/（任意）/(Optional)”前缀：画面用“任意 / Optional”徽章表示（源语言 zh-CN 的标题照旧，画面显示时去掉前缀）。
+- **学习路径名**：日语统一以“パス”结尾（ネットワークとエッジのパス、比較クイックパス），英语以 “path” 结尾。
 
 ## 平台
 
@@ -22,7 +28,7 @@
 | 阶段 | ステージ | stage |
 | 必修 / 选修 / 可选 | 必修 / 選択 / 任意 | required / elective / optional |
 | 我的学习 | 学習状況 | My learning |
-| 我的实验 | 実験履歴 | My labs |
+| 我的实验 | ラボ履歴 | My labs |
 | 实验（一次会话） | ラボ（セッション） | lab (session) |
 | 会话 | セッション | session |
 | 工作台 | ワークベンチ | workbench |
@@ -149,6 +155,10 @@ lint C-12 与卡片介绍页按这些标题找到概览的各节，翻译后的 
 | zh-CN | ja | en |
 | --- | --- | --- |
 | 安全 | セキュリティ | Secure |
-| 弹性 | 回復性 | Resilient |
-| 高性能 | 高パフォーマンス | High-performing |
+| 弹性 | 弾力性 | Resilient |
+| 高性能 | 高性能 | High-performing |
 | 成本优化 | コスト最適化 | Cost-optimized |
+
+领域全名按 AWS 认证考试指南（SAA-C03）日语版的写法：セキュアなアーキテクチャの設計 / 弾力性に優れたアーキテクチャの設計 /
+高性能なアーキテクチャの設計 / コストを最適化したアーキテクチャの設計（en：Design Secure / Resilient / High-Performing /
+Cost-Optimized Architectures）。

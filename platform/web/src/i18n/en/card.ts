@@ -247,6 +247,7 @@ export default {
     with: 'With {name}', // 有 {name}
     none: '(none)', // （没有）
     local: 'Local implementation', // 本地实现
+    driver: 'driver {driver}', // 驱动 {driver}
     notYet: 'Not there at start', // 开始时还没有
     costMore: 'About the cost', // 费用说明
     confusable: '{label}: {a} / {b}: {rule}', // {label}：{a} / {b}：{rule}

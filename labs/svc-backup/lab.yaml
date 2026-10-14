@@ -19,7 +19,7 @@ title:
   en: "AWS Backup: off-disk backups and restore drills"
 summary:
   zh-CN: 对比“与数据同盘的本地备份”和“AWS Backup 盘外恢复点 + 灾备区域副本”，在克隆出的演练实例上模拟数据卷丢失，分别测 RPO 与 RTO。
-  ja: 「データと同じディスクにあるローカルバックアップ」と「AWS Backup のディスク外の復旧ポイント＋ DR リージョンのコピー」を比べます。クローンした訓練用インスタンスでデータボリュームの喪失を再現し、それぞれの RPO と RTO を測ります。
+  ja: 「データと同じディスクにあるローカルバックアップ」と「AWS Backup のディスク外の復旧ポイント + DR リージョンのコピー」を比べます。クローンした訓練用インスタンスでデータボリュームの喪失を再現し、それぞれの RPO と RTO を測ります。
   en: Compare a local backup on the same disk as the data with AWS Backup recovery points kept off the disk plus a copy in the DR Region. On a cloned drill instance, simulate losing the data volume and measure RPO and RTO for each.
 difficulty: advanced
 estimatedMinutes: 120

@@ -135,7 +135,7 @@ describe('Japanese (default) rendering', () => {
         }),
       },
     });
-    expect(await screen.findByRole('heading', { level: 1, name: '実験履歴' })).toBeTruthy();
+    expect(await screen.findByRole('heading', { level: 1, name: 'ラボ履歴' })).toBeTruthy();
     expect(await screen.findByText('受講者が終了')).toBeTruthy();
     expect(screen.getAllByText(/1 時間 31 分/).length).toBeGreaterThan(0);
     const tiles = document.querySelector('[data-section="overview"] .vtiles')!;

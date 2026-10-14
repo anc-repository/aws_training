@@ -43,13 +43,13 @@ story:
 objectives:
   - text:
       zh-CN: 比较实例配置文件与长期访问密钥；区分 AKIA 与 ASIA
-      ja: インスタンスプロファイルと長期のアクセスキーを比べ、AKIA と ASIA を区別する
+      ja: インスタンスプロファイルと長期のアクセスキーを比べ、AKIA と ASIA を区別できる
       en: Compare instance profiles with long-term access keys, and tell AKIA from ASIA
     domain: secure
     relatesTo: whoami
   - text:
       zh-CN: 理解“最小权限随模块增减”：每个模块一条客户托管策略
-      ja: 「最小権限はモジュールとともに増減する」ことを理解する：モジュールごとにカスタマー管理ポリシーが 1 つ
+      ja: 「最小権限はモジュールとともに増減する」ことを説明できる：モジュールごとにカスタマー管理ポリシーが 1 つ
       en: "Understand least privilege that grows and shrinks with modules: one customer managed policy per module"
     domain: secure
     relatesTo: enable
@@ -59,7 +59,7 @@ objectives:
       en: Explain how IMDSv2 stops an SSRF that can only send GET requests
     domain: secure
     relatesTo: imds
-  - { text: { zh-CN: 读懂 CloudTrail 中的 userIdentity, ja: CloudTrail の userIdentity を読み解く, en: Read userIdentity in CloudTrail }, domain: secure, relatesTo: cloudtrail }
+  - { text: { zh-CN: 读懂 CloudTrail 中的 userIdentity, ja: CloudTrail の userIdentity を読み解ける, en: Read userIdentity in CloudTrail }, domain: secure, relatesTo: cloudtrail }
 difficulty: beginner
 estimatedMinutes: 60
 timeLimitMinutes: 90
@@ -93,7 +93,7 @@ modules: { target: [iam], start: [], context: [], related: [storage, queue, secr
 prerequisites:
   cards:
     - { id: svc-ec2, kind: soft }
-  knowledge: [{ zh-CN: AWS CLI 的基本用法, ja: AWS CLI の基本的な使い方, en: Basic use of the AWS CLI }]
+  knowledge: [{ zh-CN: AWS CLI 的基本用法, ja: AWS CLI の基本的な使い方, en: basic use of the AWS CLI }]
 
 startProfile:
   provisions:

@@ -88,9 +88,7 @@ export function ServiceMap({ cells, tax, mastery, progress, selected, onSelect, 
         {(['not_started', 'touched', 'mastered', 'proficient'] as const).map((lv) => (
           <span key={lv} className="st mut">
             <Shape name={MASTERY_META[lv].shape} />
-            <span className="t">
-              {MASTERY_META[lv].text} {mastery ? counts[lv] : ''}
-            </span>
+            <span className="t">{mastery ? t(S.map.legendLevel, { level: MASTERY_META[lv].text, n: counts[lv] }) : MASTERY_META[lv].text}</span>
           </span>
         ))}
         <span className="smap-legend-cm">

@@ -42,7 +42,7 @@ export default {
     title: '比較実験', // 对比实验
     reading: 'セッションを読み込んでいます', // 正在读取会话
     crumbs: 'パンくずリスト', // 面包屑
-    mySessions: '実験履歴', // 我的实验
+    mySessions: 'ラボ履歴', // 我的实验
     heading: '{labId} › 比較実験 · {key}', // {labId} › 对比实验 · {key}
     required: '（必須）', // （必做）
     optional: '（任意）', // （选做）

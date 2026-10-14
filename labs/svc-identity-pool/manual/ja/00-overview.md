@@ -22,7 +22,7 @@ IAM ポリシー変数 `${cognito-identity.amazonaws.com:sub}` のおかげで�
 
 ### 一括アップロード（identity-pool/upload-bench、必須）
 
-- **Identity Pool なし**：ファイル 1 つ＝登録＋**パートごとに 1 回**の `parts:sign` ＋ complete で、バックエンドへのリクエスト数はパートの数に比例して増えます。
+- **Identity Pool なし**：ファイル 1 つ＝登録 + **パートごとに 1 回**の `parts:sign` + complete で、バックエンドへのリクエスト数はパートの数に比例して増えます。
 - **Identity Pool あり**：認証情報を 1 回交換した後は、ファイルごとのバックエンドへのリクエストは登録と complete の 2 回だけで、パートのリクエストはすべて S3 に直接届きます。
 - **どこで確認できるか**：レポートの `backendRequestsPerFile` と、ブラウザーの DevTools です。sts モードのリクエストは
   `cloudalbum-<env>-upload-staging-<アカウント>.s3.ap-northeast-1.amazonaws.com` に直接届き、リクエストヘッダーに `x-amz-security-token` があり、Authorization の Credential は `ASIA` で始まります。

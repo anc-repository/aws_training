@@ -22,10 +22,10 @@
 | 第一次访问 | 一律日语，不看浏览器语言（`navigator.language` 不参与） |
 | 切换入口 | 顶栏（登录后在账号菜单左边，`components/GlobalBar.tsx`）、公开页面右上角（`Shells.tsx` 的 `PublicShell`）、工作台“更多”菜单（`SessionBar.tsx`）。选项固定写成各自的语言：日本語 / English / 中文（带 `lang` 属性，读屏按该语言朗读） |
 | 保存 | `localStorage` 的 `atl.locale.v1`（`lib/storage.ts` 的 `STORAGE_KEYS.locale`）；它是唯一依据 |
-| 个人资料同步 | 已登录时在顶栏切换后尽力 `PATCH /me { locale }`（失败不影响切换）；服务器上的值目前不回读（见 §3） |
+| 个人资料同步 | 已登录时在顶栏或工作台切换后尽力 `PATCH /me { locale }`（两处共用 `app/localeSync.ts` 的 `useLocaleSync()`；失败不影响切换）；服务器上的值目前不回读（见 §3），建档默认值为 `ja` |
 | `<html lang>` | 随当前语言（`applyHtmlLang`）；视觉组件（V6）没有 Provider 时也读它 |
-| API 请求 | 每个请求带 `Accept-Language: <当前语言>`（`api/client.ts`）；切换后丢弃 API 缓存（`api.invalidate()`），内容类接口按新语言重新取 |
-| 切换方式 | 不整页刷新：`i18n/LocaleRoot.tsx` 以语言为 key 重新挂载应用，服务对象（API 客户端、会话同步）保留 |
+| API 请求 | 每个请求带 `Accept-Language: <当前语言>`（`api/client.ts`）；切换时先丢弃 ETag 缓存（`services.ts` 订阅语言，`api.invalidate()`），各数据 hook 再按新语言就地重取（`useReloadOnLocale`，新数据到达前保留旧数据） |
+| 切换方式 | 不整页刷新、**不重新挂载**：`i18n/LocaleRoot.tsx` 订阅语言，把子元素换成新的元素对象（`cloneElement`），整棵树原地重新渲染；组件状态、工作台的终端连接（SSM 会话）与滚动记录、对话框里的输入都保留（评审 R2） |
 
 #### 1.2 框架选择与运行时
 
@@ -47,7 +47,12 @@
 | `i18n/glossary.md` | 用语表（ja / en 两列） |
 
 **运行时**：`msg` 是 zh-CN 词典的深拷贝。切换语言时按回退链把每个叶子原地改写成当前语言的文案；对象身份不变，所以
-`export const S = msg.labs.ui` 这类模块级别名、`withText()` 生成的表都在重新挂载后取到新语言。各目录的 `strings.ts` 保留原来的
+`export const S = msg.labs.ui` 这类模块级别名、`withText()` 生成的表都在原地重新渲染时取到新语言。依赖文案的 `useMemo` 把
+`useLocale()` 放进依赖（目录分组标题、准备阶段的行、手动确认对话框的校验文字）。
+
+**按需加载**（评审 R14）：zh-CN（源语言与类型来源）静态打包；`ja`、`en` 各是独立的 chunk，用到时才 `import()`。`main.tsx` 在首次
+渲染前 `await localeReady()`（与读取 `/config.json` 并行）；切换到未加载的语言时先加载、加载完成后才切换，不会先闪一下中文。
+`i18n:check` 保证 ja / en 完整，运行时的回退只用已加载的词典。测试（`test/setup.ts`）与分享副本渲染器用 `registerLocaleDict()` 同步注册。各目录的 `strings.ts` 保留原来的
 导出名（`L`、`SS`、`LS`、`ST`、`SU`、`RP`、`SN`、`CT`、`EX`、`W`、`VT`），改为指向词典。
 
 #### 1.3 文案模板
@@ -63,13 +68,25 @@
 
 `i18n/format.ts` 一律用 Intl，语言取当前界面语言：`fmtClock`、`fmtDate`、`fmtDay`、`fmtNumber`、`fmtPercent`、`fmtMoney`、
 `fmtList`、`fmtRelative`。zh-CN 保持原有写法（`10/13 10:42`、`2026-10-13`），ja / en 用 Intl 的本地写法。时长的单位文案在词典
-`fmt`（ja「1 時間 5 分」、en「1 hour 5 minutes」）。`lib/format.ts` 的 `formatClock` / `formatDate` 委托给它们。
+`fmt`（ja「1 時間 5 分」、en「1 hour 5 minutes」）。`lib/format.ts` 的 `formatClock` / `formatDate` 委托给它们。公开验证页不加载运行时，
+`verifyView.ts` 的 `formatDay` 按验证页的语言用同样的 Intl 写法。
+
+**字体栈**（评审 R7）：`ui/styles/tokens.css` 的 `:root` 是 zh-CN 的字体栈；`:root:lang(ja)` 换成日文字体（Hiragino Sans、Yu Gothic UI、
+Meiryo、Noto Sans JP …，等宽字体的 CJK 回退为 Noto Sans Mono CJK JP），`:root:lang(en)` 用 system-ui / Segoe UI。页面中带 `lang`
+属性的片段（回退显示的中文内容、语言切换器的选项）按自己的语言换字体（`[lang]:not(:root)`）。只用本机字体，CSP 不变。
+
+**软换行**（评审 R12）：内容里的软换行（YAML 块标量、Markdown 段落）在 HTML 中会变成空格。`joinSoftBreaks()`（`i18n/text.ts`）在两侧
+都是中日文字符或全角标点时删除换行（英文保持为空格），用在简介页的故事与两个 Mdast 渲染器的文本节点。
 
 #### 1.5 词典的同步与检查（I2 的 CI 检查）
 
 - `npm run i18n:sync`：按 zh-CN 命名空间生成 / 更新 ja、en 骨架（新键补空字符串、删掉多余的键、保留已有译文），并重写合并文件。
 - `npm run i18n:check`：ja、en 是否覆盖 zh-CN 的全部键、有无多余键、占位符（`{name}` 与复数变量）是否一致、叶子类型、骨架是否已同步。
   未翻译（空字符串）默认算失败；翻译进行中用 `npm run i18n:check -- --allow-empty`（只计数）。`--json` 输出机器可读结果。
+  另外检查 ja 词典的表记（用语表的日语表记规则，与 `labs:lint` 的 I6 相同）。
+- **CI**（评审 R9）：根 `package.json` 的 `pretest` 依次运行 `gen:registry`、`i18n:check`、`labs:i18n:check`
+  （`labs:i18n --min ja=100,en=100 --quiet`，任何卡片的 ja / en 文本字段或手册低于 100% 即失败；`--only startable` 可只看可开始的卡片），
+  所以 `npm test` 在词典或内容缺译时失败；`i18n.test.tsx` 也不再忽略空字符串。
   2026-10-14：3482 个键，ja / en 各译 15 个（语言名、时长单位、概览标题），结构问题 0。集成后（G1）：3564 个键，ja / en 全部译完，
   `npm run i18n:check` 不带参数通过。
 - 类型：`Dict<T>` 要求 ja / en 与 zh-CN 同结构（缺键或多键编译不过，`satisfies`）。
@@ -83,6 +100,10 @@
   zh-CN「未翻译」；虚线框小字，`title` 说明原因）。目前用在：目录卡片标题（`CardTile`）、简介页标题（`CardIntroPage`）、
   工作台步骤标题（`StepCard`，手册文件的语言与界面不同）、小测题干（`QuizPage`）。
 - 错误：API 错误按 `code` 在前端本地化（`msg.errors`），服务器返回的中文 `detail` 只作补充显示。
+- **实际语言的 `lang` 属性**（WCAG 3.1.2，评审 R10）：回退显示的文字放进带实际语言的元素，读屏按该语言朗读、字体随之切换：
+  `actualLang(doc, pointer, text)` / `fallbackLang(text)`（`content.ts`：含汉字且不含假名 → zh-CN，否则 en）与组件
+  `<InLang>`、`<FallbackText>`（内容字段，附“未翻訳”）、`<Recorded>`（服务器记录的中文：API 的 `detail`、报告的原因、签发时写入的
+  证书标题）。用在简介页标题、故事与预期警告、`ErrorPanel`、报告的“未完成”原因、证书详情的标题、验证页的证书标题。
 
 #### 1.7 测试
 
@@ -96,7 +117,7 @@
 
 - **公开验证页**（`public-pages/verify/`，独立 IIFE 包，不加载 React）：语言取 `?lang=` → 已保存的选择 → ja；静态 HTML 的
   文字带 `data-i18n="<key>"`，脚本换成 `VT.static[key]`；页内有 日本語 / English / 中文 链接（保留 `#jws=` 片段）。
-  没有脚本时显示 zh-CN 源文案。
+  静态 HTML 本身是日语（`<html lang="ja">`，脚本执行前或禁用脚本时也是日语，评审 R16）。
 - **分享副本**（`pages/share/renderShare.ts`，浏览器端生成）：`ShareMeta.lang` 指定语言时只有这一种；省略时一个文档里有 ja / en / zh-CN
   三块，默认显示日语，`#en` / `#zh-CN`（`:target`）切换。服务器端生成的报告 / 分享 HTML（`platform/api/src/services/reports/html.ts`，
   atl-certs 发布的 `share/<id>/index.html` 与报告的 HTML 版）在集成时按同样的方式三语化（G2）。
@@ -342,14 +363,20 @@ taxonomy 服务 id。`adapters.ts` 提供三种数据形状的转换：目录卡
 
 | 规则 | 线型 |
 |---|---|
-| 浏览器 →（CloudFront）→ 入口 → EC2；EC2 → 各数据与消息服务（有 db-proxy 时经过它）；SNS → SES / SQS；Firehose → S3；SQS 或 S3 → Lambda；Lambda / Step Functions → Rekognition；API Gateway → DynamoDB、SNS 或 SQS；Identity Pool → S3；CloudFront → S3（`CDN_MEDIA_ORIGIN=s3`） | 实线 + 箭头（flow） |
+| 浏览器 →（CloudFront）→ 入口 → EC2；浏览器 → S3（S3 时用预签名 URL 直接上传 / 下载；目标驱动为 `efs` 时没有）；EC2 → 各数据与消息服务（有 db-proxy 时经过它；S3 直传时 EC2 → S3 降为 aux，EC2 只签名）；SNS → SES / SQS；Firehose → S3；SQS 或 S3 → Lambda；Lambda / Step Functions → Rekognition；API Gateway → DynamoDB、SNS 或 SQS；Identity Pool → S3；CloudFront → S3（`CDN_MEDIA_ORIGIN=s3`） | 实线 + 箭头（flow） |
 | WAF、ACM 挂在 CloudFront（没有时挂在 ALB / Nginx）；Auto Scaling 挂在 EC2 | 短虚线、无箭头（attach） |
-| 浏览器 → Route 53 / User Pool / Identity Pool；API Gateway → User Pool | 长虚线 + 箭头（aux） |
+| 浏览器 → Route 53 / User Pool / Identity Pool；API Gateway → User Pool；EC2 → S3（直传时） | 长虚线 + 箭头（aux） |
 | registry 硬依赖中还没有连线的两个非运维节点 | 点线（dep） |
 | 运维与安全泳道 | 横切关注点，不画连线 |
 
 连到新增 / 选做节点的连线用强调色。路径是水平切线的三次贝塞尔：同一节点同一侧的多条连线按对端位置错开端口（与本节点同一行
-的连线留在中心），跨两列以上的同行连线向下弓到两行之间，同列相邻两行画竖线（full 从标签下方起止），不相邻则从右侧绕弧。
+的连线留在中心），跨两列以上的同行连线向下弓到两行之间（最下一行也有时，图的高度为弧线留出空间），同列相邻两行画竖线（full 从标签下方起止），不相邻则从右侧绕弧。
+驱动决定的路径（`drivers`：完成后的状态取目标模块的 `to`，没有给出的启用模块按 AWS 实现）。`ui/diagram/cards.test.ts` 读
+`labs/_catalog/catalog.yaml`，断言 40 张服务卡的目标模块都画成新增 / 变更并有请求或附着连线（运维泳道除外），以及各卡的核心路径
+（例如 svc-storage 的 浏览器 → S3），每张卡的连线写进快照。
+
+窄屏（`fit="scroll"`）：滚动容器只有内容真的溢出时才可聚焦（`tabIndex`、`role="group"` 与名称），第一次溢出时把第一个新增 /
+变更 / 选做 / ghost 节点滚进视口。
 
 **尺寸与模式**：`size="full"` 默认 `mode="pair"`（“开始时 → 完成后”两张图并排，窄屏上下排列、箭头转为向下），带泳道标题、
 标签与图例（只列出图中出现的状态）；`size="mini"` 默认 `mode="after"`。`fit="scroll"`（full 默认）时每张图在自己的横向滚动容器里
@@ -516,3 +543,28 @@ AWS 服务名与产品短名（CloudFront、RDS Proxy…）、驱动名（`sqlit
 - **API 错误的 `detail`**：仍是 zh-CN，前端按错误码本地化后只作补充（I5 的既定做法）。
 - **个人资料中的语言**：仍只写不读（§3）。
 - **e2e 主流程**：仍按 zh-CN 源文案断言；ja / en 由语言阶段覆盖。
+
+## 评审修复（R1～R16，2026-10-14）
+
+集成后的评审意见与处理（实现记录见 docs/implementation-notes.md「i18n-review-fixes」）：
+
+| # | 问题 | 处理 |
+|---|---|---|
+| R1 | 用户试用的 5174 / 8787 来自另一个工作目录（`D:\workspace\atl-demo`，停在 i18n 之前的提交） | 本轮不停止、不改动该环境；集成摘要须写明试用服务器对应的工作目录与提交。更新方式（征得用户同意后）：在 atl-demo 中 `git pull`、`npm run labs:build`、重启 8787 的 dev-server（tsx 不 watch），Vite 最好也重启一次 |
+| R2 | 切换语言以 key 重新挂载整个应用，工作台的终端被卸载、SSM 会话结束 | 原地重新渲染（§1.1、§1.2）；数据 hook 就地重取；工作台“更多”菜单与顶栏共用 `useLocaleSync`；e2e 阶段 4c 在 live 会话中切换语言后断言终端仍是同一个连接、滚动记录还在、选择已保存并 `PATCH /me` |
+| R3 | 简介页的 `resources.targets` 没有本地实现的 `from`，与目录不一致 | `labs:build` 两处共用 `startDriverOf()`（`scripts/labs/src/registry.ts`）；构建测试断言两者一致；“有 vs 没有”右侧以服务短名为主、驱动名为小号等宽副标签 |
+| R4 | 构成图看不出 S3 直传；报告的构成图声称“已搭建” | `edgesFor()` 按驱动画线（V4）；40 张服务卡的核心路径快照测试（`ui/diagram/cards.test.ts`）；报告按接入步骤的结果画图，未完成的目标画成虚线，标题改为“这张卡片的目标构成” |
+| R5 | 翻译后标签变长：筛选标签被截断、en 顶栏折成两行 | 筛选行改为标签列 `max-content` 的子网格；1440px 以下账号按钮只显示用户名（区域与打码账号在菜单里），en 导航用短名（Catalog / Paths）；e2e 增加“文字被裁切”的逐元素检查 |
+| R6 | 报告 JSON 与服务器 HTML 中的平台中文 | 报告只存代码与 id（`cost.noteKeys`、`eligibility.reasons: ['ATTEMPT_INCOMPLETE']`、指标按 `metrics[].id`、学员名为空时由渲染方给“学员”），`html.ts` 按语言本地化状态、来源、可信度、触发方式、指标名与图表；卡片、步骤、检查名、徽章名、起始理由取 `content/<v>/<lang>/labs/<id>.json`，查不到时带 `lang="zh-CN"` 与“未翻訳”；打码占位改为语言中立的 `‹session›` 等 |
+| R7 | 日语界面用中文字体 | 按语言的字体栈（§1.4） |
+| R8 | 译文直译感与表记不统一 | 用语表增加日语表记规则（长音、半角“ + ”、占位后不加空格）、学习目标统一“〜できる”、步骤标题去掉“（任意）”前缀（画面用徽章）、SAA 领域名按官方考试指南、学习路径名统一加“パス / path”、“我的实验”= ラボ履歴；`labs:lint` I6 与 `i18n:check` 检查表记 |
+| R9 | `i18n:check` 不在 CI 中 | §1.5 |
+| R10 | 回退内容没有 `lang` | §1.6 |
+| R11 | 手机宽度的架构图看不到新增服务；滚动区多余的 Tab 停留点 | 滚动容器第一次溢出时把第一个新增 / 变更 / ghost 节点滚进视口；只有溢出时才可聚焦；同一行跨列的弧线不再被 SVG 裁掉 |
+| R12 | 日语软换行变成半角空格 | §1.4 |
+| R13 | — | （编号保留） |
+| R14 | 三种语言的词典都在首屏包里 | §1.2 按需加载 |
+| R15 | e2e 的工作台语言检查只看到骨架屏 | 改在 live 会话中检查（阶段 4c）：等手册步骤标题出现、断言没有骨架行，ja / en × 400 / 1280 |
+| R16 | 验证页静态 HTML 是中文、日期是 ISO、证书标题无标记、后端默认 locale 为 zh-CN | §1.8、§1.4、§1.6；`users.ts` / `platform.ts` 的默认值改为 `ja` |
+| — | 目录卡片冗余 | 按类型 / 类别分组时服务卡不重复分组行；去掉被截断的简介（机能短句即一行简介，完整简介在链接的 `title`、读屏文字与简介页；搜索命中简介时才显示）；“学習を続ける”在路径完成时只说完成；服务地图图例写明单位（「習得済み 12 サービス」） |
+

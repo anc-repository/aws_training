@@ -42,7 +42,7 @@ story:
     when EC2 stops, the database stops too, and the backups sit on the same disk as the data. This card moves the database to Multi-AZ RDS for PostgreSQL,
     then has you trigger a failover and watch the app reconnect automatically after a short period of failed writes.
 objectives:
-  - { text: { zh-CN: 区分 Multi-AZ 实例部署与只读副本, ja: マルチ AZ のインスタンスデプロイとリードレプリカを区別する, en: Tell a Multi-AZ instance deployment from a read replica }, domain: resilient, relatesTo: failover }
+  - { text: { zh-CN: 区分 Multi-AZ 实例部署与只读副本, ja: マルチ AZ のインスタンスデプロイとリードレプリカを区別できる, en: Tell a Multi-AZ instance deployment from a read replica }, domain: resilient, relatesTo: failover }
   - text:
       zh-CN: 说清自动备份与时间点恢复（恢复为新实例）
       ja: 自動バックアップとポイントインタイムリカバリ（新しいインスタンスとして復元）を説明できる
@@ -51,13 +51,13 @@ objectives:
     relatesTo: inspect
   - text:
       zh-CN: 用安全组链、PubliclyAccessible=false 与 rds.force_ssl 保护数据库
-      ja: セキュリティグループの連鎖、PubliclyAccessible=false、rds.force_ssl でデータベースを保護する
+      ja: セキュリティグループの連鎖、PubliclyAccessible=false、rds.force_ssl でデータベースを保護できる
       en: Protect the database with chained security groups, PubliclyAccessible=false and rds.force_ssl
     domain: secure
     relatesTo: inspect
   - text:
       zh-CN: 理解“换成 RDS 不会让单次查询变快”
-      ja: 「RDS に変えても 1 回のクエリは速くならない」ことを理解する
+      ja: 「RDS に変えても 1 回のクエリは速くならない」ことを説明できる
       en: Understand that moving to RDS does not make a single query faster
     domain: performance
     relatesTo: after
@@ -312,8 +312,8 @@ steps:
     type: cli
     title:
       zh-CN: （选做）时间点恢复为新实例
-      ja: （任意）新しいインスタンスへのポイントインタイムリカバリ
-      en: (Optional) Point-in-time recovery to a new instance
+      ja: 新しいインスタンスへのポイントインタイムリカバリ
+      en: Point-in-time recovery to a new instance
     manual: manual/70-pitr.md
     optional:
       reason:
@@ -336,8 +336,8 @@ steps:
     type: experiment
     title:
       zh-CN: （选做）只读副本：扩展读
-      ja: （任意）リードレプリカ：読み取りのスケールアウト
-      en: "(Optional) Read replica: scale out reads"
+      ja: リードレプリカ：読み取りのスケールアウト
+      en: "Read replica: scale out reads"
     manual: manual/80-replica.md
     optional:
       reason:
@@ -388,7 +388,7 @@ tracks: [performant, quick-compare, resilient, saa-main]
 cleanup:
   summary:
     zh-CN: 结束实验后，平台删除本次会话的数据库实例（跳过最终快照、删除自动备份）、已产生的最终快照、子网组、参数组与 sg-db。
-    ja: ラボを終了すると、プラットフォームがこのセッションのデータベースインスタンス（最終スナップショットを作らず、自動バックアップも削除）、作成済みの最終スナップショット、サブネットグループ、パラメータグループ、sg-db を削除します。
+    ja: ラボを終了すると、プラットフォームがこのセッションのデータベースインスタンス（最終スナップショットを作らず、自動バックアップも削除）、作成済みの最終スナップショット、サブネットグループ、パラメーターグループ、sg-db を削除します。
     en: When you end the lab, the platform deletes this session's DB instance (skipping the final snapshot and deleting automated backups), any final snapshot already taken, the subnet group, the parameter group and sg-db.
   autoReclaim: true
   dataRisk:

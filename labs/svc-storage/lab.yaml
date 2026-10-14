@@ -18,8 +18,8 @@ title:
   en: "Amazon S3: photo object storage"
 subtitle:
   zh-CN: 上传字节从 EC2 网卡移到浏览器直传 S3
-  ja: アップロードのバイトを EC2 のネットワークカードからブラウザーによる S3 への直接アップロードへ
-  en: Upload bytes move from the EC2 network card to direct browser uploads to S3
+  ja: EC2 経由のアップロード → ブラウザーから S3 へ直接アップロード
+  en: Uploads through EC2 → direct browser uploads to S3
 summary:
   zh-CN: 把照片从 EC2 的 EBS 数据卷搬进 S3，上传改为预签名 URL 直传；用同一组压测对比 EC2 网卡入流量、API CPU 与数据卷水位的变化。
   ja: 写真を EC2 の EBS データボリュームから S3 に移し、アップロードを署名付き URL による直接アップロードに切り替えます。同じ負荷テストで、EC2 のネットワーク受信量、API の CPU、データボリュームの使用量の変化を比較します。
@@ -46,19 +46,19 @@ objectives:
     relatesTo: enable
   - text:
       zh-CN: 识别桶的安全基线：BPA、禁用 ACL、只允许 HTTPS、默认加密
-      ja: バケットのセキュリティベースラインを見分ける：BPA、ACL の無効化、HTTPS のみ許可、デフォルト暗号化
+      ja: バケットのセキュリティベースラインを見分けられる：BPA、ACL の無効化、HTTPS のみ許可、デフォルト暗号化
       en: "Recognize a bucket's security baseline: BPA, ACLs disabled, HTTPS only and default encryption"
     domain: secure
     relatesTo: inspect-bucket
   - text:
       zh-CN: 用版本控制与生命周期兼顾防误删与成本
-      ja: バージョニングとライフサイクルで、誤削除の防止とコストを両立する
+      ja: バージョニングとライフサイクルで、誤削除の防止とコストを両立できる
       en: Use versioning and lifecycle rules to balance protection against accidental deletion with cost
     domain: cost
     relatesTo: inspect-bucket
   - text:
       zh-CN: 比较 S3 与 EBS 的耐久性与扩展方式
-      ja: S3 と EBS の耐久性と拡張方法を比較する
+      ja: S3 と EBS の耐久性と拡張方法を比較できる
       en: Compare the durability and scaling of S3 and EBS
     domain: resilient
     relatesTo: after
@@ -122,7 +122,7 @@ prerequisites:
       en: HTTP PUT and Content-Type
     - zh-CN: 浏览器开发者工具的 Network 面板
       ja: ブラウザーの開発者ツールの Network パネル
-      en: The Network panel of browser developer tools
+      en: the Network panel of browser developer tools
 
 startProfile:
   provisions:
@@ -309,7 +309,7 @@ steps:
     title:
       zh-CN: 亲眼看到浏览器直传 S3
       ja: ブラウザーから S3 への直接アップロードを自分の目で確かめる
-      en: See the direct browser upload to S3 with your own eyes
+      en: Watch the browser upload directly to S3
     manual: manual/50-observe-direct-upload.md
     requires: { steps: [enable] }
     estMinutes: 8
@@ -335,13 +335,13 @@ steps:
     type: experiment
     title:
       zh-CN: （选做）同部署侧路对比：local 与 s3 交替上传
-      ja: （任意）同じデプロイ内での並行比較：local と s3 で交互にアップロード
-      en: "(Optional) Side-by-side in the same deployment: alternate uploads through local and s3"
+      ja: 同じデプロイ内での並行比較：local と s3 で交互にアップロード
+      en: "Side-by-side in the same deployment: alternate uploads through local and s3"
     manual: manual/70-sidebyside.md
     optional:
       reason:
         zh-CN: 与 before/after 结论方向一致，只看数量级
-        ja: before/after と結論の方向が同じで、桁だけを見ます
+        ja: before/after と同じ結論になるため、桁を確かめるだけで十分です
         en: Points to the same conclusion as before/after; only the order of magnitude matters
     experiment: { module: storage, id: upload-sidebyside, label: after }
     requires: { steps: [enable] }
@@ -352,8 +352,8 @@ steps:
     type: experiment
     title:
       zh-CN: （选做）数据卷写满：上传不受影响，评论仍会失败
-      ja: （任意）データボリュームを満杯にする：アップロードは影響を受けないが、コメントは失敗する
-      en: "(Optional) Fill the data volume: uploads are unaffected, but comments still fail"
+      ja: データボリュームを満杯にする：アップロードは影響を受けないが、コメントは失敗する
+      en: "Fill the data volume: uploads are unaffected, but comments still fail"
     manual: manual/80-ebs-growth.md
     optional:
       reason:

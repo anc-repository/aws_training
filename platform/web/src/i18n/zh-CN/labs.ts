@@ -191,6 +191,7 @@ export default {
     cont: {
       title: '继续学习',
       path: '{track} · {stage} · 必修 {done}/{total}',
+      pathNoStage: '{track} · 必修 {done}/{total}',
       recommend: '推荐',
       recommendAfter: '当前环境之后推荐',
       view: '查看 →',
@@ -201,6 +202,7 @@ export default {
     },
     map: {
       legend: '图例：',
+      legendLevel: '{level} {n} 项服务',
       legendTail: '· 虚线框 = 含手动 · ! = 需复习 · * 需要域名才能由场景卡计入 · † 没有场景卡',
       help: '分数只用于进度环；等级文字按规则判定。点击服务格打开侧栏；Tab 进入地图后用方向键在格子之间移动。',
       cellLabel: '{name}，{fn}，{level}，{score} 分',

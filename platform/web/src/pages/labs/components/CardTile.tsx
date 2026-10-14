@@ -99,9 +99,11 @@ export interface CardTileProps {
   personal: 'ok' | 'loading' | 'failed';
   query: string;
   flags: string[];
+  /** 目录按类型 / 类别分组时为真：分组标题已经说了“服务 · A 入口…”，卡片上不再重复 */
+  grouped?: boolean;
 }
 
-export function CardTile({ card, tax, item, holder, personal, query, flags }: CardTileProps) {
+export function CardTile({ card, tax, item, holder, personal, query, flags, grouped }: CardTileProps) {
   const { clock } = useServices();
   const isHolder = !!holder && holder.labId === card.id;
   useSecondTick(isHolder && (holder.state === 'READY' || holder.state === 'RUNNING' || holder.state === 'EXPIRING'));
@@ -115,18 +117,26 @@ export function CardTile({ card, tax, item, holder, personal, query, flags }: Ca
   const badge = item?.badge ?? null;
   const target = isHolder ? pillTarget({ sessionId: holder.sessionId, state: holder.state }) : null;
   const shownFlags = flags.filter((f) => f !== 'beta').slice(0, 2);
+  // 服务卡的“服务 · A 入口…”与分组标题相同时不重复；场景卡的“包含 n 个服务”分组标题里没有，保留
+  const hideKind = !!grouped && card.kind === 'service';
   return (
     <article className={cls} aria-labelledby={titleId} data-card={card.id}>
       <div className="ct-head">
         <CardGlyph card={card} size={40} />
         <div className="ct-title">
-          <span className="kindline">
-            {card.kind === 'service' ? <GroupSymbol group={card.category ?? 'base'} size={8} /> : null}
-            <span>{kindLine(card, tax)}</span>
-            {flags.includes('beta') ? <span className="tag info">{FLAG_TEXT.beta}</span> : null}
-          </span>
+          {!hideKind || flags.includes('beta') ? (
+            <span className="kindline">
+              {hideKind ? null : (
+                <>
+                  {card.kind === 'service' ? <GroupSymbol group={card.category ?? 'base'} size={8} /> : null}
+                  <span>{kindLine(card, tax)}</span>
+                </>
+              )}
+              {flags.includes('beta') ? <span className="tag info">{FLAG_TEXT.beta}</span> : null}
+            </span>
+          ) : null}
           <h3 id={titleId}>
-            <Link to={`/labs/${card.id}`}>
+            <Link to={`/labs/${card.id}`} title={card.summary}>
               {highlight(card.kind === 'service' ? (card.service ?? card.title) : card.title, query)}
               <span className="fn">{highlight((card.kind === 'service' ? card.function : card.subtitle) ?? '', query)}</span>
             </Link>
@@ -135,9 +145,15 @@ export function CardTile({ card, tax, item, holder, personal, query, flags }: Ca
         </div>
       </div>
       <CardArch card={card} />
-      <p className="sum" title={card.summary}>
-        {highlight(card.summary, query)}
-      </p>
+      {/* 一行简介 = 标题下的机能短句（服务卡）/ 副标题（场景卡）；完整简介在链接的 title、读屏文字与简介页。
+          只有搜索词命中简介时才显示它（说明为什么命中） */}
+      {query.trim() && card.summary.toLowerCase().includes(query.trim().toLowerCase()) ? (
+        <p className="sum" title={card.summary}>
+          {highlight(card.summary, query)}
+        </p>
+      ) : (
+        <p className="sr">{card.summary}</p>
+      )}
       <div className="meta">
         <CardMetrics card={card} />
         {planned ? <span className="tag planned">{S.card.planned}</span> : null}

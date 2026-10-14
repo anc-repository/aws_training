@@ -4,8 +4,8 @@ id: networking
 version: 1.0.0
 title:
   zh-CN: 网络与边缘
-  ja: ネットワークとエッジ
-  en: Networking and edge
+  ja: ネットワークとエッジのパス
+  en: Networking and edge path
 summary:
   zh-CN: VPC、子网、路由、NAT、终端节点、ALB、CloudFront、WAF：SAA 网络题的主体；需要域名的内容全部是可选。
   ja: VPC、サブネット、ルーティング、NAT、エンドポイント、ALB、CloudFront、WAF。SAA のネットワーク問題の中心です。ドメイン名が必要な内容はすべて任意です。

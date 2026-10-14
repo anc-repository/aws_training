@@ -6,9 +6,12 @@
  * Languages (09-i18n-and-visual.md §1.8, I1/I5): the page texts exist in ja / en / zh-CN. Without `lang` the document
  * holds one block per language — Japanese shown by default, `#en` / `#zh-CN` (`:target`, no script: the CSP forbids
  * scripts) switch, with language links at the top — the same layout as the web share renderer (render-share.mjs).
- * Values that come from the report itself (card and step titles, check names, reasons) stay as recorded (zh-CN source).
+ * The report stores codes and ids for platform texts (cleanup status, check source, trigger, metric ids, cost note keys),
+ * localized here per language. Card, step and check names, the badge title and the start reasons come from the card
+ * content of that language (`texts`, read from content/<v>/<lang>/labs/<id>.json by the caller); without a translation
+ * the recorded zh-CN value is shown inside `<span lang="zh-CN">` with the “未翻訳 / Not translated” marker (I2, WCAG 3.1.2).
  */
-import { escapeXml } from './charts.js';
+import { barsSvg, escapeXml } from './charts.js';
 import type { Report } from './report.js';
 
 export type ReportLang = 'ja' | 'en' | 'zh-CN';
@@ -18,6 +21,62 @@ const LANG_NAME: Record<ReportLang, string> = { ja: '日本語', en: 'English', 
 
 const str = (v: unknown): string => (v === undefined || v === null ? '—' : typeof v === 'string' ? v : JSON.stringify(v));
 const esc = (v: unknown): string => escapeXml(str(v));
+
+/**
+ * Card content texts of one language for the report (content/<v>/<lang>/labs/<id>.json). `fallback` lists the keys whose
+ * text is another language there (from the document's `i18n.fallback` pointers).
+ */
+export interface ReportTexts {
+  title?: string;
+  badge?: string;
+  steps?: Record<string, string>;
+  checks?: Record<string, string>;
+  provisions?: Record<string, string>;
+  /** keys that resolve to fallback text: `/title`, `/badge`, `/steps/<id>`, `/checks/<id>`, `/provisions/<item>` */
+  fallback?: string[];
+}
+
+/** Turns a localized expanded lab (atl.lab/v2 of one language) into ReportTexts; null when it is not one. */
+export function reportTextsFromLab(doc: unknown): ReportTexts | null {
+  if (!doc || typeof doc !== 'object') return null;
+  const d = doc as {
+    title?: unknown;
+    badge?: { title?: unknown };
+    steps?: { id?: string; title?: unknown }[];
+    checks?: Record<string, { title?: unknown }>;
+    checkDefs?: Record<string, { title?: unknown }>;
+    startProfile?: { provisions?: { item?: string; reason?: unknown }[] };
+    i18n?: { fallback?: unknown };
+  };
+  const ptrs = Array.isArray(d.i18n?.fallback) ? (d.i18n.fallback as unknown[]).filter((x): x is string => typeof x === 'string') : [];
+  const hit = (ptr: string) => ptrs.some((q) => q === ptr || ptr.startsWith(`${q}/`));
+  const fallback: string[] = [];
+  const text = (v: unknown, ptr: string, key: string): string | undefined => {
+    if (typeof v !== 'string' || !v) return undefined;
+    if (hit(ptr)) fallback.push(key);
+    return v;
+  };
+  const steps: Record<string, string> = {};
+  (Array.isArray(d.steps) ? d.steps : []).forEach((st, i) => {
+    const v = st?.id ? text(st.title, `/steps/${i}/title`, `/steps/${st.id}`) : undefined;
+    if (v && st.id) steps[st.id] = v;
+  });
+  const checks: Record<string, string> = {};
+  for (const [field, defs] of [['checks', d.checks], ['checkDefs', d.checkDefs]] as const) {
+    for (const [id, c] of Object.entries(defs && typeof defs === 'object' && !Array.isArray(defs) ? defs : {})) {
+      const v = text(c?.title, `/${field}/${id}/title`, `/checks/${id}`);
+      if (v && !checks[id]) checks[id] = v;
+    }
+  }
+  const provisions: Record<string, string> = {};
+  (Array.isArray(d.startProfile?.provisions) ? d.startProfile.provisions : []).forEach((q, i) => {
+    const v = q?.item ? text(q.reason, `/startProfile/provisions/${i}/reason`, `/provisions/${q.item}`) : undefined;
+    if (v && q.item) provisions[q.item] = v;
+  });
+  const title = text(d.title, '/title', '/title');
+  const badge = text(d.badge?.title, '/badge/title', '/badge');
+  return { ...(title ? { title } : {}), ...(badge ? { badge } : {}), steps, checks, provisions, fallback };
+}
 
 interface Labels {
   state: Record<string, string>;
@@ -75,6 +134,19 @@ interface Labels {
   shareExpiry: string;
   colon: string;
   sep: string;
+  /** marker of a value shown in another language (I2) */
+  untranslated: string;
+  /** the learner's name when the profile has none */
+  learner: string;
+  cleanupStatus: Record<string, string>;
+  source: Record<string, string>;
+  trustLevel: Record<string, string>;
+  trigger: Record<string, string>;
+  /** experiment metric names by metric id (report.ts METRIC_DEFS) */
+  metric: Record<string, string>;
+  chartAria: string;
+  /** cost note keys (report.ts COST_NOTE_KEYS) */
+  costNote: Record<string, string>;
 }
 
 const ZH: Labels = {
@@ -133,12 +205,21 @@ const ZH: Labels = {
   shareExpiry: '平台卸载后此链接失效。',
   colon: '：',
   sep: '；',
+  untranslated: '未翻译',
+  learner: '学员',
+  cleanupStatus: { pending: '进行中', clean: '已清理', 'needs-review': '需要复核', 'cleanup-failed': '清理未完成', kept: '保留中', done: '已清理' },
+  source: { LOCAL: '本地', PROBE: '探针', AWS: 'AWS', EXP: '实验', MANUAL: '手动' },
+  trustLevel: { high: '可信度高', medium: '可信度中', low: '可信度低' },
+  trigger: { user: '学员', auto: '自动', 'wait-poll': '等待轮询', 'module-op': '模块操作', submit: '提交', 'expiring-precheck': '到期预检', finalize: '定稿', 'late-ownership': '延迟归属' },
+  metric: { 'server.requests': '源站收到的请求数', 'server.origin': '经 Nginx 的源站请求', 'client.requests': '客户端请求数', 'client.errors': '客户端错误数', 'client.cdnHitRatio': 'CDN 命中率' },
+  chartAria: '对比实验指标',
+  costNote: { 'price-list-estimate': '估算 · 单价取自 Price List · 以官方定价与账单为准', 'unpriced-hours-only': '未取得单价的资源只列出时长，不按 0 计' },
 };
 
 const JA: Labels = {
-  state: { done: '達成', done_manual: '達成（手動確認を含む）', drifted: 'ドリフト', failed: '不合格', error: 'チェックのエラー', needs_manual: '手動確認待ち', verifying: '検証中', available: '開始可能', locked: 'ロック中', skipped: 'スキップ' },
+  state: { done: '達成', done_manual: '達成（手動確認を含む）', drifted: 'ドリフト', failed: '不合格', error: 'チェッカーのエラー', needs_manual: '手動確認待ち', verifying: '検証中', available: '開始可能', locked: 'ロック中', skipped: 'スキップ' },
   attempt: { completed: '完了（すべて自動）', completed_manual: '完了（手動確認を含む）', incomplete: '未完了', unverified: '検証できず', active: '実施中', verifying: '最終確認中', void: '無効' },
-  result: { pass: '合格', fail: '不合格', pending: '待機中', error: 'チェックのエラー', unavailable: 'チェック不可', skipped: '対象外', not_run: '未チェック', manual: '手動確認済み', manual_evidence: '手動確認済み（証拠あり）', needs_manual: '手動確認待ち' },
+  result: { pass: '合格', fail: '不合格', pending: '待機中', error: 'チェッカーのエラー', unavailable: 'チェック不可', skipped: '対象外', not_run: '未チェック', manual: '手動確認済み', manual_evidence: '手動確認済み（証拠あり）', needs_manual: '手動確認待ち' },
   badgeLevel: { verified: '検証済み', attested: '確認済み', 'self-reported': '自己申告' },
   badgeStatus: { valid: '有効', pending: '保留中', withdrawn: '取り消し' },
   role: { baseline: 'ベースライン', treatment: '変更後', single: '単独' },
@@ -177,7 +258,7 @@ const JA: Labels = {
   quizValue: (best, n) => `最高スコア ${best}（全 ${n} 回。記録のみで、完了とバッジには影響しません）`,
   cost: '費用',
   quote: '開始前の見積もり：',
-  costCols: ['リソースの種類', '名前', '課金方式', '時間（時間）'],
+  costCols: ['リソースの種類', '名前', '課金方式', '利用時間（h）'],
   cleanup: 'クリーンアップ',
   cleanupValue: (s, n) => `状態：${s} · 回収済み ${n} 件`,
   manualCols: ['要対応', '識別子', 'レベル', '理由'],
@@ -191,6 +272,15 @@ const JA: Labels = {
   shareExpiry: 'プラットフォームをアンインストールすると、このリンクは無効になります。',
   colon: '：',
   sep: '、',
+  untranslated: '未翻訳',
+  learner: '受講者',
+  cleanupStatus: { pending: '処理中', clean: 'クリーンアップ済み', 'needs-review': '要確認', 'cleanup-failed': 'クリーンアップ未完了', kept: '保持中', done: 'クリーンアップ済み' },
+  source: { LOCAL: 'ローカル', PROBE: 'プローブ', AWS: 'AWS', EXP: '実験', MANUAL: '手動' },
+  trustLevel: { high: '信頼度 高', medium: '信頼度 中', low: '信頼度 低' },
+  trigger: { user: '受講者', auto: '自動', 'wait-poll': 'ポーリング待ち', 'module-op': 'モジュール操作', submit: '提出', 'expiring-precheck': '期限前チェック', finalize: '確定', 'late-ownership': '遅れて確定した帰属' },
+  metric: { 'server.requests': 'オリジンが受けたリクエスト数', 'server.origin': 'Nginx 経由のオリジンへのリクエスト', 'client.requests': 'クライアントのリクエスト数', 'client.errors': 'クライアントのエラー数', 'client.cdnHitRatio': 'CDN のヒット率' },
+  chartAria: '比較実験の指標',
+  costNote: { 'price-list-estimate': '見積もり · 単価は Price List から取得 · 正確な金額は公式の料金と請求書で確認してください', 'unpriced-hours-only': '単価を取得できなかったリソースは利用時間だけを示します（0 円としては扱いません）' },
 };
 
 const EN: Labels = {
@@ -235,7 +325,7 @@ const EN: Labels = {
   quizValue: (best, n) => `Best score ${best} (${n} attempt${n === 1 ? '' : 's'}; recorded only, does not affect completion or badges)`,
   cost: 'Cost',
   quote: 'Estimate before the start: quote',
-  costCols: ['Resource type', 'Name', 'Billing', 'Duration (hours)'],
+  costCols: ['Resource type', 'Name', 'Billing', 'Duration (h)'],
   cleanup: 'Cleanup',
   cleanupValue: (s, n) => `Status: ${s} · ${n} reclaimed`,
   manualCols: ['Needs you', 'Identifier', 'Severity', 'Reason'],
@@ -249,6 +339,15 @@ const EN: Labels = {
   shareExpiry: 'This link stops working when the platform is uninstalled.',
   colon: ': ',
   sep: '; ',
+  untranslated: 'Not translated',
+  learner: 'Learner',
+  cleanupStatus: { pending: 'In progress', clean: 'Cleaned up', 'needs-review': 'Needs review', 'cleanup-failed': 'Cleanup incomplete', kept: 'Kept', done: 'Cleaned up' },
+  source: { LOCAL: 'Local', PROBE: 'Probe', AWS: 'AWS', EXP: 'Experiment', MANUAL: 'Manual' },
+  trustLevel: { high: 'high confidence', medium: 'medium confidence', low: 'low confidence' },
+  trigger: { user: 'Learner', auto: 'Automatic', 'wait-poll': 'Waiting poll', 'module-op': 'Module operation', submit: 'Submit', 'expiring-precheck': 'Pre-expiry check', finalize: 'Finalize', 'late-ownership': 'Late ownership' },
+  metric: { 'server.requests': 'Requests received by the origin', 'server.origin': 'Origin requests through Nginx', 'client.requests': 'Client requests', 'client.errors': 'Client errors', 'client.cdnHitRatio': 'CDN hit ratio' },
+  chartAria: 'Comparison experiment metrics',
+  costNote: { 'price-list-estimate': 'Estimate · unit prices from the Price List · the official pricing and your bill are authoritative', 'unpriced-hours-only': 'Resources without a unit price list their hours only; they are not counted as 0' },
 };
 
 const LABELS: Record<ReportLang, Labels> = { ja: JA, en: EN, 'zh-CN': ZH };
@@ -263,7 +362,7 @@ h1{font-size:22px;margin:0 0 4px}h2{font-size:17px;margin:28px 0 8px;border-bott
 .muted{color:var(--muted)}.banner{border:1px solid var(--line);border-left:4px solid var(--warn);padding:10px 12px;margin:12px 0;color:var(--muted)}
 table{border-collapse:collapse;width:100%;margin:6px 0 12px}th,td{border-bottom:1px solid var(--line);padding:4px 6px;text-align:left;vertical-align:top;overflow-wrap:anywhere}th{color:var(--muted);font-weight:500}
 .pass,.done{color:var(--ok)}.fail,.failed,.drifted{color:var(--bad)}.pending,.verifying,.needs_manual{color:var(--warn)}
-code{font-size:12px}figure{margin:8px 0}
+code{font-size:12px}figure{margin:8px 0}.untr{font-size:11px;color:var(--muted);border:1px dashed var(--line);border-radius:3px;padding:0 4px;white-space:nowrap}
 .langnav{display:flex;gap:6px;justify-content:flex-end;flex-wrap:wrap;font-size:12px}.langnav a{color:var(--link)}
 .lv{display:none}.lv.lv-default,.lv:target{display:block}body:has(.lv:target) .lv.lv-default:not(:target){display:none}
 @media print{@page{size:A4 portrait;margin:14mm}body{background:#fff;color:#000}main{max-width:none;padding:0}tr,figure,table{break-inside:avoid}.noprint,.langnav{display:none}}
@@ -276,18 +375,49 @@ export interface RenderOptions {
   includeHistory?: boolean;
   /** One language only; omitted = ja / en / zh-CN in one document (ja shown by default). */
   lang?: ReportLang;
+  /** Card content texts per language (ja / en); without them the recorded zh-CN values are shown with the marker. */
+  texts?: Partial<Record<ReportLang, ReportTexts | null>>;
 }
 
-function renderBlock(r: Report, o: RenderOptions, L: Labels): string {
+const HAN = /[\u3400-\u9fff]/;
+
+/**
+ * A card text in language `lang`: the translation from `texts` when there is one (and it is not a fallback), otherwise the
+ * recorded zh-CN value marked as such. Text without Han characters (ids, product names) is language-neutral: shown as is.
+ */
+function cardText(recorded: string, lang: ReportLang, L: Labels, texts: ReportTexts | null | undefined, key: string, pick: (t: ReportTexts) => string | undefined): string {
+  if (lang === 'zh-CN') return esc(recorded);
+  const v = texts ? pick(texts) : undefined;
+  if (v && !(texts?.fallback ?? []).includes(key)) return esc(v);
+  if (!HAN.test(recorded)) return esc(recorded);
+  return `<span lang="zh-CN">${esc(recorded)}</span> <span class="untr">${esc(L.untranslated)}</span>`;
+}
+
+/** A value recorded as data (reason, error, note): Chinese text gets lang="zh-CN" so screen readers and fonts switch. */
+function recordedText(v: unknown, lang: ReportLang): string {
+  const s = str(v);
+  return lang !== 'zh-CN' && HAN.test(s) ? `<span lang="zh-CN">${esc(s)}</span>` : esc(s);
+}
+
+/** The local check id of a check key (`…/<checkId>`). */
+const checkIdOf = (checkKey: string) => checkKey.split('/').pop() ?? checkKey;
+
+function renderBlock(r: Report, o: RenderOptions, L: Labels, lang: ReportLang): string {
   const h: string[] = [];
   const label = (map: Record<string, string>, k: string) => esc(map[k] ?? k);
+  const T = o.texts?.[lang] ?? null;
+  const card = (recorded: string, key: string, pick: (t: ReportTexts) => string | undefined) => cardText(recorded, lang, L, T, key, pick);
   if (o.share) h.push(`<p class="banner">${esc(L.banner)}</p>`);
-  h.push(`<h1>${esc(r.lab.title)}</h1><p class="muted">${esc(L.header(r.revision, str(r.generatedAt), str(r.lab.version), str(r.lab.variant)))}</p>`);
+  h.push(`<h1>${card(r.lab.title, '/title', (t) => t.title)}</h1><p class="muted">${esc(L.header(r.revision, str(r.generatedAt), str(r.lab.version), str(r.lab.variant)))}</p>`);
   // summary
   h.push(`<h2>${esc(L.summary)}</h2><table>`);
-  const badge = r.badge ? `${esc(L.badge(str(r.badge.title), L.badgeLevel[r.badge.level] ?? r.badge.level, str(r.badge.evidenceScore)))}${r.badge.status !== 'valid' ? ` · ${label(L.badgeStatus, r.badge.status)}` : ''}` : '';
+  // the badge title is card content: marked like the other card texts (the template around it is escaped separately)
+  const badgeSlot = '\u0000';
+  const badge = r.badge
+    ? `${esc(L.badge(badgeSlot, L.badgeLevel[r.badge.level] ?? r.badge.level, str(r.badge.evidenceScore))).replace(badgeSlot, card(str(r.badge.title), '/badge', (t) => t.badge))}${r.badge.status !== 'valid' ? ` · ${label(L.badgeStatus, r.badge.status)}` : ''}`
+    : '';
   h.push(`<tr><th>${esc(L.outcome)}</th><td>${label(L.attempt, r.outcome.attemptStatus)}${badge}</td></tr>`);
-  h.push(`<tr><th>${esc(L.holder)}</th><td>${esc(r.learner.displayName)}</td></tr>`);
+  h.push(`<tr><th>${esc(L.holder)}</th><td>${r.learner.displayName ? recordedText(r.learner.displayName, lang) : esc(L.learner)}</td></tr>`);
   h.push(`<tr><th>${esc(L.time)}</th><td>${esc(L.timeValue(r.timing.totalMinutes, r.timing.activeMinutes))}</td></tr>`);
   h.push(`<tr><th>${esc(L.checks)}</th><td>${esc(L.checksValue(r.outcome.checks.auto, r.outcome.checks.manual, r.outcome.checks.failed, r.outcome.driftEvents))}</td></tr>`);
   h.push(`<tr><th>${esc(L.trust)}</th><td>${esc(L.trustValue(r.outcome.trustSummary.high, r.outcome.trustSummary.medium, r.outcome.trustSummary.low))}</td></tr>`);
@@ -296,20 +426,21 @@ function renderBlock(r: Report, o: RenderOptions, L: Labels): string {
   // architecture / start profile
   const [pc1, pc2, pc3] = L.provisionCols;
   h.push(`<h2>${esc(L.arch)}</h2><p>${esc(L.startProfile)} <code>${esc(r.lab.startProfile.name)}</code></p><table><tr><th>${esc(pc1)}</th><th>${esc(pc2)}</th><th>${esc(pc3)}</th></tr>`);
-  for (const p of r.lab.startProfile.provisions) h.push(`<tr><td>${esc(p.item)}</td><td>${esc(p.kind)}</td><td>${esc(p.reason)}</td></tr>`);
+  for (const p of r.lab.startProfile.provisions) h.push(`<tr><td>${esc(p.item)}</td><td>${esc(p.kind)}</td><td>${p.reason ? card(p.reason, `/provisions/${p.item}`, (t) => t.provisions?.[p.item]) : '—'}</td></tr>`);
   h.push('</table>');
   // steps
   h.push(`<h2>${esc(L.steps)}</h2>`);
   for (const s of r.steps) {
-    h.push(`<h3>${esc(s.title)} <span class="${esc(s.state)}">· ${label(L.state, s.state)}</span></h3>`);
+    h.push(`<h3>${card(s.title, `/steps/${s.stepId}`, (t) => t.steps?.[s.stepId])} <span class="${esc(s.state)}">· ${label(L.state, s.state)}</span></h3>`);
     if (!s.checks.length) continue;
     h.push(`<table><tr>${L.checkCols.map((c) => `<th>${esc(c)}</th>`).join('')}</tr>`);
     for (const c of s.checks) {
       const asserts = c.keyAssertions.map((a) => `${a.ok ? '✓' : '✗'} ${esc(a.label)}${esc(L.colon)}${esc(a.expected)} / ${esc(a.actual)}`).join('<br>');
       const prov = c.provenance && c.provenance !== 'this-session' ? `<br><span class="muted">${esc(L.inherited)}</span>` : '';
       const late = c.ownershipConfirmedLate ? `<br><span class="muted">${esc(L.lateOwnership)}</span>` : '';
-      const manual = c.manual ? `<br><span class="muted">${esc(L.manual)}${esc(L.colon)}${esc(c.manual.observed)}${o.hideManualNotes ? '' : ` · ${esc(c.manual.note)}`}</span>` : '';
-      h.push(`<tr><td>${esc(c.title)}${prov}${late}</td><td>${esc(c.source)}${c.trust && c.trust !== 'high' ? ` · ${esc(c.trust)}` : ''}</td><td class="${esc(c.effective)}">${label(L.result, c.effective)}</td><td>${asserts || '—'}${manual}</td><td><code>${esc((c.evidenceDigest ?? '').slice(0, 15))}</code></td></tr>`);
+      const manual = c.manual ? `<br><span class="muted">${esc(L.manual)}${esc(L.colon)}${recordedText(c.manual.observed, lang)}${o.hideManualNotes ? '' : ` · ${recordedText(c.manual.note, lang)}`}</span>` : '';
+      const id = checkIdOf(c.checkKey ?? '');
+      h.push(`<tr><td>${card(c.title, `/checks/${id}`, (t) => t.checks?.[id])}${prov}${late}</td><td>${label(L.source, c.source)}${c.trust && c.trust !== 'high' ? ` · ${label(L.trustLevel, c.trust)}` : ''}</td><td class="${esc(c.effective)}">${label(L.result, c.effective)}</td><td>${asserts || '—'}${manual}</td><td><code>${esc((c.evidenceDigest ?? '').slice(0, 15))}</code></td></tr>`);
     }
     h.push('</table>');
   }
@@ -321,13 +452,18 @@ function renderBlock(r: Report, o: RenderOptions, L: Labels): string {
     for (const v of e.variants) h.push(`<tr><td>${esc(v.label)}</td><td>${label(L.role, v.role)}</td><td>${v.summary ? `${esc((v.summary as { validity?: string }).validity)} · ${esc((v.summary as { finishedAt?: string }).finishedAt)}` : esc(L.noRecord)}</td></tr>`);
     h.push('</table>');
     for (const p of e.pairs) h.push(`<p>${esc(p.a)} / ${esc(p.b)}${esc(L.colon)}${p.comparable ? esc(L.comparable) : esc(L.notComparable(p.reasons.join(L.sep)))}${p.across?.length ? esc(L.acrossTypes) : ''}</p>`);
-    for (const c of e.charts) h.push(`<figure>${c.svg}</figure>`);
+    // drawn again from the recorded numbers with this language's metric names (the stored SVG is zh-CN)
+    const metrics = (e.metrics ?? []).slice(0, 4);
+    if (metrics.length) h.push(`<figure>${barsSvg(metrics.map((m) => ({ ...m, label: L.metric[m.id] ?? m.label })), e.variants.map((v) => v.label), L.chartAria)}</figure>`);
+    else for (const c of e.charts) h.push(`<figure>${c.svg}</figure>`);
   }
   // quiz
   if (r.quiz) h.push(`<h2>${esc(L.quiz)}</h2><p>${esc(L.quizValue(str(r.quiz.bestScore), r.quiz.attempts))}</p>`);
   // cost
   h.push(`<h2>${esc(L.cost)}</h2>`);
-  h.push(`<p class="muted">${esc(r.cost.notes.join(' · '))}</p>`);
+  // note keys (new reports) or the recorded zh-CN notes (reports generated before the keys)
+  const notes = [...(r.cost.noteKeys ?? []).map((k) => esc(L.costNote[k] ?? k)), ...(r.cost.notes ?? []).map((n) => recordedText(n, lang))];
+  if (notes.length) h.push(`<p class="muted">${notes.join(' · ')}</p>`);
   if (r.cost.quote) h.push(`<p>${esc(L.quote)} <code>${esc((r.cost.quote as { quoteId?: string }).quoteId)}</code></p>`);
   if (r.cost.resources.length) {
     h.push(`<table><tr>${L.costCols.map((c) => `<th>${esc(c)}</th>`).join('')}</tr>`);
@@ -335,10 +471,10 @@ function renderBlock(r: Report, o: RenderOptions, L: Labels): string {
     h.push('</table>');
   }
   // cleanup
-  h.push(`<h2>${esc(L.cleanup)}</h2><p>${esc(L.cleanupValue(str(r.cleanup.status), r.cleanup.reclaimed))}</p>`);
+  h.push(`<h2>${esc(L.cleanup)}</h2><p>${esc(L.cleanupValue(L.cleanupStatus[r.cleanup.status] ?? str(r.cleanup.status), r.cleanup.reclaimed))}</p>`);
   if (r.cleanup.pendingManual.length) {
     h.push(`<table><tr>${L.manualCols.map((c) => `<th>${esc(c)}</th>`).join('')}</tr>`);
-    for (const p of r.cleanup.pendingManual) h.push(`<tr><td>${esc(p.resourceType)}</td><td>${esc(p.id)}</td><td>${esc(p.severity)}</td><td>${esc(p.reason)}</td></tr>`);
+    for (const p of r.cleanup.pendingManual) h.push(`<tr><td>${esc(p.resourceType)}</td><td>${esc(p.id)}</td><td>${esc(p.severity)}</td><td>${recordedText(p.reason, lang)}</td></tr>`);
     h.push('</table>');
   }
   for (const v of r.cleanup.verify) h.push(`<p>${esc(L.cleanupVerify)} ${esc(v.checkKey)}${esc(L.colon)}${label(L.result, v.result)}</p>`);
@@ -346,7 +482,7 @@ function renderBlock(r: Report, o: RenderOptions, L: Labels): string {
   // appendix
   if (o.includeHistory !== false && r.checkHistory.length) {
     h.push(`<h2>${esc(L.appendix)}</h2><table><tr>${L.historyCols.map((c) => `<th>${esc(c)}</th>`).join('')}</tr>`);
-    for (const c of r.checkHistory) h.push(`<tr><td>${esc(c.at)}</td><td>${esc(c.checkKey)}</td><td class="${esc(c.result)}">${label(L.result, c.result)}</td><td>${esc(c.errorCode ?? '')}</td><td>${esc(c.trigger)}</td></tr>`);
+    for (const c of r.checkHistory) h.push(`<tr><td>${esc(c.at)}</td><td>${esc(c.checkKey)}</td><td class="${esc(c.result)}">${label(L.result, c.result)}</td><td>${esc(c.errorCode ?? '')}</td><td>${label(L.trigger, c.trigger)}</td></tr>`);
     h.push('</table>');
   }
   h.push(`<p class="muted">${L.digests(esc(r.lab.catalogVersion), esc(r.lab.contentDigest), esc(r.integrity.digest))}</p>`);
@@ -363,11 +499,13 @@ export function renderReportHtml(r: Report, o: RenderOptions = {}): string {
   // frame-ancestors only works as a header (browsers log an error for it in <meta>): CloudFront's atl-web-share policy sends it
   h.push(`<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; img-src data:">`);
   if (o.share) h.push('<meta name="robots" content="noindex, nofollow"><meta name="referrer" content="no-referrer">');
-  h.push(`<title>${esc(r.lab.title)} · ${esc(LABELS[first].title)}</title><style>${CSS}</style></head><body><main>`);
-  if (langs.length === 1) h.push(renderBlock(r, o, LABELS[first]));
+  const T0 = o.texts?.[first];
+  const docTitle = first === 'zh-CN' || !T0?.title || (T0.fallback ?? []).includes('/title') ? r.lab.title : T0.title;
+  h.push(`<title>${esc(docTitle)} · ${esc(LABELS[first].title)}</title><style>${CSS}</style></head><body><main>`);
+  if (langs.length === 1) h.push(renderBlock(r, o, LABELS[first], first));
   else {
     h.push(`<nav class="langnav" aria-label="${langs.map((l) => LANG_NAME[l]).join(' / ')}">${langs.map((l) => `<a href="#${l}" lang="${l}" hreflang="${l}">${LANG_NAME[l]}</a>`).join(' · ')}</nav>`);
-    langs.forEach((l, i) => h.push(`<div class="lv${i === 0 ? ' lv-default' : ''}" id="${l}" lang="${l}">\n${renderBlock(r, o, LABELS[l])}\n</div>`));
+    langs.forEach((l, i) => h.push(`<div class="lv${i === 0 ? ' lv-default' : ''}" id="${l}" lang="${l}">\n${renderBlock(r, o, LABELS[l], l)}\n</div>`));
   }
   h.push('</main></body></html>');
   return h.join('\n');

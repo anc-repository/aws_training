@@ -4,8 +4,8 @@ id: operations
 version: 1.0.0
 title:
   zh-CN: 运维与可观测
-  ja: 運用とオブザーバビリティ
-  en: Operations and observability
+  ja: 運用とオブザーバビリティのパス
+  en: Operations and observability path
 summary:
   zh-CN: 把 Systems Manager、CloudWatch、X-Ray、CloudTrail、Image Builder、Backup 串成“日常运维”视角，费用为低或中。
   ja: Systems Manager、CloudWatch、X-Ray、CloudTrail、Image Builder、Backup を「日々の運用」の視点でつなぎます。費用は低または中です。
