@@ -8,9 +8,11 @@ import { useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { isApiError } from '../../api/errors';
 import { useServices } from '../../app/context';
-import { msg, t } from '../../i18n';
+import { fmtPercent, msg, t } from '../../i18n';
 import { Button, Dialog, Field, Shape } from '../../ui';
 import { S } from '../labs/strings';
+
+const PL = msg.pages.labs;
 
 type Reason = { code: string; [k: string]: unknown };
 
@@ -21,19 +23,20 @@ export function reasonsText(reasons: readonly Reason[]): string {
   const parts: string[] = [];
   if (missing.length) {
     const ids = missing.map((r) => r.labId).filter((x): x is string => typeof x === 'string');
-    parts.push(`${t(S.track.reasonRequired, { n: missing.length })}${ids.length ? `（${ids.slice(0, 5).join('、')}${ids.length > 5 ? '…' : ''}）` : ''}`);
+    const head = t(S.track.reasonRequired, { n: missing.length });
+    parts.push(ids.length ? t(PL.paren, { text: head, note: `${ids.slice(0, 5).join(PL.listSep)}${ids.length > 5 ? '…' : ''}` }) : head);
   }
   if (groups.length) parts.push(t(S.track.reasonGroups, { n: groups.length }));
   const ratio = reasons.find((r) => r.code === 'VERIFIED_RATIO_LOW');
   if (ratio) {
-    const r = typeof ratio.ratio === 'number' ? `${Math.round(ratio.ratio * 100)}%` : '';
-    const m = typeof ratio.min === 'number' ? `${Math.round(ratio.min * 100)}%` : '';
-    parts.push(r && m ? `${S.track.reasonRatio}（${r} < ${m}）` : S.track.reasonRatio);
+    const r = typeof ratio.ratio === 'number' ? fmtPercent(ratio.ratio) : '';
+    const m = typeof ratio.min === 'number' ? fmtPercent(ratio.min) : '';
+    parts.push(r && m ? t(PL.paren, { text: S.track.reasonRatio, note: `${r} < ${m}` }) : S.track.reasonRatio);
   }
   if (reasons.some((r) => r.code === 'BADGE_PENDING')) parts.push(S.track.reasonPending);
   if (reasons.some((r) => r.code === 'CONTENT_DEFECTIVE')) parts.push(S.track.reasonDefect);
   if (reasons.some((r) => r.code === 'CERTIFICATE_DISABLED')) parts.push(S.track.reasonDisabled);
-  return parts.join('、') || '—';
+  return parts.join(PL.listSep) || '—';
 }
 
 export interface ClaimCertificateDialogProps {

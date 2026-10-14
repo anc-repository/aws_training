@@ -8,272 +8,284 @@ import type zh from '../zh-CN/card';
 
 export default {
   page: {
-    notFoundTitle: '', // 页面不存在
-    notFound: '', // 没有这张卡片（{id}）。它可能尚未发布。
-    back: '', // 返回目录
-    meta: '', // {est} · 上限 {limit}（可延长 {n} 次，每次 {m} 分钟）
-    provision: '', // 环境准备：{t}（{c}）
-    status: '', // 状态：
-    badge: '', // 徽章：
-    quoteOnly: '', // 计算当前价格
-    quiz: '', // 小测
-    personalFailed: '', // 暂时无法判断能否开始
-    personalRetry: '', // 重试
-    beta: '', // 测试版
-    version: '', // v{v}
-    ctaRegion: '', // 开始实验操作栏
-    asideLabel: '', // 开始前准备与摘要
+    notFoundTitle: 'ページが見つかりません', // 页面不存在
+    notFound: 'このカード（{id}）はありません。まだ公開されていない可能性があります。', // 没有这张卡片（{id}）。它可能尚未发布。
+    back: 'カード一覧に戻る', // 返回目录
+    meta: '{est} · 上限 {limit}（{n} 回まで延長可、1 回 {m} 分）', // {est} · 上限 {limit}（可延长 {n} 次，每次 {m} 分钟）
+    provision: '環境準備：{t}（{c}）', // 环境准备：{t}（{c}）
+    status: '状況：', // 状态：
+    badge: 'バッジ：', // 徽章：
+    quoteOnly: '現在の料金を計算', // 计算当前价格
+    quiz: '小テスト', // 小测
+    personalFailed: '開始できるかどうかを判断できません', // 暂时无法判断能否开始
+    personalRetry: '再試行', // 重试
+    beta: 'ベータ版', // 测试版
+    version: 'v{v}', // v{v}
+    ctaRegion: 'ラボ開始の操作', // 开始实验操作栏
+    asideLabel: '開始前の準備と概要', // 开始前准备与摘要
   },
   sections: {
-    resourcesIntro: '', // 点“开始实验”后，平台会在你的账号（{region}）中自动部署：L0（一台实验机 EC2、独立数据卷、弹性 IP）
-    resourcesModule: '', // 并预先启用 {name}（{reason}）
-    resourcesLocal: '', // {name}使用本地档，作为“没有它”的基线（{reason}）
-    resourcesRuntime: '', // 已打开 {name}（{reason}）
-    resourcesSeed: '', // 已准备 {name}（{reason}）
-    resourcesChannel: '', // 实验机带有平台管理通道（实例角色 CloudAlbumAppRole，只含 Session Manager 所需权限，不属于应用权限）。
-    resourcesExtra: '', // 另外部署本卡专用的 {title}（不属于 CloudAlbum 模块，结束时一并删除）。
-    target: '', // 你将亲手完成：
-    targetItem: '', // {name}（{from} → {to}）
-    targetItemNew: '', // {name}（启用 {to}）
-    targetTail: '', // 可以用控制台，也可以在工作台终端用 scripts/module，平台的检查对两种做法完全相同。
-    optional: '', // （选做）
-    warnings: '', // 开始时 {name} 显示“降级”是预期的：{text}
-    workstation: '', // 每个会话有一台工作台 EC2，预装 AWS CLI、Node.js、k6 与项目仓库；你在工作台终端中的身份是 ATLLearnerRole，受权限边界约束。
-    workstationDegraded: '', // 选择不启动工作台（CloudShell 省钱模式）时，负载类实验的结果只供参考。
-    workstationRequired: '', // 本卡片必须使用工作台。
-    cleanup: '', // 结束或到期后，平台删除本会话创建的全部资源，包括你在控制台手动创建的；无法自动删除的会列入“待人工处理清单”。
-    costLine: '', // 费用档位：
-    costSources: '', // 。除实验机与工作台外，主要计费来源：{list}。
-    costNone: '', // 。除实验机与工作台外没有按小时计费的资源。
-    costOptional: '', // 选做步骤会让档位变为 {tier}。
-    costKeep: '', // 保留环境期间仍计费：实验机停止后的数据卷与弹性 IP 等。
-    costDisclaimer: '', // 金额按 Price List 的价格日期估算，不含数据传输与部分按请求计费项，以 AWS 官方定价与账单为准。
-    stepNo: '', // #
-    stepTitle: '', // 步骤
-    stepType: '', // 类型
-    stepMarks: '', // 标记
-    markOptional: '', // 选做
-    markWait: '', // 需等待约 {n} 分钟
-    markHourly: '', // 开始按小时计费
-    markUsage: '', // 开始按量计费
-    markOutage: '', // 预期中断
-    noSteps: '', // 步骤表由手册生成，这张卡片还没有发布手册。
-    experimentsGenerated: '', // {title}（{module}/{id}，{req}）
-    required: '', // 必做
-    elective: '', // 选做
-    prereqCards: '', // 建议先完成：
-    prereqNone: '', // 无
-    inputs: '', // 需要你提供：
-    accountImpact: '', // 账号级影响：
-    platformOps: '', // 平台动作：
-    impactItem: '', // 会修改：{resource}（{revert}）
-    revertDelete: '', // 结束时删除
-    revertRestore: '', // 结束时还原
-    revertKeep: '', // 不撤销
-    opItem: '', // 平台会代你执行：{title}
-    timing: '', // 倒计时从环境就绪开始，上限 {limit}，可延长 {n} 次、每次 {m} 分钟。结束或到期后自动释放；
-    timingKeep: '', // 如需改天继续，可以选择保留环境（最长 {h} 小时，期间持续计费，需要你确认）。
-    timingNoKeep: '', // 本卡片不允许保留环境。
-    costTier: '', // 档位 
-    costMain: '', //  · 主要计费来源：{list}
-    badgeText: '', // 完成本卡片（最终复核通过）即获得徽章“{title}”；小测成绩会记在徽章上，不影响完成。
-    badgeEarned: '', // 已获得：{level}
-    trackItem: '', // {track}（{stage}，{role}）
-    reuseNone: '', // 没有可直接继续的保留环境
-    reuseItem: '', // {labId} 的环境
-    reuseWarn: '', // （可复用，但会带上 {mods}：可能持续计费，并可能影响基线）
-    reuseNote: '', // 只是提示；能否复用以报价时的差异计划为准。
-    attemptsNone: '', // （无）
-    attemptDetail: '', // 详情
-    attemptReport: '', // 报告
-    variants: '', // 本卡片有 {n} 种起始方式：{list}。它们共用一个徽章。
-    preflightVariant: '', // 开始前平台会检查账号条件；不满足时自动改用“{title}”，报价按两者中较高者。
-    knowledge: '', // 需要的基础：
+    resourcesIntro: '「ラボを開始」を押すと、プラットフォームがあなたのアカウント（{region}）に自動でデプロイします：L0（ラボ用インスタンス EC2 1 台、専用のデータボリューム、Elastic IP）', // 点“开始实验”后，平台会在你的账号（{region}）中自动部署：L0（一台实验机 EC2、独立数据卷、弹性 IP）
+    resourcesModule: 'さらに {name} を事前に有効化します（{reason}）', // 并预先启用 {name}（{reason}）
+    resourcesLocal: '{name}はローカル実装を使い、「ない場合」のベースラインにします（{reason}）', // {name}使用本地档，作为“没有它”的基线（{reason}）
+    resourcesRuntime: '{name} を有効にしています（{reason}）', // 已打开 {name}（{reason}）
+    resourcesSeed: '{name} を用意しています（{reason}）', // 已准备 {name}（{reason}）
+    resourcesChannel: 'ラボ用インスタンスにはプラットフォームの管理チャネルがあります（インスタンスロール CloudAlbumAppRole。Session Manager に必要な権限だけで、アプリの権限ではありません）。', // 实验机带有平台管理通道（实例角色 CloudAlbumAppRole，只含 Session Manager 所需权限，不属于应用权限）。
+    resourcesExtra: 'このカード専用の {title} も追加でデプロイします（CloudAlbum のモジュールではなく、終了時に一緒に削除します）。', // 另外部署本卡专用的 {title}（不属于 CloudAlbum 模块，结束时一并删除）。
+    target: '自分で行うこと：', // 你将亲手完成：
+    targetItem: '{name}（{from} → {to}）', // {name}（{from} → {to}）
+    targetItemNew: '{name}（{to} を有効化）', // {name}（启用 {to}）
+    targetTail: 'コンソールでも、ワークベンチのターミナルで scripts/module を使っても構いません。どちらの方法でもチェックの内容は同じです。', // 可以用控制台，也可以在工作台终端用 scripts/module，平台的检查对两种做法完全相同。
+    optional: '（任意）', // （选做）
+    warnings: '開始時に {name} が「低下」と表示されるのは想定どおりです：{text}', // 开始时 {name} 显示“降级”是预期的：{text}
+    workstation: 'セッションごとにワークベンチ用 EC2 が 1 台あり、AWS CLI、Node.js、k6、プロジェクトのリポジトリが入っています。ワークベンチのターミナルでのあなたの権限は ATLLearnerRole で、アクセス許可の境界によって制限されます。', // 每个会话有一台工作台 EC2，预装 AWS CLI、Node.js、k6 与项目仓库；你在工作台终端中的身份是 ATLLearnerRole，受权限边界约束。
+    workstationDegraded: 'ワークベンチを起動しない場合（CloudShell の節約モード）、負荷系の実験結果は参考値になります。', // 选择不启动工作台（CloudShell 省钱模式）时，负载类实验的结果只供参考。
+    workstationRequired: 'このカードではワークベンチが必要です。', // 本卡片必须使用工作台。
+    cleanup: '終了または期限切れになると、プラットフォームはこのセッションで作成したすべてのリソース（コンソールで手動作成したものを含む）を削除します。自動で削除できないものは「要対応リスト」に載ります。', // 结束或到期后，平台删除本会话创建的全部资源，包括你在控制台手动创建的；无法自动删除的会列入“待人工处理清单”。
+    costLine: 'コスト区分：', // 费用档位：
+    costSources: '。ラボ用インスタンスとワークベンチ以外の主な課金要素：{list}。', // 。除实验机与工作台外，主要计费来源：{list}。
+    costNone: '。ラボ用インスタンスとワークベンチ以外に時間課金のリソースはありません。', // 。除实验机与工作台外没有按小时计费的资源。
+    costOptional: '任意のステップを行うと区分は {tier} になります。', // 选做步骤会让档位变为 {tier}。
+    costKeep: '環境の保持中も課金は続きます（ラボ用インスタンス停止後のデータボリュームや Elastic IP など）。', // 保留环境期间仍计费：实验机停止后的数据卷与弹性 IP 等。
+    costDisclaimer: '金額は Price List の価格日付で見積もったもので、データ転送や一部のリクエスト課金を含みません。AWS の公式料金と請求が優先されます。', // 金额按 Price List 的价格日期估算，不含数据传输与部分按请求计费项，以 AWS 官方定价与账单为准。
+    stepNo: '#', // #
+    stepTitle: 'ステップ', // 步骤
+    stepType: '種類', // 类型
+    stepMarks: '注意', // 标记
+    markOptional: '任意', // 选做
+    markWait: '約 {n} 分の待ち時間', // 需等待约 {n} 分钟
+    markHourly: '時間課金が始まる', // 开始按小时计费
+    markUsage: '従量課金が始まる', // 开始按量计费
+    markOutage: '中断を想定', // 预期中断
+    noSteps: 'ステップの一覧は手順書から作られます。このカードの手順書はまだ公開されていません。', // 步骤表由手册生成，这张卡片还没有发布手册。
+    experimentsGenerated: '{title}（{module}/{id}、{req}）', // {title}（{module}/{id}，{req}）
+    required: '必須', // 必做
+    elective: '任意', // 选做
+    prereqCards: '先に完了するとよいカード：', // 建议先完成：
+    prereqNone: 'なし', // 无
+    inputs: '用意してほしいもの：', // 需要你提供：
+    accountImpact: 'アカウント全体への影響：', // 账号级影响：
+    platformOps: 'プラットフォーム操作：', // 平台动作：
+    impactItem: '変更するもの：{resource}（{revert}）', // 会修改：{resource}（{revert}）
+    revertDelete: '終了時に削除', // 结束时删除
+    revertRestore: '終了時に元に戻す', // 结束时还原
+    revertKeep: '元に戻さない', // 不撤销
+    opItem: 'プラットフォームが代わりに実行：{title}', // 平台会代你执行：{title}
+    timing: 'カウントダウンは環境の準備完了から始まります（上限 {limit}）。{n} 回まで、1 回 {m} 分延長できます。終了または期限切れで自動的に解放されます。', // 倒计时从环境就绪开始，上限 {limit}，可延长 {n} 次、每次 {m} 分钟。结束或到期后自动释放；
+    timingKeep: '別の日に続けたい場合は環境を保持できます（最長 {h} 時間。保持中も課金が続き、確認が必要です）。', // 如需改天继续，可以选择保留环境（最长 {h} 小时，期间持续计费，需要你确认）。
+    timingNoKeep: 'このカードでは環境を保持できません。', // 本卡片不允许保留环境。
+    costTier: '区分 ', // 档位 
+    costMain: ' · 主な課金要素：{list}', //  · 主要计费来源：{list}
+    badgeText: 'このカードを完了する（最終確認に合格する）とバッジ「{title}」を獲得します。小テストの成績はバッジに記録されますが、完了には影響しません。', // 完成本卡片（最终复核通过）即获得徽章“{title}”；小测成绩会记在徽章上，不影响完成。
+    badgeEarned: '獲得済み：{level}', // 已获得：{level}
+    trackItem: '{track}（{stage}、{role}）', // {track}（{stage}，{role}）
+    reuseNone: 'そのまま続けられる保持環境はありません', // 没有可直接继续的保留环境
+    reuseItem: '{labId} の環境', // {labId} 的环境
+    reuseWarn: '（再利用できますが {mods} も含まれます。課金が続き、ベースラインに影響する可能性があります）', // （可复用，但会带上 {mods}：可能持续计费，并可能影响基线）
+    reuseNote: '参考情報です。再利用できるかどうかは見積もり時の差分計画で決まります。', // 只是提示；能否复用以报价时的差异计划为准。
+    attemptsNone: '（なし）', // （无）
+    attemptDetail: '詳細', // 详情
+    attemptReport: 'レポート', // 报告
+    variants: 'このカードには {n} 通りの開始方法があります：{list}。バッジは共通です。', // 本卡片有 {n} 种起始方式：{list}。它们共用一个徽章。
+    preflightVariant: '開始前にプラットフォームがアカウントの条件を確認します。満たしていない場合は自動的に「{title}」に切り替え、見積もりは高いほうで計算します。', // 开始前平台会检查账号条件；不满足时自动改用“{title}”，报价按两者中较高者。
+    knowledge: '必要な基礎知識：', // 需要的基础：
   },
   start: {
-    start: '', // 开始实验
-    startHint: '', // 先显示费用估算，确认后才会创建资源。
-    startResidual: '', // 确认残留后开始
-    startReuse: '', // 在保留的环境中开始
-    releaseFresh: '', // 释放后全新开始
-    toWorkspace: '', // 回到工作台
-    viewProgress: '', // 查看进度
-    viewSettings: '', // 查看设置
-    viewGuardrails: '', // 查看护栏
-    handleResidual: '', // 先处理残留
-    until: '', // {t} 到期
-    preparing: '', // 准备中
-    activeExists: '', // {labId} 正在进行（{when}），结束后才能开始新的实验。
-    deleted: '', // 已删除 {n}/{m}
-    cleaning: '', // 上一个环境正在释放（{count}）。
-    uninstalling: '', // 平台正在卸载，已停止接受新实验。
-    maintenance: '', // 平台处于维护模式（通常是升级中），暂时不能开始新实验。
-    budget: '', // 本月费用已超过预算，按设置暂停开始新实验。
-    reuseBusy: '', // 保留的环境正在被新会话接管，暂时不能开始。
-    targetSatisfied: '', // 这个环境里本卡片的目标已经生效，在这里开始拿不到本次会话的完成证据，只能释放后全新开始。
-    incompatible: '', // 保留的环境与本卡片不兼容，只能释放后全新开始。
-    hardPrereq: '', // 前置卡片还没有完成。
-    residualBlock: '', // 上次实验还有按小时计费的资源未释放。按平台设置，必须先处理残留才能开始新的实验。
-    residualInfo: '', // 上次实验还有未释放的资源（按平台设置只提示）。
-    plannedNote: '', // 这张卡片还在编写中：可以先看简介，暂时不能开始实验。
-    deprecatedNote: '', // 本卡片已停用，不能开始新的实验。
+    start: 'ラボを開始', // 开始实验
+    startHint: '先に費用の見積もりを表示し、確認してからリソースを作成します。', // 先显示费用估算，确认后才会创建资源。
+    startResidual: '残存リソースを確認して開始', // 确认残留后开始
+    startReuse: '保持した環境で開始', // 在保留的环境中开始
+    releaseFresh: '解放して新しく開始', // 释放后全新开始
+    toWorkspace: 'ワークベンチに戻る', // 回到工作台
+    viewProgress: '進行状況を見る', // 查看进度
+    viewSettings: '設定を見る', // 查看设置
+    viewGuardrails: 'ガードレールを見る', // 查看护栏
+    handleResidual: '先に残存リソースを処理', // 先处理残留
+    until: '{t} に期限切れ', // {t} 到期
+    preparing: '準備中', // 准备中
+    activeExists: '{labId} を実行中です（{when}）。終了してから新しいラボを開始できます。', // {labId} 正在进行（{when}），结束后才能开始新的实验。
+    deleted: '削除済み {n}/{m}', // 已删除 {n}/{m}
+    cleaning: '前の環境を解放しています（{count}）。', // 上一个环境正在释放（{count}）。
+    uninstalling: 'プラットフォームをアンインストール中のため、新しいラボの受け付けを停止しています。', // 平台正在卸载，已停止接受新实验。
+    maintenance: 'プラットフォームはメンテナンスモード（通常はアップグレード中）のため、新しいラボを開始できません。', // 平台处于维护模式（通常是升级中），暂时不能开始新实验。
+    budget: '今月の費用が予算を超えたため、設定に従って新しいラボの開始を停止しています。', // 本月费用已超过预算，按设置暂停开始新实验。
+    reuseBusy: '保持した環境を新しいセッションが引き継いでいるため、今は開始できません。', // 保留的环境正在被新会话接管，暂时不能开始。
+    targetSatisfied: 'この環境ではこのカードの対象がすでに有効になっています。ここで開始しても今回のセッションの完了証拠を得られないため、解放して新しく開始してください。', // 这个环境里本卡片的目标已经生效，在这里开始拿不到本次会话的完成证据，只能释放后全新开始。
+    incompatible: '保持した環境はこのカードと互換性がないため、解放して新しく開始する必要があります。', // 保留的环境与本卡片不兼容，只能释放后全新开始。
+    hardPrereq: '前提のカードがまだ完了していません。', // 前置卡片还没有完成。
+    residualBlock: '前回のラボに未解放の時間課金リソースがあります。プラットフォームの設定により、残存リソースを処理してから新しいラボを開始する必要があります。', // 上次实验还有按小时计费的资源未释放。按平台设置，必须先处理残留才能开始新的实验。
+    residualInfo: '前回のラボに未解放のリソースがあります（プラットフォームの設定により通知のみ）。', // 上次实验还有未释放的资源（按平台设置只提示）。
+    plannedNote: 'このカードは作成中です。概要は読めますが、ラボはまだ開始できません。', // 这张卡片还在编写中：可以先看简介，暂时不能开始实验。
+    deprecatedNote: 'このカードは提供を終了したため、新しいラボを開始できません。', // 本卡片已停用，不能开始新的实验。
   },
   dialog: {
-    title: '', // 开始实验：{id} · {title}
-    options: '', // 选项
-    env: '', // 环境
-    envFresh: '', // 全新环境
-    envReuse: '', // 在保留的环境中开始（{labId} 的环境）
-    workstation: '', // 工作台
-    wsEc2: '', // 工作台 EC2（推荐）
-    wsCloudshell: '', // 不启动工作台，用 CloudShell（省钱模式）
-    wsRequired: '', // 工作台 EC2（本卡片需要工作台，不提供省钱模式）
-    wsLimits: '', // 省钱模式的限制：不能嵌入分屏；控制台会话最长 1 小时；对比实验结果无法上传；实验机侧实验只能手动观察；CloudShell 主目录需自行清理。
-    wsDegraded: '', // 负载类实验的结果只供参考。
-    inputs: '', // 需要你提供
-    inputsNone: '', // —（本卡片没有）
-    variant: '', // 起始方式
-    cost: '', // 费用
-    costSub: '', // 估算 · 单价取自 Price List，取价时间 {date} · 以 AWS 官方定价与账单为准
-    expiresIn: '', // 报价 {t} 后失效
-    expired: '', // 报价已失效
-    quoting: '', // 正在计算费用…
-    quoteFailed: '', // 暂时无法计算费用。
-    dimensions: '', // 查看每一项的计费维度
-    freeTier: '', // 不计入免费额度（各账号情况不同）。
-    unknownPrice: '', // 单价暂不可得，界面只列计费维度；相关行显示“未知”。
-    ackUnknown: '', // 我了解有未估算的费用
-    budgetWarn: '', // 本月费用已达到预算的 80%（实际或预测）。
-    ackBudget: '', // 我知道本月费用已接近预算
-    residualTitle: '', // 上次实验还有未释放的资源，这些资源仍在计费：
-    residualInfo: '', // 上次实验还有未释放的资源（按平台设置只提示，不要求确认）：
-    residualItem: '', // {type} {name}（{billing}；每小时估算：未估算）
-    ackResidual: '', // 我知道上次实验还有未释放的资源，仍要开始
-    viewList: '', // 查看清单
-    inspector: '', // Inspector 的 EC2 扫描一旦在区域内激活，会同时扫描并计费工作台（以及若激活 Lambda 扫描，平台自身的函数）。
-    accountImpact: '', // 本卡片会修改账号级设置：{list}。
-    reusePlan: '', // 差异计划：
-    reuseEnable: '', // 需启用 {list}
-    reuseChange: '', // 参数变更 {list}
-    reuseChangeItem: '', // {module}（{replace}{downtime}）
-    reuseReplace: '', // 替换实例
-    reuseNoReplace: '', // 不替换实例
-    reuseDowntime: '', // ，会停机
-    reuseNoDowntime: '', // ，无停机
-    reuseExtra: '', // 多余模块 {list} 会继续计费，并可能让本卡片的部分对比实验失去“没有它”的基线
-    reuseManual: '', // 上一个会话的手工资源 {n} 项
-    reuseFailure: '', // 交接完成后，如果准备阶段失败，平台会释放整个环境（包括上一张卡片保留的模块与手工资源），不会退回保留状态。
-    reuseIncompatible: '', // 这个保留的环境不能用于本卡片：{reason}
-    time: '', // 时间
-    timeText: '', // 倒计时 {limit}，从环境就绪开始；可延长 {n} 次，每次 {m} 分钟
-    timeIdle: '', // ；就绪后 {idle} 分钟未进入工作台自动结束
-    timeProvision: '', // 环境准备：{t}（{c}）。准备期间可以先读手册，也可以离开页面。
-    confirm: '', // 确认
-    ack: '', // 我已了解：资源创建在我的 AWS 账号中并按 AWS 价格计费；结束或到期后自动释放；选择保留会持续计费。
-    cancel: '', // 取消
-    submit: '', // 开始实验
-    submitEst: '', // 开始实验（预计 {est}）
-    submitting: '', // 正在开始…
-    requote: '', // 重新计算费用
-    quoteUpdated: '', // 费用信息已更新，请重新确认。
-    variantGone: '', // 这个起始方式已不存在，请重新选择。
-    ackRequired: '', // 请先勾选上面的确认项。
-    notDelivered: '', // 请求未确认送达。
-    retry: '', // 重试
-    blockedTitle: '', // 现在不能开始
+    title: 'ラボを開始：{id} · {title}', // 开始实验：{id} · {title}
+    options: 'オプション', // 选项
+    env: '環境', // 环境
+    envFresh: '新しい環境', // 全新环境
+    envReuse: '保持した環境で開始（{labId} の環境）', // 在保留的环境中开始（{labId} 的环境）
+    workstation: 'ワークベンチ', // 工作台
+    wsEc2: 'ワークベンチ EC2（推奨）', // 工作台 EC2（推荐）
+    wsCloudshell: 'ワークベンチを起動せず CloudShell を使う（節約モード）', // 不启动工作台，用 CloudShell（省钱模式）
+    wsRequired: 'ワークベンチ EC2（このカードではワークベンチが必要なため、節約モードはありません）', // 工作台 EC2（本卡片需要工作台，不提供省钱模式）
+    wsLimits: '節約モードの制限：分割画面に埋め込めない、コンソールのセッションは最長 1 時間、比較実験の結果をアップロードできない、ラボ用インスタンス側の実験は手動での観察のみ、CloudShell のホームディレクトリは自分で片付ける必要がある。', // 省钱模式的限制：不能嵌入分屏；控制台会话最长 1 小时；对比实验结果无法上传；实验机侧实验只能手动观察；CloudShell 主目录需自行清理。
+    wsDegraded: '負荷系の実験結果は参考値になります。', // 负载类实验的结果只供参考。
+    inputs: '用意してほしいもの', // 需要你提供
+    inputsNone: '—（このカードにはありません）', // —（本卡片没有）
+    variant: '開始方法', // 起始方式
+    cost: '費用', // 费用
+    costSub: '見積もり · 単価は Price List から取得（取得日時 {date}）· AWS の公式料金と請求が優先されます', // 估算 · 单价取自 Price List，取价时间 {date} · 以 AWS 官方定价与账单为准
+    expiresIn: '見積もりはあと {t} で無効になります', // 报价 {t} 后失效
+    expired: '見積もりは無効になりました', // 报价已失效
+    quoting: '費用を計算しています…', // 正在计算费用…
+    quoteFailed: '費用を計算できません。', // 暂时无法计算费用。
+    dimensions: '各項目の課金単位を見る', // 查看每一项的计费维度
+    freeTier: '無料利用枠は考慮していません（アカウントによって異なります）。', // 不计入免费额度（各账号情况不同）。
+    unknownPrice: '単価を取得できないため、課金単位だけを表示しています。該当する行は「不明」と表示します。', // 单价暂不可得，界面只列计费维度；相关行显示“未知”。
+    ackUnknown: '見積もりに含まれない費用があることを理解しました', // 我了解有未估算的费用
+    budgetWarn: '今月の費用が予算の 80% に達しています（実績または予測）。', // 本月费用已达到预算的 80%（实际或预测）。
+    ackBudget: '今月の費用が予算に近いことを理解しました', // 我知道本月费用已接近预算
+    residualTitle: '前回のラボに未解放のリソースがあり、課金が続いています：', // 上次实验还有未释放的资源，这些资源仍在计费：
+    residualInfo: '前回のラボに未解放のリソースがあります（プラットフォームの設定により通知のみで、確認は不要です）：', // 上次实验还有未释放的资源（按平台设置只提示，不要求确认）：
+    residualItem: '{type} {name}（{billing}、1 時間あたりの見積もり：未計算）', // {type} {name}（{billing}；每小时估算：未估算）
+    ackResidual: '前回のラボに未解放のリソースがあることを理解したうえで開始します', // 我知道上次实验还有未释放的资源，仍要开始
+    viewList: '一覧を見る', // 查看清单
+    inspector: 'Inspector の EC2 スキャンをリージョンで一度有効にすると、ワークベンチもスキャンと課金の対象になります（Lambda スキャンを有効にした場合はプラットフォーム自身の関数も対象です）。', // Inspector 的 EC2 扫描一旦在区域内激活，会同时扫描并计费工作台（以及若激活 Lambda 扫描，平台自身的函数）。
+    accountImpact: 'このカードはアカウント全体の設定を変更します：{list}。', // 本卡片会修改账号级设置：{list}。
+    reusePlan: '差分計画：', // 差异计划：
+    reuseEnable: '{list} を有効化', // 需启用 {list}
+    reuseChange: 'パラメータの変更 {list}', // 参数变更 {list}
+    reuseChangeItem: '{module}（{replace}{downtime}）', // {module}（{replace}{downtime}）
+    reuseReplace: 'インスタンスを置き換え', // 替换实例
+    reuseNoReplace: 'インスタンスは置き換えない', // 不替换实例
+    reuseDowntime: '、停止あり', // ，会停机
+    reuseNoDowntime: '、停止なし', // ，无停机
+    reuseExtra: '余分なモジュール {list} は課金が続き、このカードの一部の比較実験で「ない場合」のベースラインが失われる可能性があります', // 多余模块 {list} 会继续计费，并可能让本卡片的部分对比实验失去“没有它”的基线
+    reuseManual: '前のセッションで手動作成したリソース {n} 件', // 上一个会话的手工资源 {n} 项
+    reuseFailure: '引き継ぎ後に準備段階で失敗した場合、プラットフォームは環境全体（前のカードで保持していたモジュールと手動リソースを含む）を解放し、保持状態には戻しません。', // 交接完成后，如果准备阶段失败，平台会释放整个环境（包括上一张卡片保留的模块与手工资源），不会退回保留状态。
+    reuseIncompatible: 'この保持環境はこのカードでは使えません：{reason}', // 这个保留的环境不能用于本卡片：{reason}
+    time: '時間', // 时间
+    timeText: 'カウントダウン {limit}（環境の準備完了から開始）。{n} 回まで、1 回 {m} 分延長できます', // 倒计时 {limit}，从环境就绪开始；可延长 {n} 次，每次 {m} 分钟
+    timeIdle: '。準備完了後 {idle} 分間ワークベンチに入らないと自動的に終了します', // ；就绪后 {idle} 分钟未进入工作台自动结束
+    timeProvision: '環境準備：{t}（{c}）。準備中に手順書を読んでおくことも、ページを離れることもできます。', // 环境准备：{t}（{c}）。准备期间可以先读手册，也可以离开页面。
+    confirm: '確認', // 确认
+    ack: 'リソースは自分の AWS アカウントに作成され、AWS の料金で課金されること、終了または期限切れで自動的に解放されること、保持を選ぶと課金が続くことを理解しました。', // 我已了解：资源创建在我的 AWS 账号中并按 AWS 价格计费；结束或到期后自动释放；选择保留会持续计费。
+    cancel: 'キャンセル', // 取消
+    submit: 'ラボを開始', // 开始实验
+    submitEst: 'ラボを開始（目安 {est}）', // 开始实验（预计 {est}）
+    submitting: '開始しています…', // 正在开始…
+    requote: '費用を再計算', // 重新计算费用
+    quoteUpdated: '費用の情報が更新されました。もう一度確認してください。', // 费用信息已更新，请重新确认。
+    variantGone: 'この開始方法はなくなりました。選び直してください。', // 这个起始方式已不存在，请重新选择。
+    ackRequired: '先に上の確認項目にチェックしてください。', // 请先勾选上面的确认项。
+    notDelivered: 'リクエストが届いたことを確認できませんでした。', // 请求未确认送达。
+    retry: '再試行', // 重试
+    blockedTitle: '今は開始できません', // 现在不能开始
   },
   release: {
-    title: '', // 立即释放保留的环境
-    body: '', // 立即释放保留的环境（不可撤销）。释放进入回收后，完成前不能开始新的实验。
-    confirm: '', // 立即释放
-    busy: '', // 正在释放…
-    started: '', // 上一个环境正在释放，释放完成后才能开始。
-    viewProgress: '', // 查看回收进度
-    inProgress: '', // 该环境正在被新会话接管，不能立即释放。
+    title: '保持した環境をすぐに解放', // 立即释放保留的环境
+    body: '保持した環境をすぐに解放します（元に戻せません）。回収が始まると、完了するまで新しいラボを開始できません。', // 立即释放保留的环境（不可撤销）。释放进入回收后，完成前不能开始新的实验。
+    confirm: 'すぐに解放', // 立即释放
+    busy: '解放しています…', // 正在释放…
+    started: '前の環境を解放しています。解放が完了してから開始できます。', // 上一个环境正在释放，释放完成后才能开始。
+    viewProgress: '回収の進行状況を見る', // 查看回收进度
+    inProgress: 'この環境は新しいセッションが引き継ぎ中のため、すぐには解放できません。', // 该环境正在被新会话接管，不能立即释放。
   },
   quoteOnly: {
-    title: '', // 当前价格（只显示，不开始）：{id}
-    lead: '', // 估算 · 单价取自 Price List · 以 AWS 官方定价与账单为准。这里只计算，不会创建任何资源。
-    close: '', // 关闭
+    title: '現在の料金（表示のみで開始しません）：{id}', // 当前价格（只显示，不开始）：{id}
+    lead: '見積もり · 単価は Price List から取得 · AWS の公式料金と請求が優先されます。ここでは計算するだけで、リソースは作成しません。', // 估算 · 单价取自 Price List · 以 AWS 官方定价与账单为准。这里只计算，不会创建任何资源。
+    close: '閉じる', // 关闭
   },
   quote: {
-    start: '', // 起始状态每小时
-    startDefault: '', // L0 实验机、EBS、公网 IPv4 · IAM 角色
-    reuseSuffix: '', // （复用：已在环境中）
-    completed: '', // 完成后每小时
-    targetDefault: '', // 本卡片的目标资源
-    usage: '', // 按量计费
-    usageTail: '', // ：学习流量通常很小，可能在免费额度内，以官方为准
-    monthly: '', // 按月折算
-    workstation: '', // 工作台
-    workstationDesc: '', // 工作台 EC2、公网 IPv4、EBS（平台开销）
-    workstationSaving: '', // 省钱模式：不启动工作台（CloudShell 不另收费，以官方为准）
-    build: '', // 构建（每次会话）
-    buildDesc: '', // CodeBuild 构建分钟：开始、结束各一次运行器（历史中位数；没有历史时按部署等级给范围）
-    orchestration: '', // 编排与日志
-    orchestrationDesc: '', // Step Functions、Lambda、CloudWatch Logs 摄入：通常很小
-    deploy: '', // 部署期间
-    deployDesc: '', // 环境创建开始即计费，倒计时从“就绪”开始
-    max: '', // 本次会话最多
-    maxDesc: '', // 含 {n} 次延长（共 {total}）、部署与回收期间，以及一次构建开销
-    perHour: '', //  /小时
-    perRun: '', //  /次
-    noEstimate: '', // 不估金额
-    notProvided: '', // 未提供
-    unknown: '', // 未知
-    refStart: '', // 起始状态（L0 实验机、EBS、公网 IPv4 与预先启用的模块）
-    refWorkstation: '', // 工作台
-    refTarget: '', // 本卡片的目标模块
-    refExtra: '', // 卡片自带栈
-    refModule: '', // 已启用的模块
-    unknownMark: '', // （单价暂不可得）
-    fixture: '', // 开发模式：金额来自本地示例单价，不是 AWS 价格，只用于检查界面。
+    start: '開始状態の 1 時間あたり', // 起始状态每小时
+    startDefault: 'L0 ラボ用インスタンス、EBS、パブリック IPv4 · IAM ロール', // L0 实验机、EBS、公网 IPv4 · IAM 角色
+    reuseSuffix: '（再利用：環境内にあります）', // （复用：已在环境中）
+    completed: '完了後の 1 時間あたり', // 完成后每小时
+    targetDefault: 'このカードの対象リソース', // 本卡片的目标资源
+    usage: '従量課金', // 按量计费
+    usageTail: '：学習時のトラフィックは通常わずかで、無料利用枠に収まる可能性があります（公式情報が優先されます）', // ：学习流量通常很小，可能在免费额度内，以官方为准
+    monthly: '月額の按分', // 按月折算
+    workstation: 'ワークベンチ', // 工作台
+    workstationDesc: 'ワークベンチ EC2、パブリック IPv4、EBS（プラットフォームの費用）', // 工作台 EC2、公网 IPv4、EBS（平台开销）
+    workstationSaving: '節約モード：ワークベンチを起動しません（CloudShell は追加料金なし、公式情報が優先されます）', // 省钱模式：不启动工作台（CloudShell 不另收费，以官方为准）
+    build: 'ビルド（セッションごと）', // 构建（每次会话）
+    buildDesc: 'CodeBuild のビルド時間：開始時と終了時にランナーを 1 回ずつ実行（過去の中央値。履歴がない場合はデプロイ等級から範囲を示します）', // CodeBuild 构建分钟：开始、结束各一次运行器（历史中位数；没有历史时按部署等级给范围）
+    orchestration: 'オーケストレーションとログ', // 编排与日志
+    orchestrationDesc: 'Step Functions、Lambda、CloudWatch Logs の取り込み：通常はわずかです', // Step Functions、Lambda、CloudWatch Logs 摄入：通常很小
+    deploy: 'デプロイ中', // 部署期间
+    deployDesc: '課金は環境の作成開始から始まり、カウントダウンは「準備完了」から始まります', // 环境创建开始即计费，倒计时从“就绪”开始
+    max: '今回のセッションの上限', // 本次会话最多
+    maxDesc: '延長 {n} 回（合計 {total}）、デプロイと回収の時間、ビルド 1 回分の費用を含みます', // 含 {n} 次延长（共 {total}）、部署与回收期间，以及一次构建开销
+    perHour: ' /時間', //  /小时
+    perRun: ' /回', //  /次
+    noEstimate: '金額は見積もりません', // 不估金额
+    notProvided: '未提供', // 未提供
+    unknown: '不明', // 未知
+    refStart: '開始状態（L0 ラボ用インスタンス、EBS、パブリック IPv4、事前に有効化したモジュール）', // 起始状态（L0 实验机、EBS、公网 IPv4 与预先启用的模块）
+    refWorkstation: 'ワークベンチ', // 工作台
+    refTarget: 'このカードの対象モジュール', // 本卡片的目标模块
+    refExtra: 'カード専用のスタック', // 卡片自带栈
+    refModule: '有効化済みのモジュール', // 已启用的模块
+    unknownMark: '（単価を取得できません）', // （单价暂不可得）
+    fixture: '開発モード：金額はローカルのサンプル単価によるもので、AWS の料金ではありません。画面の確認用です。', // 开发模式：金额来自本地示例单价，不是 AWS 价格，只用于检查界面。
   },
   inputs: {
-    required: '', // 必填
-    domain: '', // 请填写小写域名，例如 lab.example.com（每段 1～63 个字母、数字或 -，至少两段，不接受 IP 与通配符）
-    hostedZone: '', // 托管区域 ID 形如 Z0123456789ABC
-    sesIdentity: '', // 请填写邮箱或域名
-    email: '', // 请填写有效的邮箱地址
-    recipients: '', // 请填写 1～2 个邮箱，用逗号分隔
-    budget: '', // 请填写两个正数，最多两位小数，用逗号分隔
-    costTags: '', // 请先执行平台动作并勾选
+    required: '必須', // 必填
+    domain: '小文字のドメイン名を入力してください（例：lab.example.com。各ラベルは英数字または - で 1～63 文字、2 ラベル以上。IP アドレスとワイルドカードは使えません）', // 请填写小写域名，例如 lab.example.com（每段 1～63 个字母、数字或 -，至少两段，不接受 IP 与通配符）
+    hostedZone: 'ホストゾーン ID は Z0123456789ABC のような形式です', // 托管区域 ID 形如 Z0123456789ABC
+    sesIdentity: 'メールアドレスまたはドメインを入力してください', // 请填写邮箱或域名
+    email: '有効なメールアドレスを入力してください', // 请填写有效的邮箱地址
+    recipients: 'メールアドレスを 1～2 件、カンマ区切りで入力してください', // 请填写 1～2 个邮箱，用逗号分隔
+    budget: '正の数を 2 つ、小数点以下 2 桁まで、カンマ区切りで入力してください', // 请填写两个正数，最多两位小数，用逗号分隔
+    costTags: '先にプラットフォーム操作を実行してチェックしてください', // 请先执行平台动作并勾选
+  },
+  visual: {
+    archTitle: '開始時 → 完了後', // 开始时 → 完成后
+    archAria: '{id} の構成図', // {id} 的架构图
+    compareTitle: 'ある場合 vs ない場合', // 有 vs 没有
+    without: '{name} なし', // 没有 {name}
+    with: '{name} あり', // 有 {name}
+    none: '（なし）', // （没有）
+    local: 'ローカル実装', // 本地实现
+    notYet: '開始時はまだありません', // 开始时还没有
+    costMore: '費用の説明', // 费用说明
+    confusable: '{label}：{a} / {b}：{rule}', // {label}：{a} / {b}：{rule}
   },
   quiz: {
-    title: '', // {id} 小测
-    sub: '', // {n} 题 · 不限时 · 小测不依赖实验环境
-    subTimed: '', // {n} 题 · {at} 前交卷 · 小测不依赖实验环境
-    exit: '', // 退出小测
-    progress: '', // 第 {i} / {n} 题 · {domain} · {type}
-    single: '', // 单选
-    multiple: '', // 多选
-    prev: '', // 上一题
-    next: '', // 下一题
-    saved: '', // 作答已自动保存
-    saving: '', // 正在保存…
-    unsaved: '', // 作答未保存
-    retrySave: '', // 重试
-    footer: '', // 提交后显示正确率与解析。小测成绩只记录在徽章上，不影响卡片完成。
-    submit: '', // 交卷
-    submitting: '', // 正在交卷…
-    unanswered: '', // 还有 {n} 题没有作答
-    starting: '', // 正在抽题…
-    noQuiz: '', // 这张卡片暂时没有小测。
-    exhausted: '', // 今天的作答次数已用完。
-    expiredAttempt: '', // 这次作答已经结束，请重新开始。
-    back: '', // 返回简介页
-    resultTitle: '', // 小测结果：正确率 {pct}（{c} / {n}）
-    recorded: '', // 结果已记录在徽章上。
-    notYet: '', // 完成卡片后，成绩会记在徽章上。
-    onlyRecord: '', // 小测成绩只记录，不影响卡片完成。
-    domain: '', // 领域
-    rate: '', // 正确率
-    qNo: '', // 第 {i} 题
-    correct: '', // 正确
-    wrong: '', // 错误
-    answer: '', // 正确答案：{list}。
-    yours: '', // 你的答案：{list}。
-    revisit: '', // 回看步骤：{step}
-    again: '', // 再做一次
+    title: '{id} 小テスト', // {id} 小测
+    sub: '{n} 問 · 時間制限なし · 小テストはラボ環境を使いません', // {n} 题 · 不限时 · 小测不依赖实验环境
+    subTimed: '{n} 問 · {at} までに提出 · 小テストはラボ環境を使いません', // {n} 题 · {at} 前交卷 · 小测不依赖实验环境
+    exit: '小テストを終了', // 退出小测
+    progress: '{i} / {n} 問目 · {domain} · {type}', // 第 {i} / {n} 题 · {domain} · {type}
+    single: '単一選択', // 单选
+    multiple: '複数選択', // 多选
+    prev: '前の問題', // 上一题
+    next: '次の問題', // 下一题
+    saved: '解答は自動保存されました', // 作答已自动保存
+    saving: '保存しています…', // 正在保存…
+    unsaved: '解答を保存できませんでした', // 作答未保存
+    retrySave: '再試行', // 重试
+    footer: '提出すると正答率と解説が表示されます。小テストの成績はバッジに記録されるだけで、カードの完了には影響しません。', // 提交后显示正确率与解析。小测成绩只记录在徽章上，不影响卡片完成。
+    submit: '提出', // 交卷
+    submitting: '提出しています…', // 正在交卷…
+    unanswered: '未解答の問題が {n} 問あります', // 还有 {n} 题没有作答
+    starting: '問題を選んでいます…', // 正在抽题…
+    noQuiz: 'このカードにはまだ小テストがありません。', // 这张卡片暂时没有小测。
+    exhausted: '今日の解答回数の上限に達しました。', // 今天的作答次数已用完。
+    expiredAttempt: 'この解答はすでに終了しています。もう一度始めてください。', // 这次作答已经结束，请重新开始。
+    back: '概要ページに戻る', // 返回简介页
+    resultTitle: '小テストの結果：正答率 {pct}（{c} / {n}）', // 小测结果：正确率 {pct}（{c} / {n}）
+    recorded: '結果はバッジに記録されました。', // 结果已记录在徽章上。
+    notYet: 'カードを完了すると、成績がバッジに記録されます。', // 完成卡片后，成绩会记在徽章上。
+    onlyRecord: '小テストの成績は記録されるだけで、カードの完了には影響しません。', // 小测成绩只记录，不影响卡片完成。
+    domain: '分野', // 领域
+    rate: '正答率', // 正确率
+    qNo: '問 {i}', // 第 {i} 题
+    correct: '正解', // 正确
+    wrong: '不正解', // 错误
+    answer: '正解：{list}。', // 正确答案：{list}。
+    yours: 'あなたの解答：{list}。', // 你的答案：{list}。
+    revisit: 'ステップを見直す：{step}', // 回看步骤：{step}
+    again: 'もう一度解く', // 再做一次
   },
 } satisfies Dict<typeof zh>;

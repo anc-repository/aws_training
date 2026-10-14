@@ -24,6 +24,11 @@ export default {
     extraModules: '额外模块',
     hours: '{n} 小时',
     optionalLine: '（选做）',
+    colon: '：',
+    period: '。',
+    labelHint: '{label}：{hint}',
+    range: '≈ {low}～{high}{unit}',
+    badgeEarnedLine: '“{title}” {level}',
   },
   tracks: {
     revokeReason: {
@@ -65,6 +70,10 @@ export default {
     category: '{id} {label}',
     scenarioCredits: '{label} {n} 张',
     hours: '{n} 小时',
+    serviceOption: '{name}（{abbr}）',
+    trackOption: '{title}（{id}）',
+    paren: '{text}（{note}）',
+    numRange: '{a}～{b}',
   },
   manualExport: {
     title: '# ATL 待人工处理清单',

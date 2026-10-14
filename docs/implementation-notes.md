@@ -3500,3 +3500,48 @@ ja / en / zh-CN × 亮 / 暗 × 1280 / 400px，400px 下 `scrollWidth = clientWi
 corroboration、归属 所有の確認 / ownership、漂移 ドリフト / drift、前导键 プレフィックスキー / leader key、费用计 費用メーター /
 cost meter、变体 バリアント / variant、起始档位 開始構成 / start profile、交叉校验 クロスチェック / cross-check、降级（手动）格下げ /
 degraded、待人工处理清单 手動対応リスト / manual cleanup list。
+
+## i18n-web-catalog
+
+目录、学习路径、简介页、开始对话框、小测、我的学习、设置、首次设置与登录（`platform/web/src/pages/{setup,login,labs,tracks,card,quiz,learning,settings}/**`）
+的 ja / en 翻译与视觉化（I6 c、d、f）。词典：`i18n/{ja,en}/{labs,card,setup,learning,settings,pages}.ts` 全部译完（965 键 × 2），
+共用文件中只填了本组页面用到的子树：`frame.login`、`frame.preflight`、`frame.{crumbs,catalog,about,otherParams}`、`core.auth`。
+
+视觉化：
+
+- 目录卡片：服务图标（`ServiceGlyph`，场景卡叠放主服务）+ 迷你架构图（`ArchDiagram size="mini"`，完成后的构成，装饰图形）+
+  标题 + 一行简介；难度 / 时长 / 费用 / 部署等级是 `MetricStrip`，时间上限与部署等级的完整句子只给读屏。紧凑行与路径节点加小图标。
+- 服务地图：格子是服务图标网格，行标签是组的几何符号；“单服务卡 ✓ / 场景卡 n/m”改为方块与六边形两个小图标（图例里有说明）；
+  侧栏加图标与掌握度进度环。
+- 简介页：首屏“开始时 → 完成后”架构图（简介数据到达前用目录卡片的 startProfiles + targets）；“你将学到”= 目标模块的
+  `ServiceChip`（40px，带机能短句）+ 学习目标（领域小图形）；“有 vs 没有”= 每个目标模块一组左右并排的图示卡片（本地实现的驱动名 /
+  开始时还没有 → AWS 服务）+ 对比实验列表；步骤概览由四列表格改为步骤类型图标列表；资源说明、作者概览、费用说明折叠到“詳しく / Details”。
+- 学习页：路径进度加进度环（计入 / 最少完成）；服务掌握度用进度环 + 各等级服务数的条形图（条形图本身是表格）；徽章墙标题旁进度环。
+  路径头（目录的路径视图、路径详情、顶栏进度浮层共用）加进度环；小测结果用进度环 + 按领域正确率的条形图。
+
+有歧义时的取舍（都取最简单的做法）：
+
+| 问题 | 决定 |
+|---|---|
+| 词典怎样拆分才不和其他实现者冲突 | 本组页面原本就用 `labs`、`card`、`setup`、`learning`、`settings`、`pages` 六个命名空间，整份译完；`frame`、`core` 是共用文件，只改本组页面用到的子树（脚本按 `i18n:sync` 的格式合并，其他键保持原样）。提交时这两个文件只暂存“HEAD + 本组子树”，别人未提交的改动不进本次提交 |
+| `pages.manualExport`（设置页导出的待人工处理清单）已有别人的译文 | 保留别人的译文，并与该画面的标题（`frame.manualPage.title`：要対応リスト / Manual-handling list）统一；另一节记录的「手動対応リスト / manual cleanup list」与画面标题不一致，集成时请统一进术语表 |
+| 新增的界面文案放哪里 | 放进本组命名空间：`labs.ui.visual`、`card.visual`、`learning.visual`、`labs.ui.map.legendSvc/legendSc/labelSep/panelSvcCardLine`、`pages.card.{colon,period,labelHint,range,badgeEarnedLine}`、`pages.labs.{serviceOption,trackOption,paren,numRange}` |
+| 代码里写死的中文标点（、；：（）。～） | 改为词典里的分隔符与模板（`listSep`、`nameSep`、`paren` …），百分比改用 `fmtPercent`；en 的计数文案用 `{n, plural, …}` |
+| 模块级常量表在切换语言后不更新 | `FacetBar` 的维度名、登录页的退出原因、报价行的引用说明、审计表的角色名原来在模块加载时复制了字符串，改为 getter 或在使用时取值（词典叶子是原地改写的） |
+| 整份目录退回源语言时卡片上没有“未翻訳”标记 | `useCatalog` 读到 `i18n.whole` 的索引时，把这个标记带到每张没有自己 `i18n` 的卡片与路径上（`inheritWholeI18n`） |
+| 迷你架构图太小 | 目录卡片里用 CSS `zoom: 1.3`（容器窄时仍按宽度缩小）；不改视觉组件 |
+| 简介页的“有 vs 没有” | 不重复画两张架构图（首屏已有），改为每个目标模块一组并排卡片：左边本地实现的驱动名（或“开始时还没有”的虚线图标），右边 AWS 服务图标与目标驱动名 |
+| 不在 6 种图标里的步骤类型（read、manual、platform-action、wire） | 借用最接近的图标（观察、控制台、脚本、代码），类型名照常给读屏与悬停提示 |
+| 学员内容（卡片标题、简介、目标、步骤标题）仍是中文 | 属于内容翻译（labs/），本组只负责界面；内容回退时卡片、简介页显示“未翻訳”标记 |
+
+术语表需要补充（集成时合并到 `platform/web/src/i18n/glossary.md`）：待人工处理清单 → 要対応リスト / manual-handling list；
+体检（平台体检）→ 点検 / health check；有 vs 没有 → ある場合 vs ない場合 / With vs without；开始时 / 完成后 → 開始時 / 完了後 /
+At start / When done（与视觉组件一致）；详细（折叠）→ 詳しく / Details；单服务卡 → サービスカード（已有）。另：视觉组件内置的
+`visual.metric.cost` 的 ja 是「費用ランク」，术语表是「コスト区分」，建议统一为后者。
+
+自测：`npx vitest run src/pages/{labs,card,learning,quiz,tracks,setup,settings,login} src/i18n`（13 个文件 141 个用例通过，
+新增 `pages/labs/i18n.test.tsx`：六个命名空间 ja / en 无缺键与占位符不一致、切换语言后模块级文案表更新、整份回退的标记、
+日语目录与英语简介页的渲染）；`eslint` 本组路径 0 问题；`tsc -p platform/web/tsconfig.json` 本组路径无错误；
+`npm run i18n:check`：本组键全部译完（只剩 `frame.ws.*` 4 键，属于工作台）。截图自查用单独起的 Vite（5193 端口，代理到正在运行的
+8787 dev API，开发令牌用户 `web-catalog-check`）：亮 / 暗 × 1280 / 400px × ja / en / zh-CN，目录、服务地图、路径、简介页、学习页、
+路径详情、设置页无横向滚动、`<html lang>` 正确。

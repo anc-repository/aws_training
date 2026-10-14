@@ -221,6 +221,10 @@ export default {
       panelQuiz: '小测 {r}',
       summary: '服务掌握度（{n}）· 熟练 {pro} · 已掌握 {m} · 已接触 {t} · 未开始 {none} · 需复习 {review}',
       rowLabel: '{cat}',
+      labelSep: '，',
+      legendSvc: '单服务卡',
+      legendSc: '场景卡',
+      panelSvcCardLine: '{label}：',
     },
     track: {
       pick: '路径',
@@ -276,6 +280,11 @@ export default {
       notYetTag: '未达成',
       claimedTag: '已领取',
       revokedTag: '已吊销',
+    },
+    /** 视觉化（I6）用到的短文案。 */
+    visual: {
+      more: '详细',
+      ringCounted: '计入的卡片',
     },
     claim: {
       title: '领取：{cert}',

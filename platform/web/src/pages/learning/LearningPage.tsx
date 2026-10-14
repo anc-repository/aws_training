@@ -4,6 +4,8 @@
  * - 路径进度：每条路径的必修 / 选修组 / 已核验占比与阈值、分段条、证书状态、推荐下一张（当前路径），学员可“设为当前路径”；
  * - 服务掌握度：与目录同一个 ServiceMap + ServiceCellPanel；徽章墙：按类别分组，可按等级、状态筛选；最近实验：GET /sessions?limit=10；
  * - 助教、观察者看到的是学员的数据（页头“学员 张三 的学习进度”，08 §9.2 #21），没有“设为当前路径”；
+ * - 视觉化（I6 f）：路径进度用进度环（计入 / 最少完成）+ 分段条；服务掌握度用进度环（已掌握以上的占比）+ 各等级服务数的条形图
+ *   （条形图本身是数据表，08 §6.12）；徽章墙标题旁是已获得徽章的进度环；
  * - 进入与重新可见时刷新；收到 badge.* / track.* / certificate.* / mastery.regression 事件时刷新（§7.5）。
  */
 import { useMemo, useState } from 'react';
@@ -14,14 +16,16 @@ import { msg, t } from '../../i18n';
 import { announce } from '../../lib/announce';
 import { formatDate, formatSpan } from '../../lib/format';
 import { CostTierMark, DataTable, Drawer, EmptyState, ErrorPanel, SessionStatePill, Shape, Skeleton, type Column } from '../../ui';
+import { BarChart, ProgressRing } from '../../ui/charts';
 import '../labs/catalog.css';
 import { CardBadge } from '../labs/components/CardTile';
+import { CardGlyph } from '../labs/components/Visuals';
 import { badgeStateOf, badgeStateText, SegmentedProgress } from '../labs/components/Marks';
 import { masteryCounts, ServiceCellPanel, ServiceMap } from '../labs/components/ServiceMap';
 import { CertStateText, type CertState } from '../labs/components/TrackView';
 import { useCatalog, useHolder, useLabs, useResource, useSetCurrentTrack } from '../labs/data';
 import { categoryLabel, pct, recommendNext, serviceOf, trackSummary, type ProgressLike } from '../labs/model';
-import { BADGE_LEVEL_TEXT, DIFFICULTY_TEXT, S } from '../labs/strings';
+import { BADGE_LEVEL_TEXT, DIFFICULTY_TEXT, MASTERY_META, S } from '../labs/strings';
 import type { CatalogCard, CertificateItem, Taxonomy, LabItem, MasteryView, MyProgressView, ProgressRecordView, ServiceMasteryView, SessionListItem, TracksListView } from '../labs/types';
 import { LS } from './strings';
 
@@ -166,7 +170,9 @@ export default function LearningPage() {
             const rec = isCur ? recommendNext(tr, progMap, holder, catalog.cards) : null;
             const rc = rec ? catalog.cards.get(rec.labId) : null;
             return (
-              <div key={tr.id} className={isCur ? 'box stack-8 cur' : 'box stack-8'} data-track-row={tr.id}>
+              <div key={tr.id} className={isCur ? 'box stack-8 cur lp-track' : 'box stack-8 lp-track'} data-track-row={tr.id}>
+                <ProgressRing value={p.counted} max={Math.max(1, p.min)} size={56} label={t(LS.visual.trackRing, { track: tr.title ?? tr.id })} />
+                <div className="stack-8 grow">
                 <div className="row between">
                   <b>
                     {isCur ? '★ ' : ''}
@@ -188,10 +194,11 @@ export default function LearningPage() {
                   </span>
                   <SegmentedProgress verified={p.verified} attested={p.attested} inProgress={p.inProgress} min={p.min} />
                 </div>
-                {p.pending.length ? <div className="small muted">{t(LS.tracks.pending, { n: p.pending.length, list: p.pending.join('、') })}</div> : null}
+                {p.pending.length ? <div className="small muted">{t(LS.tracks.pending, { n: p.pending.length, list: p.pending.join(msg.pages.labs.listSep) })}</div> : null}
                 {rc ? (
                   <div className="small">
                     {LS.tracks.next}
+                    <CardGlyph card={rc} size={20} max={2} />
                     <Link to={`/labs/${rc.id}`}>{rc.id}</Link> · {DIFFICULTY_TEXT[rc.difficulty]}
                     {t(msg.frame.about, { n: rc.estimatedMinutes })}{' '}
                     <CostTierMark tier={rc.costTier.required} withOptional={rc.costTier.withOptional} />
@@ -206,6 +213,7 @@ export default function LearningPage() {
                       {S.track.setCurrent}
                     </button>
                   ) : null}
+                </div>
                 </div>
               </div>
             );
@@ -226,11 +234,32 @@ export default function LearningPage() {
             </button>
           </div>
         ) : null}
-        <p className="small">
-          {mastery.data
-            ? t(S.map.summary, { n: catalog.cells.length, pro: c.proficient, m: c.mastered, t: c.touched, none: c.not_started, review: c.review })
-            : `${LS.mastery.title}（${catalog.cells.length}）`}
-        </p>
+        {mastery.data ? (
+          <div className="lp-mastery" data-mastery-summary="">
+            <ProgressRing value={c.proficient + c.mastered} max={Math.max(1, catalog.cells.length)} size={72} label={LS.visual.masteryRing} />
+            <div className="grow">
+              <BarChart
+                caption={t(LS.visual.masteryChart, { n: catalog.cells.length })}
+                max={Math.max(1, catalog.cells.length)}
+                itemHeader={LS.visual.level}
+                valueHeader={LS.visual.services}
+                data={[
+                  ...(['proficient', 'mastered', 'touched', 'not_started'] as const).map((lv) => ({
+                    key: lv,
+                    label: MASTERY_META[lv].text,
+                    icon: <Shape name={MASTERY_META[lv].shape} />,
+                    value: c[lv],
+                    tone: lv === 'not_started' ? ('before' as const) : ('after' as const),
+                  })),
+                  { key: 'review', label: S.map.needsReview, icon: <Shape name="tri" />, value: c.review, tone: 'third' as const },
+                ]}
+              />
+              <p className="sr">{t(S.map.summary, { n: catalog.cells.length, pro: c.proficient, m: c.mastered, t: c.touched, none: c.not_started, review: c.review })}</p>
+            </div>
+          </div>
+        ) : (
+          <p className="small">{t(LS.visual.masteryTitleN, { title: LS.mastery.title, n: catalog.cells.length })}</p>
+        )}
         <ServiceMap
           cells={catalog.cells}
           tax={tax}
@@ -266,6 +295,7 @@ export default function LearningPage() {
     body = (
       <section className="sec" aria-labelledby="bw-h" data-tab="badges">
         <h2 id="bw-h">
+          <ProgressRing value={earned} max={Math.max(1, all.length)} size={28} label={LS.visual.badgesRing} showValue={false} />{' '}
           {t(LS.badges.title, { n: earned, total: all.length })}
           <span className="aside row">
             <label className="chk">
@@ -444,7 +474,7 @@ function BadgeDrawer({ card, record, tax, onClose, nowMs }: { card: CatalogCard 
               <dt>{LS.badges.quiz}</dt>
               <dd>{b.quiz?.bestScore != null ? t(LS.badges.quizBest, { s: b.quiz.bestScore }) : LS.badges.quizNone}</dd>
               <dt>{LS.badges.credits}</dt>
-              <dd>{(card.credits ?? []).map((id) => serviceOf(tax, id)?.name ?? id).join('、') || '—'}</dd>
+              <dd>{(card.credits ?? []).map((id) => serviceOf(tax, id)?.name ?? id).join(msg.pages.labs.listSep) || '—'}</dd>
             </dl>
           ) : (
             <>

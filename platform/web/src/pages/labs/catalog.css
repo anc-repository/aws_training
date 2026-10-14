@@ -132,3 +132,96 @@ fieldset.plain>legend{padding:0}
 .u-steps{display:grid; gap:16px}
 .member-invite{display:flex; gap:8px; flex-wrap:wrap; align-items:flex-end}
 .member-invite .input{max-width:280px}
+
+/* ---------- 视觉化（I6 c、d、f；09「视觉组件」V9）：目录卡片、服务地图、简介页、学习页 ---------- */
+/* 目录卡片：服务图标 + 迷你架构图 + 标题 + 一行简介 + 指标图标 */
+.ctile.vis{grid-template-rows:auto auto auto 1fr auto; gap:8px}
+.ct-head{display:flex; gap:10px; align-items:flex-start; min-width:0}
+.ct-title{display:flex; flex-direction:column; gap:2px; min-width:0}
+.ctile.vis .kindline{flex-wrap:wrap; gap:4px}
+.ctile.vis .kindline .tag{font-size:10.5px; line-height:16px; padding:0 4px; margin-left:2px}
+.cglyph{display:inline-flex; flex:none; align-items:center}
+.cglyph.stack .sg+.sg{margin-left:-6px; outline:2px solid var(--surface); border-radius:5px}
+.cglyph-more{font-size:11px; color:var(--text-2); margin-left:4px}
+.ct-arch{display:flex; justify-content:center; align-items:center; min-width:0; min-height:56px; padding:4px; border:1px solid var(--border); border-radius:4px; background:var(--bg)}
+.ct-arch .arch{display:flex; justify-content:center}
+/* 迷你图放大到约 1.3 倍（图标约 24px）；容器窄时仍按宽度缩小（max-width:100%） */
+.ct-arch .arch-mini .arch-svg{zoom:1.3}
+.ctile.vis .sum{-webkit-line-clamp:1; line-clamp:1}
+.ctile.vis .meta{display:flex; flex-wrap:wrap; gap:4px 8px; align-items:center}
+.ct-metrics{display:inline-flex; gap:4px; align-items:center; flex-wrap:wrap; min-width:0}
+.mi-opt{font-size:11px; color:var(--text-2); font-family:var(--font-mono); white-space:nowrap}
+.ctile .svs .svs-item{display:inline-flex}
+.crow .cglyph{margin-right:-2px}
+
+/* 服务地图：图标网格 */
+.smap .mrow .rl{display:flex; align-items:center; gap:4px}
+.scell .bot{display:flex; gap:10px; align-items:center}
+.scell .cm{display:inline-flex; align-items:center; gap:3px; font-variant-numeric:tabular-nums}
+.scell .cm svg{fill:none; stroke:var(--text-3); stroke-width:1.2}
+.scell .cm.on{color:var(--text-2)}
+.scell .cm.on svg{fill:var(--st-pass); stroke:var(--st-pass)}
+.smap-panel .pring{margin-left:4px}
+
+/* 详细（长段落折叠） */
+details.more>summary{font-size:12.5px; width:max-content; max-width:100%}
+details.more .more-body{display:grid; gap:6px}
+@media (forced-colors: active){ .scell .cm.on svg{fill:CanvasText; stroke:CanvasText} }
+
+/* 简介页（I6 d）：首屏架构图、你将学到、有 vs 没有、步骤图标列表 */
+.cardhead .head-metrics{display:flex; flex-wrap:wrap; gap:4px 10px; align-items:center}
+.intro-hero .arch{margin-top:4px}
+.learn-grid{list-style:none; margin:0; padding:0; display:grid; grid-template-columns:repeat(auto-fill,minmax(200px,1fr)); gap:10px}
+.obj-list{list-style:none; padding:0; margin:10px 0 0; display:grid; gap:6px}
+.obj-list li{display:flex; gap:8px; align-items:flex-start}
+.dom-mark{display:inline-flex; flex:none; width:22px; height:22px; align-items:center; justify-content:center; border:1px solid var(--border-strong); border-radius:50%; color:var(--text-2)}
+.dom-mark svg{fill:none; stroke:currentColor; stroke-width:1.5; stroke-linecap:round; stroke-linejoin:round}
+.chips .dom-mark{width:18px; height:18px; border:0; margin-right:2px; vertical-align:-4px}
+.chips{list-style:none; margin:0; padding:0; display:flex; flex-wrap:wrap; gap:6px}
+.chips .tag{display:inline-flex; align-items:center; gap:2px}
+.vs-list{list-style:none; margin:0; padding:0; display:grid; gap:10px}
+.vs-pair{margin:0; display:grid; grid-template-columns:minmax(0,1fr) auto minmax(0,1fr); gap:8px; align-items:stretch}
+.vs-side{display:grid; justify-items:center; align-content:start; gap:4px; padding:10px 8px; border:1px solid var(--border); border-radius:6px; background:var(--surface); text-align:center; min-width:0}
+.vs-side.before{border-style:dashed; background:var(--bg)}
+.vs-side.after{border-color:var(--accent); box-shadow:inset 0 0 0 1px var(--accent)}
+.vs-cap{font-size:12px; font-weight:600; color:var(--text-2)}
+.vs-name{font-size:13px; overflow-wrap:anywhere}
+.vs-note{overflow-wrap:anywhere}
+.vs-local{fill:none; stroke:var(--border-strong); stroke-width:1.5; stroke-dasharray:4 3; stroke-linecap:round}
+.vs-local path{stroke:var(--text-3); stroke-dasharray:none; stroke-width:2}
+.vs-arrow{display:flex; align-items:center; color:var(--text-3)}
+.vs-arrow svg{fill:none; stroke:currentColor; stroke-width:1.8; stroke-linecap:round; stroke-linejoin:round}
+.exp-list{list-style:none; margin:10px 0 0; padding:0; display:grid; gap:6px}
+.exp-list li{display:flex; flex-wrap:wrap; gap:6px 8px; align-items:center; color:var(--text)}
+.exp-list .step-ico{color:var(--accent)}
+.steplist{list-style:none; margin:0; padding:0; display:grid; gap:2px}
+.steplist li{display:grid; grid-template-columns:22px 24px minmax(0,1fr); gap:2px 8px; align-items:center; padding:6px 4px; border-bottom:1px solid var(--border)}
+.steplist li.opt .sl-title{color:var(--text-2)}
+.steplist .sl-no{font-size:12px; color:var(--text-3); text-align:right}
+.steplist .sl-type{display:inline-flex; color:var(--text-2)}
+.steplist .sl-marks{grid-column:3; display:flex; flex-wrap:wrap; gap:4px 10px; align-items:center; font-size:12px; color:var(--text-2)}
+.steplist .sl-marks:empty{display:none}
+.smk{display:inline-flex; align-items:center; gap:3px}
+.smk-ico{fill:none; stroke:currentColor; stroke-width:1.5; stroke-linecap:round; stroke-linejoin:round}
+.smk.warn{color:var(--st-drift)}
+@media (max-width:767px){
+  .vs-pair{grid-template-columns:minmax(0,1fr)}
+  .vs-arrow{justify-content:center; transform:rotate(90deg)}
+}
+@media (forced-colors: active){ .vs-side.after{border-color:Highlight} }
+
+/* 学习页与路径（I6 f）：进度环 + 条形图 */
+.box.lp-track{display:flex; gap:12px; align-items:flex-start}
+.lp-track>.pring{margin-top:2px}
+.lp-mastery{display:flex; gap:16px; align-items:center; flex-wrap:wrap}
+.lp-mastery>.grow{flex:1 1 240px; min-width:0}
+.lp-mastery .bchart-icon .shape,.lp-mastery .bchart-icon svg{color:var(--text-2)}
+#bw-h .pring{vertical-align:-8px}
+.track-head .pring{flex:none}
+.shelf a .pring{vertical-align:-4px}
+.tnode .cglyph{margin-right:-2px}
+.lp-track .cglyph{margin:0 4px 0 2px; vertical-align:middle}
+.smap-legend-cm{display:inline-flex; gap:10px; align-items:center}
+@media (max-width:767px){ .box.lp-track{flex-direction:column} }
+.qz-chart{display:flex; gap:16px; align-items:center; flex-wrap:wrap}
+.qz-chart>.grow{flex:1 1 220px; min-width:0}

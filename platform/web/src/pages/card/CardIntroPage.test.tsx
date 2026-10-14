@@ -58,10 +58,21 @@ describe('P03 卡片简介页', () => {
     expect(screen.getByText('外部链接').closest('a')).toBeNull();
     expect(screen.getByText(/并预先启用 AWS IAM（应用调用 SQS 需要凭证）/)).toBeTruthy();
     expect(screen.getByText(/Amazon SQS使用本地档/)).toBeTruthy();
-    expect(screen.getByText(/Amazon SQS（memory → sqs）/)).toBeTruthy();
+    expect(screen.getAllByText(/Amazon SQS（memory → sqs）/).length).toBeGreaterThan(0);
+    // I6 d：首屏是“开始时 → 完成后”的架构图；“有 vs 没有”是并排的图示卡片；“你将学到”是服务图标列表
+    const hero = screen.getByRole('heading', { level: 2, name: '开始时 → 完成后' }).closest('section')!;
+    expect(hero.querySelectorAll('svg.arch-svg[role="img"]')).toHaveLength(2);
+    expect(hero.querySelector('[data-state="after"] [data-node="queue"]')).toBeTruthy();
+    const vs = document.querySelector('[data-vs="queue"]')!;
+    expect(vs.textContent).toContain('没有 SQS');
+    expect(vs.textContent).toContain('memory');
+    expect(vs.textContent).toContain('有 SQS');
+    expect(document.querySelector('[data-learn] [data-glyph="queue"]')).toBeTruthy();
     const steps = screen.getByRole('heading', { level: 2, name: '步骤概览' }).closest('section')!;
-    expect(steps.textContent).toContain('需等待约 3 分钟 · 开始按量计费');
-    expect(steps.textContent).toContain('选做');
+    expect(steps.querySelectorAll('li[data-step]')).toHaveLength(3);
+    expect(steps.querySelector('[data-step="enable-sqs"]')!.textContent).toContain('需等待约 3 分钟');
+    expect(steps.querySelector('[data-step="enable-sqs"]')!.textContent).toContain('开始按量计费');
+    expect(steps.querySelector('[data-step="ab"]')!.textContent).toContain('选做');
     const aside = screen.getByRole('complementary', { name: '开始前准备与摘要' });
     expect(aside.textContent).toContain('建议先完成：svc-ec2');
     expect(aside.textContent).toContain('完成本卡片（最终复核通过）即获得徽章“削峰填谷”');

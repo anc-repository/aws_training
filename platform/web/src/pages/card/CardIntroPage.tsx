@@ -5,6 +5,8 @@
  * - “开始实验”按钮由 startability（权威）+ 本地预判决定（startModel）；planned 卡片只显示、不能开始；A、O 没有开始与小测；
  * - 查询串：`start=1`（只对 L，打开开始对话框后立即从地址栏移除）、`variant=<id>`、`reuse=<envId>`；
  * - 生成区块按 05 §7.3 的固定句式渲染；作者撰写的概览（mdast）按二级标题放进对应区块；
+ * - 视觉化（I6 d）：首屏是“开始时 → 完成后”的架构图与“你将学到”的服务图标列表；“有 vs 没有”是左右并排的图示卡片；
+ *   步骤概览用步骤类型图标；资源说明、作者概览、费用说明等长段落折叠到“詳しく / Details”（<details>）；
  * - 窄屏：右栏移到左栏之后，底部吸底操作栏（开始 / 回到工作台、小测），置灰原因仍写在页头。
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
@@ -15,11 +17,15 @@ import { useGlobalStatus } from '../../app/globalStatus';
 import { msg, t } from '../../i18n';
 import { formatDate } from '../../lib/format';
 import { Button, CostTierMark, Dialog, EmptyState, ErrorPanel, SessionStatePill, Shape, Skeleton } from '../../ui';
+import { MetricIcon, StepTypeIcon } from '../../ui/charts';
+import { ArchDiagram, archInputFromCatalogCard, archInputFromIntro } from '../../ui/diagram';
+import { glyphModule, resolveModuleId, ServiceChip, ServiceGlyph } from '../../ui/glyphs';
 import '../labs/catalog.css';
 import { badgeLabel, CardBadge, kindLine, ServiceStrip } from '../labs/components/CardTile';
-import { badgeStateOf, DifficultyBar, ServiceAbbr, StateText } from '../labs/components/Marks';
+import { badgeStateOf, StateText } from '../labs/components/Marks';
+import { CardGlyph, CardMetrics, More, primaryServices } from '../labs/components/Visuals';
 import { progressMap, useCardIntro, useCatalog, useHolder, useLabs, useResource } from '../labs/data';
-import { cardFlags, cardStateOf, catClass, estimateText, isDoneStatus, limitText, membershipOf, serviceOf } from '../labs/model';
+import { cardFlags, cardStateOf, catClass, isDoneStatus, limitText, membershipOf } from '../labs/model';
 import { BADGE_LEVEL_TEXT, DOMAIN_TEXT, FLAG_TEXT, INPUT_TEXT, PROVISION_HINT, PROVISION_TEXT, S, SECTION_TEXT, STEP_TYPE_TEXT } from '../labs/strings';
 import type { CardIntro, CatalogCard, CostQuote, LabDetail } from '../labs/types';
 import { MarkdownView, splitOverview } from './Mdast';
@@ -246,7 +252,7 @@ function ResourcesBlock({ intro, region }: { intro: CardIntro | null; region: st
   const ws = intro?.workstation;
   return (
     <div className="stack-8">
-      <p>{t(SS.sections.resourcesIntro, { region })}：</p>
+      <p>{t(SS.sections.resourcesIntro, { region })}{PC.colon}</p>
       {provisions.length || r?.extraStacks?.length ? (
         <ul>
           {provisions.map((x) => (
@@ -263,8 +269,9 @@ function ResourcesBlock({ intro, region }: { intro: CardIntro | null; region: st
           <b>{SS.sections.target}</b>
           {r.targets
             .map((x) => `${x.from ? t(SS.sections.targetItem, { name: x.displayName, from: x.from, to: x.to }) : t(SS.sections.targetItemNew, { name: x.displayName, to: x.to })}${x.optional ? SS.sections.optional : ''}`)
-            .join('、')}
-          。{SS.sections.targetTail}
+            .join(PC.nameSep)}
+          {PC.period}
+          {SS.sections.targetTail}
         </p>
       ) : null}
       {(r?.expectedWarnings ?? []).map((w) => (
@@ -284,42 +291,132 @@ function ResourcesBlock({ intro, region }: { intro: CardIntro | null; region: st
   );
 }
 
-function StepsTable({ intro }: { intro: CardIntro | null }) {
+/** lab.schema 的步骤类型 → 步骤类型图标（I6 e 的 6 种）；没有专门图标的类型借用最接近的一种，类型名另写给读屏。 */
+const STEP_ICON: Readonly<Record<string, string>> = { read: 'observe', manual: 'console', 'platform-action': 'script', wire: 'code' };
+
+function StepMarkIcon({ kind }: { kind: 'wait' | 'bill' | 'outage' }) {
+  return (
+    <svg className="smk-ico" width="14" height="14" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+      {kind === 'wait' ? (
+        <>
+          <circle cx="8" cy="8" r="6.2" />
+          <path d="M8 4.5V8l2.6 1.6" />
+        </>
+      ) : kind === 'bill' ? (
+        <path d="M10.8 4.6c-.5-.8-1.6-1.3-2.8-1.3-1.6 0-2.8.8-2.8 2.1 0 2.9 5.7 1.6 5.7 4.6 0 1.3-1.2 2.2-2.9 2.2-1.3 0-2.4-.6-2.9-1.5M8 1.8v12.4" />
+      ) : (
+        <>
+          <path d="M8 2.2l6.2 11H1.8z" />
+          <path d="M8 6.6v3M8 11.4v.2" />
+        </>
+      )}
+    </svg>
+  );
+}
+
+/** 步骤概览（I6 d）：步骤类型图标 + 标题 + 标记图标（选做、等待、开始计费、预期中断），代替原来的四列表格。 */
+function StepsList({ intro }: { intro: CardIntro | null }) {
   const steps = intro?.steps ?? [];
   if (!steps.length) return <p className="small muted">{SS.sections.noSteps}</p>;
   return (
-    <div className="tbl-wrap">
-      <table className="tbl">
-        <thead>
-          <tr>
-            <th scope="col" className="num">
-              {SS.sections.stepNo}
-            </th>
-            <th scope="col">{SS.sections.stepTitle}</th>
-            <th scope="col">{SS.sections.stepType}</th>
-            <th scope="col">{SS.sections.stepMarks}</th>
-          </tr>
-        </thead>
-        <tbody>
-          {steps.map((s, i) => {
-            const marks = [
-              s.optional ? SS.sections.markOptional : null,
-              s.wait ? t(SS.sections.markWait, { n: s.wait.typicalMinutes }) : null,
-              s.startsBilling ? (s.startsBilling.class === 'hourly' ? SS.sections.markHourly : SS.sections.markUsage) : null,
-              s.expectedOutage ? SS.sections.markOutage : null,
-            ].filter(Boolean);
-            return (
-              <tr key={s.id}>
-                <td className="num">{i + 1}</td>
-                <td>{s.title}</td>
-                <td>{STEP_TYPE_TEXT[s.type] ?? s.type}</td>
-                <td className="small">{marks.length ? marks.join(' · ') : '—'}</td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
-    </div>
+    <ol className="steplist">
+      {steps.map((s, i) => (
+        <li key={s.id} className={s.optional ? 'opt' : undefined} data-step={s.id}>
+          <span className="sl-no tnum" aria-hidden="true">
+            {i + 1}
+          </span>
+          <span className="sl-type" title={STEP_TYPE_TEXT[s.type] ?? s.type}>
+            <StepTypeIcon type={STEP_ICON[s.type] ?? s.type} size={20} />
+            <span className="sr">{STEP_TYPE_TEXT[s.type] ?? s.type}</span>
+          </span>
+          <span className="sl-title wrap-any">{s.title}</span>
+          <span className="sl-marks">
+            {s.optional ? <span className="tag">{SS.sections.markOptional}</span> : null}
+            {s.wait ? (
+              <span className="smk">
+                <StepMarkIcon kind="wait" />
+                {t(SS.sections.markWait, { n: s.wait.typicalMinutes })}
+              </span>
+            ) : null}
+            {s.startsBilling ? (
+              <span className="smk">
+                <StepMarkIcon kind="bill" />
+                {s.startsBilling.class === 'hourly' ? SS.sections.markHourly : SS.sections.markUsage}
+              </span>
+            ) : null}
+            {s.expectedOutage ? (
+              <span className="smk warn">
+                <StepMarkIcon kind="outage" />
+                {SS.sections.markOutage}
+              </span>
+            ) : null}
+          </span>
+        </li>
+      ))}
+    </ol>
+  );
+}
+
+/** SAA 领域的小图形（与领域文字一起出现；单独出现时有读屏文字）。 */
+function DomainMark({ domain }: { domain: string }) {
+  const name = DOMAIN_TEXT[domain as keyof typeof DOMAIN_TEXT] ?? domain;
+  return (
+    <span className={`dom-mark d-${domain}`} title={name}>
+      <svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+        {domain === 'secure' ? (
+          <path d="M8 1.8l5.2 2v4c0 3.2-2.2 5.4-5.2 6.4-3-1-5.2-3.2-5.2-6.4v-4z" />
+        ) : domain === 'resilient' ? (
+          <path d="M13 8a5 5 0 1 1-1.5-3.6M13 2.5v3h-3" />
+        ) : domain === 'performance' ? (
+          <path d="M9 1.8L3.5 9H8l-1 5.2L12.5 7H8z" />
+        ) : (
+          <path d="M10.8 4.6c-.5-.8-1.6-1.3-2.8-1.3-1.6 0-2.8.8-2.8 2.1 0 2.9 5.7 1.6 5.7 4.6 0 1.3-1.2 2.2-2.9 2.2-1.3 0-2.4-.6-2.9-1.5M8 1.8v12.4" />
+        )}
+      </svg>
+      <span className="sr">{name}</span>
+    </span>
+  );
+}
+
+interface VsTarget {
+  id: string;
+  name: string;
+  from: string | null;
+  to: string | null;
+  optional: boolean;
+}
+
+/** “有 vs 没有”的并排图示卡片（I6 d）：左边是开始时（本地实现或还没有），右边是完成后的 AWS 服务。 */
+function ComparePair({ target: x }: { target: VsTarget }) {
+  const short = glyphModule(x.id)?.short ?? x.name;
+  return (
+    <figure className="vs-pair" data-vs={x.id}>
+      <div className="vs-side before">
+        <span className="vs-cap">{t(SS.visual.without, { name: short })}</span>
+        {x.from ? (
+          <svg className="vs-local" width="40" height="40" viewBox="0 0 40 40" aria-hidden="true" focusable="false">
+            <rect x="1" y="1" width="38" height="38" rx="8" />
+            <path d="M11 14h18M11 20h18M11 26h12" />
+          </svg>
+        ) : (
+          <ServiceGlyph id={x.id} size={40} tone="ghost" />
+        )}
+        <span className={x.from ? 'vs-name mono' : 'vs-name muted'}>{x.from ?? SS.visual.none}</span>
+        <span className="vs-note small faint">{x.from ? SS.visual.local : SS.visual.notYet}</span>
+      </div>
+      <span className="vs-arrow" aria-hidden="true">
+        <svg width="20" height="20" viewBox="0 0 20 20" focusable="false">
+          <path d="M4 10h11M11 6l4 4-4 4" />
+        </svg>
+      </span>
+      <div className="vs-side after">
+        <span className="vs-cap">{t(SS.visual.with, { name: short })}</span>
+        <ServiceGlyph id={x.id} size={40} />
+        <span className="vs-name mono">{x.to ?? short}</span>
+        <span className="vs-note small faint">{x.optional ? SS.sections.elective : glyphModule(x.id)?.awsService ?? x.name}</span>
+      </div>
+      <figcaption className="sr">{x.from ? t(SS.sections.targetItem, { name: x.name, from: x.from, to: x.to ?? '' }) : t(SS.sections.targetItemNew, { name: x.name, to: x.to ?? '' })}</figcaption>
+    </figure>
   );
 }
 
@@ -403,8 +500,6 @@ export default function CardIntroPage() {
   const state = cardStateOf(labId, holder, item ?? (detail.data ? { status: detail.data.progress.status, lastSession: detail.data.attempts[0] ? { sessionId: detail.data.attempts[0].sessionId, state: detail.data.attempts[0].state } : null } : null), clock.now());
   const attemptsN = detail.data?.progress.attempts ?? item?.attempts ?? 0;
   const flags = cardFlags(card, { drRegion: catalog.ref?.drRegion ?? null, completedMajor: item?.completedMajorVersion ?? null });
-  const primary = card.services.find((s) => s.role === 'primary')?.id;
-  const abbr = primary ? serviceOf(tax, primary)?.abbr : null;
   const overview = splitOverview(intro.data?.overview ?? null);
   // 概览的小节按标题匹配：当前语言的标题或 zh-CN 源标题（内容的 overview.md 用词典 pages.card.overviewHeading 中的标题）
   const section = (key: keyof typeof PC.overviewHeading) => overview.find((o) => o.title === PC.overviewHeading[key] || o.title === zhOverviewHeading[key])?.nodes ?? null;
@@ -427,12 +522,22 @@ export default function CardIntroPage() {
   const residualForDialog = model.kind === 'start' ? model.residual : null;
   const crumbsCat = card.kind === 'service' ? kindLine(card, tax) : S.catalog.sectionScenario;
   const openStart = (env: 'fresh' | 'reuse') => setDialog({ kind: 'start', env });
+  // I6 d：架构图的输入（简介页数据到达前用目录卡片的 startProfiles + targets）
+  const archInput = intro.data?.resources ? archInputFromIntro(intro.data) : archInputFromCatalogCard(card);
+  const vsTargets: VsTarget[] = (intro.data?.resources?.targets ?? []).length
+    ? (intro.data?.resources?.targets ?? []).map((x) => ({ id: x.moduleId, name: x.displayName, from: x.from ?? null, to: x.to ?? null, optional: !!x.optional }))
+    : (card.targets ?? []).map((x) => ({ id: x.module, name: glyphModule(x.module)?.awsService ?? x.module, from: x.from ?? null, to: x.to ?? null, optional: !!x.optional }));
+  // “你将学到”的服务图标：目标模块；没有目标时（基础卡）用主服务
+  const learnIds = [...new Set((vsTargets.length ? vsTargets.map((x) => x.id) : primaryServices(card)).map((id) => resolveModuleId(id) ?? id))];
+  const topics: { title: string; domain: string | null }[] = intro.data?.saa?.topics?.length
+    ? intro.data.saa.topics.map((x) => ({ title: x.title, domain: x.domain }))
+    : (card.saa?.topicTitles ?? []).map((title) => ({ title, domain: null }));
 
   const statusLine = (
     <span className="small">
       {SS.page.status}
       {detail.data || labs.data ? <StateText meta={state} /> : <span className="faint">…</span>} · {attemptsN ? t(S.card.attempts, { n: attemptsN }) : S.card.noAttempts} · {SS.page.badge}
-      {personalBadge && badgeStateOf(personalBadge) !== 'none' ? `“${card.badge?.title ?? ''}” ${BADGE_LEVEL_TEXT[String(personalBadge.level)] ?? ''}` : S.card.badgeNone}
+      {personalBadge && badgeStateOf(personalBadge) !== 'none' ? t(PC.badgeEarnedLine, { title: card.badge?.title ?? '', level: BADGE_LEVEL_TEXT[String(personalBadge.level)] ?? '' }) : S.card.badgeNone}
     </span>
   );
 
@@ -449,7 +554,7 @@ export default function CardIntroPage() {
       </nav>
       <div className={`box stack-8 cardhead ${card.kind === 'service' ? catClass(card.category) : 'sc'}`}>
         <div className="row top head-top">
-          {card.kind === 'service' && abbr ? <ServiceAbbr abbr={abbr} category={card.category} title={card.service} /> : <ServiceStrip card={card} tax={tax} />}
+          {card.kind === 'service' ? <CardGlyph card={card} size={48} /> : <ServiceStrip card={card} tax={tax} />}
           <div className="stack-4 grow">
             <h1 tabIndex={-1}>
               {card.title}
@@ -458,7 +563,7 @@ export default function CardIntroPage() {
             </h1>
             <span className="small muted">
               {kindLine(card, tax)}
-              {card.legacyLabs?.length ? ` · ${t(S.card.legacy, { n: card.legacyLabs.join('、') })}` : ''}
+              {card.legacyLabs?.length ? ` · ${t(S.card.legacy, { n: card.legacyLabs.join(PC.nameSep) })}` : ''}
             </span>
           </div>
           <span className="small faint nowrap head-ver">
@@ -467,10 +572,15 @@ export default function CardIntroPage() {
             {flags.includes('new-version') ? ` · ${S.card.newVersion}` : ''}
           </span>
         </div>
-        <div className="small">
-          <DifficultyBar value={card.difficulty} /> · {t(SS.page.meta, { est: estimateText(card.estimatedMinutes), limit: limitText(card.timeLimitMinutes), n: ext.maxCount, m: ext.minutesEach })} ·{' '}
-          <CostTierMark tier={card.costTier.required} withOptional={card.costTier.withOptional} sources={(card.mainDrivers ?? []).join('、') || undefined} /> ·{' '}
-          <span title={PROVISION_HINT[card.provisionClass]}>{t(SS.page.provision, { t: PROVISION_TEXT[card.provisionClass], c: card.provisionClass })}</span>{' '}
+        <div className="small head-metrics">
+          <CardMetrics card={card} provision={false} />
+          <span className="faint" title={t(SS.sections.timing, { limit: limitText(card.timeLimitMinutes), n: ext.maxCount, m: ext.minutesEach })}>
+            {t(S.card.limit, { t: limitText(card.timeLimitMinutes) })}
+          </span>
+          <span title={PROVISION_HINT[card.provisionClass]}>
+            <MetricIcon kind="provision" value={card.provisionClass} />
+            <span className="sr">{t(SS.page.provision, { t: PROVISION_TEXT[card.provisionClass], c: card.provisionClass })}</span>
+          </span>
           {planned ? <span className="tag planned">{S.card.planned}</span> : null}
           {flags
             .filter((f) => f !== 'beta' && f !== 'new-version')
@@ -510,6 +620,36 @@ export default function CardIntroPage() {
 
       <div className="two-col">
         <div className="stack-24">
+          {/* I6 d 首屏：开始时 → 完成后 的架构图（资源的完整句子折叠在下面） */}
+          <section className="sec intro-hero" aria-labelledby="sec-arch" data-hero="">
+            <h2 id="sec-arch">{SS.visual.archTitle}</h2>
+            <ArchDiagram input={archInput} title={t(SS.visual.archAria, { id: labId })} />
+            <More summary={SECTION_TEXT.resources}>
+              <ResourcesBlock intro={intro.data} region={region} />
+            </More>
+          </section>
+          <section className="sec" aria-labelledby="sec-obj" data-learn="">
+            <h2 id="sec-obj">{SECTION_TEXT.objectives}</h2>
+            {learnIds.length ? (
+              <ul className="learn-grid">
+                {learnIds.map((id) => (
+                  <li key={id}>
+                    <ServiceChip id={id} size={40} showFunction />
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+            {intro.data?.objectives?.length ? (
+              <ul className="obj-list">
+                {intro.data.objectives.map((o) => (
+                  <li key={o.text}>
+                    <DomainMark domain={o.domain} />
+                    <span>{o.text}</span>
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+          </section>
           {card.kind === 'scenario' && (intro.data?.scenario || card.summary) ? (
             <section className="sec" aria-labelledby="sec-scenario">
               <h2 id="sec-scenario">{SECTION_TEXT.scenario}</h2>
@@ -536,94 +676,103 @@ export default function CardIntroPage() {
               ) : null}
             </section>
           ) : null}
+          {vsTargets.length || intro.data?.experiments?.length || expPreview ? (
+            <section className="sec" aria-labelledby="sec-vs" data-compare="">
+              <h2 id="sec-vs">{SS.visual.compareTitle}</h2>
+              {vsTargets.length ? (
+                <ul className="vs-list">
+                  {vsTargets.map((x) => (
+                    <li key={x.id}>
+                      <ComparePair target={x} />
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
+              {intro.data?.experiments?.length ? (
+                <ul className="exp-list" aria-label={SECTION_TEXT.experiments}>
+                  {intro.data.experiments.map((x) => (
+                    <li key={`${x.module}/${x.id}`}>
+                      <StepTypeIcon type="experiment" size={20} />
+                      <span className="wrap-any">{x.title}</span>
+                      {x.title !== `${x.module}/${x.id}` ? <span className="mono small faint">{`${x.module}/${x.id}`}</span> : null}
+                      <span className={x.required ? 'tag accent' : 'tag'}>{x.required ? SS.sections.required : SS.sections.elective}</span>
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
+              {expPreview ? (
+                <More summary={SECTION_TEXT.experiments}>
+                  <MarkdownView nodes={expPreview} />
+                </More>
+              ) : null}
+            </section>
+          ) : null}
           <section className="sec" aria-labelledby="sec-bg">
             <h2 id="sec-bg">{SECTION_TEXT.background}</h2>
-            {intro.loading && !intro.data ? <Skeleton lines={3} /> : null}
-            {intro.data?.story ? <p>{intro.data.story}</p> : !background ? <p>{card.summary}</p> : null}
-            {background ? <MarkdownView nodes={background} /> : null}
+            {intro.loading && !intro.data ? <Skeleton lines={2} /> : null}
+            {intro.data?.story ? <p>{intro.data.story}</p> : <p>{card.summary}</p>}
+            {background || whyTogether || platformNote ? (
+              <More>
+                {background ? <MarkdownView nodes={background} /> : null}
+                {whyTogether ? (
+                  <>
+                    <h3>{PC.overviewHeading.why}</h3>
+                    <MarkdownView nodes={whyTogether} />
+                  </>
+                ) : null}
+                {platformNote ? (
+                  <>
+                    <h3>{PC.overviewHeading.platform}</h3>
+                    <MarkdownView nodes={platformNote} />
+                  </>
+                ) : null}
+              </More>
+            ) : null}
           </section>
-          {whyTogether ? (
-            <section className="sec" aria-labelledby="sec-why">
-              <h2 id="sec-why">{PC.overviewHeading.why}</h2>
-              <MarkdownView nodes={whyTogether} />
-            </section>
-          ) : null}
-          {intro.data?.objectives?.length ? (
-            <section className="sec" aria-labelledby="sec-obj">
-              <h2 id="sec-obj">{SECTION_TEXT.objectives}</h2>
-              <ul className="obj-list">
-                {intro.data.objectives.map((o) => (
-                  <li key={o.text}>
-                    {o.text} <span className="tag">{DOMAIN_TEXT[o.domain] ?? o.domain}</span>
-                  </li>
-                ))}
-              </ul>
-            </section>
-          ) : null}
-          <section className="sec" aria-labelledby="sec-res">
-            <h2 id="sec-res">{SECTION_TEXT.resources}</h2>
-            <ResourcesBlock intro={intro.data} region={region} />
+          <section className="sec" aria-labelledby="sec-steps" id="steps">
+            <h2 id="sec-steps">{SECTION_TEXT.steps}</h2>
+            <StepsList intro={intro.data} />
           </section>
           <section className="sec" aria-labelledby="sec-cost">
             <h2 id="sec-cost">{SECTION_TEXT.cost}</h2>
-            <p>
-              {SS.sections.costLine}
-              <b>
-                <CostTierMark tier={card.costTier.required} withOptional={card.costTier.withOptional} />
-              </b>
-              {card.mainDrivers?.length ? t(SS.sections.costSources, { list: card.mainDrivers.join(' · ') }) : SS.sections.costNone}
-              {card.costTier.withOptional && card.costTier.withOptional !== card.costTier.required
-                ? t(SS.sections.costOptional, { tier: card.costTier.withOptional === 'high' ? PC.tierHigh : PC.tierMedium })
-                : ''}
-            </p>
-            <p className="small muted">{SS.sections.costKeep}</p>
             <div className="row">
+              <MetricIcon kind="cost" value={card.costTier.required} />
               {L && !planned ? (
                 <Button size="sm" onClick={() => setDialog({ kind: 'quote' })}>
                   {SS.page.quoteOnly}
                 </Button>
               ) : null}
-              <span className="small muted">{SS.sections.costDisclaimer}</span>
             </div>
+            <More summary={SS.visual.costMore}>
+              <p>
+                {SS.sections.costLine}
+                <b>
+                  <CostTierMark tier={card.costTier.required} withOptional={card.costTier.withOptional} />
+                </b>
+                {card.mainDrivers?.length ? t(SS.sections.costSources, { list: card.mainDrivers.join(' · ') }) : SS.sections.costNone}
+                {card.costTier.withOptional && card.costTier.withOptional !== card.costTier.required
+                  ? t(SS.sections.costOptional, { tier: card.costTier.withOptional === 'high' ? PC.tierHigh : PC.tierMedium })
+                  : ''}
+              </p>
+              <p className="small muted">{SS.sections.costKeep}</p>
+              <p className="small muted">{SS.sections.costDisclaimer}</p>
+            </More>
           </section>
-          <section className="sec" aria-labelledby="sec-steps" id="steps">
-            <h2 id="sec-steps">{SECTION_TEXT.steps}</h2>
-            <StepsTable intro={intro.data} />
-          </section>
-          {expPreview || intro.data?.experiments?.length ? (
-            <section className="sec" aria-labelledby="sec-exp">
-              <h2 id="sec-exp">{SECTION_TEXT.experiments}</h2>
-              {expPreview ? (
-                <MarkdownView nodes={expPreview} />
-              ) : (
-                <ul>
-                  {(intro.data?.experiments ?? []).map((x) => (
-                    <li key={`${x.module}/${x.id}`}>
-                      {t(SS.sections.experimentsGenerated, { title: x.title, module: x.module, id: x.id, req: x.required ? SS.sections.required : SS.sections.elective })}
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </section>
-          ) : null}
-          {platformNote ? (
-            <section className="sec" aria-labelledby="sec-pm">
-              <h2 id="sec-pm">{PC.overviewHeading.platform}</h2>
-              <MarkdownView nodes={platformNote} />
-            </section>
-          ) : null}
-          {intro.data?.saa?.topics?.length || card.saa?.topicTitles?.length ? (
+          {topics.length ? (
             <section className="sec" aria-labelledby="sec-topics">
               <h2 id="sec-topics">{SECTION_TEXT.topics}</h2>
-              <p className="small">
-                {(intro.data?.saa?.topics?.map((x) => x.title) ?? card.saa?.topicTitles ?? []).join(' · ')}
-              </p>
+              <ul className="chips">
+                {topics.map((x) => (
+                  <li key={x.title} className="tag">
+                    {x.domain ? <DomainMark domain={x.domain} /> : null}
+                    {x.title}
+                  </li>
+                ))}
+              </ul>
               {intro.data?.saa?.confusables?.length ? (
                 <ul className="small">
                   {intro.data.saa.confusables.map((c) => (
-                    <li key={`${c.a}-${c.b}`}>
-                      {SECTION_TEXT.confusables}：{c.a} / {c.b}：{c.rule}
-                    </li>
+                    <li key={`${c.a}-${c.b}`}>{t(SS.visual.confusable, { label: SECTION_TEXT.confusables, a: c.a, b: c.b, rule: c.rule })}</li>
                   ))}
                 </ul>
               ) : null}
@@ -649,7 +798,7 @@ export default function CardIntroPage() {
             {intro.data?.prerequisites?.knowledge?.length ? (
               <div className="small muted">
                 {SS.sections.knowledge}
-                {intro.data.prerequisites.knowledge.join('、')}
+                {intro.data.prerequisites.knowledge.join(PC.nameSep)}
               </div>
             ) : null}
             <div className="small">
@@ -658,11 +807,11 @@ export default function CardIntroPage() {
             </div>
             <div className="small">
               {SS.sections.accountImpact}
-              {impacts.length ? impacts.map((i) => t(SS.sections.impactItem, { resource: i.resource, revert: revertText(i.revert) })).join('；') : SS.sections.prereqNone}
+              {impacts.length ? impacts.map((i) => t(SS.sections.impactItem, { resource: i.resource, revert: revertText(i.revert) })).join(PC.listSep) : SS.sections.prereqNone}
             </div>
             <div className="small">
               {SS.sections.platformOps}
-              {ops.length ? ops.map((o) => t(SS.sections.opItem, { title: o.title }) + (o.optional ? SS.sections.optional : '')).join('；') : SS.sections.prereqNone}
+              {ops.length ? ops.map((o) => t(SS.sections.opItem, { title: o.title }) + (o.optional ? SS.sections.optional : '')).join(PC.listSep) : SS.sections.prereqNone}
             </div>
           </div>
           <div className="box stack-8">
@@ -683,7 +832,7 @@ export default function CardIntroPage() {
             <div className="small">
               {SS.sections.costTier}
               <CostTierMark tier={card.costTier.required} withOptional={card.costTier.withOptional} />
-              {card.mainDrivers?.length ? t(SS.sections.costMain, { list: card.mainDrivers.join('、') }) : ''}
+              {card.mainDrivers?.length ? t(SS.sections.costMain, { list: card.mainDrivers.join(PC.nameSep) }) : ''}
             </div>
           </div>
           <div className="box row nowrap-row">

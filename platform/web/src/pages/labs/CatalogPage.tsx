@@ -19,6 +19,7 @@ import { msg, t } from '../../i18n';
 import { announce } from '../../lib/announce';
 import { lsGet, lsSet, ssGet, ssSet } from '../../lib/storage';
 import { EmptyState, ErrorPanel, Icon, Skeleton } from '../../ui';
+import { ProgressRing } from '../../ui/charts';
 import './catalog.css';
 import { CardRowCompact, CardTile } from './components/CardTile';
 import { EnvironmentBar } from './components/EnvironmentBar';
@@ -443,7 +444,7 @@ export default function CatalogPage() {
                   const p = trackSummary(x, progress, holder?.labId);
                   return (
                     <Link key={x.id} to={`/tracks/${x.id}`}>
-                      {x.title ?? x.id} <span className="tnum faint">{`${p.counted}/${p.min}`}</span> · <span className="small">{p.eligible ? S.catalog.certEligible : S.catalog.certNotYet}</span>
+                      <ProgressRing value={p.counted} max={Math.max(1, p.min)} size={18} label={S.visual.ringCounted} decorative /> {x.title ?? x.id} <span className="tnum faint">{`${p.counted}/${p.min}`}</span> · <span className="small">{p.eligible ? S.catalog.certEligible : S.catalog.certNotYet}</span>
                     </Link>
                   );
                 })}
@@ -505,7 +506,7 @@ export default function CatalogPage() {
             <select id="cat-track" className="input auto" value={viewTrack.id} onChange={(e) => setQuery({ ...query, track: e.target.value })}>
               {index.tracks.map((x) => (
                 <option key={x.id} value={x.id}>
-                  {x.title ?? x.id}（{x.id}）
+                  {t(msg.pages.labs.trackOption, { title: x.title ?? x.id, id: x.id })}
                 </option>
               ))}
             </select>

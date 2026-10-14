@@ -2,6 +2,8 @@
  * CardTile（目录中的完整卡片）与 CardRowCompact（紧凑行）（08 §5.1；05 §2.4、§2.8、§2.9、§2.13）。
  * - 卡片整体是拉伸链接到 /labs/:labId，卡片上没有“开始”按钮；唯一独立按钮“回到工作台”只在本卡持有环境时出现，可单独聚焦；
  * - 状态、难度、费用全部“形状 + 文字”；搜索命中高亮（mark）；只命中原 Lab 编号或考点时底部写出命中内容；
+ * - 视觉化（I6 c）：服务图标 + 迷你架构图（完成后的构成）+ 标题 + 一行简介；难度 / 时长 / 费用 / 部署等级用图标 + 短标签，
+ *   时间上限与部署等级的完整说明只给读屏（简介页有完整说明）；
  * - 持有环境的卡片每秒刷新剩余时间（只有这一张卡片计时）。
  */
 import { Fragment, type ReactNode } from 'react';
@@ -10,11 +12,11 @@ import { useServices } from '../../../app/context';
 import { pillTarget } from '../../../app/sessionRouting';
 import { msg, t } from '../../../i18n';
 import { CostTierMark, Skeleton, useSecondTick } from '../../../ui';
+import { GroupSymbol, ServiceGlyph } from '../../../ui/glyphs';
 import {
   cardStateOf,
   catClass,
   categoryLabel,
-  estimateText,
   isPlanned,
   limitText,
   searchHint,
@@ -23,9 +25,10 @@ import {
   servicesCount,
   type Holder,
 } from '../model';
-import { COST_TIER_HINT, DIFFICULTY_TEXT, FLAG_TEXT, PROVISION_HINT, PROVISION_TEXT, S } from '../strings';
+import { DIFFICULTY_TEXT, FLAG_TEXT, PROVISION_TEXT, S } from '../strings';
 import type { BadgeView, CatalogCard, LabItem, Taxonomy } from '../types';
-import { BadgeMark, badgeStateOf, badgeStateText, DifficultyBar, ServiceAbbr, StateText } from './Marks';
+import { BadgeMark, badgeStateOf, badgeStateText, StateText } from './Marks';
+import { CardArch, CardGlyph, CardMetrics } from './Visuals';
 import { untranslated } from '../../../i18n/content';
 import { UntranslatedIf } from '../../../i18n/Untranslated';
 
@@ -66,7 +69,7 @@ export function CardBadge({ card, tax, badge, size = 24 }: { card: CatalogCard; 
   return <BadgeMark kind={card.kind} label={badgeLabel(card, tax)} state={badgeStateOf(badge)} title={card.badge?.title ?? card.id} size={size} />;
 }
 
-/** 场景卡的服务方块（primary 在前、supporting 在后，最多 5 个，超出显示 +N；选做为虚线框）。 */
+/** 场景卡的服务图标（primary 在前、supporting 在后，最多 5 个，超出显示 +N；选做为虚线框）。 */
 export function ServiceStrip({ card, tax, max = 5 }: { card: CatalogCard; tax: Taxonomy; max?: number }) {
   const ordered = [...card.services].sort((a, b) => (a.role === b.role ? 0 : a.role === 'primary' ? -1 : 1));
   const names = ordered.map((s) => serviceOf(tax, s.id)?.name ?? s.id);
@@ -76,18 +79,13 @@ export function ServiceStrip({ card, tax, max = 5 }: { card: CatalogCard; tax: T
         const sv = serviceOf(tax, s.id);
         const cat = serviceCategory(tax, s.id);
         return (
-          <ServiceAbbr
-            key={s.id}
-            abbr={sv?.abbr ?? s.id.toUpperCase()}
-            category={cat}
-            size={20}
-            optional={s.optional}
-            title={`${sv?.name ?? s.id} · ${categoryLabel(tax, cat)}${s.optional ? S.card.scenarioOptional : ''}`}
-          />
+          <span key={s.id} className="svs-item" title={`${sv?.name ?? s.id} · ${categoryLabel(tax, cat)}${s.optional ? S.card.scenarioOptional : ''}`} aria-hidden="true">
+            <ServiceGlyph id={s.id} size={24} tone={s.optional ? 'ghost' : 'solid'} />
+          </span>
         );
       })}
       {ordered.length > max ? <span className="small">+{ordered.length - max}</span> : null}
-      <span className="sr">{t(S.card.services, { list: names.join('、') })}</span>
+      <span className="sr">{t(S.card.services, { list: names.join(PL.listSep) })}</span>
     </div>
   );
 }
@@ -110,49 +108,48 @@ export function CardTile({ card, tax, item, holder, personal, query, flags }: Ca
   const state = cardStateOf(card.id, holder, item, clock.now());
   const planned = isPlanned(card);
   const hint = searchHint(card, query);
-  const primary = card.services.find((s) => s.role === 'primary')?.id;
-  const abbr = primary ? serviceOf(tax, primary)?.abbr : null;
   const titleId = `t-${card.id}`;
-  const cls = ['ctile', card.kind === 'service' ? `svc ${catClass(card.category)}` : 'sc', isHolder ? 'holder' : '']
+  const cls = ['ctile', 'vis', card.kind === 'service' ? `svc ${catClass(card.category)}` : 'sc', isHolder ? 'holder' : '']
     .filter(Boolean)
     .join(' ');
   const badge = item?.badge ?? null;
   const target = isHolder ? pillTarget({ sessionId: holder.sessionId, state: holder.state }) : null;
+  const shownFlags = flags.filter((f) => f !== 'beta').slice(0, 2);
   return (
     <article className={cls} aria-labelledby={titleId} data-card={card.id}>
-      <div className="kindline">
-        <span>{kindLine(card, tax)}</span>
-        <span className="d">
-          <DifficultyBar value={card.difficulty} />
-        </span>
+      <div className="ct-head">
+        <CardGlyph card={card} size={40} />
+        <div className="ct-title">
+          <span className="kindline">
+            {card.kind === 'service' ? <GroupSymbol group={card.category ?? 'base'} size={8} /> : null}
+            <span>{kindLine(card, tax)}</span>
+            {flags.includes('beta') ? <span className="tag info">{FLAG_TEXT.beta}</span> : null}
+          </span>
+          <h3 id={titleId}>
+            <Link to={`/labs/${card.id}`}>
+              {highlight(card.kind === 'service' ? (card.service ?? card.title) : card.title, query)}
+              <span className="fn">{highlight((card.kind === 'service' ? card.function : card.subtitle) ?? '', query)}</span>
+            </Link>
+            <UntranslatedIf show={untranslated(card, card.kind === 'service' ? '/function' : '/title') || untranslated(card, '/summary')} />
+          </h3>
+        </div>
       </div>
-      <div className="row top nowrap-row">
-        {card.kind === 'service' && abbr ? <ServiceAbbr abbr={abbr} category={card.category} title={`${card.service ?? ''} · ${categoryLabel(tax, card.category)}`} /> : null}
-        <h3 id={titleId}>
-          <Link to={`/labs/${card.id}`}>
-            {highlight(card.kind === 'service' ? (card.service ?? card.title) : card.title, query)}
-            <span className="fn">{highlight((card.kind === 'service' ? card.function : card.subtitle) ?? '', query)}</span>
-          </Link>
-        </h3>
-      </div>
-      {card.kind === 'scenario' ? <ServiceStrip card={card} tax={tax} /> : null}
+      <CardArch card={card} />
       <p className="sum" title={card.summary}>
         {highlight(card.summary, query)}
       </p>
       <div className="meta">
-        {estimateText(card.estimatedMinutes)} · {t(S.card.limit, { t: limitText(card.timeLimitMinutes) })}
-        <br />
-        <span title={COST_TIER_HINT[card.costTier.required]}>
-          <CostTierMark tier={card.costTier.required} withOptional={card.costTier.withOptional} sources={(card.mainDrivers ?? []).join('、') || undefined} />
-        </span>{' '}
-        · <span title={PROVISION_HINT[card.provisionClass]}>{t(S.card.provision, { t: PROVISION_TEXT[card.provisionClass] ?? card.provisionClass })}</span>{' '}
-        {planned ? <span className="tag planned">{S.card.planned}</span> : null}{' '}
-        {flags.slice(0, 3).map((f) => (
-          <span key={f} className={f === 'beta' ? 'tag info' : 'tag'} title={flags.map((x) => FLAG_TEXT[x] ?? x).join('、')}>
+        <CardMetrics card={card} />
+        {planned ? <span className="tag planned">{S.card.planned}</span> : null}
+        {shownFlags.map((f) => (
+          <span key={f} className="tag" title={flags.map((x) => FLAG_TEXT[x] ?? x).join(PL.listSep)}>
             {FLAG_TEXT[f] ?? f}
           </span>
         ))}
         {hint ? <span className="lab-hit">{hint.kind === 'lab' ? t(S.card.legacy, { n: hint.n }) : t(PL.topic, { text: hint.text })}</span> : null}
+        <span className="sr">
+          {t(S.card.limit, { t: limitText(card.timeLimitMinutes) })} · {t(S.card.provision, { t: PROVISION_TEXT[card.provisionClass] ?? card.provisionClass })}
+        </span>
       </div>
       <div className="foot">
         {personal === 'loading' ? (
@@ -199,6 +196,7 @@ export function CardRowCompact({ card, item, holder = null, extra, current }: Ca
       <Link className="id" to={`/labs/${card.id}`}>
         {card.id}
       </Link>
+      <CardGlyph card={card} size={20} max={2} />
       <span className="wrap-any">
         {card.title}
         <UntranslatedIf show={untranslated(card, '/title')} />

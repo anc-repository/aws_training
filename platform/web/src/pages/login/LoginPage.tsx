@@ -10,14 +10,21 @@ import { Navigate, useNavigate, useSearchParams } from 'react-router-dom';
 import type { CognitoGroup } from '@atl/shared';
 import { useAuth, useServices } from '../../app/context';
 import { safeNext } from '../../auth/authService';
-import { msg } from '../../i18n';
+import { msg, t } from '../../i18n';
 import { BrandMark, Button, Field, Icon, Shape } from '../../ui';
 import './login.css';
 
+/** 退出原因（getter：切换语言后取到新语言的文案）。 */
 const REASON_TEXT: Readonly<Record<string, string>> = {
-  expired: msg.auth.reasonExpired,
-  reauth: msg.auth.reasonReauth,
-  'signed-out-elsewhere': msg.auth.reasonSignedOutElsewhere,
+  get expired() {
+    return msg.auth.reasonExpired;
+  },
+  get reauth() {
+    return msg.auth.reasonReauth;
+  },
+  get 'signed-out-elsewhere'() {
+    return msg.auth.reasonSignedOutElsewhere;
+  },
 };
 
 /** 公开页的登录卡片（08 P01 线框；原型 loginCard）。 */
@@ -62,9 +69,9 @@ function DevLoginForm({ next }: { next: string }) {
       <p className="small muted">{a.devHint}</p>
       <Field label={a.devGroup}>
         <select className="input" value={group} onChange={(e) => setGroup(e.target.value as CognitoGroup)}>
-          <option value="learner">learner（{msg.roles.L}）</option>
-          <option value="assistant">assistant（{msg.roles.A}）</option>
-          <option value="observer">observer（{msg.roles.O}）</option>
+          <option value="learner">{t(msg.pages.labs.paren, { text: 'learner', note: msg.roles.L })}</option>
+          <option value="assistant">{t(msg.pages.labs.paren, { text: 'assistant', note: msg.roles.A })}</option>
+          <option value="observer">{t(msg.pages.labs.paren, { text: 'observer', note: msg.roles.O })}</option>
         </select>
       </Field>
       <Field label={a.devSub} error={error}>

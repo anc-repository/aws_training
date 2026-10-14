@@ -43,6 +43,7 @@ export interface StartDialogProps {
 
 type QuoteState = { status: 'loading' } | { status: 'ok'; quote: CostQuote } | { status: 'error'; error: ApiError };
 
+const PC = msg.pages.card;
 const INPUTS_KEY = (labId: string) => `atl.start-inputs.v1.${labId}`;
 
 function problemErrors(e: ApiError): { path: string; message: string }[] {
@@ -322,7 +323,7 @@ export function StartDialog(p: StartDialogProps) {
                     <>
                       {SS.dialog.reusePlan}
                       {[
-                        q.reusePlan.enable.length ? t(SS.dialog.reuseEnable, { list: q.reusePlan.enable.join('、') }) : null,
+                        q.reusePlan.enable.length ? t(SS.dialog.reuseEnable, { list: q.reusePlan.enable.join(PC.nameSep) }) : null,
                         q.reusePlan.change.length
                           ? t(SS.dialog.reuseChange, {
                               list: q.reusePlan.change
@@ -333,15 +334,15 @@ export function StartDialog(p: StartDialogProps) {
                                     downtime: c.downtime ? SS.dialog.reuseDowntime : SS.dialog.reuseNoDowntime,
                                   }),
                                 )
-                                .join('、'),
+                                .join(PC.nameSep),
                             })
                           : null,
-                        q.reusePlan.extraModules.length ? t(SS.dialog.reuseExtra, { list: q.reusePlan.extraModules.join('、') }) : null,
+                        q.reusePlan.extraModules.length ? t(SS.dialog.reuseExtra, { list: q.reusePlan.extraModules.join(PC.nameSep) }) : null,
                         t(SS.dialog.reuseManual, { n: q.reusePlan.manualResources }),
                       ]
                         .filter(Boolean)
-                        .join('；')}
-                      。
+                        .join(PC.listSep)}
+                      {PC.period}
                       <br />
                       {SS.dialog.reuseFailure}
                     </>
@@ -410,7 +411,7 @@ export function StartDialog(p: StartDialogProps) {
                             }}
                           />
                           <span>
-                            {meta.label}：{meta.hint}
+                            {t(PC.labelHint, { label: meta.label, hint: meta.hint ?? '' })}
                           </span>
                         </label>
                         {err ? <span className="ferr">{err}</span> : null}
@@ -493,7 +494,7 @@ export function StartDialog(p: StartDialogProps) {
             ) : impacts.length ? (
               <div className="note amber">
                 <Shape name="tri" />
-                <span>{t(SS.dialog.accountImpact, { list: impacts.map((i) => i.resource).join('、') })}</span>
+                <span>{t(SS.dialog.accountImpact, { list: impacts.map((i) => i.resource).join(PC.nameSep) })}</span>
               </div>
             ) : null}
             {budgetWarn ? (
@@ -550,7 +551,8 @@ export function StartDialog(p: StartDialogProps) {
             </h3>
             <p className="small">
               {t(SS.dialog.timeText, { limit: t(msg.pages.card.hours, { n: (limitMin / 60).toFixed(1).replace(/\.0$/, '') }), n: ext.maxCount, m: ext.minutesEach })}
-              {typeof readyIdle === 'number' ? t(SS.dialog.timeIdle, { idle: readyIdle }) : ''}。
+              {typeof readyIdle === 'number' ? t(SS.dialog.timeIdle, { idle: readyIdle }) : ''}
+              {PC.period}
               <br />
               {t(SS.dialog.timeProvision, { t: PROVISION_TEXT[card.provisionClass] ?? card.provisionClass, c: card.provisionClass })}
             </p>

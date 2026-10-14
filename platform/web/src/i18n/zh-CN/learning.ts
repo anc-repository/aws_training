@@ -38,6 +38,16 @@ export default {
     notEarned: '未获得。完成本卡片（最终复核通过）即获得徽章；小测成绩只记录。',
     openCard: '打开卡片',
   },
+  /** 视觉化（I6 f）：进度环与条形图的名称。 */
+  visual: {
+    trackRing: '{track}：计入的卡片 / 最少完成',
+    masteryRing: '已掌握及以上的服务',
+    masteryChart: '各等级的服务数（共 {n} 个）',
+    masteryTitleN: '{title}（{n}）',
+    level: '等级',
+    services: '服务数',
+    badgesRing: '已获得的徽章',
+  },
   history: {
     start: '开始时间',
     card: '卡片',

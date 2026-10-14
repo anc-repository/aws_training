@@ -21,6 +21,7 @@ import { S } from '../labs/strings';
 import type { CertificateItem, LabItem, TrackDetailView } from '../labs/types';
 import { ClaimCertificateDialog, reasonsText } from './ClaimCertificateDialog';
 
+/** 吊销原因（对象引用：词典叶子原地改写，切换语言后取到新语言）。 */
 const REVOKE_REASON: Readonly<Record<string, string>> = msg.pages.tracks.revokeReason;
 
 function CondState({ ok, text, warn }: { ok: boolean; text: string; warn?: boolean }) {
@@ -149,7 +150,7 @@ export default function TrackPage() {
                   {summary.groups ? (
                     <CondState
                       ok={summary.groupsDone === summary.groups}
-                      text={`${summary.groupsDone} / ${summary.groups}${groupsMissing.length ? t(S.track.condGroupsMissing, { list: groupsMissing.join('、') }) : ''}`}
+                      text={`${summary.groupsDone} / ${summary.groups}${groupsMissing.length ? t(S.track.condGroupsMissing, { list: groupsMissing.join(msg.pages.tracks.listSep) }) : ''}`}
                     />
                   ) : (
                     S.track.condGroupsNone
@@ -162,7 +163,7 @@ export default function TrackPage() {
                   {ratio === null ? (
                     '—'
                   ) : (
-                    <CondState ok={ratio >= summary.minRatio} warn={ratio < summary.minRatio} text={`${pct(ratio)}（${summary.verified} / ${counted}）`} />
+                    <CondState ok={ratio >= summary.minRatio} warn={ratio < summary.minRatio} text={t(msg.pages.labs.paren, { text: pct(ratio), note: `${summary.verified} / ${counted}` })} />
                   )}
                 </td>
               </tr>
@@ -213,8 +214,9 @@ export default function TrackPage() {
                     <span className="st fail">
                       <Shape name="xbox" />
                       <span className="t">
-                        {S.track.revokedTag}
-                        {c.revocationReason || c.reason ? `（${REVOKE_REASON[String(c.revocationReason ?? c.reason)] ?? String(c.revocationReason ?? c.reason)}）` : ''}
+                        {c.revocationReason || c.reason
+                          ? t(msg.pages.labs.paren, { text: S.track.revokedTag, note: REVOKE_REASON[String(c.revocationReason ?? c.reason)] ?? String(c.revocationReason ?? c.reason) })
+                          : S.track.revokedTag}
                       </span>
                     </span>
                   ) : (

@@ -10,7 +10,7 @@ import { useServices, useSessionSync } from '../../app/context';
 import { isTerminal } from '@atl/shared';
 import { serviceCells, type Holder, type ProgressLike, type ServiceCellView } from './model';
 import type { CardIntro, CatalogCard, CatalogIndex, CatalogRef, LabsView, TrackDef } from './types';
-import { contentUrl, fetchContentJson, type FetchContentResult } from '../../i18n/content';
+import { contentI18n, contentUrl, fetchContentJson, type FetchContentResult } from '../../i18n/content';
 
 // ---------------------------------------------------------------------------------------------------------------
 // 静态内容
@@ -139,12 +139,23 @@ export interface CatalogData {
   cells: readonly ServiceCellView[];
 }
 
+/**
+ * 所选语言的索引不存在、整份退回源语言时（`i18n.whole`），把这个标记带到每张卡片与每条路径上，
+ * 让卡片上的“未翻訳”标记（untranslated(card, …)）也能显示；卡片自己带 `i18n` 时不改。
+ */
+export function inheritWholeI18n(index: CatalogIndex): CatalogIndex {
+  const i = contentI18n(index);
+  if (!i?.whole) return index;
+  const mark = <T extends object>(x: T): T => (contentI18n(x) ? x : { ...x, i18n: i });
+  return { ...index, cards: index.cards.map(mark), tracks: index.tracks.map(mark) };
+}
+
 /** `GET /catalog` → 静态索引 index.json。 */
 export function useCatalog(): CatalogData {
   const { api } = useServices();
   const ref = useResource<CatalogRef>('catalog', () => api.get<CatalogRef>('getCatalog'));
   const indexUrl = ref.data?.indexUrl ?? (ref.data ? `/content/${ref.data.catalogVersion}/catalog/index.json` : null);
-  const idx = useResource<CatalogIndex>(indexUrl, () => loadContent<CatalogIndex>(indexUrl!));
+  const idx = useResource<CatalogIndex>(indexUrl, () => loadContent<CatalogIndex>(indexUrl!).then(inheritWholeI18n));
   const index = idx.data;
   const cards = useMemo(() => new Map((index?.cards ?? []).map((c) => [c.id, c])), [index]);
   const tracks = useMemo(() => new Map((index?.tracks ?? []).map((x) => [x.id, x])), [index]);

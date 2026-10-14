@@ -185,23 +185,24 @@ export function formatMoney(n: number, currency = 'USD'): string {
 
 export function amountText(a: Amount, currency = 'USD'): string {
   if (a.kind === 'text') return a.text;
-  return `≈ ${formatMoney(a.low, currency)}～${formatMoney(a.high, currency)}${a.unit}`;
+  return t(msg.pages.card.range, { low: formatMoney(a.low, currency), high: formatMoney(a.high, currency), unit: a.unit });
 }
 
-const REF_TEXT: Readonly<Record<string, string>> = {
-  'start-profile': SS.quote.refStart,
-  workstation: SS.quote.refWorkstation,
-  'target-modules': SS.quote.refTarget,
-  target: SS.quote.refTarget,
-  'extra-stacks': SS.quote.refExtra,
-  'extra-stack': SS.quote.refExtra,
-  module: SS.quote.refModule,
+/** 报价行的引用 → 说明的键（在使用时取文案：切换语言后取到新语言）。 */
+const REF_KEY: Readonly<Record<string, 'refStart' | 'refWorkstation' | 'refTarget' | 'refExtra' | 'refModule'>> = {
+  'start-profile': 'refStart',
+  workstation: 'refWorkstation',
+  'target-modules': 'refTarget',
+  target: 'refTarget',
+  'extra-stacks': 'refExtra',
+  'extra-stack': 'refExtra',
+  module: 'refModule',
 };
 
 export function lineText(l: QuoteLine): string {
   const parts = [l.service, l.dimension, l.detail].filter((x): x is string => !!x && !!x.trim());
   if (parts.length) return parts.join(' · ');
-  if (l.ref) return REF_TEXT[l.ref] ?? l.ref;
+  if (l.ref) return REF_KEY[l.ref] ? SS.quote[REF_KEY[l.ref]!] : l.ref;
   return l.pricingKey ?? l.key ?? '—';
 }
 
@@ -243,7 +244,7 @@ export function quoteRows(q: CostQuote, o: QuoteRowsOptions): QuoteRowView[] {
       : { key: 'workstation', label: SS.quote.workstation, desc: SS.quote.workstationSaving, amount: { kind: 'text', text: '—' } },
   );
   rows.push({ key: 'build', label: SS.quote.build, desc: SS.quote.buildDesc, amount: isRange(po?.perSession) ? range(po?.perSession, SS.quote.perRun) : { kind: 'text', text: SS.quote.notProvided } });
-  rows.push({ key: 'orchestration', label: SS.quote.orchestration, desc: po?.qualitative?.length ? po.qualitative.join('；') : SS.quote.orchestrationDesc, amount: { kind: 'text', text: SS.quote.noEstimate } });
+  rows.push({ key: 'orchestration', label: SS.quote.orchestration, desc: po?.qualitative?.length ? po.qualitative.join(msg.pages.card.listSep) : SS.quote.orchestrationDesc, amount: { kind: 'text', text: SS.quote.noEstimate } });
   rows.push({ key: 'deploy', label: SS.quote.deploy, desc: SS.quote.deployDesc, amount: { kind: 'text', text: '—' } });
   const maxMin = q.maxTotalMinutes ?? o.limitMinutes + o.extensions.count * o.extensions.minutes;
   rows.push({

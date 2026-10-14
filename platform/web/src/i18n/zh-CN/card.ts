@@ -235,6 +235,19 @@ export default {
     budget: '请填写两个正数，最多两位小数，用逗号分隔',
     costTags: '请先执行平台动作并勾选',
   },
+  /** 视觉化（I6 d）：架构图、“有 vs 没有”、折叠。 */
+  visual: {
+    archTitle: '开始时 → 完成后',
+    archAria: '{id} 的架构图',
+    compareTitle: '有 vs 没有',
+    without: '没有 {name}',
+    with: '有 {name}',
+    none: '（没有）',
+    local: '本地实现',
+    notYet: '开始时还没有',
+    costMore: '费用说明',
+    confusable: '{label}：{a} / {b}：{rule}',
+  },
   quiz: {
     title: '{id} 小测',
     sub: '{n} 题 · 不限时 · 小测不依赖实验环境',

@@ -13,7 +13,7 @@ import { useGlobalStatus } from '../../app/globalStatus';
 import { pillTarget } from '../../app/sessionRouting';
 import { getThemePref, setThemePref, type ThemePref } from '../../app/theme';
 import { RoleDeniedPage } from '../../components/ErrorPages';
-import { msg, t } from '../../i18n';
+import { msg, rich, t } from '../../i18n';
 import { formatDate } from '../../lib/format';
 import { lsGet, lsSet, STORAGE_KEYS } from '../../lib/storage';
 import { BUDGET_META, Button, CommandBlock, Dialog, ErrorPanel, Field, SESSION_STATE_META, Shape, Skeleton } from '../../ui';
@@ -457,15 +457,16 @@ function UpgradeTab({ readOnly }: { readOnly: boolean }) {
         ) : hasUpdate ? (
           <>
             <b>{t(ST.upgrade.latest, { v: latest })}</b>
-            {p.update?.notesUrl ? (
-              <>
-                （
-                <a href={p.update.notesUrl} target="_blank" rel="noopener noreferrer">
-                  {ST.upgrade.notes} ↗<span className="sr">{msg.app.newTab}</span>
-                </a>
-                ）
-              </>
-            ) : null}
+            {p.update?.notesUrl
+              ? rich(msg.pages.labs.paren, {
+                  text: '',
+                  note: (
+                    <a href={p.update.notesUrl} target="_blank" rel="noopener noreferrer">
+                      {ST.upgrade.notes} ↗<span className="sr">{msg.app.newTab}</span>
+                    </a>
+                  ),
+                })
+              : null}
           </>
         ) : (
           ST.upgrade.upToDate

@@ -14,7 +14,7 @@ import { useAuth, useServices, useSessionSync } from '../../app/context';
 import { useGlobalStatus } from '../../app/globalStatus';
 import { pillTarget } from '../../app/sessionRouting';
 import { safeNext } from '../../auth/authService';
-import { msg, t } from '../../i18n';
+import { msg, rich, t } from '../../i18n';
 import { formatClock, formatCountdown, formatDate } from '../../lib/format';
 import { redact } from '../../lib/redact';
 import { lsGet, lsSet, ssGet, ssSet } from '../../lib/storage';
@@ -236,7 +236,7 @@ export default function SetupPage() {
                   <span className="t">{VERDICT_META.pass.text}</span>
                 </span>
                 <details>
-                  <summary>{t(SU.s2.passed, { n: pass.length, list: pass.slice(0, 4).map(preflightTitle).join('、') })}</summary>
+                  <summary>{t(SU.s2.passed, { n: pass.length, list: pass.slice(0, 4).map(preflightTitle).join(msg.pages.labs.listSep) })}</summary>
                   <ul className="small">
                     {pass.map((i) => (
                       <li key={i.id}>{preflightTitle(i)}</li>
@@ -259,7 +259,7 @@ export default function SetupPage() {
           <dl className="kv">
             <dt>{SU.s3.region}</dt>
             <dd>
-              <span className="mono">{region}</span>（{SU.s3.regionFixed}）
+              {rich(msg.pages.labs.paren, { text: <span className="mono">{region}</span>, note: SU.s3.regionFixed })}
             </dd>
             <dt>{SU.s3.dr}</dt>
             <dd>{platform?.drRegion ? <span className="mono">{platform.drRegion}</span> : SU.s3.drNone}</dd>
@@ -489,7 +489,7 @@ export default function SetupPage() {
                 )}
                 <span>
                   {n} {SU.steps[n - 1]}
-                  {done[n] ? <span className="sr">（{SU.done}）</span> : null}
+                  {done[n] ? <span className="sr">{t(msg.pages.labs.paren, { text: '', note: SU.done })}</span> : null}
                 </span>
               </Link>
             ))}
@@ -526,7 +526,7 @@ export default function SetupPage() {
                 {finishLabel}
               </Button>
             )}
-            {!nextStep && L && fixItems.length ? <span className="small muted">{t(SU.s7.fixLeft, { n: fixItems.length, list: fixItems.map(preflightTitle).join('、') })}</span> : null}
+            {!nextStep && L && fixItems.length ? <span className="small muted">{t(SU.s7.fixLeft, { n: fixItems.length, list: fixItems.map(preflightTitle).join(msg.pages.labs.listSep) })}</span> : null}
           </div>
         </section>
       </div>

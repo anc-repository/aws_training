@@ -197,27 +197,27 @@ export default {
     BAD_RESPONSE: '', // 平台返回了无法识别的响应
   },
   auth: {
-    loginTitle: '', // 登录
-    tagline: '', // 部署在你自己 AWS 账号中的 SAA-C03 实验平台。
-    signIn: '', // 使用平台账号登录
-    firstLogin: '', // 首次登录需要修改临时密码，并用验证器 App 绑定 TOTP 两步验证。临时密码在安装平台时发送到学员邮箱。
-    forgot: '', // 忘记密码：在登录页点“忘记密码”。丢失验证器：请账号管理员在 Cognito 控制台重置（平台不提供绕过两步验证的入口）。
-    tabOnly: '', // 登录状态只保存在当前浏览器标签页，关闭标签页后需要重新登录。
-    reasonExpired: '', // 登录已过期，请重新登录。你刚才所在的页面会在登录后自动打开。
-    reasonReauth: '', // 这个操作（打开终端、控制台登录、查看管理员密码、领取证书、平台动作、卸载准备）要求最近 60 分钟内登录过。
-    reasonSignedOutElsewhere: '', // 你已在另一个标签页退出。
-    callbackWorking: '', // 正在完成登录…
-    callbackStale: '', // 登录请求已失效（可能是打开了旧的登录页）。请重新登录。
-    callbackError: '', // 登录未完成：{error}
-    tokenFailed: '', // 无法连接登录服务，请检查网络后重试。
-    signedOut: '', // 你已退出 ATL 实验平台。
-    configFailed: '', // 无法读取平台配置（/config.json）。请稍后重试。
-    devTitle: '', // 开发模式登录
-    devHint: '', // 本地开发（dev-server）使用开发令牌，不连接 Cognito。只在本机地址可用。
-    devGroup: '', // 角色
-    devSub: '', // 用户标识
-    devStaleAuth: '', // 模拟 60 分钟前登录（测试“需要重新登录”）
-    devSignIn: '', // 以开发身份登录
+    loginTitle: 'Sign in', // 登录
+    tagline: 'An SAA-C03 lab platform deployed in your own AWS account.', // 部署在你自己 AWS 账号中的 SAA-C03 实验平台。
+    signIn: 'Sign in with your platform account', // 使用平台账号登录
+    firstLogin: 'On first sign-in you change the temporary password and set up TOTP two-step verification with an authenticator app. The temporary password was emailed to the learner when the platform was installed.', // 首次登录需要修改临时密码，并用验证器 App 绑定 TOTP 两步验证。临时密码在安装平台时发送到学员邮箱。
+    forgot: 'Forgot your password: choose “Forgot your password?” on the sign-in page. Lost your authenticator: ask the account administrator to reset it in the Cognito console (the platform has no way around two-step verification).', // 忘记密码：在登录页点“忘记密码”。丢失验证器：请账号管理员在 Cognito 控制台重置（平台不提供绕过两步验证的入口）。
+    tabOnly: 'Your sign-in is kept only in this browser tab; after closing the tab you need to sign in again.', // 登录状态只保存在当前浏览器标签页，关闭标签页后需要重新登录。
+    reasonExpired: 'Your sign-in expired. Please sign in again; the page you were on opens automatically afterwards.', // 登录已过期，请重新登录。你刚才所在的页面会在登录后自动打开。
+    reasonReauth: 'This action (opening the terminal, console sign-in, viewing the admin password, claiming a certificate, platform actions, preparing to uninstall) requires a sign-in within the last 60 minutes.', // 这个操作（打开终端、控制台登录、查看管理员密码、领取证书、平台动作、卸载准备）要求最近 60 分钟内登录过。
+    reasonSignedOutElsewhere: 'You signed out in another tab.', // 你已在另一个标签页退出。
+    callbackWorking: 'Finishing sign-in…', // 正在完成登录…
+    callbackStale: 'The sign-in request is no longer valid (an old sign-in page may have been opened). Please sign in again.', // 登录请求已失效（可能是打开了旧的登录页）。请重新登录。
+    callbackError: 'Sign-in not completed: {error}', // 登录未完成：{error}
+    tokenFailed: 'Can’t reach the sign-in service. Check your network and try again.', // 无法连接登录服务，请检查网络后重试。
+    signedOut: 'You have signed out of the ATL Lab Platform.', // 你已退出 ATL 实验平台。
+    configFailed: 'The platform configuration (/config.json) can’t be read. Please try again later.', // 无法读取平台配置（/config.json）。请稍后重试。
+    devTitle: 'Development sign-in', // 开发模式登录
+    devHint: 'Local development (dev-server) uses development tokens and doesn’t connect to Cognito. Available on this machine’s address only.', // 本地开发（dev-server）使用开发令牌，不连接 Cognito。只在本机地址可用。
+    devGroup: 'Role', // 角色
+    devSub: 'User ID', // 用户标识
+    devStaleAuth: 'Pretend I signed in 60 minutes ago (to test “sign in again”)', // 模拟 60 分钟前登录（测试“需要重新登录”）
+    devSignIn: 'Sign in as developer', // 以开发身份登录
   },
   i18n: {
     switcher: 'Language', // 界面语言

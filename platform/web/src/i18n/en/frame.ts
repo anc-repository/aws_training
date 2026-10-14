@@ -53,15 +53,15 @@ export default {
   onboarding: '', // 首次设置还没有完成：可以先继续实验，之后在 设置 › 平台 中重看。
   footerCatalog: '', // 目录 {v}
   login: {
-    devSubInvalid: '', // 只能包含字母、数字、- 与 _（1～64 个字符）
-    redirecting: '', // 正在跳转…
-    callbackFailed: '', // 登录未完成
-    signedOut: '', // 已退出
+    devSubInvalid: 'Only letters, digits, - and _ (1–64 characters)', // 只能包含字母、数字、- 与 _（1～64 个字符）
+    redirecting: 'Redirecting…', // 正在跳转…
+    callbackFailed: 'Sign-in not completed', // 登录未完成
+    signedOut: 'Signed out', // 已退出
   },
-  crumbs: '', // 面包屑
-  catalog: '', // 卡片目录
-  about: '', //  · 约 {n} 分钟 ·
-  otherParams: '', // …（其余参数 UsePreviousValue=true）
+  crumbs: 'Breadcrumb', // 面包屑
+  catalog: 'Card catalog', // 卡片目录
+  about: ' · about {n} min ·', //  · 约 {n} 分钟 ·
+  otherParams: '… (other parameters: UsePreviousValue=true)', // …（其余参数 UsePreviousValue=true）
   ws: {
     catalog: '', // ‹ 目录
     title: '', // 工作台
@@ -108,83 +108,83 @@ export default {
   },
   preflight: {
     verdict: {
-      fix: '', // 需处理
-      warn: '', // 提示
-      pass: '', // 通过
-      unknown: '', // 无法检测
+      fix: 'Fix', // 需处理
+      warn: 'Notice', // 提示
+      pass: 'Passed', // 通过
+      unknown: 'Can’t detect', // 无法检测
     },
-    openQuotas: '', // 打开 Service Quotas
-    stackNamePlaceholder: '', // <要删除的栈名>
+    openQuotas: 'Open Service Quotas', // 打开 Service Quotas
+    stackNamePlaceholder: '<stack name to delete>', // <要删除的栈名>
     items: {
       region: {
-        ok: '', // 区域在已验证列表中
-        title: '', // 区域不在已验证列表中
-        body: '', // 部分卡片依赖的服务或实例类型在这个区域可能不可用（以官方文档为准）。
+        ok: 'The Region is on the verified list', // 区域在已验证列表中
+        title: 'The Region isn’t on the verified list', // 区域不在已验证列表中
+        body: 'Some services or instance types that cards rely on may be unavailable in this Region (see the official documentation).', // 部分卡片依赖的服务或实例类型在这个区域可能不可用（以官方文档为准）。
       },
       'default-vpc': {
-        ok: '', // 默认 VPC 与默认子网
-        title: '', // 默认 VPC：这个区域中没有默认 VPC
-        body: '', // L0 实验机与工作台都放在默认 VPC 的公有子网中。请自己执行下面的命令（平台不会代为创建，也不会回收默认 VPC）：
+        ok: 'Default VPC and default subnets', // 默认 VPC 与默认子网
+        title: 'Default VPC: this Region has no default VPC', // 默认 VPC：这个区域中没有默认 VPC
+        body: 'The L0 lab instance and the workbench go into public subnets of the default VPC. Run the command below yourself (the platform neither creates nor reclaims the default VPC):', // L0 实验机与工作台都放在默认 VPC 的公有子网中。请自己执行下面的命令（平台不会代为创建，也不会回收默认 VPC）：
       },
       'vcpu-quota': {
-        ok: '', // 按需实例 vCPU 配额
-        title: '', // EC2 按需实例 vCPU 配额可能较低
-        body: '', // 实验机与工作台同时运行；高费用卡片还会同时运行多台实例。
+        ok: 'On-Demand instance vCPU quota', // 按需实例 vCPU 配额
+        title: 'The EC2 On-Demand vCPU quota may be low', // EC2 按需实例 vCPU 配额可能较低
+        body: 'The lab instance and the workbench run at the same time; high cost tier cards run several more instances at once.', // 实验机与工作台同时运行；高费用卡片还会同时运行多台实例。
       },
       'existing-trail': {
-        ok: '', // 没有已有的 CloudTrail trail
-        title: '', // 账号已有 CloudTrail trail
-        body: '', // svc-audit 等审计类卡片会以“只读接入”方式运行。
+        ok: 'No existing CloudTrail trail', // 没有已有的 CloudTrail trail
+        title: 'The account already has a CloudTrail trail', // 账号已有 CloudTrail trail
+        body: 'Audit cards such as svc-audit run in “read-only attach” mode.', // svc-audit 等审计类卡片会以“只读接入”方式运行。
       },
       guardduty: {
-        ok: '', // 没有已启用的 GuardDuty
-        title: '', // 账号已启用 GuardDuty
-        body: '', // 威胁检测类卡片（svc-threat-detection、sc-threat-compliance）会以“只读接入”方式运行。
+        ok: 'GuardDuty isn’t enabled', // 没有已启用的 GuardDuty
+        title: 'GuardDuty is already enabled in the account', // 账号已启用 GuardDuty
+        body: 'Threat detection cards (svc-threat-detection, sc-threat-compliance) run in “read-only attach” mode.', // 威胁检测类卡片（svc-threat-detection、sc-threat-compliance）会以“只读接入”方式运行。
       },
       'config-recorder': {
-        ok: '', // 没有已有的 Config 记录器
-        title: '', // 账号已有 AWS Config 记录器
-        body: '', // 合规类卡片（svc-compliance、sc-security-baseline）会以“只读接入”方式运行。
+        ok: 'No existing Config recorder', // 没有已有的 Config 记录器
+        title: 'The account already has an AWS Config recorder', // 账号已有 AWS Config 记录器
+        body: 'Compliance cards (svc-compliance, sc-security-baseline) run in “read-only attach” mode.', // 合规类卡片（svc-compliance、sc-security-baseline）会以“只读接入”方式运行。
       },
       inspector: {
-        ok: '', // Inspector 未激活
-        title: '', // 账号已激活 Amazon Inspector
-        body: '', // 漏洞扫描类卡片（svc-vuln-scan）会以“只读接入”方式运行。
+        ok: 'Inspector isn’t activated', // Inspector 未激活
+        title: 'Amazon Inspector is already activated in the account', // 账号已激活 Amazon Inspector
+        body: 'The vulnerability scanning card (svc-vuln-scan) runs in “read-only attach” mode.', // 漏洞扫描类卡片（svc-vuln-scan）会以“只读接入”方式运行。
       },
       'access-analyzer': {
-        ok: '', // 外部访问分析器
-        title: '', // 账号已有外部访问分析器
-        body: '', // 建议在下次更新平台栈时把 ExternalAccessAnalyzer 设为 existing。
+        ok: 'External access analyzer', // 外部访问分析器
+        title: 'The account already has an external access analyzer', // 账号已有外部访问分析器
+        body: 'Set ExternalAccessAnalyzer to existing the next time you update the platform stack.', // 建议在下次更新平台栈时把 ExternalAccessAnalyzer 设为 existing。
       },
       'ses-sandbox': {
-        ok: '', // SES 已移出沙箱
-        title: '', // SES 处于沙箱
-        body: '', // 邮件类卡片（svc-email、sc-event-fanout）的收件人也要先验证。
+        ok: 'SES is out of the sandbox', // SES 已移出沙箱
+        title: 'SES is in the sandbox', // SES 处于沙箱
+        body: 'Email cards (svc-email, sc-event-fanout) also need their recipients verified first.', // 邮件类卡片（svc-email、sc-event-fanout）的收件人也要先验证。
       },
       organizations: {
-        ok: '', // 未检测到组织 SCP 限制（无法完全检测）
-        title: '', // 账号属于 AWS Organizations，可能受 SCP 限制
-        body: '', // 部分实验操作可能被组织的服务控制策略拒绝（无法完全检测）。
+        ok: 'No organization SCP restrictions detected (can’t be fully detected)', // 未检测到组织 SCP 限制（无法完全检测）
+        title: 'The account belongs to AWS Organizations and may be restricted by SCPs', // 账号属于 AWS Organizations，可能受 SCP 限制
+        body: 'Some lab operations may be denied by the organization’s service control policies (can’t be fully detected).', // 部分实验操作可能被组织的服务控制策略拒绝（无法完全检测）。
       },
       'codebuild-concurrency': {
-        ok: '', // CodeBuild 并发配额
-        title: '', // CodeBuild 并发配额较低
-        body: '', // 开始实验时可能出现排队。
+        ok: 'CodeBuild concurrency quota', // CodeBuild 并发配额
+        title: 'The CodeBuild concurrency quota is low', // CodeBuild 并发配额较低
+        body: 'Starting a lab may have to wait in a queue.', // 开始实验时可能出现排队。
       },
       'lambda-concurrency': {
-        ok: '', // Lambda 并发配额
-        title: '', // Lambda 并发配额较低
-        body: '', // 开始实验时可能出现排队。
+        ok: 'Lambda concurrency quota', // Lambda 并发配额
+        title: 'The Lambda concurrency quota is low', // Lambda 并发配额较低
+        body: 'Starting a lab may have to wait in a queue.', // 开始实验时可能出现排队。
       },
       'residual-stacks': {
-        ok: '', // 没有同名资源冲突、没有残留的 cloudalbum-* 栈
-        title: '', // 账号中有残留的 cloudalbum-* 栈
-        body: '', // 请先列出它们，确认是自用模式留下的再删除（删除不可撤销）。
+        ok: 'No name conflicts and no leftover cloudalbum-* stacks', // 没有同名资源冲突、没有残留的 cloudalbum-* 栈
+        title: 'The account has leftover cloudalbum-* stacks', // 账号中有残留的 cloudalbum-* 栈
+        body: 'List them first, make sure they were left by self-use mode, then delete them (deletion can’t be undone).', // 请先列出它们，确认是自用模式留下的再删除（删除不可撤销）。
       },
       'borrowable-compute': {
-        ok: '', // 没有挂着高权限角色的计算资源
-        title: '', // 账号中有挂着高权限角色的计算资源
-        body: '', // 权限边界拦不住“借用已有资源”。强烈建议使用专门的练习账号。
+        ok: 'No compute resources with highly privileged roles', // 没有挂着高权限角色的计算资源
+        title: 'The account has compute resources with highly privileged roles', // 账号中有挂着高权限角色的计算资源
+        body: 'A permissions boundary can’t stop “borrowing existing resources”. We strongly recommend a dedicated practice account.', // 权限边界拦不住“借用已有资源”。强烈建议使用专门的练习账号。
       },
     },
   },

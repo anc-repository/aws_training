@@ -67,6 +67,8 @@ export interface CatalogCard {
   provisionClass: ProvisionClass;
   variants?: { id: string; title?: string; select: 'default' | 'learner' | 'preflight'; provisionClass?: ProvisionClass; costTier?: CostTier }[];
   targets?: { module: string; from?: string; to: string; optional?: boolean }[];
+  /** 起始变体的模块（labs:build 的 catalog.cards[].startProfiles；目录卡片的迷你架构图用，I6 c）。 */
+  startProfiles?: { variant?: string; select?: string; modules?: string[] }[];
   learnerInputs?: { id: string; required: boolean }[];
   accountImpact?: { id: string; resource: string; revert: string }[];
   platformOps?: { id: string; title: string; optional: boolean }[];

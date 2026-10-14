@@ -13,13 +13,26 @@ import type { CatalogCard, Taxonomy, TrackDef } from '../types';
 
 const PL = msg.pages.labs;
 
+/** 维度名（getter：切换语言后取到新语言的文案，词典叶子是原地改写的）。 */
 const FACET_LABEL: Readonly<Record<FacetKey, string>> = {
-  kind: S.catalog.facetKind,
-  dom: S.catalog.facetDomain,
-  d: S.catalog.facetDifficulty,
-  dur: S.catalog.facetDuration,
-  cost: S.catalog.facetCost,
-  st: S.catalog.facetStatus,
+  get kind() {
+    return S.catalog.facetKind;
+  },
+  get dom() {
+    return S.catalog.facetDomain;
+  },
+  get d() {
+    return S.catalog.facetDifficulty;
+  },
+  get dur() {
+    return S.catalog.facetDuration;
+  },
+  get cost() {
+    return S.catalog.facetCost;
+  },
+  get st() {
+    return S.catalog.facetStatus;
+  },
 };
 
 export function facetValueText(k: FacetKey, v: string): string {
@@ -128,7 +141,7 @@ export function FacetBar({ id, query: q, counts, tax, shown, total, statusDisabl
               <optgroup key={g.cat.id} label={categoryLabel(tax, g.cat.id)}>
                 {g.services.map((s) => (
                   <option key={s.id} value={s.id}>
-                    {s.name}（{s.abbr}）
+                    {t(PL.serviceOption, { name: s.name, abbr: s.abbr })}
                   </option>
                 ))}
               </optgroup>

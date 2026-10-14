@@ -13,6 +13,8 @@ import { cardStateOf, isDoneStatus, pct, reuseHintsOf, type Holder, type Progres
 import { ROLE_IN_TRACK, S } from '../strings';
 import type { CatalogCard, LabItem, TrackDef, TrackItem } from '../types';
 import { SegmentedProgress, StateText } from './Marks';
+import { CardGlyph } from './Visuals';
+import { ProgressRing } from '../../../ui/charts';
 
 const PL = msg.pages.labs;
 
@@ -50,6 +52,7 @@ export interface TrackHeadProps {
 export function TrackHead({ track, summary: p, cert, canSetCurrent, isCurrent, onSetCurrent, busy }: TrackHeadProps) {
   return (
     <div className="track-head" data-track-head={track.id}>
+      <ProgressRing value={p.counted} max={Math.max(1, p.min)} size={44} label={S.visual.ringCounted} />
       <span>
         {t(S.track.head, { done: p.requiredDone, total: p.requiredTotal })}
         {p.groups ? t(S.track.groups, { done: p.groupsDone, total: p.groups }) : ''}
@@ -69,6 +72,11 @@ export function TrackHead({ track, summary: p, cert, canSetCurrent, isCurrent, o
       ) : null}
     </div>
   );
+}
+
+/** 原 Lab 编号：一个“0”，多个“0～3”（首尾）。 */
+function legacyRange(ns: readonly number[]): string {
+  return ns.length > 1 ? t(PL.numRange, { a: ns[0]!, b: ns[ns.length - 1]! }) : String(ns[0] ?? '');
 }
 
 function useNarrow(): boolean {
@@ -112,7 +120,7 @@ export function TrackStageList({ track, cards, items, progress, holder, recommen
             <button type="button" className="sh" aria-expanded={isOpen} aria-controls={panelId} onClick={() => setOpen((o) => ({ ...o, [st.id]: !isOpen }))}>
               <Icon name={isOpen ? 'chev' : 'right'} />
               <b>{st.title ?? st.id}</b>
-              {st.legacyLabs?.length ? <span className="small faint">{t(S.track.stageLegacy, { n: st.legacyLabs.join('～').replace(/～.*～/, '～') })}</span> : null}
+              {st.legacyLabs?.length ? <span className="small faint">{t(S.track.stageLegacy, { n: legacyRange(st.legacyLabs) })}</span> : null}
               <span className={n === total && total ? 'small st pass' : 'small muted'}>
                 {t(S.track.stageCount, { done: n, total })}
                 {n === total && total ? ' ✓' : ''}
@@ -199,6 +207,7 @@ export function TrackNode({
           {r.symbol}
         </span>
         <StateText meta={state} hideText />
+        {c ? <CardGlyph card={c} size={20} max={2} /> : null}
         <Link className="mono" to={`/labs/${id}`}>
           {id}
         </Link>

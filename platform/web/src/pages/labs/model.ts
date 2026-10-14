@@ -24,7 +24,7 @@ import type {
   TaxonomyService,
   TrackDef,
 } from './types';
-import { msg, t } from '../../i18n';
+import { fmtPercent, msg, t } from '../../i18n';
 
 const PL = msg.pages.labs;
 
@@ -574,7 +574,7 @@ export function remainingRequiredMinutes(track: TrackDef, progress: ReadonlyMap<
 }
 
 export function pct(r: number | null | undefined): string {
-  return r === null || r === undefined ? '—' : `${Math.round(r * 100)}%`;
+  return r === null || r === undefined ? '—' : fmtPercent(r);
 }
 
 // ---------------------------------------------------------------------------------------------------------------

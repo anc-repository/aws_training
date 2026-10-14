@@ -175,7 +175,18 @@ interface Member {
   createdAt?: string | null;
 }
 
-const ROLE_NAME: Readonly<Record<string, string>> = { learner: msg.roles.L, assistant: msg.roles.A, observer: msg.roles.O };
+/** 角色名（getter：切换语言后取到新语言的文案）。 */
+const ROLE_NAME: Readonly<Record<string, string>> = {
+  get learner() {
+    return msg.roles.L;
+  },
+  get assistant() {
+    return msg.roles.A;
+  },
+  get observer() {
+    return msg.roles.O;
+  },
+};
 
 export function MembersTab({ readOnly }: { readOnly: boolean }) {
   const { api, clock } = useServices();
@@ -319,7 +330,7 @@ export function AuditTab() {
   const resultText = (r?: string) => (r === 'ok' ? ST.audit.resultOk : r === 'denied' ? ST.audit.resultDenied : r === 'error' ? ST.audit.resultError : (r ?? '—'));
   const cols: Column<AuditEvent>[] = [
     { key: 'at', header: ST.audit.time, render: (e) => <span className="tnum nowrap" title={e.at}>{formatDate(e.at, clock.now())}</span> },
-    { key: 'actor', header: ST.audit.actor, render: (e) => `${e.actor?.sub ?? '—'}（${ROLE_NAME[e.actor?.role ?? ''] ?? e.actor?.role ?? '—'}）` },
+    { key: 'actor', header: ST.audit.actor, render: (e) => t(msg.pages.labs.paren, { text: e.actor?.sub ?? '—', note: ROLE_NAME[e.actor?.role ?? ''] ?? e.actor?.role ?? '—' }) },
     { key: 'action', header: ST.audit.action, render: (e) => <span className="mono small">{e.action}</span> },
     { key: 'target', header: ST.audit.target, render: (e) => <span className="mono small wrap-any">{e.target ?? e.sessionId ?? '—'}</span> },
     { key: 'result', header: ST.audit.result, render: (e) => resultText(e.result) },

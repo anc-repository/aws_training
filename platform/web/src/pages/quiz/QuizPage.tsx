@@ -3,7 +3,8 @@
  * - 进入时 POST /labs/{labId}/quiz-attempts（服务端抽题，不下发答案）；本次作答存在 sessionStorage，刷新页面后从 `attempt=` 继续，
  *   不重复消耗当日次数；
  * - 每次选择后自动保存 PUT /quiz-attempts/{attemptId}/answers（“作答未保存 · 重试”不阻止继续作答）；
- * - 交卷 POST /quiz-attempts/{attemptId}/submit → 结果页：只显示正确率与按领域正确率，不显示及格与否；焦点移到结果标题；
+ * - 交卷 POST /quiz-attempts/{attemptId}/submit → 结果页：只显示正确率（进度环）与按领域正确率（条形图，本身是数据表，I6 f），
+ *   不显示及格与否；焦点移到结果标题；
  * - 选项：单选是 role="radiogroup" 的原生单选按钮（方向键选择），多选是复选框；
  * - 当日次数用完（429）显示“今天的作答次数已用完”；卡片没有题库（404）显示“这张卡片暂时没有小测”。
  */
@@ -11,8 +12,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router-dom';
 import { isApiError, type ApiError } from '../../api/errors';
 import { useServices, useSessionSync } from '../../app/context';
-import { msg, t } from '../../i18n';
+import { fmtPercent, msg, t } from '../../i18n';
 import { UntranslatedIf } from '../../i18n/Untranslated';
+import { BarChart, ProgressRing } from '../../ui/charts';
 import { formatClock } from '../../lib/format';
 import { ssGet, ssSet } from '../../lib/storage';
 import { Button, EmptyState, ErrorPanel, Shape, Skeleton } from '../../ui';
@@ -210,7 +212,7 @@ export default function QuizPage() {
     const done = isDoneStatus(labs.data?.items.find((i) => i.labId === labId)?.status);
     const letters = (qid: string, ids: string[]) => {
       const q = a.questions.find((x) => x.id === qid);
-      return ids.map((id) => LETTERS[q?.options.findIndex((o) => o.id === id) ?? -1] ?? id).join('、') || '—';
+      return ids.map((id) => LETTERS[q?.options.findIndex((o) => o.id === id) ?? -1] ?? id).join(msg.pages.labs.listSep) || '—';
     };
     const live = current && current.labId === labId && ['READY', 'RUNNING', 'EXPIRING'].includes(current.state);
     return (
@@ -218,34 +220,25 @@ export default function QuizPage() {
         {crumbs}
         <div className="ph">
           <h1 tabIndex={-1} ref={resultRef}>
-            {t(SS.quiz.resultTitle, { pct: `${r.score}%`, c: r.correct, n: r.total })}
+            {t(SS.quiz.resultTitle, { pct: fmtPercent(r.score / 100), c: r.correct, n: r.total })}
           </h1>
         </div>
         <p className="small muted">
           {done ? SS.quiz.recorded : SS.quiz.notYet}
           {SS.quiz.onlyRecord}
         </p>
-        <div className="tbl-wrap">
-          <table className="tbl">
-            <thead>
-              <tr>
-                <th scope="col">{SS.quiz.domain}</th>
-                <th scope="col" className="num">
-                  {SS.quiz.rate}
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {Object.entries(r.byDomain).map(([d, v]) => (
-                <tr key={d}>
-                  <td>{domainText(d)}</td>
-                  <td className="num">
-                    {v.correct} / {v.total}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+        <div className="qz-chart" data-quiz-chart="">
+          <ProgressRing value={r.correct} max={Math.max(1, r.total)} size={72} label={SS.quiz.rate} />
+          <div className="grow">
+            <BarChart
+              caption={SS.quiz.rate}
+              captionHidden
+              max={1}
+              itemHeader={SS.quiz.domain}
+              valueHeader={SS.quiz.rate}
+              data={Object.entries(r.byDomain).map(([d, v]) => ({ key: d, label: domainText(d), value: v.total ? v.correct / v.total : 0, display: `${v.correct} / ${v.total}` }))}
+            />
+          </div>
         </div>
         {r.results.map((x, i) => {
           const q = a.questions.find((y) => y.id === x.id);
